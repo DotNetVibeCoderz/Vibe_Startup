@@ -1,0 +1,54 @@
+@page "/my-trips"
+@using FastRide.RiderApp.Services
+@inject ApiClient Api
+
+<div class="p-3">
+    @if (!Api.IsLoggedIn) { <p class="text-center py-5 text-muted">Please login first</p> }
+    else
+    {
+        <h5 class="fw-bold mb-3"><i class="bi bi-clock-history text-warning me-2"></i>My Trips</h5>
+        @if (_loading) { <div class="text-center py-5"><div class="spinner-border text-warning"></div></div> }
+        else if (_trips?.Data.Any() == true)
+        {
+            @foreach (var t in _trips.Data)
+            {
+                <div class="list-group-item mb-2 rounded-3 shadow-sm">
+                    <div class="d-flex justify-content-between">
+                        <strong class="small">@Truncate(t.PickupAddress,16) → @Truncate(t.DropoffAddress,16)</strong>
+                        <span class="badge @StatusBadge(t.Status)">@t.Status</span>
+                    </div>
+                    <small class="text-muted">@t.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm") · @t.DistanceKm.ToString("F1") km · @t.VehicleCategory</small>
+                    @if (t.Status == "Completed") { <p class="mb-0 mt-1"><small>Rp @t.FinalFare.ToString("N0") · Driver: @(t.DriverName ?? "N/A") @(t.DriverRating != null ? $"⭐ {t.DriverRating}" : "")</small></p> }
+                    else { <p class="mb-0 mt-1"><small class="text-muted">Rp @t.FinalFare.ToString("N0")</small></p> }
+                    @if (t.Status == "Completed" && t.DriverRating == null)
+                    {
+                        <button class="btn btn-outline-warning btn-sm py-0 mt-1" @onclick="() => RateOrder = t">⭐ Rate</button>
+                    }
+                </div>
+            }
+            @if (_trips.Total > _trips.Data.Count) { <button class="btn btn-outline-warning btn-sm w-100 mt-2" @onclick="LoadMore">Load More</button> }
+        }
+        else { <p class="text-muted text-center py-3">No trips yet</p> }
+    }
+</div>
+
+@if (RateOrder != null)
+{
+    <div class="position-fixed bottom-0 start-0 w-100 bg-dark p-3 border-top border-warning" style="z-index:1000;">
+        <h6>Rate Trip</h6>
+        <div class="d-flex gap-1 mb-2">@for (int i=1;i<=5;i++){<button class="btn btn-sm @(i<=_rateStars?"btn-warning":"btn-outline-warning")" @onclick="()=>_rateStars=i">⭐</button>}</div>
+        <textarea class="form-control form-control-sm mb-2" placeholder="Comment..." @bind="_rateComment"></textarea>
+        <div class="d-flex gap-2"><button class="btn btn-warning btn-sm" @onclick="SubmitRate">Submit</button><button class="btn btn-outline-secondary btn-sm" @onclick="()=>RateOrder=null">Cancel</button></div>
+    </div>
+}
+
+@code {
+    private TripListResult? _trips; private bool _loading = true; private int _page = 1;
+    private TripItem? RateOrder; private int _rateStars = 5; private string _rateComment = "";
+
+    protected override async Task OnInitializedAsync() { if (Api.IsLoggedIn) _trips = await Api.GetTrips(); _loading = false; }
+    private async Task LoadMore() { _page++; var more = await Api.GetTrips(_page); if (more?.Data != null) _trips!.Data.AddRange(more.Data); }
+    private async Task SubmitRate() { if (RateOrder != null) { await Api.SubmitReview(RateOrder.Id, new Guid("00000000-0000-0000-0000-000000000001"), _rateStars, _rateComment); RateOrder = null; _trips = await Api.GetTrips(); } }
+    private static string Truncate(string t, int l) => t.Length <= l ? t : t[..l] + "...";
+    private static string StatusBadge(string s) => s switch { "Completed" => "bg-success", "Started" => "bg-warning text-dark", "Cancelled" => "bg-danger", _ => "bg-secondary" };
+}

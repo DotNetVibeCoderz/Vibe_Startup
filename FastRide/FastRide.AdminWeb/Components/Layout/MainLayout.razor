@@ -1,0 +1,55 @@
+@inherits LayoutComponentBase
+@inject IJSRuntime JS
+
+<div class="d-flex" style="min-height: 100vh;">
+    <aside class="sidebar bg-dark text-white d-flex flex-column p-3" style="width: 260px; min-height: 100vh;">
+        <div class="sidebar-brand mb-4 text-center">
+            <i class="bi bi-lightning-charge-fill text-warning fs-3"></i>
+            <h4 class="fw-bold mt-2">🚖 FastRide</h4>
+            <small class="text-muted">Admin Dashboard</small>
+        </div>
+        <hr class="border-secondary">
+        <nav class="flex-grow-1">
+            <ul class="nav flex-column gap-1">
+                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/" Match="NavLinkMatch.All"><i class="bi bi-speedometer2 me-2"></i> Dashboard</NavLink></li>
+                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/orders"><i class="bi bi-car-front-fill me-2"></i> Orders</NavLink></li>
+                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/drivers"><i class="bi bi-people-fill me-2"></i> Drivers</NavLink></li>
+                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/riders"><i class="bi bi-person-badge me-2"></i> Riders</NavLink></li>
+                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/payments"><i class="bi bi-credit-card me-2"></i> Payments</NavLink></li>
+                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/promos"><i class="bi bi-tags-fill me-2"></i> Promos</NavLink></li>
+                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/analytics"><i class="bi bi-graph-up me-2"></i> Analytics</NavLink></li>
+            </ul>
+        </nav>
+        <hr class="border-secondary">
+        <div class="sidebar-footer">
+            <button class="btn btn-outline-light btn-sm w-100" @onclick="ToggleTheme">
+                <i class="bi @(_isDark ? "bi-sun-fill" : "bi-moon-fill") me-1"></i> 
+                @(_isDark ? "Light Mode" : "Dark Mode")
+            </button>
+            <div class="text-muted small mt-2 text-center">v1.0.0 | Gravicode Studios</div>
+        </div>
+    </aside>
+    <main class="flex-grow-1 bg-body p-4 overflow-auto">
+        @Body
+    </main>
+</div>
+
+@code {
+    private bool _isDark = true;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Apply saved theme on first load
+            await JS.InvokeVoidAsync("eval", "document.documentElement.setAttribute('data-bs-theme','dark')");
+        }
+    }
+
+    private async Task ToggleTheme()
+    {
+        _isDark = !_isDark;
+        var theme = _isDark ? "dark" : "light";
+        await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-bs-theme','{theme}')");
+    }
+}

@@ -1,0 +1,81 @@
+@page "/"
+@using FastRide.DriverApp.Services
+@inject ApiClient Api
+
+<div class="driver-app">
+    @if (!Api.IsLoggedIn)
+    {
+        <div class="p-4 text-center">
+            <i class="bi bi-lightning-charge-fill display-1 text-success"></i>
+            <h3 class="fw-bold">FastRide Driver</h3>
+            <div class="mb-2 mt-3"><input class="form-control form-control-sm" type="email" placeholder="Email" @bind="_emailInp" /></div>
+            <div class="mb-3"><input class="form-control form-control-sm" type="password" placeholder="Password" @bind="_passInp" /></div>
+            @if (_loginErr is not null) { <div class="alert alert-danger py-1 small">@_loginErr</div> }
+            <button class="btn btn-success w-100 fw-bold" @onclick="HandleLogin" disabled="@_loginBusy">
+                @if (_loginBusy) { <span class="spinner-border spinner-border-sm me-2"></span> } Login
+            </button>
+            <small class="text-muted mt-2 d-block">Demo: andi.santoso@drive.com / Password123</small>
+        </div>
+    }
+    else if (_loading) { <div class="text-center py-5"><div class="spinner-border text-success"></div></div> }
+    else
+    {
+        <div class="bg-success text-white p-3 text-center">
+            <h5 class="fw-bold mb-0"><i class="bi bi-lightning-charge-fill"></i> Driver</h5>
+            <small>@(_isOnline ? "🟢 Online" : "🔴 Offline")</small>
+            <div class="mt-2"><button class="btn @(_isOnline ? "btn-danger" : "btn-light") btn-sm" @onclick="ToggleOnline">@(_isOnline ? "Go Offline" : "Go Online")</button></div>
+        </div>
+        <div class="row g-0 text-center bg-dark text-white">
+            <div class="col-4 p-2 border-end"><small class="text-muted">Today</small><h6 class="mb-0 text-success">Rp @((_home?.TodayEarnings ?? 0).ToString("N0"))</h6></div>
+            <div class="col-4 p-2 border-end"><small class="text-muted">Trips</small><h6 class="mb-0">@(_home?.TodayTrips ?? 0)</h6></div>
+            <div class="col-4 p-2"><small class="text-muted">Rating</small><h6 class="mb-0 text-warning">⭐ @((_home?.Rating ?? 0).ToString("F1"))</h6></div>
+        </div>
+        <div class="p-3">
+            @if (_home?.IncomingOrders.Any() == true && _isOnline)
+            {
+                <h6 class="fw-bold text-success">🔔 Incoming Orders</h6>
+                @foreach (var o in _home.IncomingOrders)
+                {
+                    <div class="card border-success border-2 rounded-3 shadow mb-2"><div class="card-body p-2">
+                        <div class="d-flex justify-content-between"><h6 class="fw-bold">@o.RiderName</h6><small class="text-muted">@o.WaitSeconds s ago</small></div>
+                        <p class="mb-1 small"><strong>Pickup:</strong> @Trunc(o.PickupAddress,20)</p>
+                        <p class="mb-1 small"><strong>Dropoff:</strong> @Trunc(o.DropoffAddress,20)</p>
+                        <p class="mb-2 small"><strong>Rp @o.EstimatedFare.ToString("N0")</strong> · @o.DistanceKm.ToString("F1") km</p>
+                        <button class="btn btn-success btn-sm" @onclick="() => AcceptOrder(o.OrderId)">Accept</button>
+                    </div></div>
+                }
+            }
+            <h6 class="fw-bold mt-3 mb-2">Recent Trips</h6>
+            @if (_home?.RecentTrips.Any() == true)
+            {
+                @foreach (var t in _home.RecentTrips)
+                {
+                    <div class="list-group-item d-flex justify-content-between mb-1 rounded-2 shadow-sm">
+                        <div><strong class="small">@t.RiderName</strong> → <small>@Trunc(t.DropoffAddress,14)</small><br/><small class="text-muted">@t.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</small></div>
+                        <span class="text-success fw-bold small">Rp @t.Fare.ToString("N0")</span>
+                    </div>
+                }
+            }
+            <div class="d-flex gap-2 mt-3">
+                <a href="/earnings" class="btn btn-outline-success btn-sm flex-grow-1"><i class="bi bi-cash-stack"></i> Earnings</a>
+                <a href="/driver-profile" class="btn btn-outline-success btn-sm flex-grow-1"><i class="bi bi-person-badge"></i> Profile</a>
+            </div>
+            <button class="btn btn-outline-danger btn-sm w-100 mt-2" @onclick="HandleLogout"><i class="bi bi-box-arrow-right"></i> Logout</button>
+        </div>
+    }
+</div>
+
+@code {
+    private string _emailInp = "", _passInp = "";
+    private string? _loginErr;
+    private bool _loginBusy, _loading = true, _isOnline;
+    private DriverHomeResult? _home;
+
+    protected override async Task OnInitializedAsync() { if (Api.IsLoggedIn) { await Refresh(); } _loading = false; }
+    private async Task HandleLogin() { _loginErr = null; _loginBusy = true; var r = await Api.Login(_emailInp, _passInp); _loginBusy = false; if (r is null) _loginErr = "Login failed"; else { _loading = true; await Refresh(); _loading = false; } }
+    private async Task Refresh() { _home = await Api.GetHome(); _isOnline = _home?.IsOnline ?? false; }
+    private async Task ToggleOnline() { var ok = await Api.ToggleOnline(); if (ok.HasValue) _isOnline = ok.Value; }
+    private async Task AcceptOrder(Guid oid) { await Api.AcceptOrder(oid); await Refresh(); }
+    private void HandleLogout() { Api.Logout(); _home = null; }
+    private static string Trunc(string t, int l) => t.Length <= l ? t : t[..l] + "...";
+}

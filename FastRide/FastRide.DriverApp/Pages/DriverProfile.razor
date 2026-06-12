@@ -1,0 +1,73 @@
+@page "/driver-profile"
+@using FastRide.DriverApp.Services
+@inject ApiClient Api
+
+<div class="p-3">
+    @if (!Api.IsLoggedIn) { <p class="text-center text-muted py-5">Please login first</p> }
+    else if (_loading) { <div class="text-center py-5"><div class="spinner-border text-success"></div></div> }
+    else
+    {
+        <h5 class="fw-bold mb-3"><i class="bi bi-person-badge text-success me-2"></i>Driver Profile</h5>
+        <div class="text-center mb-4">
+            <div class="position-relative d-inline-block">
+                @if (!string.IsNullOrWhiteSpace(_photoUrl))
+                {
+                    <img src="@_photoUrl" class="rounded-circle border border-success border-3" style="width:80px;height:80px;object-fit:cover;" />
+                }
+                else
+                {
+                    <div class="bg-success rounded-circle d-inline-flex align-items-center justify-content-center" style="width:80px;height:80px;"><i class="bi bi-person-fill text-white fs-1"></i></div>
+                }
+            </div>
+            <h5 class="mt-2 mb-0">@_profile?.FullName</h5>
+            <small class="text-muted">@_profile?.Email</small>
+            @if (_editingName)
+            {
+                <div class="mt-2 d-flex gap-2 justify-content-center">
+                    <input class="form-control form-control-sm w-50" @bind="_editNameVal" placeholder="New name" />
+                    <button class="btn btn-success btn-sm" @onclick="SaveName">Save</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="CancelEdit">Cancel</button>
+                </div>
+            }
+            else
+            {
+                <button class="btn btn-outline-secondary btn-sm mt-1" @onclick="StartEdit"><i class="bi bi-pencil"></i> Edit Name</button>
+            }
+            <div class="mt-1">⭐ @RatingStr · @TripsStr trips · @VehicleStr</div>
+        </div>
+
+        <div class="list-group">
+            <div class="list-group-item d-flex justify-content-between"><i class="bi bi-car-front me-2"></i> @VehicleStr<small>@PlateStr</small></div>
+            <div class="list-group-item d-flex justify-content-between"><i class="bi bi-file-earmark-text me-2"></i> License<small>@LicenseStr</small></div>
+            <div class="list-group-item d-flex justify-content-between"><i class="bi bi-cash me-2"></i> Total Earnings<strong class="text-success">Rp @EarningsStr</strong></div>
+            <div class="list-group-item text-danger" @onclick="DoLogout"><i class="bi bi-box-arrow-right me-2"></i> Logout</div>
+        </div>
+    }
+</div>
+
+@code {
+    private ProfileResult? _profile; private bool _loading = true;
+    private bool _editingName; private string _editNameVal = "";
+    private string? _photoUrl;
+
+    // Computed strings (no complex expressions in markup)
+    private string RatingStr => _profile?.Driver?.Rating.ToString("F1") ?? "0";
+    private string TripsStr => (_profile?.Driver?.TotalTrips ?? 0).ToString("N0");
+    private string VehicleStr => _profile?.Driver?.VehicleType ?? "-";
+    private string PlateStr => _profile?.Driver?.VehiclePlate ?? "-";
+    private string LicenseStr => _profile?.Driver?.LicenseNumber ?? "-";
+    private string EarningsStr => (_profile?.Driver?.TotalEarnings ?? 0).ToString("N0");
+
+    protected override async Task OnInitializedAsync()
+    {
+        _profile = await Api.GetProfile();
+        _photoUrl = _profile?.ProfilePhotoBase64 != null
+            ? $"data:{_profile.ProfilePhotoMimeType ?? "image/jpeg"};base64,{_profile.ProfilePhotoBase64}"
+            : null;
+        _loading = false;
+    }
+    private void StartEdit() { _editingName = true; _editNameVal = _profile?.FullName ?? ""; }
+    private void CancelEdit() { _editingName = false; }
+    private async Task SaveName() { if (!string.IsNullOrWhiteSpace(_editNameVal)) { await Api.UpdateProfile(_editNameVal, null); _profile = await Api.GetProfile(); } _editingName = false; }
+    private void DoLogout() { Api.Logout(); _profile = null; }
+}

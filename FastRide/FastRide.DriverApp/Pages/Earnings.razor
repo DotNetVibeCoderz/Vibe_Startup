@@ -1,0 +1,50 @@
+@page "/earnings"
+@using FastRide.DriverApp.Services
+@inject ApiClient Api
+
+<div class="p-3">
+    @if (!Api.IsLoggedIn) { <p class="text-center text-muted py-5">Please login first</p> }
+    else
+    {
+        <h5 class="fw-bold mb-3"><i class="bi bi-cash-stack text-success me-2"></i>Earnings</h5>
+        <div class="btn-group w-100 mb-3" role="group">
+            <button class="btn btn-sm @IsTodayClass" @onclick="LoadToday">Today</button>
+            <button class="btn btn-sm @IsWeekClass" @onclick="LoadWeek">Week</button>
+            <button class="btn btn-sm @IsMonthClass" @onclick="LoadMonth">Month</button>
+        </div>
+        @if (_loading) { <div class="text-center py-5"><div class="spinner-border text-success"></div></div> }
+        else if (_earnings != null)
+        {
+            <div class="card bg-success text-white mb-4"><div class="card-body text-center">
+                <small>@PeriodLabel</small><h2 class="fw-bold mb-0">Rp @CurEarnings.ToString("N0")</h2><small>@CurTrips trips</small>
+            </div></div>
+            @if (_earnings.DailyBreakdown.Any())
+            {
+                <h6>Daily Breakdown</h6>
+                @foreach (var d in _earnings.DailyBreakdown.Take(14))
+                {
+                    <div class="d-flex justify-content-between py-1 border-bottom border-secondary small">
+                        <span>@d.Date.ToLocalTime().ToString("ddd dd MMM")</span><span>@d.Trips trips</span><strong>Rp @d.Earnings.ToString("N0")</strong>
+                    </div>
+                }
+            }
+        }
+    }
+</div>
+
+@code {
+    private DriverEarningsResult? _earnings; private string _period = "today"; private bool _loading = true;
+
+    private string PeriodLabel => _period switch { "today" => "Today", "week" => "This Week", _ => "This Month" };
+    private decimal CurEarnings => _period switch { "today" => _earnings?.TodayEarnings ?? 0, "week" => _earnings?.WeekEarnings ?? 0, _ => _earnings?.MonthEarnings ?? 0 };
+    private int CurTrips => _period switch { "today" => _earnings?.TodayTrips ?? 0, "week" => _earnings?.WeekTrips ?? 0, _ => _earnings?.MonthTrips ?? 0 };
+    private string IsTodayClass => _period == "today" ? "btn-success" : "btn-outline-success";
+    private string IsWeekClass => _period == "week" ? "btn-success" : "btn-outline-success";
+    private string IsMonthClass => _period == "month" ? "btn-success" : "btn-outline-success";
+
+    protected override async Task OnInitializedAsync() { _earnings = await Api.GetEarnings("today"); _loading = false; }
+    private async Task LoadToday() => await LoadPeriod("today");
+    private async Task LoadWeek() => await LoadPeriod("week");
+    private async Task LoadMonth() => await LoadPeriod("month");
+    private async Task LoadPeriod(string p) { _period = p; _loading = true; _earnings = await Api.GetEarnings(p); _loading = false; }
+}

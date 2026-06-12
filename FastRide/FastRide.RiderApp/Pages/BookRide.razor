@@ -1,0 +1,131 @@
+@page "/book-ride"
+@using FastRide.RiderApp.Services
+@inject ApiClient Api
+
+<div class="p-3">
+    @if (!Api.IsLoggedIn)
+    {
+        <p class="text-center py-5 text-muted">Please login first</p>
+    }
+    else if (_bookedOrderId != null)
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-check-circle-fill display-1 text-success"></i>
+            <h4 class="mt-3">Order Created! 🎉</h4>
+            <div class="card bg-light"><div class="card-body">
+                <h5>Rp @_bookedFinalFare.ToString("N0")</h5>
+                <small class="text-muted">@_bookedDistanceKm.ToString("F1") km · ~@_bookedDurationMin min</small>
+                @if (!string.IsNullOrWhiteSpace(_bookedPromo)) { <br/><span class="badge bg-success">Promo: @_bookedPromo</span> }
+            </div></div>
+            <a href="/" class="btn btn-warning mt-3">Back to Home</a>
+            <button class="btn btn-outline-warning mt-3 ms-2" @onclick="() => _bookedOrderId = null">Book Again</button>
+        </div>
+    }
+    else
+    {
+        <h5 class="fw-bold mb-3"><i class="bi bi-car-front-fill text-warning me-2"></i>Book a Ride</h5>
+
+        <div class="mb-2"><label class="form-label fw-semibold small"><i class="bi bi-geo-alt-fill text-success"></i> Pickup</label><input type="text" class="form-control form-control-sm" placeholder="Pickup address" @bind="_pickup" /></div>
+        <div class="mb-3"><label class="form-label fw-semibold small"><i class="bi bi-geo-fill text-danger"></i> Drop-off</label><input type="text" class="form-control form-control-sm" placeholder="Where to?" @bind="_dropoff" /></div>
+
+        <h6 class="fw-bold mb-2">Vehicle</h6>
+        <div class="row g-2 mb-3">
+            @foreach (var v in _vehicles)
+            {
+                <div class="col-4">
+                    <button class="btn @(_selectedIdx == v.idx ? "btn-warning" : "btn-outline-secondary") btn-sm w-100 p-2" @onclick="() => SelectVehicle(v.idx)">
+                        <i class="@v.icon fs-5 d-block"></i><small>@v.name</small><br/><small class="fw-bold">Rp @v.fare.ToString("N0")</small>
+                    </button>
+                </div>
+            }
+        </div>
+
+        <h6 class="fw-bold mb-2">Payment</h6>
+        <select class="form-select form-select-sm mb-2" @bind="_paymentMethod">
+            <option value="Cash">💵 Cash</option><option value="EWallet">📱 E-Wallet</option><option value="CreditCard">💳 Credit Card</option>
+        </select>
+
+        <div class="input-group input-group-sm mb-3">
+            <input type="text" class="form-control" placeholder="Promo code" @bind="_promoInput" />
+            <button class="btn btn-outline-warning" @onclick="ValidatePromo">Apply</button>
+        </div>
+        @if (_promoValid) { <div class="alert alert-success py-1 small">✅ @_promoMessage</div> }
+        @if (_promoErr != null) { <div class="alert alert-danger py-1 small">❌ @_promoErr</div> }
+
+        <div class="card bg-light mb-3"><div class="card-body text-center"><small class="text-muted">Estimated</small><h3 class="fw-bold text-warning mb-0">Rp @_estFare.ToString("N0")</h3></div></div>
+
+        <button class="btn btn-warning btn-lg w-100 fw-bold" @onclick="BookNow" disabled="@_booking">
+            @if (_booking) { <span class="spinner-border spinner-border-sm me-2"></span> } <i class="bi bi-car-front-fill me-2"></i> Book Now
+        </button>
+    }
+</div>
+
+@code {
+    private string _pickup = "", _dropoff = "", _promoInput = "";
+    private string _paymentMethod = "Cash";
+    private decimal _estFare = 25000;
+    private int _selectedIdx;
+    private bool _booking, _promoValid;
+    private string? _promoErr, _promoMessage;
+    private Guid? _bookedOrderId;
+    private decimal _bookedFinalFare;
+    private double _bookedDistanceKm;
+    private int _bookedDurationMin;
+    private string? _bookedPromo;
+
+    private readonly List<(int idx, string name, string icon, decimal fare, VehicleCategory cat)> _vehicles = new()
+    {
+        (0, "Economy",  "bi bi-car-front",        25000m, VehicleCategory.Economy),
+        (1, "Comfort",  "bi bi-car-front-fill",   40000m, VehicleCategory.Comfort),
+        (2, "Premium",  "bi bi-suv",              60000m, VehicleCategory.Premium),
+        (3, "Bike",     "bi bi-bicycle",          12000m, VehicleCategory.Bike),
+        (4, "Electric", "bi bi-ev-front",         25000m, VehicleCategory.Electric),
+    };
+
+    private void SelectVehicle(int idx) { _selectedIdx = idx; _estFare = _vehicles[idx].fare; }
+
+    private async Task ValidatePromo()
+    {
+        if (string.IsNullOrWhiteSpace(_promoInput)) return;
+        _promoValid = false; _promoErr = null;
+        try
+        {
+            var http = new HttpClient { BaseAddress = new Uri("https://localhost:5001") };
+            var resp = await http.PostAsJsonAsync("/api/promos/validate", new { code = _promoInput, amount = _estFare });
+            if (resp.IsSuccessStatusCode)
+            {
+                var r = await resp.Content.ReadFromJsonAsync<PromoValidateResult>();
+                if (r?.valid == true) { _promoValid = true; _estFare = r.finalAmount; _promoMessage = $"Diskon: Rp {r.discount:N0}"; }
+                else _promoErr = "Invalid or expired";
+            }
+            else _promoErr = "Invalid code";
+        }
+        catch { _promoErr = "Cannot validate"; }
+    }
+
+    private async Task BookNow()
+    {
+        if (string.IsNullOrWhiteSpace(_pickup) || string.IsNullOrWhiteSpace(_dropoff)) return;
+        _booking = true;
+        var v = _vehicles[_selectedIdx];
+        var result = await Api.BookRide(new BookRequest
+        {
+            PickupLatitude = -6.2088, PickupLongitude = 106.8456, PickupAddress = _pickup,
+            DropoffLatitude = -6.1275, DropoffLongitude = 106.6535, DropoffAddress = _dropoff,
+            VehicleCategory = v.cat,
+            PaymentMethod = _paymentMethod switch { "EWallet" => PaymentMethod.EWallet, "CreditCard" => PaymentMethod.CreditCard, _ => PaymentMethod.Cash },
+            PromoCode = _promoValid ? _promoInput : null
+        });
+        _booking = false;
+        if (result != null)
+        {
+            _bookedOrderId = result.Id;
+            _bookedFinalFare = result.FinalFare;
+            _bookedDistanceKm = result.DistanceKm;
+            _bookedDurationMin = result.EstimatedDurationMinutes;
+            _bookedPromo = result.PromoApplied;
+        }
+    }
+
+    public class PromoValidateResult { public bool valid { get; set; } public decimal discount { get; set; } public decimal finalAmount { get; set; } }
+}

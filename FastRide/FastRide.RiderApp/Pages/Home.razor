@@ -1,0 +1,68 @@
+@page "/"
+@using FastRide.RiderApp.Services
+@inject ApiClient Api
+
+<div class="rider-app">
+    @if (!Api.IsLoggedIn)
+    {
+        <div class="p-4 text-center">
+            <i class="bi bi-lightning-charge-fill display-1 text-warning"></i>
+            <h3 class="fw-bold">FastRide</h3>
+            <div class="mb-2 mt-3"><input class="form-control form-control-sm" type="email" placeholder="Email" @bind="_emailInp" /></div>
+            <div class="mb-3"><input class="form-control form-control-sm" type="password" placeholder="Password" @bind="_passInp" /></div>
+            @if (_loginErr is not null) { <div class="alert alert-danger py-1 small">@_loginErr</div> }
+            <button class="btn btn-warning w-100 fw-bold" @onclick="HandleLogin" disabled="@_loginBusy">
+                @if (_loginBusy) { <span class="spinner-border spinner-border-sm me-2"></span> } Login
+            </button>
+            <small class="text-muted mt-2 d-block">Demo: budi.santoso@email.com / Password123</small>
+        </div>
+    }
+    else if (_homeLoading)
+    {
+        <div class="text-center py-5"><div class="spinner-border text-warning"></div></div>
+    }
+    else
+    {
+        <div class="bg-warning text-dark p-3 text-center">
+            <h4 class="fw-bold mb-0"><i class="bi bi-lightning-charge-fill"></i> FastRide</h4>
+            <small>Halo, @_prof?.FullName</small>
+        </div>
+        <div class="p-3">
+            <div class="row g-2 mb-3">
+                <div class="col-6"><div class="card bg-light text-center p-2"><small class="text-muted">Total Trips</small><h5 class="mb-0 text-warning">@_homeData?.TotalTrips</h5></div></div>
+                <div class="col-6"><div class="card bg-light text-center p-2"><small class="text-muted">Total Spent</small><h5 class="mb-0 text-success">Rp @((_homeData?.TotalSpent ?? 0).ToString("N0"))</h5></div></div>
+            </div>
+            <div class="row g-3 mb-3">
+                <div class="col-6"><a href="/book-ride" class="btn btn-warning btn-lg w-100 py-3 rounded-3 shadow"><i class="bi bi-car-front-fill fs-4 d-block"></i><small>Book Ride</small></a></div>
+                <div class="col-6"><a href="/my-trips" class="btn btn-dark btn-lg w-100 py-3 rounded-3 shadow"><i class="bi bi-clock-history fs-4 d-block"></i><small>My Trips</small></a></div>
+            </div>
+            <h6 class="fw-bold mb-2">Recent Trips</h6>
+            @if (_homeData?.RecentTrips.Any() == true)
+            {
+                @foreach (var t in _homeData.RecentTrips.Take(5))
+                {
+                    <div class="list-group-item d-flex justify-content-between mb-1 rounded-2 shadow-sm">
+                        <div><small class="text-muted">@t.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm")</small><p class="mb-0 fw-bold small">@Trunc(t.PickupAddress,18) → @Trunc(t.DropoffAddress,18)</p><small class="@(t.Status=="Completed"?"text-success":"text-warning")">Rp @t.Fare.ToString("N0") · @(t.DriverName ?? "N/A")</small></div>
+                    </div>
+                }
+            }
+            else { <p class="text-muted small">Belum ada perjalanan.</p> }
+            <a href="/profile" class="btn btn-outline-secondary btn-sm w-100 mt-3"><i class="bi bi-person-circle"></i> My Profile</a>
+            <button class="btn btn-outline-danger btn-sm w-100 mt-2" @onclick="HandleLogout"><i class="bi bi-box-arrow-right"></i> Logout</button>
+        </div>
+    }
+</div>
+
+@code {
+    private string _emailInp = "", _passInp = "";
+    private string? _loginErr;
+    private bool _loginBusy, _homeLoading = true;
+    private RiderHomeResult? _homeData;
+    private ProfileResult? _prof;
+
+    protected override async Task OnInitializedAsync() { if (Api.IsLoggedIn) { await LoadHome(); } _homeLoading = false; }
+    private async Task HandleLogin() { _loginErr = null; _loginBusy = true; var r = await Api.Login(_emailInp, _passInp); _loginBusy = false; if (r is null) _loginErr = "Login failed"; else { _homeLoading = true; await LoadHome(); _homeLoading = false; } }
+    private async Task LoadHome() { _homeData = await Api.GetHome(); _prof = await Api.GetProfile(); }
+    private void HandleLogout() { Api.Logout(); _homeData = null; _prof = null; }
+    private static string Trunc(string t, int l) => t.Length <= l ? t : t[..l] + "...";
+}

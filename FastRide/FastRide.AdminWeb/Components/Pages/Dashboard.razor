@@ -1,0 +1,112 @@
+@page "/"
+@inject ApiClient ApiClient
+
+<PageTitle>FastRide Admin - Dashboard</PageTitle>
+
+@if (_loading)
+{
+    <div class="text-center py-5"><div class="spinner-border text-warning"></div><p class="mt-2">Loading dashboard...</p></div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold mb-0"><i class="bi bi-speedometer2 text-warning me-2"></i>Dashboard</h2>
+            <small class="text-muted">Real-time · Auto-refresh every 10s · Last: @_lastRefresh.ToLocalTime().ToString("HH:mm:ss")</small>
+        </div>
+        <button class="btn btn-outline-warning btn-sm" @onclick="RefreshNow"><i class="bi bi-arrow-clockwise me-1"></i> Refresh</button>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3 col-sm-6"><div class="card stat-card p-3"><div class="d-flex justify-content-between align-items-start"><div><small class="text-muted">Orders Today</small><div class="stat-value">@_ordersToday</div></div><i class="bi bi-car-front-fill stat-icon text-warning"></i></div></div></div>
+        <div class="col-md-3 col-sm-6"><div class="card stat-card p-3"><div class="d-flex justify-content-between align-items-start"><div><small class="text-muted">Active Drivers</small><div class="stat-value">@_activeDrivers</div></div><i class="bi bi-people-fill stat-icon text-info"></i></div></div></div>
+        <div class="col-md-3 col-sm-6"><div class="card stat-card p-3"><div class="d-flex justify-content-between align-items-start"><div><small class="text-muted">Revenue Today</small><div class="stat-value">Rp @_revenue</div></div><i class="bi bi-cash-stack stat-icon text-success"></i></div></div></div>
+        <div class="col-md-3 col-sm-6"><div class="card stat-card p-3"><div class="d-flex justify-content-between align-items-start"><div><small class="text-muted">Avg Rating</small><div class="stat-value">@_avgRating</div></div><i class="bi bi-star-fill stat-icon text-warning"></i></div></div></div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-8">
+            <div class="chart-container"><h5><i class="bi bi-bar-chart me-2"></i>Orders per Hour (Today)</h5>
+                <div class="d-flex align-items-end gap-1" style="height:180px;">
+                    @foreach (var h in _hourly)
+                    {
+                        var max = _hourly.Max(x => x.Count);
+                        var pct = max > 0 ? (int)((double)h.Count / max * 100) : 0;
+                        <div class="flex-grow-1 text-center" title="@h.Hour:00 — @h.Count orders">
+                            <small style="font-size:9px;">@h.Count</small>
+                            <div class="bg-warning rounded-top" style="height:@(pct)px;min-height:2px;"></div>
+                            <small style="font-size:9px;">@h.Hour</small>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="chart-container"><h5><i class="bi bi-pie-chart me-2"></i>Order Status</h5>
+                @foreach (var s in _statusData)
+                {
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="badge bg-@BadgeColor(s.Status)">@s.Status</span>
+                        <strong>@s.Count</strong>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-3"><div class="card stat-card p-3 text-center"><small class="text-muted">Pending Orders</small><h4 class="text-warning">@_pending</h4></div></div>
+        <div class="col-md-3"><div class="card stat-card p-3 text-center"><small class="text-muted">Trips Today</small><h4 class="text-success">@_tripsToday</h4></div></div>
+        <div class="col-md-3"><div class="card stat-card p-3 text-center"><small class="text-muted">Total Riders</small><h4 class="text-info">@_totalRiders</h4></div></div>
+        <div class="col-md-3"><div class="card stat-card p-3 text-center"><small class="text-muted">Last Update</small><h6 class="text-muted mt-1">@_lastRefresh.ToLocalTime().ToString("dd MMM HH:mm")</h6></div></div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private DateTime _lastRefresh = DateTime.UtcNow;
+    private int _ordersToday, _activeDrivers, _pending, _tripsToday, _totalRiders;
+    private string _revenue = "0", _avgRating = "0";
+    private List<HourlyData> _hourly = new();
+    private List<OrderStatusCount> _statusData = new();
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        _timer = new Timer(async _ => { await LoadData(); await InvokeAsync(StateHasChanged); }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            var s = await ApiClient.GetDashboardStats();
+            if (s != null)
+            {
+                _ordersToday = s.TotalOrdersToday;
+                _activeDrivers = s.ActiveDrivers;
+                _pending = s.PendingOrders;
+                _tripsToday = s.TotalTripsToday;
+                _totalRiders = s.ActiveRiders;
+                _revenue = s.RevenueToday.ToString("N0");
+                _avgRating = s.AverageRating.ToString("F1");
+                _lastRefresh = DateTime.UtcNow;
+            }
+            _hourly = await ApiClient.GetOrdersByHour(DateTime.UtcNow.Date);
+            _statusData = await ApiClient.GetOrdersByStatus();
+        }
+        catch { /* API offline */ }
+        _loading = false;
+    }
+
+    private async Task RefreshNow() { _loading = true; await LoadData(); _loading = false; }
+
+    private string BadgeColor(string s) => s switch
+    {
+        "Requested" => "info", "Accepted" => "purple", "Started" or "DriverArrived" => "warning",
+        "Completed" => "success", "Cancelled" => "danger", _ => "secondary"
+    };
+
+    public void Dispose() => _timer?.Dispose();
+}

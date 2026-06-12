@@ -1,0 +1,47 @@
+@page "/drivers"
+@inject ApiClient ApiClient
+
+<PageTitle>FastRide Admin - Drivers</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div><h2 class="fw-bold mb-0"><i class="bi bi-people-fill text-warning me-2"></i>Drivers</h2><small class="text-muted">@_drivers?.Total total drivers</small></div>
+</div>
+
+@if (_loading)
+{ <div class="text-center py-5"><div class="spinner-border text-warning"></div></div> }
+else if (_drivers?.Data.Any() == true)
+{
+    <div class="card stat-card"><div class="card-body p-0">
+    <table class="table table-dark table-striped table-fastride mb-0">
+    <thead><tr><th>Driver</th><th>Vehicle</th><th>Plate</th><th>Status</th><th>Rating</th><th>Trips</th><th>Earnings</th></tr></thead>
+    <tbody>
+    @foreach (var d in _drivers.Data)
+    {
+        <tr>
+            <td><strong>@d.FullName</strong><br><small class="text-muted">@d.Email</small></td>
+            <td>@d.VehicleType</td>
+            <td><code>@d.VehiclePlate</code></td>
+            <td>@StatusDot(d.Status) @d.Status</td>
+            <td>⭐ @d.Rating.ToString("F1")</td>
+            <td>@d.TotalTrips.ToString("N0")</td>
+            <td>Rp @d.TotalEarnings.ToString("N0")</td>
+        </tr>
+    }
+    </tbody></table></div></div>
+}
+
+@code {
+    private PaginatedResult<DriverItem>? _drivers;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _drivers = await ApiClient.GetDrivers();
+        _loading = false;
+    }
+
+    private string StatusDot(string s) => s switch
+    {
+        "Online" => "🟢", "OnTrip" => "🟠", "Offline" => "🔴", "Break" => "🟡", _ => "⚪"
+    };
+}

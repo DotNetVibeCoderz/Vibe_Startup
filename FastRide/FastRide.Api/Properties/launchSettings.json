@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "FastRide.Api": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:52545;http://localhost:52546"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+@page "/riders"
+@inject ApiClient ApiClient
+
+<PageTitle>FastRide Admin - Riders</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div><h2 class="fw-bold mb-0"><i class="bi bi-person-badge text-warning me-2"></i>Riders</h2><small class="text-muted">@_riders?.Total registered</small></div>
+</div>
+
+@if (_loading)
+{ <div class="text-center py-5"><div class="spinner-border text-warning"></div></div> }
+else if (_riders?.Data.Any() == true)
+{
+    <div class="card stat-card"><div class="card-body p-0">
+    <table class="table table-dark table-striped table-fastride mb-0">
+    <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Trips</th><th>Status</th><th>Joined</th></tr></thead>
+    <tbody>
+    @foreach (var r in _riders.Data)
+    {
+        <tr>
+            <td><strong>@r.FullName</strong></td>
+            <td>@r.Email</td>
+            <td>@r.PhoneNumber</td>
+            <td>@r.TotalTrips</td>
+            <td><span class="badge @(r.IsVerified ? "bg-success" : "bg-warning text-dark")">@(r.IsVerified ? "Verified" : "Pending")</span></td>
+            <td><small>@r.CreatedAt.ToLocalTime().ToString("MMM yyyy")</small></td>
+        </tr>
+    }
+    </tbody></table></div></div>
+}
+
+@code {
+    private PaginatedResult<RiderItem>? _riders;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _riders = await ApiClient.GetRiders();
+        _loading = false;
+    }
+}
