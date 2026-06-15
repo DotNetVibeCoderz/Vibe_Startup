@@ -1,0 +1,191 @@
+@page "/profile/edit"
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@using SoccerWizard.Services.Storage
+@using UserProfileModel = SoccerWizard.Models.UserProfile
+
+<div class="sw-page sw-profile-page">
+    <div class="sw-page-header">
+        <h1 class="sw-page-title">📝 Edit Profile</h1>
+    </div>
+
+    <div class="sw-card sw-profile-card sw-profile-edit">
+        <div class="sw-card-body">
+            @if (!string.IsNullOrWhiteSpace(message))
+            {
+                <div class="sw-alert @(isError ? "danger" : "success")">
+                    <i class="bi @(isError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
+                    <span>@message</span>
+                </div>
+            }
+
+            <div class="sw-profile-edit-header">
+                <div class="sw-profile-avatar sw-avatar-edit">
+                    @if (!string.IsNullOrWhiteSpace(avatarPreview))
+                    {
+                        <img src="@avatarPreview" alt="Avatar" />
+                    }
+                    else if (!string.IsNullOrWhiteSpace(profile?.AvatarUrl))
+                    {
+                        <img src="@profile.AvatarUrl" alt="Avatar" />
+                    }
+                    else
+                    {
+                        <span>@Initials</span>
+                    }
+                </div>
+                <div>
+                    <InputFile OnChange="OnAvatarSelected" accept="image/*" />
+                    <div class="sw-text-muted mt-2">Max 2MB. JPG/PNG/WebP.</div>
+                </div>
+            </div>
+
+            <div class="sw-profile-form">
+                <div class="sw-form-row">
+                    <div class="sw-form-group">
+                        <label>Full Name</label>
+                        <input class="sw-input" @bind="form.FullName" />
+                    </div>
+                    <div class="sw-form-group">
+                        <label>Favorite Team</label>
+                        <input class="sw-input" @bind="form.FavoriteTeam" />
+                    </div>
+                </div>
+
+                <div class="sw-form-row">
+                    <div class="sw-form-group">
+                        <label>Favorite League</label>
+                        <input class="sw-input" @bind="form.FavoriteLeague" />
+                    </div>
+                    <div class="sw-form-group">
+                        <label>Bio</label>
+                        <textarea class="sw-input" rows="3" @bind="form.Bio"></textarea>
+                    </div>
+                </div>
+
+                <div class="sw-form-actions">
+                    <button class="sw-btn sw-btn-primary" @onclick="SaveProfile" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="sw-spinner-sm"></span>
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <span>Save Changes</span>
+                        }
+                    </button>
+                    <a class="sw-btn sw-btn-outline" href="/profile">Cancel</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Inject] private UserManager<IdentityUser> UserManager { get; set; } = default!;
+    [Inject] private AppDbContext DbContext { get; set; } = default!;
+    [Inject] private AuthenticationStateProvider AuthStateProvider { get; set; } = default!;
+    [Inject] private IStorageService Storage { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+
+    private IdentityUser? user;
+    private UserProfileModel? profile;
+    private string? avatarPreview;
+    private IBrowserFile? avatarFile;
+    private bool isSaving;
+    private string? message;
+    private bool isError;
+
+    private readonly ProfileForm form = new();
+
+    private string Initials => form.FullName.Length > 0 ? form.FullName[..Math.Min(2, form.FullName.Length)].ToUpper() : "?";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        user = await UserManager.GetUserAsync(authState.User);
+        if (user is null)
+        {
+            Navigation.NavigateTo("/auth/login");
+            return;
+        }
+
+        profile = DbContext.UserProfiles.FirstOrDefault(p => p.UserId == user.Id);
+        if (profile is null)
+        {
+            profile = new UserProfileModel { UserId = user.Id, FullName = user.Email ?? "", CreatedAt = DateTime.UtcNow, LastLoginAt = DateTime.UtcNow };
+            DbContext.UserProfiles.Add(profile);
+            await DbContext.SaveChangesAsync();
+        }
+
+        form.FullName = profile.FullName;
+        form.FavoriteTeam = profile.FavoriteTeam;
+        form.FavoriteLeague = profile.FavoriteLeague;
+        form.Bio = profile.Bio;
+    }
+
+    private async Task OnAvatarSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size > 2 * 1024 * 1024)
+        {
+            message = "Avatar terlalu besar (max 2MB).";
+            isError = true;
+            return;
+        }
+
+        avatarFile = file;
+        await using var stream = file.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        avatarPreview = $"data:{file.ContentType};base64,{Convert.ToBase64String(ms.ToArray())}";
+    }
+
+    private async Task SaveProfile()
+    {
+        if (profile is null) return;
+
+        isSaving = true;
+        message = null;
+        isError = false;
+
+        try
+        {
+            if (avatarFile is not null)
+            {
+                await using var stream = avatarFile.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
+                var url = await Storage.UploadAsync(avatarFile.Name, stream, avatarFile.ContentType);
+                profile.AvatarUrl = url;
+            }
+
+            profile.FullName = form.FullName;
+            profile.FavoriteTeam = form.FavoriteTeam;
+            profile.FavoriteLeague = form.FavoriteLeague;
+            profile.Bio = form.Bio;
+
+            await DbContext.SaveChangesAsync();
+            message = "Profile updated successfully.";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            message = $"Failed to save profile: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private class ProfileForm
+    {
+        public string FullName { get; set; } = string.Empty;
+        public string FavoriteTeam { get; set; } = string.Empty;
+        public string FavoriteLeague { get; set; } = string.Empty;
+        public string Bio { get; set; } = string.Empty;
+    }
+}

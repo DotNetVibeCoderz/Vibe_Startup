@@ -1,0 +1,22 @@
+@page "/auth/logout"
+@rendermode InteractiveServer
+
+<div style="text-align:center;padding:80px;color:#94a3b8">
+    <div class="sw-spinner" style="margin:0 auto 16px"></div>
+    <p>Signing out...</p>
+</div>
+
+<form method="post" action="/logout" id="frm" style="display:none"></form>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Auto-submit form logout via JavaScript (bypass SignalR circuit)
+            await JS.InvokeVoidAsync("eval", "document.getElementById('frm').submit()");
+        }
+    }
+
+    [Inject] IJSRuntime JS { get; set; } = default!;
+}

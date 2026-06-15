@@ -1,0 +1,88 @@
+@page "/auth/login"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Identity
+@inject NavigationManager Navigation
+
+<div class="sw-auth-page">
+    <div class="sw-auth-container">
+        <div class="sw-auth-header">
+            <div class="sw-auth-logo">⚽</div>
+            <h1>Soccer<b>Wizard</b></h1>
+            <p>Sign in to access predictions and analysis</p>
+        </div>
+        
+        <div class="sw-auth-card">
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="sw-alert danger"><i class="bi bi-exclamation-triangle"></i><span>@errorMessage</span></div>
+            }
+            @if (!string.IsNullOrEmpty(successMessage))
+            {
+                <div class="sw-alert success"><i class="bi bi-check-circle"></i><span>@successMessage</span></div>
+            }
+            
+            <form method="post" action="/login">
+                <div class="sw-form-group">
+                    <label><i class="bi bi-envelope"></i> Email</label>
+                    <input type="email" name="email" class="sw-input" placeholder="your@email.com" required value="@emailValue" 
+                           @oninput="(e) => emailValue = (string?)e.Value" />
+                </div>
+                <div class="sw-form-group">
+                    <label><i class="bi bi-lock"></i> Password</label>
+                    <input type="password" name="password" class="sw-input" placeholder="Enter password" required @bind="passwordValue" />
+                </div>
+                <div class="sw-form-group">
+                    <label class="sw-checkbox-label">
+                        <input type="checkbox" name="rememberMe" value="true" />
+                        <span>Remember me</span>
+                    </label>
+                </div>
+                <button type="submit" class="sw-btn sw-btn-primary sw-btn-block"><i class="bi bi-box-arrow-in-right"></i> Sign In</button>
+            </form>
+            
+            <div class="sw-auth-footer">
+                <a href="/auth/register">Don't have an account? Register</a>
+                <a href="/auth/reset-password">Forgot password?</a>
+            </div>
+            
+            <div class="sw-demo-accounts">
+                <h4>Demo Accounts</h4>
+                <div class="sw-demo-item">
+                    <code>admin@soccerwizard.com</code> / <code>Admin123!</code>
+                    <button class="sw-btn sw-btn-sm sw-btn-outline" @onclick="FillAdmin">Fill</button>
+                </div>
+                <div class="sw-demo-item">
+                    <code>demo@soccerwizard.com</code> / <code>Demo123!</code>
+                    <button class="sw-btn sw-btn-sm sw-btn-outline" @onclick="FillDemo">Fill</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string? errorMessage;
+    private string? successMessage;
+    private string? emailValue;
+    private string? passwordValue;
+
+    protected override void OnInitialized()
+    {
+        var uri = new Uri(Navigation.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        errorMessage = query["error"];
+        successMessage = query["msg"];
+    }
+
+    private void FillAdmin()
+    {
+        emailValue = "admin@soccerwizard.com";
+        passwordValue = "Admin123!";
+    }
+
+    private void FillDemo()
+    {
+        emailValue = "demo@soccerwizard.com";
+        passwordValue = "Demo123!";
+    }
+}

@@ -1,0 +1,118 @@
+@page "/admin/manual-sync"
+@attribute [Authorize(Roles = "Admin")]
+
+<div class="sw-page sw-admin-page">
+    <div class="sw-page-header">
+        <h1 class="sw-page-title">📥 Manual Excel Sync</h1>
+        <p class="sw-page-subtitle">Upload file Excel untuk update data liga, tim, pertandingan, dan klasemen.</p>
+    </div>
+
+    <div class="sw-card">
+        <div class="sw-card-header">
+            <h3 class="sw-card-title">⬇️ Template Excel</h3>
+        </div>
+        <div class="sw-card-body">
+            <p class="text-muted">Download template agar format kolom sesuai dengan kebutuhan sistem.</p>
+            <a class="sw-btn sw-btn-outline" href="/admin/manual-sync/template">
+                <i class="bi bi-download"></i> Download Template
+            </a>
+            <div class="mt-3" style="font-size: 0.9rem;">
+                <strong>Sheets & kolom utama:</strong>
+                <ul class="mt-2">
+                    <li><strong>Leagues</strong>: Name, Country, LogoUrl, Season, TotalTeams, TotalRounds, Description</li>
+                    <li><strong>Teams</strong>: Name, ShortName, Code, LogoUrl, Country, City, Stadium, FoundedYear, Description, LeagueName</li>
+                    <li><strong>Matches</strong>: HomeTeam, AwayTeam, LeagueName, MatchDateUtc, Status, Venue, Referee, HomeScore, AwayScore</li>
+                    <li><strong>Standings</strong>: TeamName, LeagueName, MatchesPlayed, Wins, Draws, Losses, GoalsFor, GoalsAgainst</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="sw-card mt-3">
+        <div class="sw-card-header">
+            <h3 class="sw-card-title">📤 Upload Excel</h3>
+        </div>
+        <div class="sw-card-body">
+            <div class="sw-admin-actions" style="align-items: center; gap: 16px; flex-wrap: wrap;">
+                <InputFile OnChange="OnFileSelected" accept=".xlsx" />
+                <button class="sw-btn sw-btn-primary" @onclick="UploadExcel" disabled="@isWorking">
+                    <i class="bi bi-cloud-upload"></i> Sync Manual
+                </button>
+            </div>
+
+            @if (selectedFile is not null)
+            {
+                <div class="mt-2 text-muted" style="font-size: 0.9rem;">
+                    File: <strong>@selectedFile.Name</strong> (@(selectedFile.Size / 1024) KB)
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(actionMessage))
+            {
+                <div class="sw-alert @(actionError ? "danger" : "success") mt-3">
+                    <i class="bi @(actionError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
+                    <span>@actionMessage</span>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private const long MaxUploadSize = 10 * 1024 * 1024;
+
+    [Inject] private MatchService MatchService { get; set; } = default!;
+
+    private IBrowserFile? selectedFile;
+    private string? actionMessage;
+    private bool actionError;
+    private bool isWorking;
+
+    private void OnFileSelected(InputFileChangeEventArgs args)
+    {
+        selectedFile = args.File;
+        actionMessage = null;
+        actionError = false;
+    }
+
+    private async Task UploadExcel()
+    {
+        if (selectedFile is null)
+        {
+            actionMessage = "Pilih file Excel terlebih dahulu.";
+            actionError = true;
+            return;
+        }
+
+        if (!selectedFile.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+        {
+            actionMessage = "Format file harus .xlsx.";
+            actionError = true;
+            return;
+        }
+
+        isWorking = true;
+        actionMessage = null;
+        actionError = false;
+
+        try
+        {
+            await using var stream = selectedFile.OpenReadStream(MaxUploadSize);
+            using var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            memoryStream.Position = 0;
+
+            actionMessage = await MatchService.SyncManualDataFromExcelAsync(memoryStream);
+            actionError = false;
+        }
+        catch (Exception ex)
+        {
+            actionMessage = $"Sync gagal: {ex.Message}";
+            actionError = true;
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+}

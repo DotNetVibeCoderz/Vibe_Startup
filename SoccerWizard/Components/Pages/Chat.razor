@@ -1,0 +1,455 @@
+@page "/chat"
+@using Microsoft.AspNetCore.Components.Forms
+@using Markdig
+@using SoccerWizard.Services.Storage
+@using SoccerWizard.Services.LLM
+@inject IConfiguration Config
+
+<div class="sw-page sw-chat-page">
+    <div class="sw-page-header">
+        <h1 class="sw-page-title">🤖 AI Chat Assistant</h1>
+        <p class="sw-page-subtitle">
+            Ask about football predictions, stats, and tactics
+            @if (_skReady)
+            {
+                <span class="sw-backend-badge sk">🧠 SK: @_llmProvider</span>
+            }
+            else
+            {
+                <span class="sw-backend-badge fallback">⚠️ Offline Mode</span>
+            }
+            <span class="sw-backend-badge storage">📦 @_storageProvider</span>
+            @if (_vectorReady)
+            {
+                <span class="sw-backend-badge vector">🧬 RAG</span>
+            }
+        </p>
+    </div>
+
+    <div class="sw-card" style="margin-bottom:16px">
+        <div class="sw-card-header">
+            <span class="sw-card-title">System Prompt</span>
+            <div style="display:flex;gap:8px">
+                <button class="sw-btn sw-btn-outline sw-btn-sm" @onclick="ResetSystemPrompt">Reset</button>
+                <button class="sw-btn sw-btn-outline sw-btn-sm" @onclick="TogglePromptPanel">@(ShowSystemPrompt ? "Hide" : "Show")</button>
+            </div>
+        </div>
+        @if (ShowSystemPrompt)
+        {
+            <div class="sw-card-body">
+                <textarea class="sw-input" rows="3" placeholder="System prompt..." @bind="SystemPrompt"></textarea>
+                <div class="mt-2" style="font-size:.8rem;color:var(--sw-text-muted)">
+                    Source default: appsettings.json (LLM:SystemPrompt)
+                </div>
+            </div>
+        }
+    </div>
+    
+    <div class="sw-chat-container">
+        <div class="sw-chat-messages" @ref="chatContainer">
+            @if (!messages.Any())
+            {
+                <div class="sw-chat-welcome">
+                    <div class="sw-chat-welcome-icon">🤖</div>
+                    <h3>Welcome to SoccerWizard AI!</h3>
+                    <p>I can help you with:</p>
+                    <div class="sw-chat-suggestions">
+                        <button class="sw-suggestion-chip" @onclick="() => SendSuggestion(0)">
+                            🔮 Predict a match
+                        </button>
+                        <button class="sw-suggestion-chip" @onclick="() => SendSuggestion(1)">
+                            📊 League stats
+                        </button>
+                        <button class="sw-suggestion-chip" @onclick="() => SendSuggestion(2)">
+                            ⚔️ Head-to-head
+                        </button>
+                        <button class="sw-suggestion-chip" @onclick="() => SendSuggestion(3)">
+                            ⭐ Top players
+                        </button>
+                        <button class="sw-suggestion-chip" @onclick="() => SendSuggestion(4)">
+                            📰 News sentiment
+                        </button>
+                        <button class="sw-suggestion-chip" @onclick="() => SendSuggestion(5)">
+                            🧠 How it works
+                        </button>
+                    </div>
+                </div>
+            }
+            
+            @foreach (var msg in messages)
+            {
+                <div class="sw-chat-message @(msg.IsUser ? "user" : "ai")">
+                    <div class="sw-chat-avatar">
+                        @if (msg.IsUser)
+                        {
+                            <div class="sw-avatar-user">👤</div>
+                        }
+                        else
+                        {
+                            <div class="sw-avatar-ai">🤖</div>
+                        }
+                    </div>
+                    <div class="sw-chat-bubble">
+                        @if (msg.AttachedImages?.Any() == true)
+                        {
+                            <div class="sw-chat-images">
+                                @foreach (var imgUrl in msg.AttachedImages)
+                                {
+                                    <a href="@imgUrl" target="_blank" class="sw-chat-image-link">
+                                        <img src="@imgUrl" alt="Attached image" class="sw-chat-image-thumb" />
+                                    </a>
+                                }
+                            </div>
+                        }
+                        @if (msg.AttachedFiles?.Any() == true)
+                        {
+                            <div class="sw-chat-files">
+                                @foreach (var file in msg.AttachedFiles)
+                                {
+                                    <a href="@file.Url" target="_blank" class="sw-chat-file-chip">
+                                        <i class="bi bi-paperclip"></i>
+                                        <span>@file.Name</span>
+                                    </a>
+                                }
+                            </div>
+                        }
+                        <div class="sw-chat-content">
+                            @if (!string.IsNullOrWhiteSpace(msg.Content))
+                            {
+                                @RenderMarkdown(msg.Content)
+                            }
+                            else if (msg.AttachedImages?.Any() == true || msg.AttachedFiles?.Any() == true)
+                            {
+                                <span class="sw-chat-content-hint">📎 Lihat lampiran di atas</span>
+                            }
+                        </div>
+                        <div class="sw-chat-time">@msg.Timestamp.ToString("HH:mm")</div>
+                    </div>
+                </div>
+            }
+            
+            @if (isTyping)
+            {
+                <div class="sw-chat-message ai">
+                    <div class="sw-chat-avatar"><div class="sw-avatar-ai">🤖</div></div>
+                    <div class="sw-chat-bubble">
+                        <div class="sw-typing-indicator">
+                            <span></span><span></span><span></span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+        
+        @* Preview file yang akan diupload *@
+        @if (pendingFiles.Any())
+        {
+            <div class="sw-chat-preview">
+                <div class="sw-preview-header">
+                    <span>📎 @pendingFiles.Count file(s) selected</span>
+                    <button class="sw-preview-clear" @onclick="ClearPendingFiles">
+                        <i class="bi bi-x-lg"></i> Clear all
+                    </button>
+                </div>
+                <div class="sw-preview-list">
+                    @foreach (var file in pendingFiles)
+                    {
+                        <div class="sw-preview-item">
+                            @if (IsImageFile(file.Name) && !string.IsNullOrWhiteSpace(file.PreviewUrl))
+                            {
+                                <div class="sw-preview-thumb">
+                                    <img src="@file.PreviewUrl" alt="@file.Name" />
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="sw-preview-thumb sw-preview-file-icon">
+                                    <i class="bi @GetFileIcon(file.Name)"></i>
+                                </div>
+                            }
+                            <div class="sw-preview-info">
+                                <span class="sw-preview-name" title="@file.Name">@TruncateFileName(file.Name)</span>
+                                <span class="sw-preview-size">@FormatFileSize(file.Size)</span>
+                            </div>
+                            <button class="sw-preview-remove" @onclick="() => RemovePendingFile(file)">
+                                <i class="bi bi-x-circle"></i>
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        
+        <div class="sw-chat-input">
+            <div class="sw-attach-wrapper">
+                <InputFile OnChange="OnFilesSelected" multiple 
+                           accept="image/*,.pdf,.doc,.docx,.txt,.csv,.json,.xml,.html,.md" 
+                           class="sw-attach-input" id="chat-file-input" />
+                <label for="chat-file-input" class="sw-attach-btn" title="Attach files or images">
+                    <i class="bi bi-paperclip"></i>
+                </label>
+            </div>
+            
+            <input type="text" 
+                   class="sw-input" 
+                   placeholder="Ask about football... or attach images/files!" 
+                   @bind="currentMessage"
+                   @bind:event="oninput"
+                   @onkeypress="HandleKeyPress" />
+            
+            @if (isUploading)
+            {
+                <button class="sw-btn sw-btn-primary" disabled>
+                    <span class="sw-spinner-sm"></span>
+                </button>
+            }
+            else
+            {
+                <button class="sw-btn sw-btn-primary" 
+                        type="button"
+                        @onclick="SendMessage" 
+                        disabled="@(!CanSend)">
+                    <i class="bi bi-send-fill"></i>
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Inject] private LLMService LLMService { get; set; } = default!;
+    [Inject] private SemanticKernelService SK { get; set; } = default!;
+    [Inject] private IStorageService Storage { get; set; } = default!;
+    
+    private const long MaxPreviewSizeBytes = 200 * 1024; // 200 KB preview cap
+    private const long MaxUploadSizeBytes = 10 * 1024 * 1024; // 10 MB
+    private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .Build();
+    
+    private List<ChatMessage> messages = new();
+    private List<PendingFile> pendingFiles = new();
+    private string currentMessage = "";
+    private bool isTyping;
+    private bool isUploading;
+    private ElementReference chatContainer;
+
+    private bool ShowSystemPrompt = false;
+    private string SystemPrompt = "";
+    private string DefaultSystemPrompt = "";
+    
+    private bool CanSend => (!string.IsNullOrWhiteSpace(currentMessage) || pendingFiles.Any()) && !isTyping && !isUploading;
+    private bool _skReady => SK.IsKernelReady;
+    private string _llmProvider => SK.ActiveProvider;
+    private string _storageProvider => Storage.ProviderName;
+    private bool _vectorReady => false; // Akan true setelah vector configured
+    
+    // ============================================================
+    // Suggest & Send
+    // ============================================================
+    private static readonly string[] Suggestions = new[]
+    {
+        "Predict Manchester City vs Arsenal match",
+        "Show me the latest Premier League stats",
+        "Analyze head-to-head Liverpool vs Manchester United",
+        "Who is the top scorer this season?",
+        "What's the sentiment around Chelsea right now?",
+        "Explain how the ML prediction model works"
+    };
+
+    protected override void OnInitialized()
+    {
+        DefaultSystemPrompt = Config["LLM:SystemPrompt"] ?? "You are SoccerWizard AI, a football expert. Be concise and helpful.";
+        SystemPrompt = DefaultSystemPrompt;
+    }
+
+    private void ResetSystemPrompt() => SystemPrompt = DefaultSystemPrompt;
+    private void TogglePromptPanel() => ShowSystemPrompt = !ShowSystemPrompt;
+    
+    private async Task SendSuggestion(int index)
+    {
+        if (index >= 0 && index < Suggestions.Length)
+        {
+            currentMessage = Suggestions[index];
+            await SendMessage();
+        }
+    }
+    
+    private async Task SendMessage()
+    {
+        if (!CanSend) return;
+        
+        var userMsg = currentMessage.Trim();
+        currentMessage = "";
+        
+        // Upload files via IStorageService
+        var uploadedImageUrls = new List<string>();
+        var uploadedFileInfos = new List<(string Name, string Url)>();
+        
+        if (pendingFiles.Any())
+        {
+            isUploading = true;
+            StateHasChanged();
+            
+            foreach (var pf in pendingFiles)
+            {
+                try
+                {
+                    await using var stream = pf.BrowserFile.OpenReadStream(maxAllowedSize: MaxUploadSizeBytes);
+                    var url = await Storage.UploadAsync(pf.Name, stream, pf.ContentType);
+                    
+                    if (IsImageFile(pf.Name))
+                        uploadedImageUrls.Add(url);
+                    else
+                        uploadedFileInfos.Add((pf.Name, url));
+                }
+                catch { /* skip failed uploads */ }
+            }
+            
+            pendingFiles.Clear();
+            isUploading = false;
+        }
+        
+        // Tambahkan URL file non-gambar ke teks pesan
+        var fullMessage = userMsg;
+        if (uploadedFileInfos.Any())
+        {
+            var fileLinks = string.Join("\n", uploadedFileInfos.Select(f => $"[📎 {f.Name}]({f.Url})"));
+            fullMessage = string.IsNullOrEmpty(userMsg) 
+                ? $"Saya mengirimkan file berikut:\n{fileLinks}" 
+                : $"{userMsg}\n\nFile terlampir:\n{fileLinks}";
+        }
+        
+        var chatMsg = new ChatMessage
+        {
+            Content = fullMessage,
+            IsUser = true,
+            Timestamp = DateTime.Now,
+            AttachedImages = uploadedImageUrls.Any() ? uploadedImageUrls : null,
+            AttachedFiles = uploadedFileInfos.Any() ? uploadedFileInfos.Select(f => new AttachedFileInfo { Name = f.Name, Url = f.Url }).ToList() : null
+        };
+        messages.Add(chatMsg);
+        
+        isTyping = true;
+        StateHasChanged();
+        
+        try
+        {
+            string response;
+            var activeSystemPrompt = SystemPrompt?.Trim() ?? "";
+            
+            if (uploadedImageUrls.Any())
+                response = await LLMService.ChatWithImagesAsync(fullMessage, uploadedImageUrls, activeSystemPrompt);
+            else
+                response = await SK.ChatAsync(fullMessage, activeSystemPrompt);
+            
+            messages.Add(new ChatMessage { Content = response, IsUser = false, Timestamp = DateTime.Now });
+        }
+        catch
+        {
+            messages.Add(new ChatMessage { Content = "Maaf, terjadi kesalahan. Silakan coba lagi.", IsUser = false, Timestamp = DateTime.Now });
+        }
+        
+        isTyping = false;
+    }
+    
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !isTyping && !isUploading)
+            await SendMessage();
+    }
+    
+    // ============================================================
+    // File Selection
+    // ============================================================
+    private async Task OnFilesSelected(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles(maximumFileCount: 10))
+        {
+            if (file.Size > MaxUploadSizeBytes) continue;
+            
+            var pending = new PendingFile
+            {
+                Name = file.Name,
+                Size = file.Size,
+                ContentType = file.ContentType,
+                BrowserFile = file
+            };
+            
+            if (IsImageFile(file.Name) && file.Size <= MaxPreviewSizeBytes)
+            {
+                await using var stream = file.OpenReadStream(maxAllowedSize: MaxUploadSizeBytes);
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                var base64 = Convert.ToBase64String(ms.ToArray());
+                pending.PreviewUrl = $"data:{file.ContentType};base64,{base64}";
+            }
+            
+            pendingFiles.Add(pending);
+        }
+        
+        StateHasChanged();
+    }
+    
+    private void RemovePendingFile(PendingFile file) => pendingFiles.Remove(file);
+    private void ClearPendingFiles() => pendingFiles.Clear();
+    
+    // ============================================================
+    // Helpers
+    // ============================================================
+    private static bool IsImageFile(string fileName) =>
+        Path.GetExtension(fileName).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" or ".svg";
+    
+    private static string GetFileIcon(string fileName) => Path.GetExtension(fileName).ToLowerInvariant() switch
+    {
+        ".pdf" => "bi-file-pdf-fill", ".doc" or ".docx" => "bi-file-word-fill",
+        ".txt" or ".md" => "bi-file-text-fill", ".csv" or ".xls" or ".xlsx" => "bi-file-spreadsheet-fill",
+        ".json" or ".xml" => "bi-file-code-fill", ".zip" or ".rar" => "bi-file-zip-fill",
+        _ => "bi-file-earmark-fill"
+    };
+    
+    private static string FormatFileSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B", < 1024 * 1024 => $"{bytes / 1024.0:F1} KB", _ => $"{bytes / (1024.0 * 1024.0):F1} MB"
+    };
+    
+    private static string TruncateFileName(string name, int maxLen = 25)
+    {
+        if (name.Length <= maxLen) return name;
+        var ext = Path.GetExtension(name);
+        return name[..(maxLen - ext.Length - 3)] + "..." + ext;
+    }
+
+    private static MarkupString RenderMarkdown(string text)
+    {
+        var html = Markdown.ToHtml(text, MarkdownPipeline);
+        return new MarkupString(html);
+    }
+    
+    // ============================================================
+    // Data Classes
+    // ============================================================
+    private class ChatMessage
+    {
+        public string Content { get; set; } = "";
+        public bool IsUser { get; set; }
+        public DateTime Timestamp { get; set; } = DateTime.Now;
+        public List<string>? AttachedImages { get; set; }
+        public List<AttachedFileInfo>? AttachedFiles { get; set; }
+    }
+    
+    private class AttachedFileInfo
+    {
+        public string Name { get; set; } = "";
+        public string Url { get; set; } = "";
+    }
+    
+    private class PendingFile
+    {
+        public string Name { get; set; } = "";
+        public long Size { get; set; }
+        public string ContentType { get; set; } = "";
+        public string PreviewUrl { get; set; } = "";
+        public IBrowserFile BrowserFile { get; set; } = default!;
+    }
+}

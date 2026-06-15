@@ -1,0 +1,191 @@
+@inherits LayoutComponentBase
+@rendermode InteractiveServer
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JS
+
+<div class="sw-layout">
+    <aside class="sw-sidebar @(IsSidebarOpen ? "open" : "")">
+        <div class="sw-sidebar-brand">
+            <a href="/" class="sw-brand-link">
+                <span class="sw-brand-icon">⚽</span>
+                <span class="sw-brand-text">Soccer<b>Wizard</b></span>
+            </a>
+        </div>
+        
+        <nav class="sw-sidebar-nav">
+            <ul class="sw-nav-list">
+                <li class="sw-nav-item"><a href="/" class="@NavClass("/")"><i class="bi bi-speedometer2"></i><span>Dashboard</span></a></li>
+                <li class="sw-nav-item"><a href="/matches" class="@NavClass("/matches")"><i class="bi bi-calendar-check"></i><span>Matches</span></a></li>
+                <li class="sw-nav-item"><a href="/predict" class="@NavClass("/predict")"><i class="bi bi-graph-up-arrow"></i><span>Predictions</span></a></li>
+                <li class="sw-nav-item"><a href="/teams" class="@NavClass("/teams")"><i class="bi bi-shield-fill"></i><span>Teams</span></a></li>
+                <li class="sw-nav-item"><a href="/news" class="@NavClass("/news")"><i class="bi bi-newspaper"></i><span>News & Analysis</span></a></li>
+                <li class="sw-nav-item"><a href="/chat" class="@NavClass("/chat")"><i class="bi bi-robot"></i><span>AI Chat</span></a></li>
+            </ul>
+            <div class="sw-sidebar-divider"></div>
+            <ul class="sw-nav-list">
+                <li class="sw-nav-item"><a href="/ml-dashboard" class="@NavClass("/ml-dashboard")"><i class="bi bi-cpu"></i><span>ML Models</span></a></li>
+                @if (IsAdmin)
+                {<li class="sw-nav-item"><a href="/admin" class="@NavClass("/admin")"><i class="bi bi-gear-fill"></i><span>Admin Panel</span></a></li>}
+            </ul>
+        </nav>
+        
+        <div class="sw-sidebar-footer">
+            <div class="sw-sidebar-user">
+                <AuthorizeView>
+                    <Authorized>
+                        <div class="sw-user-info">
+                            <div class="sw-user-avatar">@UserInitials</div>
+                            <div class="sw-user-details">
+                                <span class="sw-user-name">@UserName</span>
+                                <span class="sw-user-role">@UserRole</span>
+                            </div>
+                        </div>
+                        <div class="sw-user-actions">
+                            <a href="/profile" class="sw-user-btn" title="Profile"><i class="bi bi-person-gear"></i></a>
+                            @* Form POST untuk logout — bypass SignalR *@
+                            <form method="post" action="/logout" style="display:inline">
+                                <button type="submit" class="sw-user-btn" title="Logout"><i class="bi bi-box-arrow-right"></i></button>
+                            </form>
+                        </div>
+                    </Authorized>
+                    <NotAuthorized>
+                        <div class="sw-auth-buttons">
+                            <a href="/auth/login" class="sw-btn sw-btn-primary sw-btn-sm"><i class="bi bi-box-arrow-in-right"></i> Login</a>
+                            <a href="/auth/register" class="sw-btn sw-btn-outline sw-btn-sm"><i class="bi bi-person-plus"></i> Register</a>
+                        </div>
+                    </NotAuthorized>
+                </AuthorizeView>
+            </div>
+        </div>
+    </aside>
+    
+    <main class="sw-main">
+        <header class="sw-topbar">
+            <div class="sw-topbar-left">
+                <button class="sw-mobile-toggle" @onclick="ToggleSidebar"><i class="bi bi-list"></i></button>
+                <div class="sw-breadcrumb"><span class="sw-breadcrumb-item">@GetPageTitle()</span></div>
+            </div>
+            <div class="sw-topbar-right">
+                <div class="sw-live-indicator" @onclick="GoToLiveMatches"><span class="sw-live-dot"></span><span class="sw-live-text">@LiveMatchCount Live</span></div>
+                <button class="sw-icon-btn" @onclick="ToggleTheme"><i class="bi @ThemeIcon"></i></button>
+                <div class="sw-notification-wrap">
+                    <button class="sw-icon-btn" @onclick="ToggleNotifications">
+                        <i class="bi bi-bell-fill"></i>
+                        @if (UnreadNotifications > 0)
+                        {
+                            <span class="sw-badge">@UnreadNotifications</span>
+                        }
+                    </button>
+                    @if (IsNotificationsOpen)
+                    {
+                        <div class="sw-notification-panel">
+                            <div class="sw-notification-header">
+                                <span>Notifications</span>
+                                <button class="sw-btn sw-btn-outline sw-btn-sm" @onclick="ClearNotifications">Clear</button>
+                            </div>
+                            @if (!Notifications.Any())
+                            {
+                                <div class="sw-notification-empty">No new notifications</div>
+                            }
+                            else
+                            {
+                                <ul class="sw-notification-list">
+                                    @foreach (var n in Notifications)
+                                    {
+                                        <li class="sw-notification-item">
+                                            <span class="sw-notification-text">@n.Message</span>
+                                            <span class="sw-notification-time">@n.Time.ToString("HH:mm")</span>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </header>
+        <div class="sw-content">@Body</div>
+        <footer class="sw-footer"><div class="sw-footer-content"><span>&copy; 2024 SoccerWizard | GraviCode Studios</span><span>v1.0</span></div></footer>
+    </main>
+</div>
+
+@code {
+    private bool IsDarkMode = true, IsSidebarOpen = false, IsAdmin = false;
+    private bool IsNotificationsOpen;
+    private string? _userName, _userRole;
+    private int LiveMatchCount = 3;
+    private string ThemeIcon => IsDarkMode ? "bi-sun-fill" : "bi-moon-fill";
+
+    private List<NotificationItem> Notifications = new()
+    {
+        new() { Message = "Match update: Arsenal vs City is now LIVE", Time = DateTime.Now.AddMinutes(-2) },
+        new() { Message = "New prediction accuracy report is available", Time = DateTime.Now.AddMinutes(-15) },
+        new() { Message = "Chelsea sentiment shifted to POSITIVE", Time = DateTime.Now.AddMinutes(-35) }
+    };
+
+    private int UnreadNotifications => Notifications.Count;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            _userName = user.Identity.Name;
+            _userRole = user.IsInRole("Admin") ? "Admin" : "User";
+            IsAdmin = user.IsInRole("Admin");
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        var theme = await JS.InvokeAsync<string>("swGetTheme");
+        IsDarkMode = theme != "light";
+        await JS.InvokeVoidAsync("swSetTheme", IsDarkMode ? "dark" : "light");
+        StateHasChanged();
+    }
+
+    private string UserInitials => string.IsNullOrEmpty(_userName) ? "?" : _userName[..Math.Min(2, _userName.Length)].ToUpper();
+    private string UserName => _userName ?? "Guest";
+    private string UserRole => _userRole ?? "User";
+
+    private string NavClass(string path)
+    {
+        var currentPath = Navigation.Uri.Replace(Navigation.BaseUri, "/");
+        if (path == "/") return currentPath == "/" || currentPath == "" ? "sw-nav-link active" : "sw-nav-link";
+        return currentPath.StartsWith(path, StringComparison.OrdinalIgnoreCase) ? "sw-nav-link active" : "sw-nav-link";
+    }
+
+    private string GetPageTitle() => Navigation.Uri.Replace(Navigation.BaseUri, "/").Split('?')[0] switch
+    {
+        "/" or "" => "Dashboard", "/matches" => "Matches", "/predict" => "Predictions", "/teams" => "Teams",
+        "/news" => "News", "/chat" => "AI Chat", "/ml-dashboard" => "ML Models", "/admin" => "Admin Panel",
+        "/profile" => "Profile", "/auth/login" => "Login", _ => "SoccerWizard"
+    };
+
+    private void ToggleSidebar() => IsSidebarOpen = !IsSidebarOpen;
+
+    private async Task ToggleTheme()
+    {
+        IsDarkMode = !IsDarkMode;
+        await JS.InvokeVoidAsync("swSetTheme", IsDarkMode ? "dark" : "light");
+    }
+
+    private void ToggleNotifications() => IsNotificationsOpen = !IsNotificationsOpen;
+
+    private void ClearNotifications()
+    {
+        Notifications.Clear();
+        IsNotificationsOpen = false;
+    }
+
+    private void GoToLiveMatches() => Navigation.NavigateTo("/matches?status=LIVE");
+
+    private class NotificationItem
+    {
+        public string Message { get; set; } = "";
+        public DateTime Time { get; set; } = DateTime.Now;
+    }
+}

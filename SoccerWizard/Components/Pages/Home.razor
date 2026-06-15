@@ -1,0 +1,202 @@
+@page "/"
+
+<div class="sw-page sw-dashboard">
+    <div class="sw-page-header">
+        <h1 class="sw-page-title">⚽ SoccerWizard Dashboard</h1>
+        <p class="sw-page-subtitle">Football Match Prediction & Analysis Platform</p>
+    </div>
+    
+    <!-- Stats Cards -->
+    <div class="sw-stats-grid">
+        <div class="sw-stat-card">
+            <div class="sw-stat-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                <i class="bi bi-calendar-check"></i>
+            </div>
+            <div class="sw-stat-info">
+                <span class="sw-stat-value">@stats.GetValueOrDefault("TotalMatches", 0)</span>
+                <span class="sw-stat-label">Total Matches</span>
+            </div>
+        </div>
+        
+        <div class="sw-stat-card">
+            <div class="sw-stat-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
+                <i class="bi bi-broadcast"></i>
+            </div>
+            <div class="sw-stat-info">
+                <span class="sw-stat-value live">@stats.GetValueOrDefault("LiveMatches", 0)</span>
+                <span class="sw-stat-label">Live Now</span>
+            </div>
+        </div>
+        
+        <div class="sw-stat-card">
+            <div class="sw-stat-icon" style="background: linear-gradient(135deg, #4facfe, #00f2fe);">
+                <i class="bi bi-graph-up-arrow"></i>
+            </div>
+            <div class="sw-stat-info">
+                <span class="sw-stat-value">@(stats.GetValueOrDefault("CorrectPredictions", 0))/@(stats.GetValueOrDefault("TotalPredictions", 0))</span>
+                <span class="sw-stat-label">Correct Predictions</span>
+            </div>
+        </div>
+        
+        <div class="sw-stat-card">
+            <div class="sw-stat-icon" style="background: linear-gradient(135deg, #43e97b, #38f9d7);">
+                <i class="bi bi-shield-fill"></i>
+            </div>
+            <div class="sw-stat-info">
+                <span class="sw-stat-value">@stats.GetValueOrDefault("TotalTeams", 0)</span>
+                <span class="sw-stat-label">Teams Tracked</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="sw-dashboard-grid">
+        <!-- Live Matches -->
+        <div class="sw-card">
+            <div class="sw-card-header">
+                <h3 class="sw-card-title">🔴 Live Matches</h3>
+                <a href="/matches?status=LIVE" class="sw-card-link">View All →</a>
+            </div>
+            <div class="sw-card-body">
+                @if (liveMatches.Any())
+                {
+                    foreach (var match in liveMatches.Take(5))
+                    {
+                        <div class="sw-live-match-item" @onclick="() => GoToMatch(match.Id)">
+                            <div class="sw-live-match-teams">
+                                <span class="sw-live-team">@match.HomeTeam.ShortName</span>
+                                <span class="sw-live-score">@match.HomeScore - @match.AwayScore</span>
+                                <span class="sw-live-team">@match.AwayTeam.ShortName</span>
+                            </div>
+                            <div class="sw-live-match-meta">
+                                <span class="sw-live-minutes">@match.Round</span>
+                                <span class="sw-live-badge">LIVE</span>
+                            </div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="sw-empty-state">
+                        <i class="bi bi-tv"></i>
+                        <p>No live matches at the moment</p>
+                    </div>
+                }
+            </div>
+        </div>
+        
+        <!-- Upcoming Matches -->
+        <div class="sw-card">
+            <div class="sw-card-header">
+                <h3 class="sw-card-title">📅 Upcoming Matches</h3>
+                <a href="/matches" class="sw-card-link">View All →</a>
+            </div>
+            <div class="sw-card-body">
+                @if (upcomingMatches.Any())
+                {
+                    foreach (var match in upcomingMatches.Take(5))
+                    {
+                        <div class="sw-upcoming-match-item" @onclick="() => GoToMatch(match.Id)">
+                            <div class="sw-upcoming-date">@match.MatchDate.ToString("dd MMM HH:mm")</div>
+                            <div class="sw-upcoming-teams">
+                                <span>@match.HomeTeam.ShortName</span>
+                                <span class="sw-vs">vs</span>
+                                <span>@match.AwayTeam.ShortName</span>
+                            </div>
+                            <div class="sw-upcoming-league">@match.League?.Name</div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="sw-empty-state">
+                        <i class="bi bi-calendar"></i>
+                        <p>No upcoming matches</p>
+                    </div>
+                }
+            </div>
+        </div>
+        
+        <!-- Top Teams -->
+        <div class="sw-card">
+            <div class="sw-card-header">
+                <h3 class="sw-card-title">🏆 Top Teams by ELO</h3>
+                <a href="/teams" class="sw-card-link">View All →</a>
+            </div>
+            <div class="sw-card-body">
+                @if (topTeams.Any())
+                {
+                    int rank = 1;
+                    foreach (var team in topTeams.Take(8))
+                    {
+                        <div class="sw-ranking-item">
+                            <span class="sw-ranking-pos">#@(rank++)</span>
+                            <span class="sw-ranking-team">@team.Name</span>
+                            <span class="sw-ranking-elo" style="color: @GetEloColor(team.EloRating)">@team.EloRating:F0 ELO</span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+        
+        <!-- Latest News -->
+        <div class="sw-card">
+            <div class="sw-card-header">
+                <h3 class="sw-card-title">📰 Latest News</h3>
+                <a href="/news" class="sw-card-link">View All →</a>
+            </div>
+            <div class="sw-card-body">
+                @if (latestNews.Any())
+                {
+                    foreach (var news in latestNews.Take(6))
+                    {
+                        <div class="sw-news-mini">
+                            <div class="sw-news-mini-sentiment @news.SentimentLabel.ToLower()"></div>
+                            <div class="sw-news-mini-content">
+                                <span class="sw-news-mini-title">@news.Title</span>
+                                <span class="sw-news-mini-meta">@news.Source · @news.PublishedAt.ToString("dd MMM")</span>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Inject] private MatchService MatchService { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    
+    private Dictionary<string, object> stats = new();
+    private List<Match> liveMatches = new();
+    private List<Match> upcomingMatches = new();
+    private List<Team> topTeams = new();
+    private List<NewsArticle> latestNews = new();
+    
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            liveMatches = await MatchService.GetLiveMatchesAsync();
+            upcomingMatches = await MatchService.GetUpcomingMatchesAsync(10);
+            topTeams = await MatchService.GetTeamsAsync();
+            topTeams = topTeams.OrderByDescending(t => t.EloRating).ToList();
+            latestNews = await MatchService.GetLatestNewsAsync(10);
+            stats = await MatchService.GetDashboardStatsAsync();
+        }
+        catch
+        {
+            // Initial load might fail before seeding
+        }
+    }
+    
+    private void GoToMatch(int matchId) => Navigation.NavigateTo($"/matches/{matchId}");
+    
+    private string GetEloColor(double elo) => elo switch
+    {
+        >= 1800 => "#FFD700",
+        >= 1700 => "#00D4AA",
+        >= 1600 => "#4FC3F7",
+        _ => "#90A4AE"
+    };
+}

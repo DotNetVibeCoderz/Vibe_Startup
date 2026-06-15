@@ -1,0 +1,177 @@
+@page "/teams"
+@page "/teams/{TeamId:int}"
+
+<div class="sw-page sw-teams-page">
+    <div class="sw-page-header">
+        <h1 class="sw-page-title">
+            @PageTitle
+        </h1>
+        
+        @if (TeamId == 0)
+        {
+            <div class="sw-filter-bar">
+                <select class="sw-select" @bind="selectedLeague" @bind:after="LoadTeams">
+                    <option value="">All Leagues</option>
+                    @foreach (var league in leagues)
+                    {
+                        <option value="@league.Id">@league.Name</option>
+                    }
+                </select>
+            </div>
+        }
+    </div>
+    
+    @if (TeamId > 0 && selectedTeam != null)
+    {
+        <div class="sw-team-detail">
+            <div class="sw-card sw-team-hero-card">
+                <div class="sw-card-body">
+                    <div class="sw-team-hero-content">
+                        <div class="sw-team-hero-left">
+                            <div class="sw-team-crest-large">@selectedTeam.Code</div>
+                            <h2>@selectedTeam.Name</h2>
+                            <p>@selectedTeam.City, @selectedTeam.Country</p>
+                            <p>🏟️ @selectedTeam.Stadium</p>
+                            <p>📅 Founded: @selectedTeam.FoundedYear</p>
+                        </div>
+                        <div class="sw-team-hero-right">
+                            <div class="sw-team-ratings">
+                                <div class="sw-rating-item">
+                                    <span>ELO Rating</span>
+                                    <span class="sw-rating-value" style="color: #FFD700">@selectedTeam.EloRating:F0</span>
+                                </div>
+                                <div class="sw-rating-item">
+                                    <span>Attack</span>
+                                    <div class="sw-rating-bar"><div class="sw-rating-fill attack" style="width:@AttackPct%"></div></div>
+                                    <span>@selectedTeam.AttackStrength:F1</span>
+                                </div>
+                                <div class="sw-rating-item">
+                                    <span>Defense</span>
+                                    <div class="sw-rating-bar"><div class="sw-rating-fill defense" style="width:@DefensePct%"></div></div>
+                                    <span>@selectedTeam.DefenseStrength:F1</span>
+                                </div>
+                                <div class="sw-rating-item">
+                                    <span>Midfield</span>
+                                    <div class="sw-rating-bar"><div class="sw-rating-fill midfield" style="width:@MidfieldPct%"></div></div>
+                                    <span>@selectedTeam.MidfieldStrength:F1</span>
+                                </div>
+                                <div class="sw-rating-item">
+                                    <span>Momentum</span>
+                                    <div class="sw-rating-bar"><div class="sw-rating-fill momentum" style="width:@MomentumPct%"></div></div>
+                                    <span>@MomentumPct%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sw-card mt-4">
+                <div class="sw-card-header"><h3 class="sw-card-title">👥 Squad</h3></div>
+                <div class="sw-card-body">
+                    <div class="sw-players-grid">
+                        @if (teamPlayers.Any())
+                        {
+                            @foreach (var player in teamPlayers)
+                            {
+                                <div class="sw-player-card">
+                                    <div class="sw-player-position @player.Position.ToLower()">@player.Position</div>
+                                    <div class="sw-player-info">
+                                        <span class="sw-player-name">@player.Name</span>
+                                        <span class="sw-player-number">#@player.ShirtNumber</span>
+                                    </div>
+                                    <div class="sw-player-stats">
+                                        <div class="sw-player-stat">
+                                            <span>Rating</span>
+                                            <span class="sw-stat-val">⭐ @player.Rating:F1</span>
+                                        </div>
+                                        <div class="sw-player-stat">
+                                            <span>Goals</span>
+                                            <span>@player.Goals</span>
+                                        </div>
+                                        <div class="sw-player-stat">
+                                            <span>Assists</span>
+                                            <span>@player.Assists</span>
+                                        </div>
+                                    </div>
+                                    @if (player.IsInjured)
+                                    {
+                                        <div class="sw-injury-badge">🏥 @player.InjuryDescription</div>
+                                    }
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="sw-empty-state full-width"><p>No player data available</p></div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="sw-teams-grid">
+            @foreach (var team in allTeams)
+            {
+                <div class="sw-team-card" @onclick="() => GoToTeam(team.Id)">
+                    <div class="sw-team-card-header">
+                        <div class="sw-team-card-crest">@team.Code</div>
+                        <span class="sw-team-league">@team.League?.Name</span>
+                    </div>
+                    <div class="sw-team-card-body">
+                        <h3>@team.Name</h3>
+                        <p>@team.City, @team.Country</p>
+                        <div class="sw-team-card-stats">
+                            <span>ELO: <b>@team.EloRating:F0</b></span>
+                            <span>W: @team.Wins D: @team.Draws L: @team.Losses</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Inject] private MatchService MatchService { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    
+    [Parameter] public int TeamId { get; set; }
+    
+    private List<Team> allTeams = new();
+    private List<League> leagues = new();
+    private Team? selectedTeam;
+    private List<Player> teamPlayers = new();
+    private string selectedLeague = "";
+    
+    private string PageTitle => TeamId > 0 ? $"🛡️ {selectedTeam?.Name}" : "🛡️ Teams";
+    private int AttackPct => (int)((selectedTeam?.AttackStrength ?? 0) / 3.0 * 100);
+    private int DefensePct => (int)((selectedTeam?.DefenseStrength ?? 0) / 3.0 * 100);
+    private int MidfieldPct => (int)((selectedTeam?.MidfieldStrength ?? 0) / 3.0 * 100);
+    private int MomentumPct => (int)((selectedTeam?.Momentum ?? 0) * 100);
+    
+    private void GoToTeam(int id) => Navigation.NavigateTo($"/teams/{id}");
+    
+    protected override async Task OnInitializedAsync()
+    {
+        leagues = await MatchService.GetLeaguesAsync();
+        
+        if (TeamId > 0)
+        {
+            selectedTeam = await MatchService.GetTeamAsync(TeamId);
+            teamPlayers = await MatchService.GetPlayersByTeamAsync(TeamId);
+        }
+        else
+        {
+            await LoadTeams();
+        }
+    }
+    
+    private async Task LoadTeams()
+    {
+        int? leagueId = string.IsNullOrEmpty(selectedLeague) ? null : int.Parse(selectedLeague);
+        allTeams = await MatchService.GetTeamsAsync(leagueId);
+    }
+}

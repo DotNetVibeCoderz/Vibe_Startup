@@ -1,0 +1,85 @@
+@page "/profile"
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@using UserProfileModel = SoccerWizard.Models.UserProfile
+
+<div class="sw-page sw-profile-page">
+    <div class="sw-page-header">
+        <h1 class="sw-page-title">👤 User Profile</h1>
+    </div>
+    
+    <div class="sw-card sw-profile-card">
+        <div class="sw-card-body">
+            <div class="sw-profile-header">
+                <div class="sw-profile-avatar">
+                    @if (!string.IsNullOrWhiteSpace(profile?.AvatarUrl))
+                    {
+                        <img src="@profile.AvatarUrl" alt="Avatar" />
+                    }
+                    else
+                    {
+                        <span>@Initials</span>
+                    }
+                </div>
+                <div class="sw-profile-info">
+                    <h2>@profile?.FullName</h2>
+                    <p>@user?.Email</p>
+                    <span class="sw-badge-inline">@role</span>
+                    <div class="mt-2">
+                        <a class="sw-btn sw-btn-outline sw-btn-sm" href="/profile/edit"><i class="bi bi-pencil"></i> Edit Profile</a>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sw-profile-details mt-4">
+                <div class="sw-detail-item">
+                    <i class="bi bi-heart-fill"></i>
+                    <span>Favorite Team: <b>@profile?.FavoriteTeam</b></span>
+                </div>
+                <div class="sw-detail-item">
+                    <i class="bi bi-trophy"></i>
+                    <span>Favorite League: <b>@profile?.FavoriteLeague</b></span>
+                </div>
+                <div class="sw-detail-item">
+                    <i class="bi bi-chat-left-text"></i>
+                    <span>Bio: <b>@profile?.Bio</b></span>
+                </div>
+                <div class="sw-detail-item">
+                    <i class="bi bi-graph-up-arrow"></i>
+                    <span>Predictions: <b>@profile?.PredictionsCount</b> (Correct: @profile?.CorrectPredictions)</span>
+                </div>
+                <div class="sw-detail-item">
+                    <i class="bi bi-calendar-check"></i>
+                    <span>Joined: <b>@profile?.CreatedAt.ToString("dd MMM yyyy")</b></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Inject] private UserManager<IdentityUser> UserManager { get; set; } = default!;
+    [Inject] private AppDbContext DbContext { get; set; } = default!;
+    [Inject] private AuthenticationStateProvider AuthStateProvider { get; set; } = default!;
+    
+    private IdentityUser? user;
+    private UserProfileModel? profile;
+    private string role = "User";
+    
+    private string Initials => profile?.FullName?.Length > 0 ? profile.FullName[..Math.Min(2, profile.FullName.Length)].ToUpper() : "?" ;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        user = await UserManager.GetUserAsync(authState.User);
+        
+        if (user != null)
+        {
+            profile = DbContext.UserProfiles.FirstOrDefault(p => p.UserId == user.Id);
+            
+            if (authState.User.IsInRole("Admin"))
+                role = "Admin";
+        }
+    }
+}

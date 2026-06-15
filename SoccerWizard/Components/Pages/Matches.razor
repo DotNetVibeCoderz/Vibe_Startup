@@ -1,0 +1,272 @@
+@page "/matches"
+@page "/matches/{MatchId:int}"
+
+<div class="sw-page sw-matches-page">
+    <div class="sw-page-header">
+        <h1 class="sw-page-title">
+            @PageTitle
+        </h1>
+        <p class="sw-page-subtitle">Live scores, fixtures, and results</p>
+        
+        <div class="sw-filter-bar">
+            <select class="sw-select" @bind="selectedStatus" @bind:after="LoadMatches">
+                <option value="">All Status</option>
+                <option value="LIVE">🔴 Live</option>
+                <option value="SCHEDULED">📅 Scheduled</option>
+                <option value="FINISHED">✅ Finished</option>
+            </select>
+            <select class="sw-select" @bind="selectedLeague" @bind:after="LoadMatches">
+                <option value="">All Leagues</option>
+                @foreach (var league in leagues)
+                {
+                    <option value="@league.Id">@league.Name</option>
+                }
+            </select>
+        </div>
+    </div>
+    
+    @if (MatchId > 0 && selectedMatch != null)
+    {
+        <div class="sw-match-detail">
+            <div class="sw-match-hero">
+                <div class="sw-match-hero-teams">
+                    <div class="sw-match-hero-team">
+                        <div class="sw-team-crest">@selectedMatch.HomeTeam.Code</div>
+                        <h3>@selectedMatch.HomeTeam.Name</h3>
+                        <span class="sw-team-stats">@selectedMatch.HomeFormation</span>
+                    </div>
+                    <div class="sw-match-hero-score">
+                        @if (selectedMatch.Status == "SCHEDULED")
+                        {
+                            <span class="sw-score-vs">VS</span>
+                            <span class="sw-match-date">@selectedMatch.MatchDate.ToString("dd MMM yyyy HH:mm")</span>
+                        }
+                        else
+                        {
+                            <span class="sw-score-main">@selectedMatch.HomeScore - @selectedMatch.AwayScore</span>
+                            <span class="sw-score-status @selectedMatch.Status.ToLower()">@selectedMatch.Status</span>
+                        }
+                    </div>
+                    <div class="sw-match-hero-team">
+                        <div class="sw-team-crest">@selectedMatch.AwayTeam.Code</div>
+                        <h3>@selectedMatch.AwayTeam.Name</h3>
+                        <span class="sw-team-stats">@selectedMatch.AwayFormation</span>
+                    </div>
+                </div>
+                <div class="sw-match-hero-info">
+                    <span><i class="bi bi-geo-alt"></i> @selectedMatch.Venue</span>
+                    <span><i class="bi bi-flag"></i> @selectedMatch.League?.Name</span>
+                    <span><i class="bi bi-calendar"></i> @selectedMatch.MatchDate.ToString("dd MMM yyyy")</span>
+                    <span><i class="bi bi-cloud-sun"></i> @selectedMatch.Weather @selectedMatch.Temperature°C</span>
+                </div>
+            </div>
+            
+            @if (selectedMatch.Status == "FINISHED" || selectedMatch.Status == "LIVE")
+            {
+                <div class="sw-match-stats-grid">
+                    <div class="sw-card">
+                        <div class="sw-card-header"><h3 class="sw-card-title">📊 Match Statistics</h3></div>
+                        <div class="sw-card-body">
+                            <div class="sw-stat-bar">
+                                <span class="sw-stat-bar-label">Possession</span>
+                                <div class="sw-stat-bar-track">
+                                    <div class="sw-stat-bar-fill home" style="width:@PossessionHome%">@selectedMatch.HomePossession%</div>
+                                    <div class="sw-stat-bar-fill away" style="width:@PossessionAway%">@selectedMatch.AwayPossession%</div>
+                                </div>
+                            </div>
+                            <div class="sw-stat-bar">
+                                <span class="sw-stat-bar-label">Shots</span>
+                                <div class="sw-stat-bar-track">
+                                    <div class="sw-stat-bar-fill home" style="width:@ShotsHomePct%">@selectedMatch.HomeShots</div>
+                                    <div class="sw-stat-bar-fill away" style="width:@ShotsAwayPct%">@selectedMatch.AwayShots</div>
+                                </div>
+                            </div>
+                            <div class="sw-stat-bar">
+                                <span class="sw-stat-bar-label">Shots on Target</span>
+                                <div class="sw-stat-bar-track">
+                                    <div class="sw-stat-bar-fill home" style="width:@ShotsOnTargetHomePct%">@selectedMatch.HomeShotsOnTarget</div>
+                                    <div class="sw-stat-bar-fill away" style="width:@ShotsOnTargetAwayPct%">@selectedMatch.AwayShotsOnTarget</div>
+                                </div>
+                            </div>
+                            <div class="sw-stat-bar">
+                                <span class="sw-stat-bar-label">Corners</span>
+                                <div class="sw-stat-bar-track">
+                                    <div class="sw-stat-bar-fill home" style="width:@CornersHomePct%">@selectedMatch.HomeCorners</div>
+                                    <div class="sw-stat-bar-fill away" style="width:@CornersAwayPct%">@selectedMatch.AwayCorners</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="sw-card">
+                        <div class="sw-card-header"><h3 class="sw-card-title">🔮 Prediction Results</h3></div>
+                        <div class="sw-card-body">
+                            @if (selectedMatch.Predictions.Any())
+                            {
+                                var pred = selectedMatch.Predictions.First();
+                                <div class="sw-prediction-result">
+                                    <div class="sw-prediction-outcome @PredictionCorrectClass">
+                                        <i class="bi @PredictionIcon"></i>
+                                        @PredictionResultText
+                                    </div>
+                                    <div class="sw-probability-bars">
+                                        <div class="sw-prob-item">
+                                            <span>Home Win</span>
+                                            <div class="sw-prob-bar"><div class="sw-prob-fill" style="width:@HomeWinPct%"></div></div>
+                                            <span>@HomeWinPct%</span>
+                                        </div>
+                                        <div class="sw-prob-item">
+                                            <span>Draw</span>
+                                            <div class="sw-prob-bar"><div class="sw-prob-fill draw" style="width:@DrawPct%"></div></div>
+                                            <span>@DrawPct%</span>
+                                        </div>
+                                        <div class="sw-prob-item">
+                                            <span>Away Win</span>
+                                            <div class="sw-prob-bar"><div class="sw-prob-fill away" style="width:@AwayWinPct%"></div></div>
+                                            <span>@AwayWinPct%</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="sw-empty-state">
+                                    <i class="bi bi-graph-up"></i>
+                                    <p>No prediction data available</p>
+                                    <button class="sw-btn sw-btn-primary" @onclick="GeneratePrediction">Generate Prediction</button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="sw-matches-grid">
+            @if (matches.Any())
+            {
+                @foreach (var match in matches)
+                {
+                    <div class="sw-match-card @match.Status.ToLower()" @onclick="() => GoToMatch(match.Id)">
+                        <div class="sw-match-card-header">
+                            <span class="sw-match-league">@match.League?.Name</span>
+                            <span class="sw-match-status @match.Status.ToLower()">@match.Status</span>
+                        </div>
+                        <div class="sw-match-card-body">
+                            <div class="sw-match-card-team">
+                                <span class="sw-team-code">@match.HomeTeam.Code</span>
+                                <span class="sw-team-name">@match.HomeTeam.ShortName</span>
+                            </div>
+                            <div class="sw-match-card-score">
+                                @if (match.Status == "SCHEDULED")
+                                {
+                                    <span class="sw-score-time">@match.MatchDate.ToString("HH:mm")</span>
+                                }
+                                else
+                                {
+                                    <span class="sw-score">@match.HomeScore - @match.AwayScore</span>
+                                }
+                            </div>
+                            <div class="sw-match-card-team">
+                                <span class="sw-team-code">@match.AwayTeam.Code</span>
+                                <span class="sw-team-name">@match.AwayTeam.ShortName</span>
+                            </div>
+                        </div>
+                        <div class="sw-match-card-footer">
+                            <span>@match.MatchDate.ToString("dd MMM yyyy")</span>
+                            <span>@match.Venue</span>
+                        </div>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="sw-empty-state full-width">
+                    <i class="bi bi-calendar-x"></i>
+                    <p>No matches found matching the current filters</p>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Inject] private MatchService MatchService { get; set; } = default!;
+    [Inject] private MLPredictionService MLService { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    
+    [Parameter] public int MatchId { get; set; }
+    
+    private List<Match> matches = new();
+    private List<League> leagues = new();
+    private Match? selectedMatch;
+    private string selectedStatus = "";
+    private string selectedLeague = "";
+    
+    // Computed properties untuk style
+    private string PageTitle => MatchId > 0 ? $"⚽ Match Details #{MatchId}" : "⚽ Matches";
+    private int PossessionHome => selectedMatch?.HomePossession ?? 50;
+    private int PossessionAway => selectedMatch?.AwayPossession ?? 50;
+    private int ShotsHomePct => GetPct(selectedMatch?.HomeShots, selectedMatch?.AwayShots);
+    private int ShotsAwayPct => GetPct(selectedMatch?.AwayShots, selectedMatch?.HomeShots);
+    private int ShotsOnTargetHomePct => GetPct(selectedMatch?.HomeShotsOnTarget, selectedMatch?.AwayShotsOnTarget);
+    private int ShotsOnTargetAwayPct => GetPct(selectedMatch?.AwayShotsOnTarget, selectedMatch?.HomeShotsOnTarget);
+    private int CornersHomePct => GetPct(selectedMatch?.HomeCorners, selectedMatch?.AwayCorners);
+    private int CornersAwayPct => GetPct(selectedMatch?.AwayCorners, selectedMatch?.HomeCorners);
+    
+    private Prediction? FirstPred => selectedMatch?.Predictions.FirstOrDefault();
+    private string PredictionCorrectClass => FirstPred?.IsCorrect == true ? "correct" : "incorrect";
+    private string PredictionIcon => FirstPred?.IsCorrect == true ? "bi-check-circle" : "bi-x-circle";
+    private string PredictionResultText => FirstPred?.IsCorrect == true ? "Prediction Correct!" : "Prediction Incorrect";
+    private int HomeWinPct => (int)((FirstPred?.HomeWinProbability ?? 0) * 100);
+    private int DrawPct => (int)((FirstPred?.DrawProbability ?? 0) * 100);
+    private int AwayWinPct => (int)((FirstPred?.AwayWinProbability ?? 0) * 100);
+    
+    private void GoToMatch(int id) => Navigation.NavigateTo($"/matches/{id}");
+    
+    private int GetPct(int? a, int? b)
+    {
+        double total = (a ?? 0) + (b ?? 0);
+        if (total == 0) return 50;
+        return (int)((a ?? 0) / total * 100);
+    }
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLeagues();
+        
+        if (MatchId > 0)
+            await LoadMatchDetail();
+        else
+            await LoadMatches();
+    }
+    
+    private async Task LoadMatches()
+    {
+        int? leagueId = string.IsNullOrEmpty(selectedLeague) ? null : int.Parse(selectedLeague);
+        string? status = string.IsNullOrEmpty(selectedStatus) ? null : selectedStatus;
+        matches = await MatchService.GetMatchesAsync(status: status, leagueId: leagueId, limit: 30);
+    }
+    
+    private async Task LoadLeagues()
+    {
+        leagues = await MatchService.GetLeaguesAsync();
+    }
+    
+    private async Task LoadMatchDetail()
+    {
+        var allMatches = await MatchService.GetMatchesAsync(limit: 100);
+        selectedMatch = allMatches.FirstOrDefault(m => m.Id == MatchId);
+    }
+    
+    private async Task GeneratePrediction()
+    {
+        if (selectedMatch != null)
+        {
+            await MLService.PredictMatchAsync(selectedMatch);
+            await LoadMatchDetail();
+        }
+    }
+}

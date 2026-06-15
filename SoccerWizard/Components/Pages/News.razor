@@ -1,0 +1,66 @@
+@page "/news"
+
+<div class="sw-page sw-news-page">
+    <div class="sw-page-header">
+        <h1 class="sw-page-title">📰 News & Sentiment Analysis</h1>
+        <p class="sw-page-subtitle">Latest football news with AI-powered sentiment analysis</p>
+    </div>
+    
+    <div class="sw-news-grid">
+        @if (newsArticles.Any())
+        {
+            @foreach (var article in newsArticles)
+            {
+                <div class="sw-news-card">
+                    <div class="sw-news-card-header">
+                        <div class="sw-news-source">
+                            <span class="sw-source-badge">@article.Source</span>
+                            <span class="sw-news-date">@article.PublishedAt.ToString("dd MMM yyyy HH:mm")</span>
+                        </div>
+                        <div class="sw-sentiment-badge @article.SentimentLabel.ToLower()">
+                            @article.SentimentLabel
+                            <span class="sw-sentiment-score">@article.SentimentScore:F2</span>
+                        </div>
+                    </div>
+                    <div class="sw-news-card-body">
+                        <h3 class="sw-news-title">@article.Title</h3>
+                        <p class="sw-news-excerpt">@(article.Content.Length > 200 ? article.Content[..200] + "..." : article.Content)</p>
+                        
+                        @if (!string.IsNullOrEmpty(article.SentimentSummary))
+                        {
+                            <div class="sw-sentiment-summary">
+                                <i class="bi bi-robot"></i>
+                                <span>@article.SentimentSummary</span>
+                            </div>
+                        }
+                    </div>
+                    <div class="sw-news-card-footer">
+                        <span class="sw-news-category">@article.Category</span>
+                        @if (article.Team != null)
+                        {
+                            <span class="sw-news-team">@article.Team.Name</span>
+                        }
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="sw-empty-state full-width">
+                <i class="bi bi-newspaper"></i>
+                <p>No news articles available</p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Inject] private MatchService MatchService { get; set; } = default!;
+    
+    private List<NewsArticle> newsArticles = new();
+    
+    protected override async Task OnInitializedAsync()
+    {
+        newsArticles = await MatchService.GetLatestNewsAsync(20);
+    }
+}

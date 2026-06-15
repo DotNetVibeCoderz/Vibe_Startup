@@ -1,0 +1,243 @@
+@page "/admin"
+@attribute [Authorize(Roles = "Admin")]
+
+<div class="sw-page sw-admin-page">
+    <div class="sw-page-header">
+        <h1 class="sw-page-title">⚙️ Admin Panel</h1>
+        <p class="sw-page-subtitle">Manage SoccerWizard system</p>
+    </div>
+    
+    <div class="sw-admin-grid">
+        <!-- Stats Overview -->
+        <div class="sw-card">
+            <div class="sw-card-header"><h3 class="sw-card-title">📊 System Overview</h3></div>
+            <div class="sw-card-body">
+                <div class="sw-stats-grid">
+                    <div class="sw-stat-card">
+                        <div class="sw-stat-info">
+                            <span class="sw-stat-value">@stats.GetValueOrDefault("TotalMatches", 0)</span>
+                            <span class="sw-stat-label">Total Matches</span>
+                        </div>
+                    </div>
+                    <div class="sw-stat-card">
+                        <div class="sw-stat-info">
+                            <span class="sw-stat-value">@stats.GetValueOrDefault("TotalTeams", 0)</span>
+                            <span class="sw-stat-label">Teams</span>
+                        </div>
+                    </div>
+                    <div class="sw-stat-card">
+                        <div class="sw-stat-info">
+                            <span class="sw-stat-value">@stats.GetValueOrDefault("TotalPredictions", 0)</span>
+                            <span class="sw-stat-label">Predictions</span>
+                        </div>
+                    </div>
+                    <div class="sw-stat-card">
+                        <div class="sw-stat-info">
+                            <span class="sw-stat-value">@stats.GetValueOrDefault("TotalNews", 0)</span>
+                            <span class="sw-stat-label">News Articles</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sync Settings -->
+        <div class="sw-card">
+            <div class="sw-card-header"><h3 class="sw-card-title">🔄 Live Data Sync Settings</h3></div>
+            <div class="sw-card-body">
+                <div class="sw-admin-actions" style="flex-wrap: wrap; gap: 20px;">
+                    <div style="min-width: 240px;">
+                        <strong>Sync Data</strong>
+                        <div class="mt-2" style="display: flex; flex-direction: column; gap: 6px;">
+                            <label><input type="checkbox" @bind="syncForm.SyncLeagues" /> League</label>
+                            <label><input type="checkbox" @bind="syncForm.SyncTeams" /> Teams</label>
+                            <label><input type="checkbox" @bind="syncForm.SyncMatches" /> Matches</label>
+                            <label><input type="checkbox" @bind="syncForm.SyncStandings" /> Standings</label>
+                        </div>
+                    </div>
+
+                    <div style="min-width: 240px;">
+                        <strong>Match Range</strong>
+                        <div class="mt-2" style="display: grid; gap: 10px;">
+                            <label>Last (days)
+                                <input class="sw-input" type="number" min="0" @bind="syncForm.PastDays" />
+                            </label>
+                            <label>Next (days)
+                                <input class="sw-input" type="number" min="0" @bind="syncForm.FutureDays" />
+                            </label>
+                        </div>
+                    </div>
+
+                    <div style="min-width: 260px;">
+                        <strong>Run Mode</strong>
+                        <InputRadioGroup @bind-Value="syncForm.RunMode" class="mt-2" style="display: flex; flex-direction: column; gap: 6px;">
+                            <label><InputRadio Value="RunModeManual" /> Manual (button)</label>
+                            <label><InputRadio Value="RunModeBackground" /> Background schedule</label>
+                        </InputRadioGroup>
+
+                        @if (syncForm.RunMode == RunModeBackground)
+                        {
+                            <label class="mt-2">Interval (minutes)
+                                <input class="sw-input" type="number" min="5" @bind="syncForm.BackgroundIntervalMinutes" />
+                            </label>
+                        }
+
+                        <div class="mt-2 text-muted" style="font-size: 0.85rem;">
+                            Last run: @(SyncSettings.LastRunUtc?.ToString("u") ?? "-" )
+                        </div>
+                    </div>
+                </div>
+
+                <button class="sw-btn sw-btn-outline mt-3" @onclick="ApplySyncSettings" disabled="@isWorking">
+                    <i class="bi bi-sliders"></i> Apply Sync Settings
+                </button>
+            </div>
+        </div>
+        
+        <!-- Quick Actions -->
+        <div class="sw-card">
+            <div class="sw-card-header"><h3 class="sw-card-title">🛠️ Quick Actions</h3></div>
+            <div class="sw-card-body">
+                <div class="sw-admin-actions">
+                    <button class="sw-btn sw-btn-primary" @onclick="SeedData" disabled="@isWorking">
+                        <i class="bi bi-database-add"></i> Reseed Database
+                    </button>
+                    <a href="/ml-dashboard" class="sw-btn sw-btn-accent">
+                        <i class="bi bi-cpu"></i> ML Dashboard
+                    </a>
+                    <a href="/admin/manual-sync" class="sw-btn sw-btn-outline">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> Manual Excel Sync
+                    </a>
+                    <button class="sw-btn sw-btn-outline" @onclick="SyncLiveData" disabled="@isWorking">
+                        <i class="bi bi-cloud-download"></i> Sync Live Data
+                    </button>
+                </div>
+                
+                @if (!string.IsNullOrWhiteSpace(actionMessage))
+                {
+                    <div class="sw-alert @(actionError ? "danger" : "success") mt-3">
+                        <i class="bi @(actionError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
+                        <span>@actionMessage</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const string RunModeManual = "Manual";
+    private const string RunModeBackground = "Background";
+
+    [Inject] private MatchService MatchService { get; set; } = default!;
+    [Inject] private IServiceProvider ServiceProvider { get; set; } = default!;
+    [Inject] private LiveDataSyncSettings SyncSettings { get; set; } = default!;
+    
+    private Dictionary<string, object> stats = new();
+    private string? actionMessage;
+    private bool actionError;
+    private bool isWorking;
+    private LiveDataSyncForm syncForm = new();
+    
+    protected override async Task OnInitializedAsync()
+    {
+        stats = await MatchService.GetDashboardStatsAsync();
+        syncForm = LiveDataSyncForm.FromSettings(SyncSettings);
+    }
+
+    private async Task SeedData()
+    {
+        isWorking = true;
+        actionMessage = null;
+        actionError = false;
+
+        try
+        {
+            await DataSeeder.SeedAsync(ServiceProvider);
+            stats = await MatchService.GetDashboardStatsAsync();
+            actionMessage = "Database reseeded successfully!";
+        }
+        catch (Exception ex)
+        {
+            actionMessage = $"Error: {ex.Message}";
+            actionError = true;
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private void ApplySyncSettings()
+    {
+        syncForm.Normalize();
+        SyncSettings.SyncLeagues = syncForm.SyncLeagues;
+        SyncSettings.SyncTeams = syncForm.SyncTeams;
+        SyncSettings.SyncMatches = syncForm.SyncMatches;
+        SyncSettings.SyncStandings = syncForm.SyncStandings;
+        SyncSettings.PastDays = syncForm.PastDays;
+        SyncSettings.FutureDays = syncForm.FutureDays;
+        SyncSettings.EnableBackgroundSync = syncForm.RunMode == RunModeBackground;
+        SyncSettings.BackgroundIntervalMinutes = syncForm.BackgroundIntervalMinutes;
+
+        actionMessage = "Sync settings updated.";
+        actionError = false;
+    }
+
+    private async Task SyncLiveData()
+    {
+        isWorking = true;
+        actionMessage = null;
+        actionError = false;
+
+        try
+        {
+            ApplySyncSettings();
+            actionMessage = await MatchService.SyncLiveDataAsync(SyncSettings);
+            stats = await MatchService.GetDashboardStatsAsync();
+        }
+        catch (Exception ex)
+        {
+            actionMessage = $"Sync failed: {ex.Message}";
+            actionError = true;
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private class LiveDataSyncForm
+    {
+        public bool SyncLeagues { get; set; } = true;
+        public bool SyncTeams { get; set; } = true;
+        public bool SyncMatches { get; set; } = true;
+        public bool SyncStandings { get; set; } = true;
+        public int PastDays { get; set; } = 7;
+        public int FutureDays { get; set; } = 7;
+        public string RunMode { get; set; } = RunModeManual;
+        public int BackgroundIntervalMinutes { get; set; } = 60;
+
+        public static LiveDataSyncForm FromSettings(LiveDataSyncSettings settings)
+        {
+            return new LiveDataSyncForm
+            {
+                SyncLeagues = settings.SyncLeagues,
+                SyncTeams = settings.SyncTeams,
+                SyncMatches = settings.SyncMatches,
+                SyncStandings = settings.SyncStandings,
+                PastDays = settings.PastDays,
+                FutureDays = settings.FutureDays,
+                RunMode = settings.EnableBackgroundSync ? RunModeBackground : RunModeManual,
+                BackgroundIntervalMinutes = settings.BackgroundIntervalMinutes
+            };
+        }
+
+        public void Normalize()
+        {
+            PastDays = Math.Max(0, PastDays);
+            FutureDays = Math.Max(0, FutureDays);
+            BackgroundIntervalMinutes = Math.Max(5, BackgroundIntervalMinutes);
+        }
+    }
+}

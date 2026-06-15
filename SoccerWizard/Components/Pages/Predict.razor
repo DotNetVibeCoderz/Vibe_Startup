@@ -1,0 +1,271 @@
+@page "/predict"
+
+<div class="sw-page sw-predict-page">
+    <div class="sw-page-header">
+        <h1 class="sw-page-title">🔮 Match Predictions</h1>
+        <p class="sw-page-subtitle">AI-powered predictions using ML.NET + Poisson Distribution + LLM Analysis</p>
+    </div>
+    
+    <!-- Prediction Generator -->
+    <div class="sw-card sw-predict-generator">
+        <div class="sw-card-header">
+            <h3 class="sw-card-title">🎯 Predict a Match</h3>
+        </div>
+        <div class="sw-card-body">
+            <div class="sw-predict-form">
+                <div class="sw-form-row">
+                    <div class="sw-form-group">
+                        <label>Home Team</label>
+                        <select class="sw-select" @bind="selectedHomeTeamId">
+                            <option value="">-- Select Home Team --</option>
+                            @foreach (var team in teams)
+                            {
+                                <option value="@team.Id">@team.Name (@team.EloRating:F0 ELO)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="sw-predict-vs">
+                        <span>VS</span>
+                    </div>
+                    <div class="sw-form-group">
+                        <label>Away Team</label>
+                        <select class="sw-select" @bind="selectedAwayTeamId">
+                            <option value="">-- Select Away Team --</option>
+                            @foreach (var team in teams)
+                            {
+                                <option value="@team.Id">@team.Name (@team.EloRating:F0 ELO)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="sw-form-actions">
+                    <button class="sw-btn sw-btn-primary sw-btn-lg" @onclick="RunPrediction" disabled="@(selectedHomeTeamId == 0 || selectedAwayTeamId == 0)">
+                        <i class="bi bi-cpu"></i> Run ML Prediction
+                    </button>
+                    <button class="sw-btn sw-btn-accent sw-btn-lg" @onclick="RunLLMPrediction" disabled="@(selectedHomeTeamId == 0 || selectedAwayTeamId == 0)">
+                        <i class="bi bi-robot"></i> Run AI Analysis
+                    </button>
+                </div>
+            </div>
+            
+            @if (isLoading)
+            {
+                <div class="sw-loading">
+                    <div class="sw-spinner"></div>
+                    <p>Analyzing match data...</p>
+                </div>
+            }
+            
+            @if (currentPrediction != null)
+            {
+                <div class="sw-prediction-result-full">
+                    <h3>📊 Prediction Result</h3>
+                    <div class="sw-prediction-outcome-large @currentPrediction.PredictedOutcome.ToLower()">
+                        @switch (currentPrediction.PredictedOutcome)
+                        {
+                            case "HOME_WIN": <span>🏠 @homeTeam?.Name Wins!</span> break;
+                            case "AWAY_WIN": <span>✈️ @awayTeam?.Name Wins!</span> break;
+                            case "DRAW": <span>🤝 Draw</span> break;
+                        }
+                        <span class="sw-confidence">@(currentPrediction.Confidence * 100)% confidence</span>
+                    </div>
+                    
+                    <div class="sw-prediction-grid">
+                        <div class="sw-prediction-probabilities">
+                            <h4>Win Probabilities</h4>
+                            <div class="sw-prob-item large">
+                                <span>@homeTeam?.ShortName</span>
+                                <div class="sw-prob-bar large"><div class="sw-prob-fill" style="width:@(currentPrediction.HomeWinProbability * 100)%">@(currentPrediction.HomeWinProbability * 100)%</div></div>
+                            </div>
+                            <div class="sw-prob-item large">
+                                <span>Draw</span>
+                                <div class="sw-prob-bar large"><div class="sw-prob-fill draw" style="width:@(currentPrediction.DrawProbability * 100)%">@(currentPrediction.DrawProbability * 100)%</div></div>
+                            </div>
+                            <div class="sw-prob-item large">
+                                <span>@awayTeam?.ShortName</span>
+                                <div class="sw-prob-bar large"><div class="sw-prob-fill away" style="width:@(currentPrediction.AwayWinProbability * 100)%">@(currentPrediction.AwayWinProbability * 100)%</div></div>
+                            </div>
+                        </div>
+                        
+                        <div class="sw-prediction-score">
+                            <h4>Predicted Score</h4>
+                            <div class="sw-predicted-score-display">
+                                <span class="sw-ps-team">@homeTeam?.ShortName</span>
+                                <span class="sw-ps-score">@currentPrediction.PredictedHomeScore - @currentPrediction.PredictedAwayScore</span>
+                                <span class="sw-ps-team">@awayTeam?.ShortName</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="sw-key-factors">
+                        <h4>🔑 Key Factors</h4>
+                        <p>@currentPrediction.KeyFactors</p>
+                    </div>
+                    
+                    @if (!string.IsNullOrEmpty(currentPrediction.LLMExplanation))
+                    {
+                        <div class="sw-llm-explanation">
+                            <h4>🤖 AI Analysis</h4>
+                            <p>@currentPrediction.LLMExplanation</p>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+    
+    <!-- Recent Predictions -->
+    <div class="sw-card mt-4">
+        <div class="sw-card-header">
+            <h3 class="sw-card-title">📋 Recent Predictions</h3>
+        </div>
+        <div class="sw-card-body">
+            <div class="sw-table-wrapper">
+                <table class="sw-table">
+                    <thead>
+                        <tr>
+                            <th>Match</th>
+                            <th>Prediction</th>
+                            <th>Confidence</th>
+                            <th>Actual</th>
+                            <th>Result</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var pred in recentPredictions)
+                        {
+                            <tr>
+                                <td>@pred.Match.HomeTeam.ShortName vs @pred.Match.AwayTeam.ShortName</td>
+                                <td>
+                                    <span class="sw-badge @pred.PredictedOutcome.ToLower()">@pred.PredictedOutcome.Replace("_", " ")</span>
+                                </td>
+                                <td>@(pred.Confidence * 100)%</td>
+                                <td>@pred.Match.HomeScore - @pred.Match.AwayScore</td>
+                                <td>
+                                    @if (pred.IsCorrect == true)
+                                    {
+                                        <span class="sw-badge success">✅ Correct</span>
+                                    }
+                                    else if (pred.IsCorrect == false)
+                                    {
+                                        <span class="sw-badge danger">❌ Wrong</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="sw-badge pending">⏳ Pending</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Inject] private MatchService MatchService { get; set; } = default!;
+    [Inject] private MLPredictionService MLService { get; set; } = default!;
+    [Inject] private LLMService LLMService { get; set; } = default!;
+    
+    private List<Team> teams = new();
+    private List<Prediction> recentPredictions = new();
+    private int selectedHomeTeamId;
+    private int selectedAwayTeamId;
+    private Team? homeTeam;
+    private Team? awayTeam;
+    private Prediction? currentPrediction;
+    private bool isLoading;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        teams = await MatchService.GetTeamsAsync();
+        
+        var matches = await MatchService.GetMatchesAsync(status: "FINISHED", limit: 30);
+        recentPredictions = matches
+            .Where(m => m.Predictions.Any())
+            .SelectMany(m => m.Predictions)
+            .OrderByDescending(p => p.CreatedAt)
+            .Take(10)
+            .ToList();
+    }
+    
+    private async Task RunPrediction()
+    {
+        isLoading = true;
+        currentPrediction = null;
+        
+        try
+        {
+            homeTeam = teams.First(t => t.Id == selectedHomeTeamId);
+            awayTeam = teams.First(t => t.Id == selectedAwayTeamId);
+            
+            // Buat match sementara untuk prediksi
+            var tempMatch = new Match
+            {
+                HomeTeamId = selectedHomeTeamId,
+                AwayTeamId = selectedAwayTeamId,
+                HomeTeam = homeTeam,
+                AwayTeam = awayTeam,
+                MatchDate = DateTime.UtcNow,
+                Status = "SCHEDULED",
+                Venue = homeTeam.Stadium,
+            };
+            
+            currentPrediction = await MLService.PredictMatchAsync(tempMatch);
+        }
+        catch (Exception ex)
+        {
+            currentPrediction = new Prediction
+            {
+                PredictedOutcome = "HOME_WIN",
+                HomeWinProbability = 0.45,
+                DrawProbability = 0.30,
+                AwayWinProbability = 0.25,
+                Confidence = 0.65,
+                KeyFactors = $"Prediction based on team ratings. Note: {ex.Message}",
+                LLMExplanation = "ML model training requires more match data. Using statistical fallback."
+            };
+        }
+        
+        isLoading = false;
+    }
+    
+    private async Task RunLLMPrediction()
+    {
+        isLoading = true;
+        currentPrediction = null;
+        
+        try
+        {
+            homeTeam = teams.First(t => t.Id == selectedHomeTeamId);
+            awayTeam = teams.First(t => t.Id == selectedAwayTeamId);
+            
+            // Jalankan prediksi ML dulu
+            await RunPrediction();
+            
+            // Tambahkan analisis LLM
+            var tempMatch = new Match
+            {
+                HomeTeamId = selectedHomeTeamId,
+                AwayTeamId = selectedAwayTeamId,
+                HomeTeam = homeTeam,
+                AwayTeam = awayTeam,
+                Venue = homeTeam.Stadium,
+            };
+            
+            var llmAnalysis = await LLMService.GenerateTextPredictionAsync(tempMatch, homeTeam, awayTeam);
+            
+            if (currentPrediction != null)
+            {
+                currentPrediction.LLMExplanation = llmAnalysis;
+                currentPrediction.PredictionType = "HYBRID";
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

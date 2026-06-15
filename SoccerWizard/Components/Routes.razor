@@ -1,0 +1,17 @@
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>Not Found</PageTitle>
+            <LayoutView Layout="typeof(Layout.MainLayout)">
+                <p class="sw-empty-state" style="padding:80px">
+                    <i class="bi bi-emoji-frown" style="font-size:3rem"></i>
+                    <span style="margin-top:12px">Sorry, this page doesn't exist.</span>
+                </p>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

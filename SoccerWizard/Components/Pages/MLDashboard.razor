@@ -1,0 +1,181 @@
+@page "/ml-dashboard"
+
+<div class="sw-page sw-ml-page">
+    <div class="sw-page-header">
+        <h1 class="sw-page-title">🧠 ML Model Dashboard</h1>
+        <p class="sw-page-subtitle">Machine Learning model training, evaluation, and performance metrics</p>
+    </div>
+    
+    <!-- Model Training -->
+    <div class="sw-card">
+        <div class="sw-card-header">
+            <h3 class="sw-card-title">🎯 Model Training</h3>
+        </div>
+        <div class="sw-card-body">
+            <div class="sw-ml-actions">
+                <button class="sw-btn sw-btn-primary" @onclick="TrainClassifier" disabled="@isTraining">
+                    @if (isTraining)
+                    {
+                        <span class="sw-spinner-sm"></span>
+                        <span>Training...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-play-fill"></i>
+                        <span>Train Classifier (Win/Draw/Lose)</span>
+                    }
+                </button>
+                <button class="sw-btn sw-btn-accent" @onclick="TrainRegressor" disabled="@isTraining">
+                    <i class="bi bi-graph-up"></i>
+                    <span>Train Score Regressor</span>
+                </button>
+            </div>
+            
+            @if (trainingMessage != null)
+            {
+                <div class="sw-alert @(trainingError ? "danger" : "success") mt-3">
+                    <i class="bi @(trainingError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
+                    <span>@trainingMessage</span>
+                </div>
+            }
+        </div>
+    </div>
+    
+    <!-- Model Evaluation -->
+    @if (evaluation != null)
+    {
+        <div class="sw-card mt-4">
+            <div class="sw-card-header">
+                <h3 class="sw-card-title">📈 Model Evaluation Results</h3>
+            </div>
+            <div class="sw-card-body">
+                <div class="sw-evaluation-grid">
+                    <div class="sw-eval-card">
+                        <div class="sw-eval-icon">🎯</div>
+                        <div class="sw-eval-value">@(evaluation.Accuracy * 100)%</div>
+                        <div class="sw-eval-label">Accuracy</div>
+                    </div>
+                    <div class="sw-eval-card">
+                        <div class="sw-eval-icon">📐</div>
+                        <div class="sw-eval-value">@(evaluation.Precision * 100)%</div>
+                        <div class="sw-eval-label">Precision</div>
+                    </div>
+                    <div class="sw-eval-card">
+                        <div class="sw-eval-icon">🔄</div>
+                        <div class="sw-eval-value">@(evaluation.Recall * 100)%</div>
+                        <div class="sw-eval-label">Recall</div>
+                    </div>
+                    <div class="sw-eval-card">
+                        <div class="sw-eval-icon">📊</div>
+                        <div class="sw-eval-value">@(evaluation.F1Score * 100)%</div>
+                        <div class="sw-eval-label">F1 Score</div>
+                    </div>
+                    <div class="sw-eval-card">
+                        <div class="sw-eval-icon">📉</div>
+                        <div class="sw-eval-value">@(evaluation.AUC * 100)%</div>
+                        <div class="sw-eval-label">AUC-ROC</div>
+                    </div>
+                    <div class="sw-eval-card">
+                        <div class="sw-eval-icon">📦</div>
+                        <div class="sw-eval-value">@evaluation.TotalSamples</div>
+                        <div class="sw-eval-label">Samples</div>
+                    </div>
+                </div>
+                
+                <div class="sw-confusion-matrix mt-4">
+                    <h4>Confusion Matrix</h4>
+                    <pre>@evaluation.ConfusionMatrix</pre>
+                </div>
+            </div>
+        </div>
+    }
+    
+    <!-- Model Info -->
+    <div class="sw-card mt-4">
+        <div class="sw-card-header">
+            <h3 class="sw-card-title">🤖 Model Architecture</h3>
+        </div>
+        <div class="sw-card-body">
+            <div class="sw-model-info">
+                <div class="sw-model-item">
+                    <h4>📋 Classifier Model</h4>
+                    <ul>
+                        <li><b>Algorithm:</b> Fast Forest (Random Forest variant)</li>
+                        <li><b>Type:</b> Binary Classification</li>
+                        <li><b>Features:</b> 19 features (ELO, attack/defense strength, momentum, H2H, xG, weather)</li>
+                        <li><b>Output:</b> Home Win probability</li>
+                        <li><b>Library:</b> ML.NET 4.0</li>
+                    </ul>
+                </div>
+                <div class="sw-model-item">
+                    <h4>📈 Score Regressor</h4>
+                    <ul>
+                        <li><b>Algorithm:</b> Fast Forest Regression</li>
+                        <li><b>Type:</b> Regression</li>
+                        <li><b>Features:</b> Attack/Defense strength, avg goals, momentum, ELO, xG, H2H</li>
+                        <li><b>Output:</b> Predicted home/away goals</li>
+                        <li><b>Library:</b> ML.NET 4.0</li>
+                    </ul>
+                </div>
+                <div class="sw-model-item">
+                    <h4>🎲 Poisson Model</h4>
+                    <ul>
+                        <li><b>Description:</b> Poisson distribution for score prediction</li>
+                        <li><b>Input:</b> Expected goals (λ) based on team strength</li>
+                        <li><b>Output:</b> Score distribution, win/draw/lose probabilities</li>
+                        <li><b>Integration:</b> Hybrid with ML.NET predictions</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Inject] private MLPredictionService MLService { get; set; } = default!;
+    
+    private bool isTraining;
+    private string? trainingMessage;
+    private bool trainingError;
+    private ModelEvaluation? evaluation;
+    
+    private async Task TrainClassifier()
+    {
+        isTraining = true;
+        trainingMessage = null;
+        
+        try
+        {
+            evaluation = await MLService.TrainClassifierAsync();
+            trainingMessage = $"Classifier trained successfully! Accuracy: {evaluation.Accuracy * 100:F1}%";
+            trainingError = false;
+        }
+        catch (Exception ex)
+        {
+            trainingMessage = $"Training failed: {ex.Message}";
+            trainingError = true;
+        }
+        
+        isTraining = false;
+    }
+    
+    private async Task TrainRegressor()
+    {
+        isTraining = true;
+        trainingMessage = null;
+        
+        try
+        {
+            evaluation = await MLService.TrainScoreRegressorAsync();
+            trainingMessage = $"Score regressor trained successfully!";
+            trainingError = false;
+        }
+        catch (Exception ex)
+        {
+            trainingMessage = $"Training failed: {ex.Message}";
+            trainingError = true;
+        }
+        
+        isTraining = false;
+    }
+}
