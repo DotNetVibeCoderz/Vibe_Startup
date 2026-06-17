@@ -22,7 +22,7 @@
                 <p class="detail-desc">@_movie.Description</p>
                 <div class="detail-rating"><h4>⭐ @_avgRating.ToString("F1") / 5 (@_ratingCount reviews)</h4>
                 @if(_isAuthenticated){<div class="user-rating"><span>Rating kamu:</span>
-                    @for(int i=1;i<=5;i++){<button class="star-btn @(_userRating>=i?"active":"")" @onclick="()=>RateMovie(i)">★</button>}
+                    @for(int i=1;i<=5;i++){var star=i;<button type="button" class="star-btn @(_userRating>=star?"active":"")" @onclick="()=>RateMovie(star)">★</button>}
                 </div>
                 <div class="add-review"><textarea class="form-input" @bind="_reviewComment" placeholder="Tulis review..." rows="2"></textarea><button class="btn btn-primary btn-sm" @onclick="SubmitReview">Kirim</button></div>}</div>
                 <a href="/booking/@_movie.Id" class="btn btn-primary btn-lg">🎫 Pesan Tiket</a>
