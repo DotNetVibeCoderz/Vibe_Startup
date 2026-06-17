@@ -1,0 +1,64 @@
+@page "/my-tickets"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Bioskop.Services
+@inject OrderService OrderService
+@inject TicketService TicketService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+
+<PageTitle>Tiket Saya - Bioskop</PageTitle>
+
+<div class="my-tickets-page fade-in-up"><h2>🎟️ Tiket Saya</h2>
+    @if (!_isAuthenticated) { <div class="not-logged-in"><h3>🔒 Login Diperlukan</h3><p>Silakan login untuk melihat tiket Anda.</p><a href="/auth/login" class="btn btn-primary">Login</a></div> }
+    else if (_loading) { <div class="loading-container"><div class="spinner"></div></div> }
+    else if (!_orders.Any()) { <div class="empty-state"><span style="font-size:4em">🎫</span><h3>Belum Ada Tiket</h3><p>Yuk pesan sekarang!</p><a href="/booking" class="btn btn-primary btn-lg">Pesan Tiket</a></div> }
+    else
+    {
+        <div class="ticket-tabs">
+            <button class="tab @GetTabClass("all")" @onclick='() => SetTab("all")'>Semua</button>
+            <button class="tab @GetTabClass("active")" @onclick='() => SetTab("active")'>Aktif</button>
+            <button class="tab @GetTabClass("used")" @onclick='() => SetTab("used")'>Terpakai</button>
+            <button class="tab @GetTabClass("cancelled")" @onclick='() => SetTab("cancelled")'>Batal</button>
+        </div>
+        <div class="orders-list">
+            @foreach (var order in _filteredOrders)
+            {
+                <div class="order-card">
+                    <div class="order-header"><div><h3>@order.Showtime?.Movie?.Title</h3><span class="order-number">#@order.OrderNumber</span><span class="order-status status-@order.Status.ToLower()">@order.Status</span></div><div class="order-date">📅 @order.OrderDate.ToString("dd MMM HH:mm")</div></div>
+                    <div class="order-details">
+                        <div class="detail-item"><span>🎪 Studio</span><strong>@order.Showtime?.Studio?.Name</strong></div>
+                        <div class="detail-item"><span>🕐 Jadwal</span><strong>@order.Showtime?.StartTime.ToString("dd MMM HH:mm")</strong></div>
+                        <div class="detail-item"><span>💺 Kursi</span><strong>@string.Join(", ", order.Tickets.Select(t => $"{t.Seat?.RowLabel}{t.Seat?.ColumnNumber}"))</strong></div>
+                        <div class="detail-item"><span>💰 Total</span><strong class="price">Rp @order.GrandTotal.ToString("N0")</strong></div>
+                    </div>
+                    @if (order.Status == "Paid")
+                    {
+                        <div class="tickets-grid">
+                            @foreach (var ticket in order.Tickets)
+                            { var qr = TicketService.GenerateQrCodeImage(ticket.QrCode);
+                                <div class="ticket-card @(ticket.Status == "Used" ? "used" : "")"><div class="ticket-header"><span class="ticket-num">@ticket.TicketNumber</span><span class="ticket-status">@ticket.Status</span></div><div class="ticket-qr"><img src="data:image/png;base64,@qr" alt="QR" /></div><div class="ticket-seat"><strong>@ticket.Seat?.RowLabel@ticket.Seat?.ColumnNumber</strong><span>@ticket.Seat?.SeatType</span></div></div> }
+                        </div>
+                    }
+                    @if (order.Status == "Pending") { <div class="order-actions"><button class="btn btn-outline" @onclick="() => CancelOrder(order.Id)">❌ Batalkan</button></div> }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<Order> _orders = new(); private bool _loading = true, _isAuthenticated; private string _tab = "all"; private string? _userId;
+    private List<Order> _filteredOrders => _tab switch { "active" => _orders.Where(o => o.Status == "Paid").ToList(), "used" => _orders.Where(o => o.Tickets.Any(t => t.Status == "Used")).ToList(), "cancelled" => _orders.Where(o => o.Status == "Cancelled").ToList(), _ => _orders };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync(); _isAuthenticated = auth.User.Identity?.IsAuthenticated ?? false;
+        _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (_isAuthenticated && _userId != null) _orders = await OrderService.GetByUserAsync(_userId);
+        _loading = false;
+    }
+
+    string GetTabClass(string tab) => _tab == tab ? "active" : "";
+    void SetTab(string tab) => _tab = tab;
+    async Task CancelOrder(int id) { if (_userId != null) { await OrderService.CancelOrderAsync(id, _userId); _orders = await OrderService.GetByUserAsync(_userId); } }
+}

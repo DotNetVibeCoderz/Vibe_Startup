@@ -1,0 +1,118 @@
+@page "/curhat"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Bioskop.Services
+@using Bioskop.Models
+@using System.Text.Json
+@inject PostService PostService
+@inject StorageService StorageService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+
+<PageTitle>Curhat Film - Bioskop</PageTitle>
+<div class="curhat-page fade-in-up"><div class="curhat-layout"><aside class="curhat-sidebar">
+@if(_ia){<div class="create-post-card"><h3>✍️ Curhat Yuk!</h3>
+    <textarea class="post-input" @bind="_nc" placeholder="Apa yang kamu pikirkan?..." rows="3"></textarea>
+    <!-- Emoji quick add -->
+    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+        @foreach(var e in _emojis){<button class="btn btn-outline btn-sm" @onclick="()=>AddEmoji(e)" type="button">@e</button>}
+    </div>
+    @if(_uploadedFiles.Any()){<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">@foreach(var uf in _uploadedFiles){<span style="background:var(--primary-light);color:var(--primary);padding:2px 8px;border-radius:12px;font-size:0.8em">📎 @uf.Name <button @onclick="()=>RemoveUpload(uf)" style="background:none;border:none;cursor:pointer;color:var(--danger)">✕</button></span>}</div>}
+    <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="cursor:pointer;font-size:0.85em;color:var(--text-secondary)">📎 Upload <InputFile OnChange="HandleUpload" multiple accept="image/*,video/*,.pdf,.doc,.docx" hidden/></label>
+        <label style="cursor:pointer"><input type="checkbox" @bind="_iep"/> 📅 Event</label>
+    </div>
+    @if(_iep){<input class="form-input" @bind="_et" placeholder="Judul Event" style="margin-top:6px"/><input class="form-input" @bind="_eds" placeholder="Tanggal (2025-01-15 19:00)" style="margin-top:6px"/><input class="form-input" @bind="_el" placeholder="Lokasi" style="margin-top:6px"/>}
+    <button class="btn btn-primary btn-block" @onclick="CreatePost" disabled="@_ip" style="margin-top:10px">🚀 Post!</button></div>}
+else{<div class="login-prompt-card"><p>💬 Login untuk ikut Curhat Film!</p><a href="/auth/login" class="btn btn-primary btn-block">Login</a></div>}
+<div class="trending-card"><h3>🔥 Trending</h3><div class="trending-list">@foreach(var ht in _trending){<div class="trend-item" @onclick="()=>SearchHashtag(ht)">#@ht</div>}</div></div></aside>
+<main class="curhat-timeline"><h2>💬 Curhat Film</h2><p class="timeline-subtitle">Timeline komunitas pecinta film</p>
+@if(!string.IsNullOrEmpty(_searchTag)){<p style="margin-bottom:16px">Hashtag: <strong>#@_searchTag</strong> <button class="btn btn-outline btn-sm" @onclick="ClearSearch">✕</button></p>}
+@if(_l){<div class="loading-container"><div class="spinner"></div></div>}
+else if(!_ps.Any()){<div class="empty-state"><span style="font-size:3em">💬</span><p>Belum ada postingan.</p></div>}
+else{@foreach(var p in _ps){<div class="post-card"><div class="post-header"><div class="post-user"><span class="post-avatar">@GI(p.User?.FullName)</span><div><strong>@(p.User?.FullName??"Unknown")</strong><span class="post-time">@FT(p.CreatedAt)</span></div></div>@if(_ui==p.UserId){<button class="btn-delete" @onclick="()=>DP(p.Id)">🗑️</button>}</div>
+<div class="post-body"><p class="post-text">@RenderHashtags(p.Content)</p>
+@if(!string.IsNullOrEmpty(p.MediaUrls)){<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">@foreach(var media in ParseMedia(p.MediaUrls)){@if(media.Type=="image"){<img src="@media.Url" style="max-width:200px;max-height:200px;border-radius:8px;object-fit:cover"/>}else if(media.Type=="video"){<video src="@media.Url" controls style="max-width:300px;border-radius:8px"/>}else if(media.Type=="audio"){<audio src="@media.Url" controls style="max-width:250px"/>}else{<a href="@media.Url" target="_blank" class="btn btn-outline btn-sm">📄 @media.Name</a>}}</div>}
+@if(!string.IsNullOrEmpty(p.EventTitle)){<div class="post-event"><div class="event-badge">📅 EVENT</div><strong>@p.EventTitle</strong>@if(p.EventDate.HasValue){<span>🗓️ @FmtDt(p.EventDate.Value)</span>}@if(!string.IsNullOrEmpty(p.EventLocation)){<span>📍 @p.EventLocation</span>}</div>}</div>
+<div class="post-actions"><button class="action-btn @(_lp.Contains(p.Id)?"liked":"")" @onclick="()=>TL(p)">❤️ @p.Likes.Count</button><button class="action-btn" @onclick="()=>TC(p.Id)">💬 @p.Comments.Count(c=>!c.IsDeleted)</button></div>
+@if(_ec.Contains(p.Id)){<div class="comments-section">@foreach(var c in p.Comments.Where(c=>!c.IsDeleted)){<div class="comment"><strong>@c.User?.FullName</strong><p>@c.Content</p><span class="comment-time">@FT(c.CreatedAt)</span></div>}@if(_ia){<div class="add-comment"><input class="form-input" @bind="_ct" placeholder="Tulis komentar..."/><button class="btn btn-primary btn-sm" @onclick="()=>AC(p.Id)">Kirim</button></div>}</div>}</div>}@if(_hm){<div class="show-more-container"><button class="btn btn-outline" @onclick="LM">📜 Show More</button></div>}}
+</main></div></div>
+
+@code {
+    private List<Post> _ps=new();private HashSet<int> _lp=new(),_ec=new();private string _nc="",_et="",_eds="",_el="",_ct="",_searchTag="";private bool _iep,_l=true,_ip,_hm,_ia;private int _pg;private string? _ui;private List<(string Name,string Url)> _uploadedFiles=new();private List<string> _trending=new(){"PetualanganNusantara","HororRumahKosong","MovieNight","StudioVIP","ReviewFilm"};
+    private readonly List<string> _emojis=new(){"😀","😂","😍","😱","🎬","🍿","🌟","🔥","👍","💯"};
+
+    protected override async Task OnInitializedAsync(){var a=await AuthState.GetAuthenticationStateAsync();_ia=a.User.Identity?.IsAuthenticated??false;_ui=a.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;await LoadTimeline();_l=false;}
+    async Task LoadTimeline(){var(p,m)=await PostService.GetTimelineAsync(_pg,100);_ps=p;_hm=m;ExtractTrending();if(_ui!=null){foreach(var x in _ps){if(await PostService.HasUserLikedAsync(x.Id,_ui))_lp.Add(x.Id);}}}
+    void ExtractTrending(){var tags=new Dictionary<string,int>();foreach(var p in _ps){foreach(var tag in System.Text.RegularExpressions.Regex.Matches(p.Content,@"#(\w+)").Cast<System.Text.RegularExpressions.Match>()){var t=tag.Groups[1].Value;tags[t]=tags.GetValueOrDefault(t,0)+1;}}_trending=tags.OrderByDescending(kv=>kv.Value).Take(10).Select(kv=>kv.Key).ToList();if(!_trending.Any())_trending=new List<string>{"PetualanganNusantara","HororRumahKosong","MovieNight"};}
+    async Task LM(){_pg++;var(p,m)=await PostService.GetTimelineAsync(_pg,100);_ps.AddRange(p);_hm=m;}
+    void ClearSearch(){_searchTag=null;}
+
+    void AddEmoji(string emoji)=>_nc+=emoji;
+
+    // Upload file via StorageService (FileSystem / AzureBlob / S3 / MinIO)
+    async Task HandleUpload(InputFileChangeEventArgs e){
+        foreach(var file in e.GetMultipleFiles(5)){
+            using var ms=new MemoryStream();await file.OpenReadStream(10*1024*1024).CopyToAsync(ms);
+            var url=await StorageService.UploadBytesAsync(ms.ToArray(),file.Name,file.ContentType,"posts");
+            if(url!=null)_uploadedFiles.Add((file.Name,url));
+        }
+    }
+    void RemoveUpload((string Name,string Url) uf){_uploadedFiles.Remove(uf);}
+
+    async Task CreatePost(){
+        if(string.IsNullOrWhiteSpace(_nc)||_ui==null)return;_ip=true;
+        // Serialize as proper objects, NOT anonymous type -> tuple mismatch
+        var mediaList=_uploadedFiles.Select(uf=>{
+            var ext=Path.GetExtension(uf.Name).ToLower();
+            var type=ext switch{".jpg" or ".jpeg" or ".png" or ".gif" or ".webp"=>"image",".mp4" or ".webm" or ".mov"=>"video",".mp3" or ".wav"=>"audio",_=>"document"};
+            return new MediaItem{Type=type,Url=uf.Url,Name=uf.Name};
+        }).ToList<object>();
+        var mediaJson=mediaList.Any()?JsonSerializer.Serialize(mediaList):null;
+        DateTime? ed=null;if(_iep&&DateTime.TryParse(_eds,out var d))ed=d;
+        await PostService.CreatePostAsync(new Post{UserId=_ui,Content=_nc,MediaUrls=mediaJson,EventTitle=_iep?_et:null,EventDate=ed,EventLocation=_iep?_el:null});
+        _nc=_et=_eds=_el="";_iep=false;_uploadedFiles.Clear();_ip=false;await LoadTimeline();
+    }
+    async Task TL(Post p){if(_ui==null)return;await PostService.ToggleLikeAsync(p.Id,_ui);if(_lp.Contains(p.Id))_lp.Remove(p.Id);else _lp.Add(p.Id);var u=await PostService.GetByIdAsync(p.Id);if(u!=null){var i=_ps.FindIndex(x=>x.Id==p.Id);if(i>=0)_ps[i]=u;}}
+    void TC(int id){if(_ec.Contains(id))_ec.Remove(id);else _ec.Add(id);}    
+    async Task AC(int pid){if(string.IsNullOrWhiteSpace(_ct)||_ui==null)return;await PostService.AddCommentAsync(pid,_ui,_ct);_ct="";var u=await PostService.GetByIdAsync(pid);if(u!=null){var i=_ps.FindIndex(x=>x.Id==pid);if(i>=0)_ps[i]=u;}}
+    async Task DP(int id){if(_ui!=null){await PostService.DeletePostAsync(id,_ui);_ps.RemoveAll(x=>x.Id==id);}}
+    async Task SearchHashtag(string tag){_searchTag=tag;_pg=0;_ps.Clear();await LoadTimeline();}
+
+    // ParseMedia: gunakan class MediaItem (pascal-case) — match dengan serialize di atas
+    List<MediaItem> ParseMedia(string? json){
+        if(string.IsNullOrEmpty(json))return new();
+        try{return JsonSerializer.Deserialize<List<MediaItem>>(json,new JsonSerializerOptions{PropertyNameCaseInsensitive=true})??new();}catch{return new();}
+    }
+    string DecodeHtmlEntitiesRepeatedly(string input){
+        if(string.IsNullOrEmpty(input))return input;
+        var current=input;
+        while(true){
+            var decoded=System.Net.WebUtility.HtmlDecode(current);
+            if(decoded==current)break;
+            current=decoded;
+        }
+        return current;
+    }
+    MarkupString RenderHashtags(string text){
+        // 1) Decode entity dulu (emoji kembali normal)
+        var decoded=DecodeHtmlEntitiesRepeatedly(text);
+        // 2) Lindungi hashtag pakai placeholder agar tidak bentrok dengan entity
+        var placeholder=System.Text.RegularExpressions.Regex.Replace(decoded,@"#(\w+)","[[[HASHTAG:$1]]]");
+        // 3) Encode aman
+        var html=System.Net.WebUtility.HtmlEncode(placeholder);
+        // 4) Render ulang hashtag
+        html=System.Text.RegularExpressions.Regex.Replace(html,@"\[\[\[HASHTAG:([^\]]+)\]\]\]","<span style='color:var(--primary)'>#$1</span>");
+        return new MarkupString(html);
+    }
+    string GI(string?n){if(string.IsNullOrEmpty(n))return"?";var p=n.Split(' ');return p.Length>=2?$"{p[0][0]}{p[1][0]}".ToUpper():n[..1].ToUpper();}
+    string FT(DateTime d){var x=DateTime.UtcNow-d;if(x.TotalMinutes<1)return"Baru saja";if(x.TotalMinutes<60)return$"{(int)x.TotalMinutes}m";if(x.TotalHours<24)return$"{(int)x.TotalHours}j";return d.ToString("dd MMM");}
+    string FmtDt(DateTime d)=>d.ToString("dd MMM yyyy HH:mm");
+
+    // Helper class untuk serialize/deserialize media items
+    public class MediaItem{
+        public string Type{get;set;}="";
+        public string Url{get;set;}="";
+        public string Name{get;set;}="";
+    }
+}

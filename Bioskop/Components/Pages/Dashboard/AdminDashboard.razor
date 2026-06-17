@@ -1,0 +1,205 @@
+@page "/admin/dashboard"
+@attribute [Authorize(Roles = "Admin,Operator")]
+@using Bioskop.Services
+@using Bioskop.Data
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext Context
+@inject OrderService OrderService
+@inject SnackService SnackService
+@inject AuditService AuditService
+
+<PageTitle>Dashboard - Admin Bioskop</PageTitle>
+
+<div class="dashboard-page fade-in-up">
+    <h2>📊 Dashboard Analitik</h2>
+
+    @if (_loading)
+    {
+        <div class="loading-container"><div class="spinner"></div></div>
+    }
+    else
+    {
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+            <div class="stat-card primary">
+                <div class="stat-icon">🎬</div>
+                <div class="stat-info">
+                    <span class="stat-label">Total Film</span>
+                    <span class="stat-value">@_totalMovies</span>
+                </div>
+            </div>
+            <div class="stat-card success">
+                <div class="stat-icon">🎟️</div>
+                <div class="stat-info">
+                    <span class="stat-label">Tiket Terjual</span>
+                    <span class="stat-value">@_totalTicketsSold</span>
+                </div>
+            </div>
+            <div class="stat-card warning">
+                <div class="stat-icon">💰</div>
+                <div class="stat-info">
+                    <span class="stat-label">Pendapatan</span>
+                    <span class="stat-value">Rp @_totalRevenue.ToString("N0")</span>
+                </div>
+            </div>
+            <div class="stat-card info">
+                <div class="stat-icon">👥</div>
+                <div class="stat-info">
+                    <span class="stat-label">User Terdaftar</span>
+                    <span class="stat-value">@_totalUsers</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="charts-grid">
+            <div class="chart-card">
+                <h3>📈 Penjualan 7 Hari Terakhir</h3>
+                @if (!_salesLast7Days.Any(s => s.count > 0))
+                {
+                    <p style="text-align:center;color:var(--text-secondary);padding:20px">Belum ada data penjualan minggu ini</p>
+                }
+                <div class="chart-bar">
+                    @foreach (var day in _salesLast7Days)
+                    {
+                        var barHeight = day.maxCount > 0 ? (int)((double)day.count / day.maxCount * 120) : 4;
+                        <div class="bar-item">
+                            <div class="bar" style="height:@(Math.Max(barHeight, 4))px" title="@day.count tiket"></div>
+                            <span class="bar-label">@day.date.ToString("ddd")</span>
+                            <span class="bar-count">@day.count</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <h3>🍿 Snack Terlaris</h3>
+                @if (!_snackSales.Any())
+                {
+                    <p style="text-align:center;color:var(--text-secondary);padding:20px">Belum ada penjualan snack</p>
+                }
+                else
+                {
+                    <div class="snack-chart">
+                        @foreach (var snack in _snackSales.Take(5))
+                        {
+                            <div class="snack-bar-item">
+                                <span class="snack-name">@snack.Key</span>
+                                <div class="snack-bar-track">
+                                    <div class="snack-bar-fill" style="width:@(GetSnackBarWidth(snack.Value))%"></div>
+                                </div>
+                                <span class="snack-value">Rp @snack.Value.ToString("N0")</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Traffic Stats -->
+        <div class="chart-card">
+            <h3>🌐 Traffic Akses Web</h3>
+            @if (_trafficStats != null)
+            {
+                <div class="traffic-grid">
+                    <div class="traffic-item">
+                        <span>Hari Ini</span>
+                        <strong>@_trafficStats.GetType().GetProperty("TotalToday")?.GetValue(_trafficStats)</strong>
+                    </div>
+                    <div class="traffic-item">
+                        <span>7 Hari</span>
+                        <strong>@_trafficStats.GetType().GetProperty("TotalWeek")?.GetValue(_trafficStats)</strong>
+                    </div>
+                    <div class="traffic-item">
+                        <span>Rata-rata Response</span>
+                        <strong>@($"{_trafficStats.GetType().GetProperty("AvgResponseTimeMs")?.GetValue(_trafficStats):F1} ms")</strong>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Recent Orders -->
+        <div class="chart-card">
+            <h3>📋 Pesanan Terbaru</h3>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead><tr>
+                        <th>Order #</th><th>User</th><th>Film</th><th>Total</th><th>Status</th><th>Tanggal</th>
+                    </tr></thead>
+                    <tbody>
+                        @foreach (var order in _recentOrders.Take(10))
+                        {
+                            <tr>
+                                <td>@order.OrderNumber</td>
+                                <td>@order.User?.FullName</td>
+                                <td>@order.Showtime?.Movie?.Title</td>
+                                <td>Rp @order.GrandTotal.ToString("N0")</td>
+                                <td><span class="status-badge status-@order.Status.ToLower()">@order.Status</span></td>
+                                <td>@order.OrderDate.ToString("dd/MM HH:mm")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private int _totalMovies, _totalTicketsSold, _totalUsers;
+    private decimal _totalRevenue;
+    private bool _loading = true;
+    private List<(DateTime date, int count, int maxCount)> _salesLast7Days = new();
+    private Dictionary<string, decimal> _snackSales = new();
+    private object? _trafficStats;
+    private List<Order> _recentOrders = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _totalMovies = await Context.Movies.CountAsync();
+        _totalUsers = await Context.Users.CountAsync();
+        _totalTicketsSold = await Context.Tickets.CountAsync(t => t.Status == "Active" || t.Status == "Used");
+        _totalRevenue = await Context.Orders.Where(o => o.Status == "Paid").SumAsync(o => o.GrandTotal);
+
+        // === SALES 7 HARI TERAKHIR ===
+        // BUG FIX: .Date di LINQ tidak ter-translate dengan baik ke SQL (terutama SQLite),
+        // pakai range comparison: CreatedAt >= start AND CreatedAt < end
+        var today = DateTime.UtcNow.Date;
+        var tempList = new List<(DateTime date, int count)>();
+
+        for (int i = 6; i >= 0; i--)
+        {
+            var dayStart = today.AddDays(-i);
+            var dayEnd = dayStart.AddDays(1);
+
+            // Query pakai range, bukan .Date
+            var count = await Context.Tickets.CountAsync(t =>
+                t.CreatedAt >= dayStart &&
+                t.CreatedAt < dayEnd &&
+                (t.Status == "Active" || t.Status == "Used"));
+
+            tempList.Add((dayStart, count));
+        }
+
+        // Hitung max untuk tinggi bar chart
+        var maxCount = tempList.Any() ? tempList.Max(d => d.count) : 1;
+        _salesLast7Days = tempList.Select(d => (d.date, d.count, maxCount)).ToList();
+
+        _snackSales = await SnackService.GetSnackSalesStatsAsync();
+        _trafficStats = await AuditService.GetTrafficStatsAsync();
+        _recentOrders = await Context.Orders
+            .Include(o => o.User)
+            .Include(o => o.Showtime!).ThenInclude(s => s.Movie)
+            .OrderByDescending(o => o.OrderDate)
+            .Take(10)
+            .ToListAsync();
+
+        _loading = false;
+    }
+
+    double GetSnackBarWidth(decimal value)
+    {
+        var max = _snackSales.Any() ? (double)_snackSales.Max(s => s.Value) : 1;
+        return max > 0 ? (double)value / max * 100 : 0;
+    }
+}

@@ -1,0 +1,69 @@
+@page "/auth/register"
+@using Microsoft.AspNetCore.Components
+
+<PageTitle>Register - Bioskop</PageTitle>
+
+<div class="auth-page">
+    <div class="auth-container fade-in-up">
+        <div class="auth-header">
+            <h1>🎬 Join Bioskop!</h1>
+            <p>Daftar sekarang dan dapatkan pengalaman nonton terbaik</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-error">❌ @_error</div>
+        }
+
+        <form method="post" action="/auth/register" class="auth-form">
+            <AntiforgeryToken />
+
+            <div class="form-group">
+                <label>Nama Lengkap</label>
+                <input name="FullName" placeholder="Nama lengkap" class="form-input" required />
+            </div>
+
+            <div class="form-group">
+                <label>Email</label>
+                <input name="Email" type="email" placeholder="contoh@email.com" class="form-input" required />
+            </div>
+
+            <div class="form-group">
+                <label>Password</label>
+                <input name="Password" type="password" placeholder="Minimal 6 karakter" class="form-input" required />
+            </div>
+
+            <div class="form-group">
+                <label>Konfirmasi Password</label>
+                <input name="ConfirmPassword" type="password" placeholder="Ulangi password" class="form-input" required />
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">
+                <span>🎟️ Register</span>
+            </button>
+        </form>
+
+        <div class="auth-footer">
+            Sudah punya akun? <a href="/auth/login">Login di sini</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    private string? _error;
+
+    protected override void OnParametersSet()
+    {
+        _error = Error switch
+        {
+            "mismatch" => "Konfirmasi password tidak cocok.",
+            "duplicate" => "Email sudah terdaftar. Silakan login.",
+            "password" => "Password belum memenuhi aturan (huruf besar, kecil, angka, min 6).",
+            "unknown" => "Registrasi gagal. Coba lagi.",
+            _ => null
+        };
+    }
+}

@@ -1,0 +1,126 @@
+@page "/chat"
+@page "/chat/{SessionId:int}"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Bioskop.Services
+@using Bioskop.Models
+@using Markdig
+@inject ChatBotService ChatBotService
+@inject StorageService StorageService
+@inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<PageTitle>Si Bobby - Bioskop</PageTitle>
+
+<div class="chat-page fade-in-up">
+@if(!_ia){<div class="not-logged-in"><h2>🤖 Login Dulu!</h2><p>Si Bobby Movie Maniac siap ngobrol! Login dulu ya.</p><a href="/auth/login" class="btn btn-primary">Login</a></div>}
+else{<div class="chat-layout">
+    <aside class="chat-sessions">
+        <div class="sessions-header"><h3>💬 Chat</h3><button class="btn btn-primary btn-sm" @onclick="NewSession">+ Baru</button></div>
+        <div class="sessions-list">
+        @foreach(var s in _sessions){
+            <div class="session-item @(s.Id==_cs?.Id?"active":"")">
+                <span class="session-icon">💬</span>
+                <div class="session-info" @onclick="()=>LoadSession(s.Id)"><strong>@s.Title</strong><span>@Fmt(s.LastActivityAt??s.CreatedAt)</span></div>
+                <button class="session-delete" @onclick:stopPropagation="true" @onclick="()=>DeleteSession(s.Id)" title="Hapus">🗑️</button>
+            </div>
+        }</div>
+    </aside>
+    <main class="chat-main">
+        <div class="chat-header"><div class="chat-bot-info"><div class="bot-avatar">🤖</div><div><h3>Si Bobby Movie Maniac</h3><span class="bot-status">Online 🟢</span></div></div>
+        <div class="chat-header-actions">@if(_cs!=null){<button class="btn btn-outline btn-sm" @onclick="()=>ResetSession(_cs.Id)">🔄 Reset</button>}</div></div>
+        <div class="chat-messages" @ref="_messagesContainer">
+        @if(_cs==null){<div class="chat-welcome"><div class="welcome-bot">🤖</div><h2>Halo! Aku Si Bobby Movie Maniac! 🎬</h2><p>Tanya aja tentang film, rekomendasi, atau apapun! 🍿</p>
+        <div class="quick-questions"><button class="quick-btn" @onclick="StartQuick1">🎬 Film tayang</button><button class="quick-btn" @onclick="StartQuick2">👻 Rekomendasi</button><button class="quick-btn" @onclick="StartQuick3">🍿 Snack</button></div></div>}
+        else{@foreach(var msg in _msgs){<div class="message @(msg.Role=="user"?"msg-user":"msg-bot")">@if(msg.Role=="assistant"){<div class="msg-avatar">🤖</div>}<div class="msg-content"><div class="msg-bubble @(msg.Role=="user"?"bubble-user":"bubble-bot")">@if(msg.Role=="assistant"){@((MarkupString)RenderMarkdown(msg.Content))}else{@RenderUserMessage(msg)}</div><span class="msg-time">@Fmt(msg.CreatedAt)</span></div>@if(msg.Role=="user"){<div class="msg-avatar msg-avatar-user">👤</div>}</div>}@if(_loading){<div class="message msg-bot"><div class="msg-avatar">🤖</div><div class="msg-content"><div class="msg-bubble bubble-bot typing-indicator"><span></span><span></span><span></span></div></div></div>}}
+        </div>
+        <!-- Tombol scroll ke bawah -->
+        @if(_cs!=null && _showScrollBtn){
+            <button class="scroll-bottom-btn" @onclick="ScrollToBottom" title="Scroll ke bawah">↓</button>
+        }
+        @if(_cs!=null){<div class="chat-input-area">
+            @if(_attachedFiles.Any()){<div class="attachment-preview">@foreach(var af in _attachedFiles){<span>📎 @af.Name <button @onclick="()=>RemoveAttach(af)" style="background:none;border:none;cursor:pointer;color:var(--danger)">✕</button></span>}</div>}
+            <div class="chat-input-row">
+                <label class="attach-btn" title="Upload Gambar/Dokumen">📎<InputFile OnChange="HandleUpload" accept="image/*,.pdf,.doc,.docx,.txt" hidden/></label>
+                <textarea class="chat-input" @bind="_text" placeholder="Ketik pesan..." rows="1" @onkeydown="HandleKeyDown"></textarea>
+                <button class="btn btn-primary send-btn" @onclick="SendMessage" disabled="@(string.IsNullOrWhiteSpace(_text)||_loading)">➤</button>
+            </div>
+        </div>}
+    </main>
+</div>}
+</div>
+
+@code {
+    private List<ChatSession> _sessions=new();private ChatSession? _cs;private List<ChatMessage> _msgs=new();
+    private string _text="";private bool _loading,_ia,_showScrollBtn;private string? _ui;
+    private List<(string Name,string Url)> _attachedFiles=new();
+    private ElementReference _messagesContainer;
+    [Parameter]public int? SessionId{get;set;}
+
+    protected override async Task OnInitializedAsync(){var a=await AuthState.GetAuthenticationStateAsync();_ia=a.User.Identity?.IsAuthenticated??false;_ui=a.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;if(_ia&&_ui!=null){_sessions=await ChatBotService.GetUserSessionsAsync(_ui);if(SessionId.HasValue)await LoadSession(SessionId.Value);}}
+
+    // Auto-scroll hanya saat pesan baru (loading selesai), tidak setiap render
+    protected override async Task OnAfterRenderAsync(bool firstRender){
+        if(!_showScrollBtn && _cs!=null && _msgs.Any()){
+            await ScrollToBottom();
+        }
+    }
+
+    async Task ScrollToBottom(){
+        await JS.InvokeVoidAsync("eval",
+            "var el=document.querySelector('.chat-messages');if(el){el.scrollTop=el.scrollHeight;}");
+        _showScrollBtn=false;
+    }
+
+    // Monitor scroll position via JS interop — tampilkan tombol saat user scroll ke atas
+    async Task CheckScrollPosition(){
+        var isNearBottom=await JS.InvokeAsync<bool>("eval",
+            "var el=document.querySelector('.chat-messages');return el?el.scrollHeight-el.scrollTop-el.clientHeight<100:true;");
+        _showScrollBtn=!isNearBottom && _cs!=null;
+        StateHasChanged();
+    }
+
+    async Task NewSession(){if(_ui==null)return;_cs=await ChatBotService.GetOrCreateSessionAsync(_ui);_msgs=new();_showScrollBtn=false;_sessions=await ChatBotService.GetUserSessionsAsync(_ui);Navigation.NavigateTo($"/chat/{_cs.Id}");}
+    async Task LoadSession(int id){if(_ui==null)return;_cs=await ChatBotService.GetOrCreateSessionAsync(_ui,id);_msgs=_cs.Messages.OrderBy(m=>m.CreatedAt).ToList();_showScrollBtn=false;_sessions=await ChatBotService.GetUserSessionsAsync(_ui);Navigation.NavigateTo($"/chat/{id}");}
+    async Task ResetSession(int id){if(_ui==null)return;await ChatBotService.ResetSessionAsync(id,_ui);_sessions=await ChatBotService.GetUserSessionsAsync(_ui);if(_cs?.Id==id){_cs=null;_msgs=new();_showScrollBtn=false;}}
+    async Task DeleteSession(int id){if(_ui==null)return;var s=_sessions.FirstOrDefault(x=>x.Id==id);if(s!=null){s.IsActive=false;await ChatBotService.ResetSessionAsync(id,_ui);}_sessions=await ChatBotService.GetUserSessionsAsync(_ui);if(_cs?.Id==id){_cs=null;_msgs=new();_showScrollBtn=false;}}
+
+    async Task HandleUpload(InputFileChangeEventArgs e){
+        foreach(var file in e.GetMultipleFiles(3)){
+            using var ms=new MemoryStream();await file.OpenReadStream(5*1024*1024).CopyToAsync(ms);
+            var url=await StorageService.UploadBytesAsync(ms.ToArray(),file.Name,file.ContentType,"chat");
+            if(url!=null)_attachedFiles.Add((file.Name,url));
+        }
+    }
+    void RemoveAttach((string,string) af){_attachedFiles.Remove(af);}
+
+    async Task SendMessage(){if(string.IsNullOrWhiteSpace(_text)||_loading||_cs==null||_ui==null)return;var t=_text.Trim();_text="";_loading=true;
+        try{
+            string? img=null;var docs=new List<string>();
+            foreach(var af in _attachedFiles){var ext=Path.GetExtension(af.Name).ToLower();if(ext is ".jpg" or ".jpeg" or ".png" or ".gif" or ".webp")img=af.Url;else docs.Add(af.Url);}
+            var docStr=docs.Any()?string.Join("\n",docs.Select(d=>$"[Dokumen: {d}]")):null;
+            var msg=t+(docStr!=null?"\n\n"+docStr:"");
+            var r=await ChatBotService.SendMessageAsync(_cs.Id,_ui,msg,img);
+            _msgs.Add(r.userMsg);_msgs.Add(r.assistantMsg);_attachedFiles.Clear();_sessions=await ChatBotService.GetUserSessionsAsync(_ui);
+            _showScrollBtn=false; // Reset — auto-scroll via OnAfterRenderAsync
+        }catch(Exception ex){_msgs.Add(new ChatMessage{ChatSessionId=_cs.Id,Role="assistant",Content=$"Error: {ex.Message}"});}
+        finally{_loading=false;}
+    }
+    async Task SendQuick(string m){if(_ui==null)return;_cs=await ChatBotService.GetOrCreateSessionAsync(_ui);_text=m;await SendMessage();Navigation.NavigateTo($"/chat/{_cs.Id}");}
+    async Task StartQuick1()=>await SendQuick("Film apa yang lagi tayang sekarang?");
+    async Task StartQuick2()=>await SendQuick("Rekomendasi film horor dong!");
+    async Task StartQuick3()=>await SendQuick("Menu snack apa aja?");
+    async Task HandleKeyDown(KeyboardEventArgs e){if(e.Key=="Enter"&&!e.ShiftKey){await SendMessage();}}
+    RenderFragment RenderUserMessage(ChatMessage msg)=>builder=>{
+        builder.AddContent(0,msg.Content);
+        if(!string.IsNullOrEmpty(msg.Metadata)){
+            try{var meta=System.Text.Json.JsonSerializer.Deserialize<Dictionary<string,object>>(msg.Metadata);
+                if(meta!=null&&meta.ContainsKey("imageUrl")){builder.AddMarkupContent(1,"<br/><img src='"+meta["imageUrl"]+"' style='max-width:200px;border-radius:8px;margin-top:4px'/>");}
+                if(meta!=null&&meta.ContainsKey("documentUrl")){builder.AddMarkupContent(1,"<br/><a href='"+meta["documentUrl"]+"' target='_blank' class='btn btn-outline btn-sm' style='margin-top:4px'>📄 Dokumen</a>");}
+            }catch{}
+        }
+    };
+    string RenderMarkdown(string md){if(string.IsNullOrEmpty(md))return"";return Markdown.ToHtml(md,new MarkdownPipelineBuilder().UseAdvancedExtensions().Build());}
+    string Fmt(DateTime d){var x=DateTime.UtcNow-d;if(x.TotalMinutes<1)return"Baru saja";if(x.TotalHours<1)return$"{(int)x.TotalMinutes}m";if(x.TotalDays<1)return d.ToString("HH:mm");return d.ToString("dd/MM HH:mm");}
+}

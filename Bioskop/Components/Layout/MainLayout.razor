@@ -1,0 +1,108 @@
+@inherits LayoutComponentBase
+@inject AuthenticationStateProvider AuthState
+
+<div class="app-wrapper @(_darkMode ? "dark-theme" : "")">
+    @if (!_sidebarCollapsed) {
+        <div class="sidebar-backdrop" @onclick="ToggleSidebar"></div>
+    }
+
+    <aside class="sidebar @(_sidebarCollapsed ? "collapsed" : "")">
+        <div class="sidebar-header">
+            <a href="/" class="logo"><span class="logo-icon">🎬</span><span class="logo-text">Bioskop</span></a>
+            <button class="sidebar-toggle" @onclick="ToggleSidebar">✕</button>
+        </div>
+        <nav class="sidebar-nav">
+            <NavLink href="/" Match="NavLinkMatch.All"><span class="nav-icon">🏠</span><span class="nav-text">Beranda</span></NavLink>
+            <!-- Scan Ticket -- always visible, no login needed -->
+            <NavLink href="/scan"><span class="nav-icon">📷</span><span class="nav-text">Scan Tiket</span></NavLink>
+            @if (isAuthenticated)
+            {
+                <NavLink href="/booking"><span class="nav-icon">🎫</span><span class="nav-text">Pesan Tiket</span></NavLink>
+                <NavLink href="/my-tickets"><span class="nav-icon">🎟️</span><span class="nav-text">Tiket Saya</span></NavLink>
+                <NavLink href="/curhat"><span class="nav-icon">💬</span><span class="nav-text">Curhat Film</span></NavLink>
+                <NavLink href="/chat"><span class="nav-icon">🤖</span><span class="nav-text">Si Bobby</span></NavLink>
+                <NavLink href="/auth/profile"><span class="nav-icon">👤</span><span class="nav-text">Profil</span></NavLink>
+            }
+            else
+            {
+                <NavLink href="/movies"><span class="nav-icon">🎬</span><span class="nav-text">Film</span></NavLink>
+            }
+            @if (isAdmin)
+            {
+                <div class="nav-divider">ADMIN</div>
+                <NavLink href="/admin/dashboard"><span class="nav-icon">📊</span><span class="nav-text">Dashboard</span></NavLink>
+                <NavLink href="/admin/movies"><span class="nav-icon">🎬</span><span class="nav-text">Kelola Film</span></NavLink>
+                <NavLink href="/admin/snacks"><span class="nav-icon">🍿</span><span class="nav-text">Kelola Snack</span></NavLink>
+                <NavLink href="/admin/orders"><span class="nav-icon">📋</span><span class="nav-text">Pesanan</span></NavLink>
+            }
+        </nav>
+        <div class="sidebar-footer">
+            <button class="theme-toggle" @onclick="ToggleDarkMode">
+                <span>@(_darkMode ? "☀️" : "🌙")</span>
+                <span class="nav-text">@(_darkMode ? "Light" : "Dark")</span>
+            </button>
+            @if (isAuthenticated)
+            {
+                <div class="user-info">
+                    <span class="user-avatar">@GetInitials()</span>
+                    <span class="user-name">@userFullName</span>
+                </div>
+            }
+        </div>
+    </aside>
+
+    <main class="main-content @(_sidebarCollapsed ? "expanded" : "")">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="mobile-hamburger" @onclick="ToggleSidebar" title="Menu">☰</button>
+                <h1 class="page-title">@_pageTitle</h1>
+            </div>
+            <div class="topbar-right">
+                @if (isAuthenticated)
+                {
+                    <div class="topbar-actions">
+                        <span class="greeting">Halo, @userFullName!</span>
+                        <a href="/auth/logout" class="btn btn-outline btn-sm">Logout</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="topbar-actions">
+                        <a href="/auth/login" class="btn btn-primary btn-sm">Login</a>
+                        <a href="/auth/register" class="btn btn-outline btn-sm">Register</a>
+                    </div>
+                }
+            </div>
+        </header>
+        <div class="page-content">@Body</div>
+    </main>
+</div>
+
+@code {
+    private bool _darkMode = false;
+    private bool _sidebarCollapsed = true;
+    private string _pageTitle = "Beranda";
+    private bool isAuthenticated;
+    private bool isAdmin;
+    private string? userFullName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = authState.User;
+        isAuthenticated = user.Identity?.IsAuthenticated ?? false;
+        userFullName = user.FindFirst("FullName")?.Value ?? user.Identity?.Name ?? "User";
+        isAdmin = user.IsInRole("Admin") || user.IsInRole("Operator");
+    }
+
+    string GetInitials()
+    {
+        if (string.IsNullOrEmpty(userFullName)) return "?";
+        var parts = userFullName.Split(' ');
+        return parts.Length >= 2 ? $"{parts[0][0]}{parts[1][0]}".ToUpper() : userFullName[..1].ToUpper();
+    }
+
+    void ToggleDarkMode() => _darkMode = !_darkMode;
+    void ToggleSidebar() => _sidebarCollapsed = !_sidebarCollapsed;
+    public void SetPageTitle(string title) => _pageTitle = title;
+}

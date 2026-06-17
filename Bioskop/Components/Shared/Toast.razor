@@ -1,0 +1,75 @@
+@inject IJSRuntime JS
+
+@if (_toasts.Any())
+{
+    <div class="toast-container">
+        @foreach (var toast in _toasts)
+        {
+            <div class="toast toast-@toast.Type animate-slide-in" role="alert">
+                <div class="toast-icon">
+                    @switch (toast.Type)
+                    {
+                        case "success": <span>✅</span> break;
+                        case "error": <span>❌</span> break;
+                        case "warning": <span>⚠️</span> break;
+                        case "info": <span>ℹ️</span> break;
+                        default: <span>📢</span> break;
+                    }
+                </div>
+                <div class="toast-content">
+                    <div class="toast-title">@toast.Title</div>
+                    @if (!string.IsNullOrEmpty(toast.Message))
+                    {
+                        <div class="toast-message">@toast.Message</div>
+                    }
+                </div>
+                <button class="toast-close" @onclick="() => RemoveToast(toast.Id)">✕</button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<ToastItem> _toasts = new();
+    private int _counter = 0;
+
+    public void Show(string title, string? message = null, string type = "info", int durationMs = 4000)
+    {
+        var toast = new ToastItem
+        {
+            Id = ++_counter,
+            Title = title,
+            Message = message,
+            Type = type
+        };
+
+        _toasts.Add(toast);
+        StateHasChanged();
+
+        // Auto remove after duration
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(durationMs);
+            RemoveToast(toast.Id);
+        });
+    }
+
+    public void Success(string title, string? message = null) => Show(title, message, "success");
+    public void Error(string title, string? message = null) => Show(title, message, "error", 6000);
+    public void Warning(string title, string? message = null) => Show(title, message, "warning");
+    public void Info(string title, string? message = null) => Show(title, message, "info");
+
+    private void RemoveToast(int id)
+    {
+        _toasts.RemoveAll(t => t.Id == id);
+        StateHasChanged();
+    }
+
+    private class ToastItem
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+        public string? Message { get; set; }
+        public string Type { get; set; } = "info";
+    }
+}

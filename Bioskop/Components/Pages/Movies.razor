@@ -1,0 +1,77 @@
+@page "/movies"
+@page "/movies/{MovieId:int}"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Bioskop.Services
+@using Bioskop.Models
+@inject MovieService MovieService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+
+<PageTitle>@(_movie?.Title ?? "Film") - Bioskop</PageTitle>
+
+<div class="movies-page fade-in-up">
+    @if (_viewingDetail)
+    {
+        @if (_loadingDetail){<div class="loading-container"><div class="spinner"></div></div>}
+        else if (_movie == null){<div class="empty-state"><h2>Film tidak ditemukan</h2><p>ID: @_currentMovieId</p><button class="btn btn-outline mt-2" @onclick="GoBack">← Kembali ke daftar</button></div>}
+        else{<div class="movie-detail">
+            <button class="btn btn-outline" @onclick="GoBack">← Kembali</button>
+            <div class="detail-hero"><div class="detail-poster"><span class="detail-poster-emoji">🎬</span></div>
+            <div class="detail-info"><h1>@_movie.Title</h1>
+                <div class="detail-meta"><span class="badge">@_movie.Genre</span><span class="badge">🕐 @_movie.DurationMinutes mnt</span><span class="badge">🔞 @_movie.AgeRating</span></div>
+                <p class="detail-desc">@_movie.Description</p>
+                <div class="detail-rating"><h4>⭐ @_avgRating.ToString("F1") / 5 (@_ratingCount reviews)</h4>
+                @if(_isAuthenticated){<div class="user-rating"><span>Rating kamu:</span>
+                    @for(int i=1;i<=5;i++){<button class="star-btn @(_userRating>=i?"active":"")" @onclick="()=>RateMovie(i)">★</button>}
+                </div>
+                <div class="add-review"><textarea class="form-input" @bind="_reviewComment" placeholder="Tulis review..." rows="2"></textarea><button class="btn btn-primary btn-sm" @onclick="SubmitReview">Kirim</button></div>}</div>
+                <a href="/booking/@_movie.Id" class="btn btn-primary btn-lg">🎫 Pesan Tiket</a>
+            </div></div>
+            @if(_ratings.Any()){<div class="reviews-section"><h3>💬 Review</h3>
+                @foreach(var r in _ratings){<div class="review-card"><div class="review-header"><strong>@r.User?.FullName</strong><span class="review-stars">@for(int i=1;i<=5;i++){<span class="star @(r.Rating>=i?"filled":"")">★</span>}</span></div><p>@r.Comment</p><span class="review-time">@r.CreatedAt.ToString("dd MMM yyyy")</span></div>}
+            </div>}
+        </div>}
+    }
+    else
+    {
+        <h2>🎬 Semua Film</h2>
+        <div class="filter-bar">
+            <input class="form-input" @bind="_search" @bind:event="oninput" placeholder="🔍 Cari film..."/>
+            <select class="form-input" @bind="_genreFilter"><option value="">Semua Genre</option><option>Action</option><option>Horror</option><option>Comedy</option><option>Romance</option><option>Sci-Fi</option><option>Drama</option><option>Animation</option></select>
+        </div>
+        <div class="movie-grid">
+            @foreach(var movie in _filteredMovies){<div class="movie-card" @onclick="()=>GoToMovie(movie.Id)"><div class="movie-poster"><span class="poster-emoji">🎬</span><span class="age-badge">@movie.AgeRating</span></div><div class="movie-card-info"><h3>@movie.Title</h3><span class="genre-tag">@movie.Genre</span><p class="movie-excerpt">@Truncate(movie.Description,80)</p><div class="movie-card-footer"><span class="price">Rp @movie.BasePrice.ToString("N0")</span><span>🕐 @movie.DurationMinutes mnt</span></div></div></div>}
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]public int? MovieId{get;set;}
+    private Movie? _movie;private List<MovieRating> _ratings=new();private List<Movie> _allMovies=new();
+    private double _avgRating;private int _ratingCount,_userRating,_currentMovieId;
+    private string _reviewComment="",_search="",_genreFilter="";
+    private bool _loadingDetail=true,_isAuthenticated,_viewingDetail;private string? _userId;
+
+    private List<Movie> _filteredMovies=>_allMovies.Where(m=>(string.IsNullOrEmpty(_search)||m.Title.Contains(_search,StringComparison.OrdinalIgnoreCase))&&(string.IsNullOrEmpty(_genreFilter)||(m.Genre!=null&&m.Genre.Contains(_genreFilter)))).OrderByDescending(m=>m.ReleaseDate).ToList();
+
+    protected override async Task OnInitializedAsync(){
+        var a=await AuthState.GetAuthenticationStateAsync();_isAuthenticated=a.User.Identity?.IsAuthenticated??false;_userId=a.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _allMovies=await MovieService.GetAllAsync();await LoadDetailIfNeeded();
+    }
+    protected override async Task OnParametersSetAsync(){if(_allMovies.Any())await LoadDetailIfNeeded();}
+
+    async Task LoadDetailIfNeeded(){
+        if(MovieId.HasValue&&MovieId.Value!=_currentMovieId){
+            _currentMovieId=MovieId.Value;_viewingDetail=true;_loadingDetail=true;
+            _movie=await MovieService.GetByIdAsync(_currentMovieId);
+            if(_movie!=null){_ratings=_movie.Ratings.ToList();_avgRating=await MovieService.GetAverageRatingAsync(_currentMovieId);_ratingCount=_ratings.Count;if(_isAuthenticated){var ur=_ratings.FirstOrDefault(r=>r.UserId==_userId);if(ur!=null){_userRating=ur.Rating;_reviewComment=ur.Comment??"";}}}
+            _loadingDetail=false;
+        }else if(!MovieId.HasValue){_viewingDetail=false;_currentMovieId=0;_movie=null;}
+    }
+
+    void GoBack(){_viewingDetail=false;_currentMovieId=0;_movie=null;Navigation.NavigateTo("/movies");}
+    void GoToMovie(int id)=>Navigation.NavigateTo($"/movies/{id}");
+    async Task RateMovie(int rating){if(_currentMovieId==0||!_isAuthenticated||_userId==null)return;_userRating=rating;await MovieService.AddRatingAsync(_currentMovieId,_userId,rating,_reviewComment);_movie=await MovieService.GetByIdAsync(_currentMovieId);_ratings=_movie?.Ratings.ToList()??new();_avgRating=await MovieService.GetAverageRatingAsync(_currentMovieId);_ratingCount=_ratings.Count;}
+    async Task SubmitReview(){if(_currentMovieId==0||!_isAuthenticated||_userId==null)return;await MovieService.AddRatingAsync(_currentMovieId,_userId,_userRating>0?_userRating:5,_reviewComment);_movie=await MovieService.GetByIdAsync(_currentMovieId);_ratings=_movie?.Ratings.ToList()??new();}
+    string Truncate(string? text,int max)=>string.IsNullOrEmpty(text)?"":text.Length<=max?text:text[..max]+"...";
+}

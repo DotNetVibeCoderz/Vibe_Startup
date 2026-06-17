@@ -1,0 +1,50 @@
+@if (IsVisible)
+{
+    <div class="modal-overlay" @onclick="OnOverlayClick">
+        <div class="modal-container @SizeClass @CssClass" @onclick:stopPropagation="true">
+            @if (ShowHeader)
+            {
+                <div class="modal-header">
+                    <h3 class="modal-title">@Title</h3>
+                    <button class="modal-close" @onclick="Close">✕</button>
+                </div>
+            }
+            <div class="modal-body">
+                @ChildContent
+            </div>
+            @if (ShowFooter && FooterContent != null)
+            {
+                <div class="modal-footer">
+                    @FooterContent
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public string Title { get; set; } = "Modal";
+    [Parameter] public string Size { get; set; } = "md"; // sm, md, lg, xl
+    [Parameter] public string? CssClass { get; set; }
+    [Parameter] public bool ShowHeader { get; set; } = true;
+    [Parameter] public bool ShowFooter { get; set; } = false;
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? FooterContent { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public bool CloseOnOverlayClick { get; set; } = true;
+
+    private string SizeClass => Size switch
+    {
+        "sm" => "modal-sm",
+        "lg" => "modal-lg",
+        "xl" => "modal-xl",
+        _ => "modal-md"
+    };
+
+    private async Task Close() => await OnClose.InvokeAsync();
+    private async Task OnOverlayClick()
+    {
+        if (CloseOnOverlayClick) await Close();
+    }
+}

@@ -1,0 +1,180 @@
+@page "/booking"
+@page "/booking/{MovieId:int}"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Bioskop.Services
+@inject MovieService MovieService
+@inject ShowtimeService ShowtimeService
+@inject SeatService SeatService
+@inject SnackService SnackService
+@inject OrderService OrderService
+@inject TicketService TicketService
+@inject PaymentService PaymentService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+
+<PageTitle>Pesan Tiket - Bioskop</PageTitle>
+
+<div class="booking-page fade-in-up">
+@if (!_ia)
+{
+    <div class="not-logged-in"><h2>🔒 Login Diperlukan</h2><p>Silakan login dulu.</p><a href="/auth/login" class="btn btn-primary">Login</a></div>
+}
+else
+{
+    <div class="steps-indicator">
+        <div class="step @GetStepClass(1)"><div class="step-number">1</div><span>Film & Jadwal</span></div>
+        <div class="step-connector @(_step>1?"active":"")"></div>
+        <div class="step @GetStepClass(2)"><div class="step-number">2</div><span>Pilih Kursi</span></div>
+        <div class="step-connector @(_step>2?"active":"")"></div>
+        <div class="step @GetStepClass(3)"><div class="step-number">3</div><span>Checkout</span></div>
+    </div>
+
+    @if (_step == 1)
+    {
+        <div class="step-content"><h2>🎬 Pilih Film & Jadwal</h2>
+        @if (_lm) { <div class="loading-container"><div class="spinner"></div></div> }
+        else
+        {
+            <div class="movie-selection-grid">
+            @foreach (var mv in _movies) { int mId = mv.Id;
+                <div class="movie-select-card @(_smi==mv.Id?"selected":"")" @onclick="()=>SelectMovie(mId)">
+                    <div class="ms-poster"><span class="ms-poster-emoji">🎬</span></div>
+                    <div class="ms-info"><h4>@mv.Title</h4><span class="ms-genre">@mv.Genre</span><span class="ms-price">Rp @mv.BasePrice.ToString("N0")</span></div>
+                </div>
+            }</div>
+            @if (_smi.HasValue && _sts.Any())
+            {
+                <h3>📅 Pilih Jadwal</h3><div class="showtime-grid">
+                @foreach (var sh in _sts) { int sId = sh.Id;
+                    <div class="showtime-card @(_ssi==sh.Id?"selected":"")" @onclick="()=>SelectShowtime(sId)">
+                        <div class="st-studio">@sh.Studio?.Name</div><div class="st-time">@sh.StartTime.ToString("dd MMM")</div>
+                        <div class="st-hour">@sh.StartTime.ToString("HH:mm")</div><div class="st-type">@sh.ShowType</div><div class="st-price">Rp @sh.Price.ToString("N0")</div>
+                    </div>
+                }</div>
+            }
+        }</div>
+    }
+
+    @if (_step == 2)
+    {
+        <div class="step-content"><h2>🪑 Pilih Kursi</h2>
+        <div class="screen-indicator"><div class="screen-curve"></div><span>LAYAR</span></div>
+        <div class="seat-legend"><div class="legend-item"><span class="seat-sample available"></span>Tersedia</div><div class="legend-item"><span class="seat-sample premium"></span>Premium</div><div class="legend-item"><span class="seat-sample vip"></span>VIP</div><div class="legend-item"><span class="seat-sample selected-seat"></span>Dipilih</div><div class="legend-item"><span class="seat-sample occupied"></span>Terisi</div></div>
+        @if (_ls) { <div class="loading-container"><div class="spinner"></div></div> }
+        else
+        {
+            <div class="seat-map">
+            @foreach (var rg in _sr)
+            {
+                <div class="seat-row"><span class="row-label">@rg.Key</span><div class="seat-grid-row">
+                @foreach (var seat in rg)
+                {
+                    var st = _seatMap.GetValueOrDefault(seat.Id, "available");
+                    var sel = _sids.Contains(seat.Id);
+                    var title = $"{seat.RowLabel}{seat.ColumnNumber}";
+                    int sid = seat.Id;
+                    <div class="seat @GetSeatCss(seat,st,sel) @IsClickable(st,sel)" title="@title" @onclick="()=>HandleSeatClick(sid)">@seat.ColumnNumber</div>
+                }
+                </div></div>
+            }</div>
+            <div class="selected-seats-info"><h4>Kursi Dipilih: @_sids.Count</h4>
+            <p>@foreach (var sId in _sids) { var s = _as.FirstOrDefault(x => x.Id == sId); if (s != null) { <span class="seat-tag">@s.RowLabel@s.ColumnNumber</span> } }</p>
+            @if (_sids.Any()) { <p class="total-price">Total: Rp @CalcT().ToString("N0")</p> }</div>
+        }</div>
+    }
+
+    @if (_step == 3)
+    {
+        <div class="step-content"><h2>🍿 Checkout</h2><div class="checkout-grid">
+        <div class="checkout-summary"><h3>Ringkasan</h3><div class="summary-card">
+            <div class="summary-movie"><strong>@_sst?.Movie?.Title</strong><span>@_sst?.Studio?.Name</span><span>@(_sst?.StartTime.ToString("dd MMM yyyy HH:mm"))</span></div>
+            <hr/><div class="summary-pricing">
+                <div class="sp-row"><span>Tiket (@_sids.Count)</span><span>Rp @CalcT().ToString("N0")</span></div>
+                @if (_ssk.Any()) { <div class="sp-row"><span>Snack</span><span>Rp @CalcS().ToString("N0")</span></div> }
+                <div class="sp-row"><span>PPN 11%</span><span>Rp @CalcTax().ToString("N0")</span></div>
+                <div class="sp-row total"><span>Total</span><span>Rp @CalcGT().ToString("N0")</span></div>
+            </div>
+        </div></div>
+        <div><h3>Snack</h3><div class="snack-grid">
+        @foreach (var snk in _sns) { int snId = snk.Id;
+            <div class="snack-card @(_ssk.ContainsKey(snk.Id)?"selected":"")" @onclick="()=>ToggleSnack(snId)">
+                <span class="snack-emoji">🍿</span><div class="snack-info"><strong>@snk.Name</strong><span>Rp @snk.Price.ToString("N0")</span></div>
+                @if (_ssk.ContainsKey(snk.Id))
+                {
+                    <div class="snack-qty" @onclick:stopPropagation="true">
+                        <button class="qty-btn" @onclick="()=>ChangeSnackQty(snId,-1)">-</button>
+                        <span>@_ssk[snk.Id]</span>
+                        <button class="qty-btn" @onclick="()=>ChangeSnackQty(snId,1)">+</button>
+                    </div>
+                }
+            </div>
+        }</div>
+        <h3>Pembayaran</h3><div class="payment-methods">
+        @foreach (var pm in PaymentService.PaymentMethods) { string p = pm;
+            <div class="payment-method @(_spm==p?"selected":"")" @onclick="()=>{_spm=p;}">
+                <span>@GetPaymentEmoji(p)</span><span>@GetPaymentName(p)</span>
+            </div>
+        }</div>
+        @if (!string.IsNullOrEmpty(_ce)) { <div class="alert alert-error">❌ @_ce</div> }
+        <button class="btn btn-primary btn-lg btn-block" @onclick="ProcessCheckout" disabled="@_ip">💳 Bayar Rp @CalcGT().ToString("N0")</button></div>
+        </div></div>
+    }
+
+    <div class="step-navigation">
+        @if (_step > 1) { <button class="btn btn-outline" @onclick="PrevStep">← Kembali</button> } else { <div></div> }
+        @if (_step == 1 && _ssi.HasValue) { <button class="btn btn-primary" @onclick="NextStep">Lanjut →</button> }
+        else if (_step == 2 && _sids.Any()) { <button class="btn btn-primary" @onclick="NextStep">Lanjut →</button> }
+    </div>
+}
+</div>
+
+@if (_su && _co != null)
+{
+    <Bioskop.Components.Shared.Modal IsVisible="true" Title="✅ Pesanan Berhasil!" Size="lg" ShowFooter="true">
+        <ChildContent>
+            <div class="success-content"><div class="success-icon">✅</div><h3>Pesanan Berhasil!</h3><p>No. Order: <strong>@_co?.OrderNumber</strong></p>
+            <div class="tickets-preview">
+            @foreach (var tk in _cts) { var qr = TicketService.GenerateQrCodeImage(tk.QrCode);
+                <div class="ticket-mini"><img src="data:image/png;base64,@qr" alt="QR" width="80" height="80"/><div><strong>@tk.TicketNumber</strong><span>@tk.Seat?.RowLabel@tk.Seat?.ColumnNumber</span></div></div> }
+            </div></div>
+        </ChildContent>
+        <FooterContent><a href="/my-tickets" class="btn btn-outline">Tiket Saya</a><a href="/booking" class="btn btn-primary">Pesan Lagi</a></FooterContent>
+    </Bioskop.Components.Shared.Modal>
+}
+
+@code {
+    private int _step = 1;
+    private List<Movie> _movies = new(); private List<Showtime> _sts = new(); private List<Seat> _as = new();
+    private Dictionary<int,string> _seatMap = new(); private List<Snack> _sns = new(); private List<Ticket> _cts = new();
+    private Order? _co; private int? _smi, _ssi; private Showtime? _sst; private HashSet<int> _sids = new();
+    private Dictionary<int,int> _ssk = new(); private string _spm = "EWallet"; private bool _lm = true, _ls, _ip, _su, _ia;
+    private string? _ce, _ui; private List<IGrouping<string,Seat>> _sr = new();
+    [Parameter] public int? MovieId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var a = await AuthState.GetAuthenticationStateAsync(); var u = a.User;
+        _ia = u.Identity?.IsAuthenticated ?? false; _ui = u.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _movies = await MovieService.GetNowPlayingAsync(); _sns = await SnackService.GetAllAsync(); _lm = false;
+        if (MovieId.HasValue) { _smi = MovieId; await LoadShowtimes(); }
+    }
+    string GetStepClass(int s) => _step == s ? "active" : _step > s ? "completed" : "";
+    string IsClickable(string st, bool sel) => st == "available" && !sel ? "clickable" : "";
+    string GetSeatCss(Seat s, string st, bool sel) { if (sel) return "selected-seat"; return st switch { "occupied" => "occupied", "maintenance" => "maintenance", _ => s.SeatType?.ToLower() == "premium" ? "premium" : s.SeatType?.ToLower() == "vip" ? "vip" : "available" }; }
+    void HandleSeatClick(int sid) { var st = _seatMap.GetValueOrDefault(sid, "available"); if (st != "available") return; if (_sids.Contains(sid)) _sids.Remove(sid); else _sids.Add(sid); }
+    async Task SelectMovie(int id) { _smi = id; _ssi = null; await LoadShowtimes(); }
+    void SelectShowtime(int id) => _ssi = id;
+    async Task LoadShowtimes() { if (_smi.HasValue) _sts = await ShowtimeService.GetByMovieAsync(_smi.Value); }
+    async Task NextStep() { if (_step == 1) { _step = 2; _sst = await ShowtimeService.GetByIdAsync(_ssi!.Value); await LoadSeats(); } else if (_step == 2) { _step = 3; } }
+    void PrevStep() { if (_step > 1) _step--; }
+    async Task LoadSeats() { if (_sst == null) return; _ls = true; _as = await SeatService.GetByStudioAsync(_sst.StudioId); _seatMap = await SeatService.GetSeatStatusForShowtimeAsync(_ssi!.Value); _sr = _as.GroupBy(s => s.RowLabel).OrderBy(g => g.Key).ToList(); _ls = false; }
+    void ToggleSnack(int id) { if (_ssk.ContainsKey(id)) _ssk.Remove(id); else _ssk[id] = 1; }
+    void ChangeSnackQty(int id, int d) { if (!_ssk.ContainsKey(id)) return; _ssk[id] = Math.Max(0, _ssk[id] + d); if (_ssk[id] == 0) _ssk.Remove(id); }
+    decimal CalcT() { decimal t = 0; foreach (var i in _sids) { var s = _as.FirstOrDefault(x => x.Id == i); if (s != null && _sst != null) t += _sst.Price * s.PriceMultiplier; } return t; }
+    decimal CalcS() { decimal t = 0; foreach (var kv in _ssk) { var s = _sns.FirstOrDefault(x => x.Id == kv.Key); if (s != null) t += s.Price * kv.Value; } return t; }
+    decimal CalcTax() => (CalcT() + CalcS()) * 0.11m;
+    decimal CalcGT() => CalcT() + CalcS() + CalcTax();
+    async Task ProcessCheckout() { if (string.IsNullOrEmpty(_ui)) return; _ip = true; _ce = null; try { var sks = _ssk.Select(s => (s.Key, s.Value)).ToList(); var r = await OrderService.CreateOrderAsync(_ui, _ssi!.Value, _sids.ToList(), sks); if (r.order == null) { _ce = r.error; return; } var pr = await PaymentService.ProcessPaymentAsync(r.order.Id, _spm); if (!pr.success) { _ce = pr.message; return; } _co = r.order; _cts = await TicketService.GetTicketsByOrderAsync(r.order.Id); _su = true; } catch (Exception ex) { _ce = $"Error: {ex.Message}"; } finally { _ip = false; } }
+    string GetPaymentEmoji(string m) => m switch { "EWallet" => "📱", "CreditCard" => "💳", "BankTransfer" => "🏦", "QRIS" => "📲", _ => "💰" };
+    string GetPaymentName(string m) => m switch { "EWallet" => "E-Wallet", "CreditCard" => "Kartu Kredit", "BankTransfer" => "Transfer", "QRIS" => "QRIS", _ => m };
+}

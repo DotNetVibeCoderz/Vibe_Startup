@@ -1,0 +1,314 @@
+@page "/scan"
+@page "/scan/{QrCode}"
+@layout Bioskop.Components.Layout.MainLayout
+@using Microsoft.AspNetCore.Components.Forms
+@using Bioskop.Services
+@using Bioskop.Models
+@inject TicketService TicketService
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<PageTitle>Scan Tiket - Bioskop</PageTitle>
+
+<div class="scan-page fade-in-up">
+    <div class="scan-container">
+        <div class="scan-header">
+            <h1>🎟️ Scan Tiket</h1>
+            <p>Scan QR Code tiket untuk check-in masuk bioskop</p>
+        </div>
+
+        @if (_ticket == null && string.IsNullOrEmpty(_error))
+        {
+            <div class="scan-mode-selector">
+                <button class="scan-tab @(_scanMode=="camera"?"active":"")" @onclick="SwitchToCamera">📷 Kamera</button>
+                <button class="scan-tab @(_scanMode=="upload"?"active":"")" @onclick="SwitchToUpload">📁 Upload QR</button>
+                <button class="scan-tab @(_scanMode=="manual"?"active":"")" @onclick="SwitchToManual">⌨️ Manual</button>
+            </div>
+
+            @if (_scanMode == "camera")
+            {
+                <div class="scanner-section">
+                    <div id="scanner-video" class="scanner-viewport">
+                        @if (_scannerError != null)
+                        {
+                            <div class="scanner-error">
+                                <span>⚠️ @_scannerError</span>
+                                <button class="btn btn-outline btn-sm" @onclick="RetryScanner">🔄 Coba Lagi</button>
+                            </div>
+                        }
+                    </div>
+                    <p class="scanner-hint">Arahkan kamera ke QR Code tiket</p>
+                    @if (_isScanning)
+                    {
+                        <button class="btn btn-outline" @onclick="StopScanner">⏹️ Stop Scanner</button>
+                    }
+                    else if (_scannerError != null)
+                    {
+                        <p class="scanner-hint">Atau gunakan metode lain di atas</p>
+                    }
+                </div>
+            }
+            else if (_scanMode == "upload")
+            {
+                <div class="upload-section">
+                    <label class="upload-area">
+                        <span class="upload-icon">📁</span>
+                        <span>Klik untuk upload gambar QR Code</span>
+                        <span class="upload-hint">JPG, PNG, GIF</span>
+                        <InputFile OnChange="HandleFileUpload" accept="image/*" hidden />
+                    </label>
+                    @if (_uploadError != null)
+                    {
+                        <div class="alert alert-error">@_uploadError</div>
+                    }
+                </div>
+            }
+            else if (_scanMode == "manual")
+            {
+                <div class="manual-section">
+                    <div class="form-group">
+                        <label>Masukkan Kode QR Tiket</label>
+                        <input class="form-input" @bind="_manualQr" placeholder="Kode QR dari tiket..." />
+                    </div>
+                    <button class="btn btn-primary btn-block" @onclick="ValidateManual" disabled="@(string.IsNullOrWhiteSpace(_manualQr) || _validating)">
+                        @if (_validating) { <span class="spinner-small"></span> <span>Memeriksa...</span> }
+                        else { <span>🔍 Validasi Tiket</span> }
+                    </button>
+                </div>
+            }
+        }
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="scan-result error">
+                <div class="result-icon">❌</div>
+                <h2>Tiket Tidak Valid</h2>
+                <p class="result-message">@_error</p>
+                <button class="btn btn-primary" @onclick="ResetScan">🔄 Scan Ulang</button>
+            </div>
+        }
+
+        @if (_ticket != null)
+        {
+            <div class="scan-result success">
+                <div class="result-icon">✅</div>
+                <h2>Tiket Valid!</h2>
+                <p class="result-subtitle">Selamat menonton! 🍿</p>
+
+                <div class="validated-ticket">
+                    <div class="vt-header">
+                        <span class="vt-number">@_ticket.TicketNumber</span>
+                        <span class="status-badge status-paid">@_ticket.Status</span>
+                    </div>
+                    <div class="vt-movie">
+                        <strong>@_ticket.Order?.Showtime?.Movie?.Title</strong>
+                    </div>
+                    <div class="vt-details">
+                        <div class="vt-row"><span>🎪 Studio</span><strong>@_ticket.Order?.Showtime?.Studio?.Name</strong></div>
+                        <div class="vt-row"><span>💺 Kursi</span><strong>@_ticket.Seat?.RowLabel@_ticket.Seat?.ColumnNumber (@_ticket.Seat?.SeatType)</strong></div>
+                        <div class="vt-row"><span>🕐 Jadwal</span><strong>@_ticket.Order?.Showtime?.StartTime.ToString("dd MMM yyyy HH:mm")</strong></div>
+                        <div class="vt-row"><span>🎬 Tipe</span><strong>@_ticket.Order?.Showtime?.ShowType</strong></div>
+                    </div>
+
+                    @if (_ticket.UsedAt.HasValue)
+                    {
+                        <div class="vt-checkin">
+                            <span>✅ Check-in: @_ticket.UsedAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm:ss")</span>
+                        </div>
+                    }
+                </div>
+
+                <button class="btn btn-primary btn-lg" @onclick="ResetScan">🔄 Scan Tiket Lain</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string _scanMode = "camera";
+    private bool _isScanning;
+    private string? _scannerError;
+    private string? _uploadError;
+    private string? _error;
+    private string _manualQr = "";
+    private bool _validating;
+    private Ticket? _ticket;
+
+    [Parameter] public string? QrCode { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(QrCode))
+        {
+            _validating = true;
+            await ValidateQr(QrCode);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _scanMode == "camera" && string.IsNullOrEmpty(QrCode))
+        {
+            await StartScanner();
+        }
+    }
+
+    // Mode switch helpers (avoid quote issues)
+    async Task SwitchToCamera() { await SwitchMode("camera"); }
+    async Task SwitchToUpload() { await SwitchMode("upload"); }
+    async Task SwitchToManual() { await SwitchMode("manual"); }
+
+    async Task SwitchMode(string mode)
+    {
+        if (_isScanning) await StopScanner();
+        _scanMode = mode;
+        _scannerError = null;
+        _uploadError = null;
+        _error = null;
+
+        if (mode == "camera")
+        {
+            StateHasChanged();
+            await Task.Delay(300);
+            await StartScanner();
+        }
+    }
+
+    async Task StartScanner()
+    {
+        _scannerError = null;
+        try
+        {
+            var dotnetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("bioskopScan.startScanner", dotnetRef, "scanner-video");
+            _isScanning = true;
+        }
+        catch (Exception ex)
+        {
+            _scannerError = "Browser tidak mendukung scanner: " + ex.Message;
+            _isScanning = false;
+        }
+    }
+
+    async Task StopScanner()
+    {
+        _isScanning = false;
+        await JS.InvokeVoidAsync("bioskopScan.stopScanner");
+    }
+
+    async Task RetryScanner()
+    {
+        _scannerError = null;
+        StateHasChanged();
+        await Task.Delay(200);
+        await StartScanner();
+    }
+
+    [JSInvokable]
+    public async Task OnQrDetected(string qrData)
+    {
+        _isScanning = false;
+        await StopScanner();
+        await ValidateQr(qrData.Trim());
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnScannerError(string error)
+    {
+        _scannerError = error;
+        _isScanning = false;
+        StateHasChanged();
+    }
+
+    async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        _uploadError = null;
+        var file = e.GetMultipleFiles(1).FirstOrDefault();
+        if (file == null) return;
+
+        var ext = Path.GetExtension(file.Name).ToLower();
+        if (ext is not (".jpg" or ".jpeg" or ".png" or ".gif" or ".webp"))
+        {
+            _uploadError = "Format tidak didukung. Gunakan JPG, PNG, atau GIF.";
+            return;
+        }
+
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(10 * 1024 * 1024).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            var mime = file.ContentType ?? "image/png";
+
+            var qrData = await JS.InvokeAsync<string>("eval",
+                "(async()=>{try{const img=new Image();img.src='data:" + mime + ";base64," + base64 +
+                "';await new Promise(r=>img.onload=r);const c=document.createElement('canvas');c.width=img.width;c.height=img.height;c.getContext('2d').drawImage(img,0,0);const blob=await new Promise(r=>c.toBlob(r,'image/png'));const detector=new BarcodeDetector({formats:['qr_code']});const barcodes=await detector.detect(blob);return barcodes.length>0?barcodes[0].rawValue:'';}catch(e){return 'ERROR:'+e.message;}})()");
+
+            if (string.IsNullOrEmpty(qrData))
+            {
+                _uploadError = "QR Code tidak terdeteksi di gambar. Pastikan gambar berisi QR code yang jelas.";
+                return;
+            }
+
+            if (qrData.StartsWith("ERROR:"))
+            {
+                _uploadError = "Gagal decode: " + qrData[6..] + ". Coba gunakan metode manual.";
+                return;
+            }
+
+            await ValidateQr(qrData.Trim());
+        }
+        catch (Exception ex)
+        {
+            _uploadError = "Error: " + ex.Message;
+        }
+    }
+
+    async Task ValidateManual()
+    {
+        if (string.IsNullOrWhiteSpace(_manualQr)) return;
+        _validating = true;
+        await ValidateQr(_manualQr.Trim());
+        _validating = false;
+    }
+
+    async Task ValidateQr(string qrCode)
+    {
+        _error = null;
+        _ticket = null;
+        _validating = true;
+
+        try
+        {
+            var (ticket, message) = await TicketService.ValidateTicketByQrAsync(qrCode);
+            if (ticket == null)
+            {
+                _error = message ?? "Tiket tidak valid";
+            }
+            else
+            {
+                _ticket = ticket;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = "Error: " + ex.Message;
+        }
+        finally
+        {
+            _validating = false;
+            StateHasChanged();
+        }
+    }
+
+    void ResetScan()
+    {
+        _ticket = null;
+        _error = null;
+        _manualQr = "";
+        _uploadError = null;
+        _scannerError = null;
+    }
+}

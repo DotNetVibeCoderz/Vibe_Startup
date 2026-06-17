@@ -1,0 +1,13 @@
+/* Modal styles */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:1000;animation:fadeIn 0.2s ease}
+.modal-container{background:var(--bg-card);border-radius:var(--radius-lg);box-shadow:var(--shadow-xl);max-height:90vh;overflow-y:auto;animation:scaleIn 0.3s ease}
+.modal-sm{width:400px}
+.modal-md{width:560px}
+.modal-lg{width:720px}
+.modal-xl{width:960px}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid var(--border-color)}
+.modal-title{font-size:1.2em;font-weight:600}
+.modal-close{background:none;border:none;font-size:1.2em;color:var(--text-secondary);cursor:pointer;padding:4px 8px;border-radius:6px}
+.modal-close:hover{background:var(--bg-secondary)}
+.modal-body{padding:24px}
+.modal-footer{padding:16px 24px;border-top:1px solid var(--border-color);display:flex;justify-content:flex-end;gap:10px}

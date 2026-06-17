@@ -1,0 +1,93 @@
+/* Curhat Film (Timeline) page styles */
+.curhat-page { max-width: 1100px; margin: 0 auto; }
+.curhat-layout { display: grid; grid-template-columns: 340px 1fr; gap: 24px; align-items: start; }
+
+/* Sidebar */
+.curhat-sidebar { display: flex; flex-direction: column; gap: 20px; }
+.create-post-card, .login-prompt-card, .trending-card {
+    background: var(--bg-card); border-radius: var(--radius-md);
+    padding: 20px; box-shadow: var(--shadow-sm);
+}
+.create-post-card h3 { margin-bottom: 12px; font-size: 1.1em; }
+.post-input {
+    width: 100%; padding: 12px; border: 2px solid var(--border-color);
+    border-radius: var(--radius-sm); font-size: 0.95em; font-family: inherit;
+    resize: vertical; background: var(--bg-input); color: var(--text-primary);
+    outline: none; min-height: 80px;
+}
+.post-input:focus { border-color: var(--primary); }
+.post-extra-options { margin: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+.toggle-option label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9em; }
+.trending-list { display: flex; flex-direction: column; gap: 8px; }
+.trend-item {
+    padding: 8px 12px; border-radius: var(--radius-sm);
+    background: var(--bg-secondary); font-size: 0.9em;
+    color: var(--primary); cursor: pointer; transition: var(--transition);
+}
+.trend-item:hover { background: var(--primary-light); }
+.login-prompt-card { text-align: center; }
+.login-prompt-card p { margin-bottom: 12px; }
+
+/* Timeline */
+.curhat-timeline h2 { font-size: 1.5em; margin-bottom: 4px; }
+.timeline-subtitle { color: var(--text-secondary); margin-bottom: 24px; font-size: 0.95em; }
+
+/* Post Card */
+.post-card {
+    background: var(--bg-card); border-radius: var(--radius-md);
+    padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm);
+    transition: var(--transition);
+}
+.post-card:hover { box-shadow: var(--shadow-md); }
+.post-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+.post-user { display: flex; align-items: center; gap: 10px; }
+.post-avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    color: white; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 0.85em; flex-shrink: 0;
+}
+.post-time { display: block; font-size: 0.8em; color: var(--text-secondary); }
+.btn-delete { background: none; border: none; cursor: pointer; opacity: 0.4; transition: var(--transition); font-size: 1em; }
+.btn-delete:hover { opacity: 1; }
+
+.post-body { margin-bottom: 14px; }
+.post-text { line-height: 1.6; font-size: 1.05em; word-wrap: break-word; white-space: pre-wrap; }
+
+.post-event {
+    margin-top: 12px; padding: 14px;
+    background: var(--primary-light); border-radius: var(--radius-sm);
+    border-left: 4px solid var(--primary);
+}
+.event-badge {
+    display: inline-block; background: var(--primary); color: white;
+    padding: 2px 10px; border-radius: var(--radius-full);
+    font-size: 0.75em; font-weight: 700; margin-bottom: 8px;
+}
+.post-event strong { display: block; margin-bottom: 4px; }
+.post-event span { display: block; font-size: 0.85em; color: var(--text-secondary); }
+
+/* Post Actions */
+.post-actions { display: flex; gap: 20px; border-top: 1px solid var(--border-color); padding-top: 12px; }
+.action-btn {
+    background: none; border: none; cursor: pointer; font-size: 0.9em;
+    color: var(--text-secondary); transition: var(--transition);
+    display: flex; align-items: center; gap: 4px; font-family: inherit;
+}
+.action-btn:hover { color: var(--primary); }
+.action-btn.liked { color: #e74c3c; }
+
+/* Comments */
+.comments-section { border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px; }
+.comment { padding: 8px 0; border-bottom: 1px solid var(--border-light); }
+.comment:last-child { border-bottom: none; }
+.comment strong { font-size: 0.9em; }
+.comment p { margin: 4px 0; font-size: 0.9em; }
+.comment-time { font-size: 0.75em; color: var(--text-secondary); display: block; }
+.add-comment { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.add-comment .form-input { flex: 1; }
+.show-more-container { text-align: center; padding: 20px; }
+
+@media (max-width: 768px) {
+    .curhat-layout { grid-template-columns: 1fr; }
+}

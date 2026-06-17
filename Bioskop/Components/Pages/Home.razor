@@ -1,0 +1,185 @@
+@page "/"
+@using Bioskop.Services
+@using Microsoft.AspNetCore.Identity
+@using Bioskop.Models
+@inject MovieService MovieService
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager Navigation
+
+<PageTitle>Bioskop - Cinema Ticket Booking</PageTitle>
+
+<div class="home-page fade-in-up">
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <h1 class="hero-title">
+                <span class="hero-icon">🎬</span>
+                Selamat Datang di <span class="text-gradient">Bioskop</span>
+            </h1>
+            <p class="hero-subtitle">
+                Pesan tiket film favoritmu dengan mudah! Pilih kursi, beli snack, dan dapatkan tiket digital dengan QR Code.
+            </p>
+            <div class="hero-actions">
+                <a href="/booking" class="btn btn-primary btn-lg">
+                    🎫 Pesan Tiket Sekarang
+                </a>
+                <a href="/movies" class="btn btn-outline btn-lg">
+                    🎬 Lihat Film
+                </a>
+            </div>
+        </div>
+        <div class="hero-visual">
+            <div class="floating-card card-1">🎥</div>
+            <div class="floating-card card-2">🍿</div>
+            <div class="floating-card card-3">🎟️</div>
+            <div class="floating-card card-4">🎬</div>
+        </div>
+    </section>
+
+    <!-- Now Playing -->
+    <section class="section">
+        <div class="section-header">
+            <h2>🎬 Sekarang Tayang</h2>
+            <a href="/movies" class="see-all">Lihat Semua →</a>
+        </div>
+
+        @if (_loading)
+        {
+            <div class="loading-container">
+                <div class="spinner"></div>
+                <p>Memuat film...</p>
+            </div>
+        }
+        else if (_movies.Any())
+        {
+            <div class="movie-grid">
+                @foreach (var movie in _movies.Take(8))
+                {
+                    <div class="movie-card slide-in-left" @onclick="() => GoToMovie(movie.Id)">
+                        <div class="movie-poster">
+                            <div class="poster-placeholder">
+                                <span class="poster-emoji">@GetGenreEmoji(movie.Genre)</span>
+                            </div>
+                            @if (!string.IsNullOrEmpty(movie.AgeRating))
+                            {
+                                <span class="age-rating">@movie.AgeRating</span>
+                            }
+                        </div>
+                        <div class="movie-info">
+                            <h3 class="movie-title">@movie.Title</h3>
+                            <div class="movie-meta">
+                                <span class="genre">@movie.Genre</span>
+                                <span class="duration">🕐 @movie.DurationMinutes mnt</span>
+                            </div>
+                            <div class="movie-footer">
+                                <span class="price">Rp @movie.BasePrice.ToString("N0")</span>
+                                <span class="rating-stars">
+                                    @{
+                                        var avg = _ratings.GetValueOrDefault(movie.Id, 0);
+                                        for (int i = 1; i <= 5; i++)
+                                        {
+                                            <span class="@(i <= avg ? "star filled" : "star")">★</span>
+                                        }
+                                    }
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+
+    <!-- Features -->
+    <section class="section features-section">
+        <h2>✨ Kenapa Pilih Bioskop?</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🪑</div>
+                <h3>Pilih Kursi</h3>
+                <p>Pilih kursi favoritmu dengan seat map interaktif real-time</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🍿</div>
+                <h3>Snack & Minuman</h3>
+                <p>Tambah snack dan minuman favorit saat checkout</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">📱</div>
+                <h3>Tiket Digital</h3>
+                <p>Tiket dengan QR Code unik, tinggal scan di bioskop</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">💬</div>
+                <h3>Curhat Film</h3>
+                <p>Diskusi dan review film bareng komunitas pecinta film</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🤖</div>
+                <h3>Si Bobby</h3>
+                <p>Chat bot movie maniac yang siap bantu dan ngobrol film</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">💳</div>
+                <h3>Bayar Mudah</h3>
+                <p>E-wallet, transfer bank, QRIS, dan kartu kredit</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <h3>🎬 Bioskop</h3>
+                <p>Cinema Ticket Booking Platform</p>
+            </div>
+            <div class="footer-links">
+                <a href="/movies">Film</a>
+                <a href="/booking">Pesan Tiket</a>
+                <a href="/curhat">Curhat Film</a>
+                <a href="/chat">Si Bobby</a>
+            </div>
+            <div class="footer-copy">
+                <p>© 2025 Bioskop. Made with ❤️ by Gravicode Studios</p>
+                <p class="traktir">☕ Traktir kopi: <a href="https://studios.gravicode.com/products/budax" target="_blank">gravicode.com/budax</a></p>
+            </div>
+        </div>
+    </footer>
+</div>
+
+@code {
+    private List<Movie> _movies = new();
+    private Dictionary<int, double> _ratings = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _movies = await MovieService.GetNowPlayingAsync();
+            foreach (var movie in _movies)
+            {
+                _ratings[movie.Id] = await MovieService.GetAverageRatingAsync(movie.Id);
+            }
+        }
+        catch { }
+        _loading = false;
+    }
+
+    void GoToMovie(int id) => Navigation.NavigateTo($"/movies/{id}");
+
+    string GetGenreEmoji(string? genre) => genre switch
+    {
+        string g when g != null && g.Contains("Horror") => "👻",
+        string g when g != null && g.Contains("Comedy") => "😂",
+        string g when g != null && g.Contains("Action") => "💥",
+        string g when g != null && g.Contains("Romance") => "💕",
+        string g when g != null && g.Contains("Animation") => "🎨",
+        string g when g != null && g.Contains("Sci-Fi") => "🚀",
+        string g when g != null && g.Contains("Thriller") => "🔍",
+        string g when g != null && g.Contains("Adventure") => "🗺️",
+        string g when g != null && g.Contains("Drama") => "🎭",
+        _ => "🎬"
+    };
+}

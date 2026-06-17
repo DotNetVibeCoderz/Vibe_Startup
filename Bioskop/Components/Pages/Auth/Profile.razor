@@ -1,0 +1,77 @@
+@page "/auth/profile"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Identity
+@using Bioskop.Models
+@using Bioskop.Services
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+@inject StorageService StorageService
+@inject NavigationManager Navigation
+
+<PageTitle>Profil Saya - Bioskop</PageTitle>
+
+<div class="profile-page fade-in-up">
+    @if(!_isAuth){<div class="not-logged-in"><h2>🔒 Login Diperlukan</h2><a href="/auth/login" class="btn btn-primary">Login</a></div>}
+    else if(_loading){<div class="loading-container"><div class="spinner"></div></div>}
+    else{
+        <h2>👤 Profil Saya</h2>
+        <div class="profile-header">
+            <div class="profile-avatar">
+                @if(!string.IsNullOrEmpty(_avatarUrl)){<img src="@_avatarUrl" alt="avatar"/>}
+                else{<span>@GetInitials()</span>}
+                <label class="profile-avatar-upload">
+                    📷<InputFile OnChange="UploadAvatar" accept="image/*" hidden/>
+                </label>
+            </div>
+            <div><h3>@_user?.FullName</h3><p>@_user?.Email</p><p>Member sejak @_user?.CreatedAt.ToString("dd MMM yyyy")</p></div>
+        </div>
+        @if(!string.IsNullOrEmpty(_msg)){<div class="alert @(_err?"alert-error":"alert-success")">@_msg</div>}
+        <div style="background:var(--bg-card);border-radius:var(--radius-md);padding:24px;box-shadow:var(--shadow-sm)">
+            <h3 style="margin-bottom:16px">Edit Profil</h3>
+            <div style="display:flex;flex-direction:column;gap:14px">
+                <div class="form-group"><label>Nama Lengkap</label><input class="form-input" @bind="_fullName"/></div>
+                <div class="form-group"><label>Email</label><input class="form-input" @bind="_email" type="email"/></div>
+                <div class="form-group"><label>Password Baru (kosongkan jika tidak ingin ganti)</label><input class="form-input" @bind="_newPass" type="password"/></div>
+                <div class="form-group"><label>Konfirmasi Password Baru</label><input class="form-input" @bind="_confirmPass" type="password"/></div>
+                <button class="btn btn-primary" @onclick="SaveProfile" disabled="@_saving">💾 Simpan Perubahan</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private ApplicationUser? _user;private bool _isAuth,_loading=true,_saving,_err;private string _fullName="",_email="",_newPass="",_confirmPass="",_avatarUrl="",_msg="";
+
+    protected override async Task OnInitializedAsync(){
+        var a=await AuthState.GetAuthenticationStateAsync();_isAuth=a.User.Identity?.IsAuthenticated??false;
+        if(_isAuth){_user=await UserManager.GetUserAsync(a.User);if(_user!=null){_fullName=_user.FullName;_email=_user.Email??"";_avatarUrl=_user.AvatarUrl??"";}}
+        _loading=false;
+    }
+    string GetInitials(){if(string.IsNullOrEmpty(_fullName))return"?";var p=_fullName.Split(' ');return p.Length>=2?$"{p[0][0]}{p[1][0]}".ToUpper():_fullName[..1].ToUpper();}
+
+    async Task UploadAvatar(InputFileChangeEventArgs e){
+        var files=e.GetMultipleFiles(1);
+        if(!files.Any())return;
+        var file=files.First();
+        using var ms=new MemoryStream();await file.OpenReadStream(5*1024*1024).CopyToAsync(ms);
+        var url=await StorageService.UploadBytesAsync(ms.ToArray(),file.Name,file.ContentType,"avatars");
+        if(url!=null){_avatarUrl=url;if(_user!=null){_user.AvatarUrl=_avatarUrl;await UserManager.UpdateAsync(_user);}_msg="Foto profil berhasil diupdate!";_err=false;}
+        else{_msg="Gagal upload foto.";_err=true;}
+    }
+
+    async Task SaveProfile(){
+        _saving=true;_msg="";
+        if(_user==null)return;
+        if(!string.IsNullOrEmpty(_newPass)){
+            if(_newPass!=_confirmPass){_msg="Password tidak cocok!";_err=true;_saving=false;return;}
+            var token=await UserManager.GeneratePasswordResetTokenAsync(_user);
+            var r=await UserManager.ResetPasswordAsync(_user,token,_newPass);
+            if(!r.Succeeded){_msg=string.Join(", ",r.Errors.Select(e=>e.Description));_err=true;_saving=false;return;}
+        }
+        _user.FullName=_fullName;_user.Email=_email;_user.UserName=_email;_user.AvatarUrl=_avatarUrl;
+        var result=await UserManager.UpdateAsync(_user);
+        _msg=result.Succeeded?"Profil berhasil disimpan!":"Gagal: "+string.Join(", ",result.Errors.Select(e=>e.Description));
+        _err=!result.Succeeded;_saving=false;
+    }
+}
