@@ -1,0 +1,297 @@
+@page "/chat"
+@attribute [Authorize]
+@using System.Text.RegularExpressions
+@using Microsoft.AspNetCore.Components.Forms
+
+<PageTitle>🤖 Frengky AI</PageTitle>
+
+<div class="chat-page-container">
+    <!-- ================================================================ -->
+    <!-- SESSIONS DRAWER (off-canvas on mobile) -->
+    <!-- ================================================================ -->
+    <div class="chat-sessions-toggle">
+        <button class="neo-btn" @onclick="ToggleSessionsDrawer" type="button">
+            💬 Sessions (@_sessions.Count)
+            @if (_drawerOpen) { <span style="margin-left:4px;">✕</span> }
+        </button>
+    </div>
+
+    <div class="chat-sessions neo-card @(_drawerOpen ? "open" : "")">
+        <div class="chat-sessions-header">
+            <h3 style="color:var(--accent);">💬 Sessions</h3>
+        </div>
+        <button class="neo-btn-primary" style="width:100%;margin-bottom:10px;" @onclick="CreateNewSession">➕ New Chat</button>
+
+        <!-- ⭐ Session list — flex grow + internal scroll -->
+        <div class="chat-sessions-list">
+            @foreach (var session in _sessions)
+            {
+                <div class="chat-session-item neo-card @(_activeSessionId == session.Id ? "active-session" : "")"
+                     @onclick="() => SwitchSession(session.Id)">
+                    <div class="chat-session-meta">
+                        <strong style="font-size:0.88rem;">@(session.Title.Length > 20 ? session.Title[..20] + "..." : session.Title)</strong>
+                        <div class="chat-session-item-actions" @onclick:stopPropagation="true">
+                            <button class="neo-btn-small" style="padding:2px 6px;font-size:0.65rem;" @onclick="() => ResetSession(session.Id)" title="Reset">🔄</button>
+                            <button class="neo-btn-small" style="padding:2px 6px;font-size:0.65rem;background:#e74c3c;color:white;" @onclick="() => DeleteSession(session.Id)" title="Hapus">🗑️</button>
+                        </div>
+                    </div>
+                    <small style="color:var(--text-secondary);font-size:0.7rem;">@session.LastUpdatedAt.ToString("dd/MM HH:mm")</small>
+                </div>
+            }
+        </div>
+
+        <!-- ⭐ Kernel Functions — expand/collapse -->
+        <div class="chat-functions-panel">
+            <div class="chat-functions-header" @onclick="ToggleFunctionsPanel">
+                <span>🔌 Kernel Functions (@_availableFunctions.Count)</span>
+                <span class="chat-functions-arrow @(_functionsExpanded ? "open" : "")">▼</span>
+            </div>
+            <div class="chat-functions-body @(_functionsExpanded ? "expanded" : "")">
+                @foreach (var fn in _availableFunctions)
+                {
+                    <div class="chat-fn-item" title="@fn.Description">@fn.DisplayName</div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- CHAT MAIN AREA -->
+    <!-- ================================================================ -->
+    <div class="chat-main neo-card">
+        <!-- Header -->
+        <div class="chat-main-header">
+            <span style="font-size:1.4rem;">🤖</span>
+            <div style="min-width:0;">
+                <h3 style="color:var(--accent);margin:0;font-size:1.05rem;">Frengky Ganteng</h3>
+                <small style="color:var(--text-secondary);font-size:0.72rem;">AI LandLord @(_internetActive ? "• 🌐" : "")</small>
+            </div>
+            <div class="chat-main-header-badges">
+                <span class="neo-badge badge-info" style="font-size:0.65rem;">🌐</span>
+                <span class="neo-badge badge-success" style="font-size:0.65rem;">🗄️</span>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div class="chat-messages-area" id="chat-scroll">
+            @if (!_messages.Any())
+            {
+                <div style="text-align:center;padding:30px 10px;color:var(--text-secondary);">
+                    <span style="font-size:3rem;">🤖</span>
+                    <h3 style="font-size:1.1rem;">Halo! Aku Frengky Ganteng 👋</h3>
+                    <p style="font-size:0.85rem;">🖼️ Kirim gambar • 🌐 "cari di internet ..." • 🏞️ "cari tanah ..."</p>
+                </div>
+            }
+
+            @foreach (var msg in _messages)
+            {
+                <div class="chat-bubble @msg.Role">
+                    <span style="font-size:0.75rem;color:@(msg.Role=="assistant"?"var(--accent)":"var(--text-secondary)");font-weight:700;">
+                        @(msg.Role == "assistant" ? "🤖 Frengky" : "👤 Kamu")
+                    </span>
+                    <br />
+                    @if (!string.IsNullOrEmpty(msg.ImageUrl))
+                    {
+                        <img src="@msg.ImageUrl" alt="Lampiran" />
+                    }
+                    <div style="white-space:pre-wrap;">@RenderMarkdown(msg.Content)</div>
+                    @if (!string.IsNullOrEmpty(msg.DocumentUrl))
+                    {
+                        <a href="@msg.DocumentUrl" target="_blank" class="neo-badge badge-info" style="display:inline-block;margin-top:6px;text-decoration:none;font-size:0.7rem;">
+                            📎 @(msg.DocumentName ?? "Dokumen")
+                        </a>
+                    }
+                    <div style="font-size:0.65rem;opacity:0.6;margin-top:4px;">@msg.SentAt.ToString("HH:mm")</div>
+                </div>
+            }
+
+            @if (_isLoading)
+            {
+                <div class="chat-bubble assistant">
+                    <span style="font-size:0.75rem;color:var(--accent);">
+                        🤖 @(_isUploading ? "mengupload..." : _isSearchingInternet ? "mencari di internet..." : "berpikir...")
+                    </span>
+                    <div style="display:flex;gap:3px;padding:3px 0;">
+                        <span class="typing-dot">●</span>
+                        <span class="typing-dot" style="animation-delay:0.2s;">●</span>
+                        <span class="typing-dot" style="animation-delay:0.4s;">●</span>
+                    </div>
+                </div>
+            }
+
+            @if (_pendingAttachment != null)
+            {
+                <div class="chat-bubble user chat-attachment-preview">
+                    <span style="font-size:0.75rem;font-weight:700;">📎 File siap dikirim</span><br />
+                    @if (_pendingAttachment.IsImage && _pendingAttachment.PreviewUrl != null)
+                    {
+                        <img src="@_pendingAttachment.PreviewUrl" alt="Preview" />
+                    }
+                    <div style="font-size:0.8rem;">📄 @_pendingAttachment.FileName (@_pendingAttachment.FileSizeKB KB)</div>
+                    <button class="neo-btn-small" style="margin-top:4px;background:#e74c3c;color:white;" @onclick="CancelAttachment">✕ Batal</button>
+                </div>
+            }
+        </div>
+
+        <!-- Input -->
+        <div class="chat-input-area">
+            <InputFile OnChange="HandleFileSelected" style="display:none;" id="file-upload"
+                       accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" />
+            <button class="neo-btn chat-input-btn-attach" @onclick="TriggerFileUpload" title="Lampirkan file" type="button">📎</button>
+            <input class="neo-input" @bind="_newMessage" @bind:event="oninput" placeholder="Ketik pesan..." @onkeydown="HandleKeyDown" />
+            <button class="neo-btn-primary chat-input-btn-send" @onclick="SendMessageAsync"
+                    disabled="@(_isLoading || (string.IsNullOrWhiteSpace(_newMessage) && _pendingAttachment == null))" type="button">
+                🚀
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .active-session { border-color: var(--accent) !important; background: var(--accent-soft) !important; }
+</style>
+
+@code {
+    private List<ChatSession> _sessions = new();
+    private List<ChatMessage> _messages = new();
+    private List<KernelFunctionDefinition> _availableFunctions = new();
+    private int? _activeSessionId;
+    private string _newMessage = "";
+    private bool _isLoading, _isSearchingInternet, _isUploading, _drawerOpen, _internetActive, _functionsExpanded;
+    private AttachmentInfo? _pendingAttachment;
+
+    [Inject] private IChatService ChatService { get; set; } = null!;
+    [Inject] private IJSRuntime JS { get; set; } = null!;
+    [Inject] private IConfiguration Configuration { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _availableFunctions = ChatService.GetAvailableFunctions();
+        _sessions = await ChatService.GetSessionsAsync(null);
+        if (!_sessions.Any()) { var s = await ChatService.CreateSessionAsync(null, "Chat Baru"); _sessions.Add(s); }
+        _activeSessionId = _sessions.First().Id;
+        await LoadMessagesAsync();
+
+        var key = Configuration.GetValue<string>("Tavily:ApiKey");
+        _internetActive = !string.IsNullOrEmpty(key) && key != "YOUR_TAVILY_API_KEY";
+    }
+
+    private async Task LoadMessagesAsync()
+    {
+        if (_activeSessionId == null) return;
+        _messages = await ChatService.GetMessagesAsync(_activeSessionId.Value);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ================================================================
+    // DRAWER + FUNCTIONS TOGGLE
+    // ================================================================
+
+    private void ToggleSessionsDrawer() => _drawerOpen = !_drawerOpen;
+    private void ToggleFunctionsPanel() => _functionsExpanded = !_functionsExpanded;
+
+    private async Task SwitchSession(int sid)
+    {
+        _activeSessionId = sid;
+        _drawerOpen = false;
+        CancelAttachment();
+        await LoadMessagesAsync();
+    }
+
+    private async Task CreateNewSession()
+    {
+        var s = await ChatService.CreateSessionAsync(null);
+        _sessions.Insert(0, s);
+        _activeSessionId = s.Id;
+        _messages.Clear();
+        _drawerOpen = false;
+        CancelAttachment();
+    }
+
+    // ================================================================
+    // UPLOAD
+    // ================================================================
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File; if (file == null) return;
+        var ct = file.ContentType;
+        var isImage = ct.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+        var ext = Path.GetExtension(file.Name).ToLowerInvariant();
+        var allowed = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".csv" };
+        if (!allowed.Contains(ext)) { await JS.InvokeVoidAsync("alert", $"❌ File '{ext}' tidak didukung."); return; }
+        if (file.Size > 10 * 1024 * 1024) { await JS.InvokeVoidAsync("alert", "❌ Maksimum 10 MB."); return; }
+
+        MemoryStream ms;
+        try { ms = new MemoryStream(); await using var rs = file.OpenReadStream(10 * 1024 * 1024); await rs.CopyToAsync(ms); ms.Position = 0; }
+        catch (Exception ex) { await JS.InvokeVoidAsync("alert", $"❌ Gagal: {ex.Message}"); return; }
+
+        string? previewUrl = null;
+        if (isImage) { var b64 = Convert.ToBase64String(ms.ToArray()); ms.Position = 0; previewUrl = await JS.InvokeAsync<string>("generateFilePreview", b64, ct); }
+
+        _pendingAttachment = new AttachmentInfo { FileStream = ms, FileName = file.Name, ContentType = ct, FileSizeKB = (int)(file.Size / 1024), IsImage = isImage, PreviewUrl = previewUrl };
+    }
+
+    private void CancelAttachment() { _pendingAttachment?.FileStream?.Dispose(); _pendingAttachment = null; }
+    private async Task TriggerFileUpload() => await JS.InvokeVoidAsync("eval", "document.getElementById('file-upload').click()");
+
+    // ================================================================
+    // SEND
+    // ================================================================
+
+    private async Task SendMessageAsync()
+    {
+        if (_activeSessionId == null) return;
+        if (string.IsNullOrWhiteSpace(_newMessage) && _pendingAttachment == null) return;
+        var userMsg = _newMessage.Trim(); _newMessage = "";
+        string? uiUrl = null, udUrl = null, udName = null;
+        _isLoading = true; _isUploading = _pendingAttachment != null;
+        try
+        {
+            if (_pendingAttachment != null)
+            {
+                var att = _pendingAttachment; _pendingAttachment = null;
+                try
+                {
+                    att.FileStream.Position = 0;
+                    var url = await ChatService.UploadAttachmentAsync(att.FileStream, att.FileName, att.ContentType);
+                    if (url != null) { if (att.IsImage) { uiUrl = url; if (string.IsNullOrWhiteSpace(userMsg)) userMsg = "Deskripsikan gambar ini secara detail dalam bahasa Indonesia."; } else { udUrl = url; udName = att.FileName; } }
+                    else { _messages.Add(new() { ChatSessionId = _activeSessionId.Value, Role = "assistant", Content = $"❌ Gagal upload **{att.FileName}**.", SentAt = DateTime.UtcNow }); _isLoading = false; _isUploading = false; return; }
+                }
+                catch (Exception ex) { _messages.Add(new() { ChatSessionId = _activeSessionId.Value, Role = "assistant", Content = $"❌ Upload error: {ex.Message}", SentAt = DateTime.UtcNow }); _isLoading = false; _isUploading = false; return; }
+                finally { att.FileStream?.Dispose(); }
+            }
+            _isUploading = false; _isSearchingInternet = ChatService.ShouldSearchInternet(userMsg);
+            await ChatService.SendMessageAsync(_activeSessionId.Value, userMsg, uiUrl, udUrl, udName);
+            await ChatService.GetAIResponseAsync(_activeSessionId.Value, userMsg, uiUrl, udUrl, udName);
+            await LoadMessagesAsync();
+            _sessions = await ChatService.GetSessionsAsync(null);
+        }
+        catch (Exception ex) { _messages.Add(new() { ChatSessionId = _activeSessionId.Value, Role = "assistant", Content = $"❌ {ex.Message}", SentAt = DateTime.UtcNow }); }
+        finally { _isLoading = false; _isSearchingInternet = false; _isUploading = false; }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey) await SendMessageAsync(); }
+    private async Task DeleteSession(int id) { await ChatService.DeleteSessionAsync(id); _sessions = await ChatService.GetSessionsAsync(null); if (_activeSessionId == id) { _activeSessionId = _sessions.FirstOrDefault()?.Id; await LoadMessagesAsync(); } }
+    private async Task ResetSession(int id) { await ChatService.ResetSessionAsync(id); if (_activeSessionId == id) _messages.Clear(); _sessions = await ChatService.GetSessionsAsync(null); CancelAttachment(); }
+
+    private MarkupString RenderMarkdown(string t)
+    {
+        t = Regex.Replace(t, @"\*\*(.*?)\*\*", "<strong>$1</strong>");
+        t = Regex.Replace(t, @"\*(.*?)\*", "<em>$1</em>");
+        t = Regex.Replace(t, @"`([^`]+)`", "<code style='background:var(--accent-soft);padding:2px 6px;border-radius:4px;'>$1</code>");
+        t = Regex.Replace(t, @"\[([^\]]+)\]\(([^)]+)\)", "<a href='$2' target='_blank' style='color:var(--accent);'>$1</a>");
+        t = t.Replace("\n", "<br/>");
+        return new MarkupString(t);
+    }
+
+    private class AttachmentInfo
+    {
+        public MemoryStream FileStream { get; set; } = null!;
+        public string FileName { get; set; } = string.Empty;
+        public string ContentType { get; set; } = string.Empty;
+        public int FileSizeKB { get; set; }
+        public bool IsImage { get; set; }
+        public string? PreviewUrl { get; set; }
+    }
+}

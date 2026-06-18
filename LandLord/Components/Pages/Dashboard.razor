@@ -1,0 +1,244 @@
+@page "/dashboard"
+@attribute [Authorize]
+
+<PageTitle>📈 Dashboard - LandLord</PageTitle>
+
+<div class="animate-in">
+    <h2 style="margin-bottom:16px;">📈 Dashboard Ringkasan</h2>
+
+    <!-- Summary Cards -->
+    <div class="grid-4" style="margin-bottom:20px;">
+        <div class="neo-card stat-card">
+            <div class="stat-value">@_totalTanah.ToString("N0")</div>
+            <div class="stat-label">🏞️ Total Bidang Tanah</div>
+        </div>
+        <div class="neo-card stat-card">
+            <div class="stat-value">@_totalLuas.ToString("N0") m²</div>
+            <div class="stat-label">📐 Total Luas Tanah</div>
+        </div>
+        <div class="neo-card stat-card">
+            <div class="stat-value">@_totalBangunan.ToString("N0")</div>
+            <div class="stat-label">🏗️ Total Bangunan</div>
+        </div>
+        <div class="neo-card stat-card">
+            <div class="stat-value">@_pajakLunas</div>
+            <div class="stat-label">✅ Pajak Lunas</div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid-2" style="margin-bottom:20px;">
+        <!-- Distribusi Jenis Hak -->
+        <div class="neo-card">
+            <h3 style="color:var(--accent);margin-bottom:12px;">📊 Distribusi Jenis Hak Tanah</h3>
+            @foreach (var item in _distribusiHak)
+            {
+                <div style="margin-bottom:8px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                        <span>@item.Key</span>
+                        <strong>@item.Value</strong>
+                    </div>
+                    <div style="background:#eee;border-radius:10px;height:20px;border:2px solid var(--border-color);overflow:hidden;">
+                        <div style="background:var(--accent);height:100%;width:@(GetPercentage(item.Value, _totalTanah))%;border-radius:8px;"></div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Distribusi Jenis Bangunan -->
+        <div class="neo-card">
+            <h3 style="color:var(--accent);margin-bottom:12px;">🏗️ Distribusi Jenis Bangunan</h3>
+            @foreach (var item in _distribusiJenis)
+            {
+                <div style="margin-bottom:8px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                        <span>@item.Key</span>
+                        <strong>@item.Value</strong>
+                    </div>
+                    <div style="background:#eee;border-radius:10px;height:20px;border:2px solid var(--border-color);overflow:hidden;">
+                        <div style="background:#74b9ff;height:100%;width:@(GetPercentage(item.Value, _totalBangunan))%;border-radius:8px;"></div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Fungsi Bangunan & Status Pajak -->
+    <div class="grid-2" style="margin-bottom:20px;">
+        <div class="neo-card">
+            <h3 style="color:var(--accent);margin-bottom:12px;">🏢 Distribusi Fungsi Bangunan</h3>
+            @foreach (var item in _distribusiFungsi)
+            {
+                <div style="margin-bottom:8px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                        <span>@item.Key</span>
+                        <strong>@item.Value</strong>
+                    </div>
+                    <div style="background:#eee;border-radius:10px;height:20px;border:2px solid var(--border-color);overflow:hidden;">
+                        <div style="background:#00b894;height:100%;width:@(GetPercentage(item.Value, _totalBangunan))%;border-radius:8px;"></div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="neo-card">
+            <h3 style="color:var(--accent);margin-bottom:12px;">💰 Status Pajak Tanah</h3>
+            @foreach (var item in _statusPajak)
+            {
+                var color = item.Key == "Lunas" ? "#00b894" : item.Key == "Menunggak" ? "#e74c3c" : "#fdcb6e";
+                <div style="margin-bottom:8px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                        <span>@item.Key</span>
+                        <strong>@item.Value</strong>
+                    </div>
+                    <div style="background:#eee;border-radius:10px;height:20px;border:2px solid var(--border-color);overflow:hidden;">
+                        <div style="background:@color;height:100%;width:@(GetPercentage(item.Value, _totalTanah))%;border-radius:8px;"></div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- AI Insights -->
+    <div class="ai-insight neo-card">
+        <div class="ai-label">🤖 AI Insights - Rekomendasi & Tren</div>
+        <div style="margin-top:8px;">
+            @if (_aiInsight != null)
+            {
+                <p>@_aiInsight</p>
+            }
+            else
+            {
+                <p>🔄 Menganalisis data...</p>
+            }
+        </div>
+    </div>
+
+    <!-- Data Tables -->
+    <div class="grid-2" style="margin-top:20px;">
+        <div class="neo-card">
+            <h3 style="color:var(--accent);margin-bottom:8px;">🏞️ Tanah Terbaru</h3>
+            <table class="neo-table" style="font-size:0.85rem;">
+                <thead><tr><th>Sertifikat</th><th>Lokasi</th><th>Luas</th></tr></thead>
+                <tbody>
+                    @foreach (var t in _tanahTerbaru)
+                    {
+                        <tr>
+                            <td><strong>@t.NomorSertifikat</strong></td>
+                            <td>@(t.Lokasi.Length > 30 ? t.Lokasi[..30] + "..." : t.Lokasi)</td>
+                            <td>@t.Luas m²</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="neo-card">
+            <h3 style="color:var(--accent);margin-bottom:8px;">🏗️ Bangunan Terbaru</h3>
+            <table class="neo-table" style="font-size:0.85rem;">
+                <thead><tr><th>IMB/PBG</th><th>Jenis</th><th>Pemilik</th></tr></thead>
+                <tbody>
+                    @foreach (var b in _bangunanTerbaru)
+                    {
+                        <tr>
+                            <td><strong>@b.NomorIimbPbg</strong></td>
+                            <td>@b.JenisBangunan</td>
+                            <td>@(b.NamaPemilik?.Length > 25 ? b.NamaPemilik?[..25] + "..." : b.NamaPemilik)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private int _totalTanah, _totalBangunan;
+    private decimal _totalLuas;
+    private string _pajakLunas = "0";
+    private Dictionary<string, int> _distribusiHak = new();
+    private Dictionary<string, int> _distribusiJenis = new();
+    private Dictionary<string, int> _distribusiFungsi = new();
+    private Dictionary<string, int> _statusPajak = new();
+    private List<Tanah> _tanahTerbaru = new();
+    private List<Bangunan> _bangunanTerbaru = new();
+    private string? _aiInsight;
+
+    [Inject] private ITanahService TanahService { get; set; } = null!;
+    [Inject] private IBangunanService BangunanService { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load data
+        _totalTanah = await TanahService.GetTotalCountAsync();
+        _totalBangunan = await BangunanService.GetTotalCountAsync();
+        _totalLuas = await TanahService.GetTotalLuasAsync();
+
+        _distribusiHak = await TanahService.GetDistribusiJenisHakAsync();
+        _distribusiJenis = await BangunanService.GetDistribusiJenisAsync();
+        _distribusiFungsi = await BangunanService.GetDistribusiFungsiAsync();
+        _statusPajak = await TanahService.GetDistribusiStatusPajakAsync();
+
+        _pajakLunas = _statusPajak.GetValueOrDefault("Lunas", 0).ToString();
+
+        var semuaTanah = await TanahService.GetAllAsync();
+        _tanahTerbaru = semuaTanah.Take(5).ToList();
+
+        var semuaBangunan = await BangunanService.GetAllAsync();
+        _bangunanTerbaru = semuaBangunan.Take(5).ToList();
+
+        // Generate AI Insights
+        GenerateAIInsights();
+    }
+
+    private void GenerateAIInsights()
+    {
+        var sb = new System.Text.StringBuilder();
+
+        // Insight tentang distribusi
+        var jenisTerbanyak = _distribusiHak.OrderByDescending(x => x.Value).FirstOrDefault();
+        if (jenisTerbanyak.Key != null)
+        {
+            sb.Append($"📌 Mayoritas tanah berjenis **{jenisTerbanyak.Key}** ({jenisTerbanyak.Value} bidang). ");
+        }
+
+        var fungsiTerbanyak = _distribusiFungsi.OrderByDescending(x => x.Value).FirstOrDefault();
+        if (fungsiTerbanyak.Key != null)
+        {
+            sb.Append($"Fungsi bangunan didominasi oleh **{fungsiTerbanyak.Key}** ({fungsiTerbanyak.Value} unit). ");
+        }
+
+        // Insight pajak
+        var menunggak = _statusPajak.GetValueOrDefault("Menunggak", 0);
+        if (menunggak > 0)
+        {
+            sb.Append($"⚠️ Terdapat **{menunggak}** bidang tanah dengan status pajak menunggak. ");
+        }
+        else
+        {
+            sb.Append("✅ Semua pajak tanah dalam status lunas. ");
+        }
+
+        // Insight luas
+        sb.Append($"📐 Rata-rata luas tanah adalah **{(_totalTanah > 0 ? _totalLuas / _totalTanah : 0):N0} m²** per bidang. ");
+
+        // Rekomendasi
+        sb.Append("\n\n💡 **Rekomendasi:** ");
+        if (menunggak > 0)
+        {
+            sb.Append($"Segera lakukan penagihan untuk {menunggak} bidang yang menunggak pajak. ");
+        }
+        if (_totalBangunan > 0 && _totalTanah > 0)
+        {
+            var ratio = (decimal)_totalBangunan / _totalTanah;
+            sb.Append($"Rasio bangunan terhadap tanah adalah {ratio:F2}. ");
+        }
+        sb.Append("Pertimbangkan untuk memperbarui data secara berkala.");
+
+        _aiInsight = sb.ToString();
+    }
+
+    private double GetPercentage(int value, int total)
+    {
+        return total > 0 ? Math.Round((double)value / total * 100, 1) : 0;
+    }
+}

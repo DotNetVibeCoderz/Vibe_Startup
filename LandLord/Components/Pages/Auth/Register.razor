@@ -1,0 +1,113 @@
+@page "/register"
+@attribute [AllowAnonymous]
+
+<PageTitle>📝 Register - LandLord</PageTitle>
+
+<div class="animate-in" style="max-width:450px;margin:40px auto;">
+    <div class="neo-card" style="padding:32px;">
+        <div style="text-align:center;margin-bottom:24px;">
+            <span style="font-size:3rem;">📝</span>
+            <h2 style="color:var(--accent);">Register</h2>
+            <p style="color:var(--text-secondary);">Buat akun baru untuk LandLord</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="neo-badge badge-danger" style="display:block;text-align:center;margin-bottom:16px;padding:12px;">
+                ❌ @_errorMessage
+            </div>
+        }
+
+        <EditForm Model="_model" OnValidSubmit="HandleRegisterAsync">
+            <div style="display:flex;flex-direction:column;gap:12px;">
+                <div>
+                    <label>Username *</label>
+                    <InputText @bind-Value="_model.Username" class="neo-input" placeholder="Username..." />
+                </div>
+                <div>
+                    <label>Email *</label>
+                    <InputText @bind-Value="_model.Email" type="email" class="neo-input" placeholder="email@example.com..." />
+                </div>
+                <div>
+                    <label>Nama Lengkap</label>
+                    <InputText @bind-Value="_model.FullName" class="neo-input" placeholder="Nama lengkap..." />
+                </div>
+                <div>
+                    <label>Password *</label>
+                    <InputText @bind-Value="_model.Password" type="password" class="neo-input" placeholder="Min. 6 karakter..." />
+                </div>
+                <div>
+                    <label>Konfirmasi Password *</label>
+                    <InputText @bind-Value="_model.ConfirmPassword" type="password" class="neo-input" placeholder="Ulangi password..." />
+                </div>
+                <button type="submit" class="neo-btn-primary" style="width:100%;" disabled="@_isLoading">
+                    @(_isLoading ? "🔄 Loading..." : "📝 Register")
+                </button>
+            </div>
+        </EditForm>
+
+        <div style="text-align:center;margin-top:16px;">
+            <a href="/login" style="color:var(--accent);">🔐 Sudah punya akun? Login</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    private RegisterModel _model = new();
+    private string? _errorMessage;
+    private bool _isLoading;
+
+    [Inject] private IAuthService AuthService { get; set; } = null!;
+    [Inject] private NavigationManager Navigation { get; set; } = null!;
+
+    private async Task HandleRegisterAsync()
+    {
+        _errorMessage = null;
+
+        if (_model.Password != _model.ConfirmPassword)
+        {
+            _errorMessage = "Password dan konfirmasi password tidak cocok.";
+            return;
+        }
+
+        if (_model.Password.Length < 6)
+        {
+            _errorMessage = "Password minimal 6 karakter.";
+            return;
+        }
+
+        _isLoading = true;
+
+        try
+        {
+            var user = await AuthService.RegisterAsync(
+                _model.Username, _model.Email, _model.Password, _model.FullName);
+
+            if (user != null)
+            {
+                Navigation.NavigateTo("/login?registered=true", forceLoad: true);
+            }
+            else
+            {
+                _errorMessage = "Username atau email sudah terdaftar.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Terjadi kesalahan: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private class RegisterModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string FullName { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string ConfirmPassword { get; set; } = string.Empty;
+    }
+}

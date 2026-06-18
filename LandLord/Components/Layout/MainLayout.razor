@@ -1,0 +1,125 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@using System.Security.Claims
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+
+<div class="app-container @(_isDarkMode ? "dark-theme" : "light-theme")">
+    <!-- ⭐ Hamburger Toggle (Mobile) -->
+    <button class="hamburger-toggle" @onclick="ToggleSidebar" type="button" aria-label="Menu">
+        @(_sidebarOpen ? "✕" : "☰")
+    </button>
+
+    <!-- Sidebar Overlay (Mobile) -->
+    <div class="sidebar-overlay @(_sidebarOpen ? "active" : "")" @onclick="CloseSidebar"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar neo-brutal @(_sidebarOpen ? "open" : "")">
+        <div class="sidebar-brand">
+            <div class="brand-icon"><span class="brand-emoji">🏘️</span></div>
+            <div class="brand-text"><h2>LandLord</h2><small>Property Mapper</small></div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <NavLink href="/" Match="NavLinkMatch.All" class="nav-item neo-btn" @onclick="CloseSidebar"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></NavLink>
+            <NavLink href="/maps" class="nav-item neo-btn" @onclick="CloseSidebar"><span class="nav-icon">🗺️</span><span class="nav-label">Maps</span></NavLink>
+            <NavLink href="/master-data" class="nav-item neo-btn" @onclick="CloseSidebar"><span class="nav-icon">📊</span><span class="nav-label">Master Data</span></NavLink>
+            <NavLink href="/dashboard" class="nav-item neo-btn" @onclick="CloseSidebar"><span class="nav-icon">📈</span><span class="nav-label">Dashboard</span></NavLink>
+            <NavLink href="/chat" class="nav-item neo-btn" @onclick="CloseSidebar"><span class="nav-icon">🤖</span><span class="nav-label">Frengky AI</span></NavLink>
+            <NavLink href="/settings" class="nav-item neo-btn" @onclick="CloseSidebar"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></NavLink>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button class="theme-toggle neo-btn" @onclick="ToggleTheme" type="button">
+                <span>@(_isDarkMode ? "☀️ Light" : "🌙 Dark")</span>
+            </button>
+            <AuthorizeView>
+                <Authorized>
+                    <div class="user-info">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                            @if (!string.IsNullOrEmpty(_avatarUrl))
+                            {
+                                <img src="@_avatarUrl" alt="Avatar" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />
+                            }
+                            else
+                            {
+                                <span style="font-size:1.4rem;">👤</span>
+                            }
+                            <span>@context.User.Identity?.Name</span>
+                        </div>
+                        <NavLink href="/profile" class="neo-btn-small" @onclick="CloseSidebar">Profile</NavLink>
+                        <NavLink href="/logout" class="neo-btn-small" @onclick="CloseSidebar">Logout</NavLink>
+                    </div>
+                </Authorized>
+                <NotAuthorized>
+                    <NavLink href="/login" class="neo-btn-small" @onclick="CloseSidebar">Login</NavLink>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <header class="top-bar neo-brutal">
+            <h1>@_pageTitle</h1>
+            <div class="top-bar-actions"><span class="greeting">👋 Selamat datang di LandLord!</span></div>
+        </header>
+
+        <div class="content-area">@Body</div>
+
+        <footer class="bottom-bar">
+            <p>LandLord v1.0.0 | Made with ❤️ by GraviCode Studios | <a href="https://studios.gravicode.com/products/budax" target="_blank">☕ Traktir Pulsa</a></p>
+        </footer>
+    </main>
+</div>
+
+@code {
+    private bool _isDarkMode;
+    private bool _sidebarOpen;
+    private string _pageTitle = "LandLord";
+    private string? _avatarUrl;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    protected override void OnInitialized()
+    {
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AuthenticationState != null)
+        {
+            var state = await AuthenticationState;
+            _avatarUrl = state.User.FindFirstValue("AvatarUrl");
+        }
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        _pageTitle = GetPageTitle(e.Location);
+        CloseSidebar();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
+    private void CloseSidebar() => _sidebarOpen = false;
+    private void ToggleTheme() => _isDarkMode = !_isDarkMode;
+
+    private static string GetPageTitle(string uri)
+    {
+        if (uri.Contains("/maps", StringComparison.OrdinalIgnoreCase)) return "🗺️ Maps";
+        if (uri.Contains("/master-data", StringComparison.OrdinalIgnoreCase)) return "📊 Master Data";
+        if (uri.Contains("/dashboard", StringComparison.OrdinalIgnoreCase)) return "📈 Dashboard";
+        if (uri.Contains("/chat", StringComparison.OrdinalIgnoreCase)) return "🤖 Frengky AI";
+        if (uri.Contains("/settings", StringComparison.OrdinalIgnoreCase)) return "⚙️ Settings";
+        if (uri.Contains("/profile", StringComparison.OrdinalIgnoreCase)) return "👤 Profile";
+        return "🏘️ LandLord";
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}

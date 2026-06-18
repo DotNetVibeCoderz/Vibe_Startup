@@ -1,0 +1,186 @@
+@page "/maps"
+@attribute [Authorize]
+@using System.Globalization
+@using Microsoft.JSInterop
+
+<PageTitle>🗺️ Maps - LandLord</PageTitle>
+
+<div class="animate-in">
+    <div class="filter-bar neo-card" style="margin-bottom:16px;">
+        <input class="neo-input" @bind="_searchKeyword" @bind:event="oninput" placeholder="🔍 Cari tanah/bangunan..." @onkeyup="HandleSearch" style="max-width:350px;" />
+        <select class="neo-select" @bind="_searchType" style="max-width:160px;">
+            <option value="all">Semua</option>
+            <option value="tanah">Tanah</option>
+            <option value="bangunan">Bangunan</option>
+        </select>
+        <button class="neo-btn" @onclick="ToggleSatelliteAsync">@(_isSatellite ? "🗺️ Peta" : "🛰️ Satelit")</button>
+        <button class="neo-btn" @onclick="RefreshMapAsync" title="Refresh peta">🔄 Refresh</button>
+        @if (_selectedId != null) { <button class="neo-btn" @onclick="ClearSelection" style="background:var(--accent-soft);">✕ Clear</button> }
+    </div>
+
+    <!-- ⭐ RESPONSIVE MAP + PANEL -->
+    <div class="maps-layout">
+        <div class="map-container maps-map">
+            <div id="gmap" style="width:100%;height:100%;border-radius:12px;">
+                <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);flex-direction:column;">
+                    <span style="font-size:3rem;">🗺️</span><span>Memuat peta...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="neo-card" style="overflow-y:auto;max-height:calc(100vh - 280px);">
+            @if (_selectedTanah != null)
+            {
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+                    <h3 style="color:var(--accent);margin:0;">🏞️ Detail Tanah</h3>
+                    <button class="neo-btn-primary" style="padding:6px 14px;font-size:0.85rem;" @onclick="ShowTanahLocation" type="button">📍 Show Location</button>
+                </div>
+                <hr style="border:2px solid var(--border-color);margin:8px 0;" />
+                <div style="font-size:0.9rem;line-height:1.8;">
+                    <p><strong>Sertifikat:</strong> @_selectedTanah.NomorSertifikat</p>
+                    <p><strong>Jenis Hak:</strong> <span class="neo-badge badge-info">@_selectedTanah.JenisHak</span></p>
+                    <p><strong>Luas:</strong> @_selectedTanah.Luas.ToString("N0") m²</p>
+                    <p><strong>Lokasi:</strong> @_selectedTanah.Lokasi</p>
+                    <p><strong>Kelurahan:</strong> @_selectedTanah.Kelurahan</p>
+                    <p><strong>Kecamatan:</strong> @_selectedTanah.Kecamatan</p>
+                    <p><strong>Kota:</strong> @_selectedTanah.KotaKabupaten</p>
+                    <p><strong>Provinsi:</strong> @_selectedTanah.Provinsi</p>
+                    <p><strong>Pemilik:</strong> @_selectedTanah.Pemilik</p>
+                    <p><strong>NIB:</strong> @_selectedTanah.NIB</p>
+                    <p><strong>Pajak:</strong> <span class="neo-badge @GetPajakBadge(_selectedTanah.StatusPajak)">@_selectedTanah.StatusPajak</span></p>
+                    @if (!string.IsNullOrEmpty(_selectedTanah.PolygonGeoJson)) { <p><strong>Bidang:</strong> <span class="neo-badge badge-success">📐 Polygon</span></p> }
+                    else if (_selectedTanah.Latitude != null) { <p><strong>Koordinat:</strong> @($"{_selectedTanah.Latitude:F6}, {_selectedTanah.Longitude:F6}")</p> }
+                </div>
+                <button class="neo-btn" style="width:100%;margin-top:12px;" @onclick="ClearSelection">❌ Tutup</button>
+            }
+            else if (_selectedBangunan != null)
+            {
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+                    <h3 style="color:var(--accent);margin:0;">🏗️ Detail Bangunan</h3>
+                    <button class="neo-btn-primary" style="padding:6px 14px;font-size:0.85rem;" @onclick="ShowBangunanLocation" type="button">📍 Show Location</button>
+                </div>
+                <hr style="border:2px solid var(--border-color);margin:8px 0;" />
+                <div style="font-size:0.9rem;line-height:1.8;">
+                    <p><strong>IMB/PBG:</strong> @_selectedBangunan.NomorIimbPbg</p>
+                    <p><strong>Jenis:</strong> <span class="neo-badge badge-info">@_selectedBangunan.JenisBangunan</span></p>
+                    <p><strong>Luas:</strong> @_selectedBangunan.LuasBangunan.ToString("N0") m²</p>
+                    <p><strong>Lantai:</strong> @_selectedBangunan.JumlahLantai</p>
+                    <p><strong>Material:</strong> @_selectedBangunan.MaterialUtama</p>
+                    <p><strong>Tahun:</strong> @_selectedBangunan.TahunPembangunan</p>
+                    <p><strong>Lokasi:</strong> @_selectedBangunan.Lokasi</p>
+                    <p><strong>Pemilik:</strong> @_selectedBangunan.NamaPemilik</p>
+                    <p><strong>Fungsi:</strong> @_selectedBangunan.FungsiBangunan</p>
+                    <p><strong>Status:</strong> <span class="neo-badge @GetStatusBadge(_selectedBangunan.Status)">@_selectedBangunan.Status</span></p>
+                    @if (!string.IsNullOrEmpty(_selectedBangunan.PolygonGeoJson)) { <p><strong>Bidang:</strong> <span class="neo-badge badge-success">📐 Polygon</span></p> }
+                    else if (_selectedBangunan.Latitude != null) { <p><strong>Koordinat:</strong> @($"{_selectedBangunan.Latitude:F6}, {_selectedBangunan.Longitude:F6}")</p> }
+                </div>
+                <button class="neo-btn" style="width:100%;margin-top:12px;" @onclick="ClearSelection">❌ Tutup</button>
+            }
+            else
+            {
+                <h3 style="color:var(--accent);">📍 Daftar Properti</h3>
+                <hr style="border:2px solid var(--border-color);margin:8px 0;" />
+                <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:12px;">Klik properti untuk detail, atau klik 📍 untuk langsung lihat di peta.</p>
+
+                <h4 style="margin-top:12px;">🏞️ Tanah (@_tanahList.Count)</h4>
+                @foreach (var t in _tanahList) { var tanah = t;
+                    <div class="neo-card" style="padding:10px;margin-bottom:6px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                            <div style="cursor:pointer;flex:1;min-width:150px;" @onclick="() => SelectTanah(tanah)">
+                                <strong>@tanah.NomorSertifikat</strong>
+                                @if (!string.IsNullOrEmpty(tanah.PolygonGeoJson)) { <span class="neo-badge badge-success" style="font-size:0.65rem;">📐</span> }
+                                <br /><small style="color:var(--text-secondary);">@(tanah.Lokasi.Length > 30 ? tanah.Lokasi[..30] + "..." : tanah.Lokasi) — @tanah.Luas m²</small>
+                            </div>
+                            <button class="neo-btn-small" style="white-space:nowrap;" @onclick="() => ShowTanahFromList(tanah)" @onclick:stopPropagation="true" type="button">📍 Show</button>
+                        </div>
+                    </div>
+                }
+
+                <h4 style="margin-top:16px;">🏗️ Bangunan (@_bangunanList.Count)</h4>
+                @foreach (var b in _bangunanList) { var bangunan = b;
+                    <div class="neo-card" style="padding:10px;margin-bottom:6px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                            <div style="cursor:pointer;flex:1;min-width:150px;" @onclick="() => SelectBangunan(bangunan)">
+                                <strong>@bangunan.NomorIimbPbg</strong>
+                                @if (!string.IsNullOrEmpty(bangunan.PolygonGeoJson)) { <span class="neo-badge badge-success" style="font-size:0.65rem;">📐</span> }
+                                <br /><small style="color:var(--text-secondary);">@(bangunan.Lokasi.Length > 30 ? bangunan.Lokasi[..30] + "..." : bangunan.Lokasi) — @bangunan.JenisBangunan</small>
+                            </div>
+                            <button class="neo-btn-small" style="white-space:nowrap;" @onclick="() => ShowBangunanFromList(bangunan)" @onclick:stopPropagation="true" type="button">📍 Show</button>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _searchKeyword = "";
+    private string _searchType = "all";
+    private bool _isSatellite, _mapInitialized;
+    private Tanah? _selectedTanah;
+    private Bangunan? _selectedBangunan;
+    private string? _selectedId;
+    private List<Tanah> _tanahList = new();
+    private List<Bangunan> _bangunanList = new();
+
+    [Inject] private ITanahService TanahService { get; set; } = null!;
+    [Inject] private IBangunanService BangunanService { get; set; } = null!;
+    [Inject] private IConfiguration Configuration { get; set; } = null!;
+    [Inject] private IJSRuntime JS { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync() { _tanahList = await TanahService.GetAllAsync(); _bangunanList = await BangunanService.GetAllAsync(); }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (!firstRender || _mapInitialized) return; await RenderMapAsync(); _mapInitialized = true; }
+
+    private static string GetPajakBadge(string? s) => s switch { "Lunas" => "badge-success", "Menunggak" => "badge-danger", _ => "badge-warning" };
+    private static string GetStatusBadge(string? s) => s switch { "Aktif" => "badge-success", _ => "badge-warning" };
+
+    private async Task RenderMapAsync() {
+        var opts = new { centerLat = double.Parse(Configuration["GoogleMaps:DefaultCenterLat"] ?? "-6.2088", CultureInfo.InvariantCulture), centerLng = double.Parse(Configuration["GoogleMaps:DefaultCenterLng"] ?? "106.8456", CultureInfo.InvariantCulture), zoom = int.Parse(Configuration["GoogleMaps:DefaultZoom"] ?? "13", CultureInfo.InvariantCulture) };
+        await JS.InvokeVoidAsync("LandLordMaps.init", "gmap", opts, BuildMarkers(), BuildPolygons());
+    }
+    private async Task RefreshMapAsync() { await RenderMapAsync(); if (_selectedId != null) await JS.InvokeVoidAsync("LandLordMaps.highlightFeature", _selectedId); }
+
+    private List<object> BuildMarkers() {
+        var m = new List<object>();
+        foreach (var t in _tanahList) { if (t.Latitude == null || t.Longitude == null) continue; m.Add(new { id = $"tanah-{t.Id}", lat = t.Latitude, lng = t.Longitude, title = t.NomorSertifikat, info = $"<strong>🏞️ {t.NomorSertifikat}</strong><br/>{t.Lokasi}<br/>Luas: {t.Luas:N0} m² | {t.JenisHak}" }); }
+        foreach (var b in _bangunanList) { if (b.Latitude == null || b.Longitude == null) continue; m.Add(new { id = $"bangunan-{b.Id}", lat = b.Latitude, lng = b.Longitude, title = b.NomorIimbPbg, info = $"<strong>🏗️ {b.NomorIimbPbg}</strong><br/>{b.Lokasi}<br/>{b.JenisBangunan} — {b.LuasBangunan:N0} m²" }); }
+        return m;
+    }
+    private List<object> BuildPolygons() {
+        var p = new List<object>();
+        foreach (var t in _tanahList) { if (string.IsNullOrEmpty(t.PolygonGeoJson)) continue; p.Add(new { id = $"tanah-{t.Id}", geoJson = t.PolygonGeoJson, title = $"🏞️ {t.NomorSertifikat}<br/>{t.Lokasi}<br/>Luas: {t.Luas:N0} m²", color = "#00b894", fillColor = "#00b894" }); }
+        foreach (var b in _bangunanList) { if (string.IsNullOrEmpty(b.PolygonGeoJson)) continue; p.Add(new { id = $"bangunan-{b.Id}", geoJson = b.PolygonGeoJson, title = $"🏗️ {b.NomorIimbPbg}<br/>{b.Lokasi}<br/>{b.JenisBangunan} — {b.LuasBangunan:N0} m²", color = "#0984e3", fillColor = "#0984e3" }); }
+        return p;
+    }
+
+    private async Task ShowTanahLocation() { if (_selectedTanah != null) await FlyToFeature("tanah", _selectedTanah, null); }
+    private async Task ShowBangunanLocation() { if (_selectedBangunan != null) await FlyToFeature("bangunan", null, _selectedBangunan); }
+    private async Task ShowTanahFromList(Tanah t) => await FlyToFeature("tanah", t, null);
+    private async Task ShowBangunanFromList(Bangunan b) => await FlyToFeature("bangunan", null, b);
+
+    private async Task FlyToFeature(string type, Tanah? tanah, Bangunan? bangunan) {
+        string? id = null; double? lat = null, lng = null; string? gj = null;
+        if (type == "tanah" && tanah != null) { id = $"tanah-{tanah.Id}"; lat = tanah.Latitude; lng = tanah.Longitude; gj = tanah.PolygonGeoJson; _selectedTanah = tanah; _selectedBangunan = null; }
+        else if (type == "bangunan" && bangunan != null) { id = $"bangunan-{bangunan.Id}"; lat = bangunan.Latitude; lng = bangunan.Longitude; gj = bangunan.PolygonGeoJson; _selectedBangunan = bangunan; _selectedTanah = null; }
+        _selectedId = id;
+        await JS.InvokeVoidAsync("LandLordMaps.clearHighlights");
+        if (!string.IsNullOrEmpty(gj)) { await JS.InvokeVoidAsync("LandLordMaps.fitBoundsToGeoJson", gj); await Task.Delay(800); }
+        else if (lat != null && lng != null) { await JS.InvokeVoidAsync("LandLordMaps.flyTo", lat, lng, 18); await Task.Delay(1300); }
+        if (id != null) await JS.InvokeVoidAsync("LandLordMaps.highlightFeature", id);
+        StateHasChanged();
+    }
+
+    private void SelectTanah(Tanah t) { _selectedTanah = t; _selectedBangunan = null; _selectedId = $"tanah-{t.Id}"; }
+    private void SelectBangunan(Bangunan b) { _selectedBangunan = b; _selectedTanah = null; _selectedId = $"bangunan-{b.Id}"; }
+    private async Task ClearSelection() { _selectedTanah = null; _selectedBangunan = null; _selectedId = null; await JS.InvokeVoidAsync("LandLordMaps.clearHighlights"); }
+
+    private async Task HandleSearch(KeyboardEventArgs e) {
+        if (_searchType == "tanah") _tanahList = await TanahService.SearchAsync(_searchKeyword);
+        else if (_searchType == "bangunan") _bangunanList = await BangunanService.SearchAsync(_searchKeyword);
+        else { _tanahList = await TanahService.SearchAsync(_searchKeyword); _bangunanList = await BangunanService.SearchAsync(_searchKeyword); }
+        await RenderMapAsync();
+    }
+    private async Task ToggleSatelliteAsync() { _isSatellite = !_isSatellite; await RenderMapAsync(); if (_selectedId != null) await JS.InvokeVoidAsync("LandLordMaps.highlightFeature", _selectedId); }
+}

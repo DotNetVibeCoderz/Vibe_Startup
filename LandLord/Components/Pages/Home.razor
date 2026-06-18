@@ -1,0 +1,104 @@
+@page "/"
+
+<PageTitle>🏘️ LandLord - Pemetaan Tanah & Bangunan</PageTitle>
+
+<div class="animate-in">
+    <!-- Hero Section -->
+    <div class="neo-card" style="text-align:center;padding:40px;margin-bottom:20px;background:linear-gradient(135deg, var(--accent-soft), #fff3e0);">
+        <h1 style="font-size:2.5rem;">🏘️ Selamat Datang di <span style="color:var(--accent);">LandLord</span></h1>
+        <p style="font-size:1.2rem;color:var(--text-secondary);margin-top:8px;">
+            Aplikasi Pemetaan Tanah & Bangunan Modern
+        </p>
+        <div style="margin-top:20px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+            <a href="/maps" class="neo-btn-primary" style="text-decoration:none;">🗺️ Buka Peta</a>
+            <a href="/dashboard" class="neo-btn" style="text-decoration:none;">📈 Lihat Dashboard</a>
+            <a href="/chat" class="neo-btn" style="text-decoration:none;">🤖 Chat Frengky</a>
+        </div>
+    </div>
+
+    <!-- Features Grid -->
+    <div class="grid-3">
+        <div class="neo-card animate-in">
+            <h3>🗺️ <span style="color:var(--accent);">Maps Interaktif</span></h3>
+            <p style="margin-top:8px;color:var(--text-secondary);">
+                Browsing tanah dan bangunan dengan peta interaktif. 
+                Marking polygon, search POI, dan tampilan metadata lengkap.
+            </p>
+        </div>
+        <div class="neo-card animate-in">
+            <h3>📊 <span style="color:var(--accent);">Master Data</span></h3>
+            <p style="margin-top:8px;color:var(--text-secondary);">
+                CRUD lengkap data tanah & bangunan sesuai standar Indonesia.
+                Filter, sort, search, dan export ke CSV/Excel.
+            </p>
+        </div>
+        <div class="neo-card animate-in">
+            <h3>📈 <span style="color:var(--accent);">Dashboard</span></h3>
+            <p style="margin-top:8px;color:var(--text-secondary);">
+                Ringkasan, chart interaktif, dan AI insights.
+                Visualisasi distribusi properti dengan neo brutalism style.
+            </p>
+        </div>
+        <div class="neo-card animate-in">
+            <h3>🤖 <span style="color:var(--accent);">Frengky Ganteng AI</span></h3>
+            <p style="margin-top:8px;color:var(--text-secondary);">
+                Chat bot pintar dengan Semantic Kernel. Tanya apa saja tentang data properti!
+                Multi-session dan attach dokumen.
+            </p>
+        </div>
+        <div class="neo-card animate-in">
+            <h3>⚙️ <span style="color:var(--accent);">Fleksibel</span></h3>
+            <p style="margin-top:8px;color:var(--text-secondary);">
+                Konfigurasi multi-provider: LLM, Database, Storage.
+                Dukungan SQLite, SQL Server, MySQL, PostgreSQL.
+            </p>
+        </div>
+        <div class="neo-card animate-in">
+            <h3>🎨 <span style="color:var(--accent);">Neo Brutalism</span></h3>
+            <p style="margin-top:8px;color:var(--text-secondary);">
+                Desain modern neo brutalism dengan warna soft.
+                Light/Dark theme, responsive mobile/desktop.
+            </p>
+        </div>
+    </div>
+
+    <!-- Quick Stats -->
+    @if (_stats != null)
+    {
+        <div class="grid-3" style="margin-top:24px;">
+            <div class="neo-card stat-card">
+                <div class="stat-value">@_stats["totalTanah"]</div>
+                <div class="stat-label">🏞️ Total Bidang Tanah</div>
+            </div>
+            <div class="neo-card stat-card">
+                <div class="stat-value">@_stats["totalBangunan"]</div>
+                <div class="stat-label">🏗️ Total Bangunan</div>
+            </div>
+            <div class="neo-card stat-card">
+                <div class="stat-value">@_stats["totalLuas"] m²</div>
+                <div class="stat-label">📐 Total Luas Tanah</div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Dictionary<string, string>? _stats;
+
+    [Inject] private ITanahService TanahService { get; set; } = null!;
+    [Inject] private IBangunanService BangunanService { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var totalTanah = await TanahService.GetTotalCountAsync();
+        var totalBangunan = await BangunanService.GetTotalCountAsync();
+        var totalLuas = await TanahService.GetTotalLuasAsync();
+
+        _stats = new Dictionary<string, string>
+        {
+            ["totalTanah"] = totalTanah.ToString("N0"),
+            ["totalBangunan"] = totalBangunan.ToString("N0"),
+            ["totalLuas"] = totalLuas.ToString("N0")
+        };
+    }
+}

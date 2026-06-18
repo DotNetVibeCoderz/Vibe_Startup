@@ -1,0 +1,14 @@
+/* --- Map Container --- */
+.map-container { width: 100%; min-height: 350px; border: 3px solid var(--border-color); border-radius: var(--border-radius); overflow: hidden; box-shadow: var(--shadow-offset) var(--shadow-offset) 0px rgba(0,0,0,0.2); }
+
+/* Maps page layout: map + details side panel — responsive */
+.maps-layout { display: grid; grid-template-columns: 1fr 350px; gap: 16px; }
+.maps-map { height: calc(100vh - 280px); }
+@media (max-width: 768px) {
+    .maps-layout { grid-template-columns: 1fr; }
+    .maps-map { height: 40vh; min-height: 280px; }
+}
+@media (max-width: 480px) {
+    .maps-layout { gap: 8px; }
+    .maps-map { height: 35vh; min-height: 240px; }
+}

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <base href="/" />
+    <link rel="stylesheet" href="css/neo-brutalism.css" />
+    <link rel="stylesheet" href="css/location-picker.css" />
+    <link rel="stylesheet" href="css/chat-responsive.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+    <link rel="stylesheet" href="LandLord.styles.css" />
+    <HeadOutlet />
+</head>
+<body>
+    <Routes />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+    <script src="js/location-picker.js?v=2"></script>
+    <script src="js/landlord-maps.js?v=2"></script>
+    <script>
+        window.generateFilePreview = function (base64, contentType) {
+            var byteChars = atob(base64);
+            var byteNums = new Array(byteChars.length);
+            for (var i = 0; i < byteChars.length; i++)
+                byteNums[i] = byteChars.charCodeAt(i);
+            var blob = new Blob([new Uint8Array(byteNums)], { type: contentType });
+            return URL.createObjectURL(blob);
+        };
+    </script>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

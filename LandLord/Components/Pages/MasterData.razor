@@ -1,0 +1,441 @@
+@page "/master-data"
+@attribute [Authorize]
+
+<PageTitle>📊 Master Data - LandLord</PageTitle>
+
+<div class="animate-in">
+    <!-- Tab Navigation -->
+    <div class="neo-tabs">
+        <button class="neo-tab @(_activeTab == "tanah" ? "active" : "")" @onclick="SwitchToTanah">
+            🏞️ Data Tanah
+        </button>
+        <button class="neo-tab @(_activeTab == "bangunan" ? "active" : "")" @onclick="SwitchToBangunan">
+            🏗️ Data Bangunan
+        </button>
+    </div>
+
+    <!-- Filter & Search Bar -->
+    <div class="filter-bar neo-card" style="margin-bottom:16px;">
+        <input class="neo-input" @bind="_searchKeyword" @bind:event="oninput" placeholder="🔍 Cari keyword..." @onkeyup="HandleSearch" />
+        
+        @if (_activeTab == "tanah")
+        {
+            <select class="neo-select" @bind="_filterJenisHak" @bind:after="ApplyFilter" style="max-width:200px;">
+                <option value="">Semua Jenis Hak</option>
+                <option value="Hak Milik">Hak Milik</option>
+                <option value="Hak Guna Bangunan">Hak Guna Bangunan</option>
+                <option value="Hak Guna Usaha">Hak Guna Usaha</option>
+                <option value="Hak Pakai">Hak Pakai</option>
+                <option value="Hak Sewa">Hak Sewa</option>
+            </select>
+            <select class="neo-select" @bind="_filterStatusPajak" @bind:after="ApplyFilter" style="max-width:200px;">
+                <option value="">Semua Status Pajak</option>
+                <option value="Lunas">Lunas</option>
+                <option value="Menunggak">Menunggak</option>
+                <option value="Bebas">Bebas Pajak</option>
+            </select>
+        }
+        else
+        {
+            <select class="neo-select" @bind="_filterJenisBangunan" @bind:after="ApplyFilter" style="max-width:200px;">
+                <option value="">Semua Jenis</option>
+                <option value="Rumah Tinggal">Rumah Tinggal</option>
+                <option value="Ruko">Ruko</option>
+                <option value="Gudang">Gudang</option>
+                <option value="Kantor">Kantor</option>
+                <option value="Apartemen">Apartemen</option>
+                <option value="Hotel">Hotel</option>
+                <option value="Villa">Villa</option>
+            </select>
+        }
+
+        <button class="neo-btn-primary" @onclick="OpenCreateModal">
+            ➕ Tambah @(_activeTab == "tanah" ? "Tanah" : "Bangunan")
+        </button>
+        <button class="neo-btn-success" @onclick="ExportData" style="margin-left:auto;">
+            📥 Export CSV
+        </button>
+    </div>
+
+    <!-- Data Table -->
+    <div class="neo-card" style="overflow-x:auto;">
+        @if (_activeTab == "tanah")
+        {
+            <table class="neo-table">
+                <thead>
+                    <tr>
+                        <th>No. Sertifikat</th>
+                        <th>Jenis Hak</th>
+                        <th>Luas (m²)</th>
+                        <th>Lokasi</th>
+                        <th>Pemilik</th>
+                        <th>Bidang</th>
+                        <th>Pajak</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_tanahList.Any())
+                    {
+                        @foreach (var item in _tanahList)
+                        {
+                            <tr>
+                                <td><strong>@item.NomorSertifikat</strong></td>
+                                <td><span class="neo-badge badge-info">@item.JenisHak</span></td>
+                                <td>@item.Luas.ToString("N0")</td>
+                                <td>@(item.Lokasi.Length > 40 ? item.Lokasi[..40] + "..." : item.Lokasi)</td>
+                                <td>@(item.Pemilik.Length > 20 ? item.Pemilik[..20] + "..." : item.Pemilik)</td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(item.PolygonGeoJson))
+                                    { <span class="neo-badge badge-success">📐 Polygon</span> }
+                                    else if (item.Latitude != null && item.Longitude != null)
+                                    { <span class="neo-badge badge-info">📍 Titik</span> }
+                                    else
+                                    { <span class="neo-badge" style="color:var(--text-secondary);">—</span> }
+                                </td>
+                                <td><span class="neo-badge @GetPajakBadge(item.StatusPajak)">@item.StatusPajak</span></td>
+                                <td>
+                                    <button class="neo-btn-small" @onclick="() => OpenEditTanahModal(item)">✏️</button>
+                                    <button class="neo-btn-small" style="background:#e74c3c;color:white;" @onclick="() => DeleteTanah(item.Id)">🗑️</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr><td colspan="8" style="text-align:center;padding:24px;">📭 Belum ada data tanah</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <table class="neo-table">
+                <thead>
+                    <tr>
+                        <th>No. IMB/PBG</th>
+                        <th>Jenis Bangunan</th>
+                        <th>Luas (m²)</th>
+                        <th>Lantai</th>
+                        <th>Lokasi</th>
+                        <th>Pemilik</th>
+                        <th>Bidang</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_bangunanList.Any())
+                    {
+                        @foreach (var item in _bangunanList)
+                        {
+                            <tr>
+                                <td><strong>@item.NomorIimbPbg</strong></td>
+                                <td><span class="neo-badge badge-info">@item.JenisBangunan</span></td>
+                                <td>@item.LuasBangunan.ToString("N0")</td>
+                                <td>@item.JumlahLantai</td>
+                                <td>@(item.Lokasi.Length > 40 ? item.Lokasi[..40] + "..." : item.Lokasi)</td>
+                                <td>@(item.NamaPemilik?.Length > 20 ? item.NamaPemilik?[..20] + "..." : item.NamaPemilik)</td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(item.PolygonGeoJson))
+                                    { <span class="neo-badge badge-success">📐 Polygon</span> }
+                                    else if (item.Latitude != null && item.Longitude != null)
+                                    { <span class="neo-badge badge-info">📍 Titik</span> }
+                                    else
+                                    { <span class="neo-badge" style="color:var(--text-secondary);">—</span> }
+                                </td>
+                                <td>
+                                    <button class="neo-btn-small" @onclick="() => OpenEditBangunanModal(item)">✏️</button>
+                                    <button class="neo-btn-small" style="background:#e74c3c;color:white;" @onclick="() => DeleteBangunan(item.Id)">🗑️</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr><td colspan="8" style="text-align:center;padding:24px;">📭 Belum ada data bangunan</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <div style="text-align:center;margin-top:12px;color:var(--text-secondary);">
+        Total: @(_activeTab == "tanah" ? _tanahList.Count : _bangunanList.Count) data
+    </div>
+</div>
+
+<!-- Create/Edit Modal -->
+@if (_showModal)
+{
+    <div class="neo-modal-overlay" @onclick="CloseModal" style="z-index:500;">
+        <div class="neo-modal" @onclick:stopPropagation="true" style="max-width:750px;max-height:90vh;overflow-y:auto;">
+            <h2 style="color:var(--accent);margin-bottom:16px;">
+                @(_isEditing ? "✏️ Edit" : "➕ Tambah") @(_activeTab == "tanah" ? "Tanah" : "Bangunan")
+            </h2>
+
+            @if (_activeTab == "tanah")
+            {
+                <EditForm Model="_tanahForm" OnValidSubmit="SaveTanahAsync">
+                    <div style="display:flex;flex-direction:column;gap:10px;">
+                        <InputText @bind-Value="_tanahForm.NomorSertifikat" class="neo-input" placeholder="Nomor Sertifikat *" />
+                        <select @bind="_tanahForm.JenisHak" class="neo-select">
+                            <option value="">Pilih Jenis Hak *</option>
+                            <option>Hak Milik</option>
+                            <option>Hak Guna Bangunan</option>
+                            <option>Hak Guna Usaha</option>
+                            <option>Hak Pakai</option>
+                            <option>Hak Sewa</option>
+                        </select>
+                        <InputNumber @bind-Value="_tanahForm.Luas" class="neo-input" placeholder="Luas (m²)" />
+                        <InputText @bind-Value="_tanahForm.Lokasi" class="neo-input" placeholder="Lokasi *" />
+                        <div class="grid-2">
+                            <InputText @bind-Value="_tanahForm.Kelurahan" class="neo-input" placeholder="Kelurahan" />
+                            <InputText @bind-Value="_tanahForm.Kecamatan" class="neo-input" placeholder="Kecamatan" />
+                        </div>
+                        <div class="grid-2">
+                            <InputText @bind-Value="_tanahForm.KotaKabupaten" class="neo-input" placeholder="Kota/Kabupaten" />
+                            <InputText @bind-Value="_tanahForm.Provinsi" class="neo-input" placeholder="Provinsi" />
+                        </div>
+                        <InputText @bind-Value="_tanahForm.NIB" class="neo-input" placeholder="NIB" />
+                        <InputText @bind-Value="_tanahForm.Pemilik" class="neo-input" placeholder="Pemilik *" />
+                        <InputText @bind-Value="_tanahForm.NikPemilik" class="neo-input" placeholder="NIK Pemilik" />
+                        <div class="grid-2">
+                            <select @bind="_tanahForm.StatusPajak" class="neo-select">
+                                <option value="Lunas">Lunas</option>
+                                <option value="Menunggak">Menunggak</option>
+                                <option value="Bebas">Bebas Pajak</option>
+                            </select>
+                            <InputNumber @bind-Value="_tanahForm.PajakTahunan" class="neo-input" placeholder="Pajak Tahunan" />
+                        </div>
+                        <textarea @bind="_tanahForm.Keterangan" class="neo-textarea" placeholder="Keterangan..."></textarea>
+
+                        <!-- ✅ LOCATION PICKER -->
+                        <div style="margin-top:8px;">
+                            <label style="font-weight:700;color:var(--accent);">🗺️ Peta Bidang Tanah</label>
+                            <small style="color:var(--text-secondary);display:block;margin-bottom:6px;">
+                                Gambar bidang tanah (polygon) atau titik lokasi di peta
+                            </small>
+                            <LocationPicker @ref="_locationPicker"
+                                            GeoJson="@_tanahForm.PolygonGeoJson"
+                                            GeoJsonChanged="@(v => _tanahForm.PolygonGeoJson = v)"
+                                            Lat="@(_tanahForm.Latitude?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
+                                            LatChanged="@(v => { if (double.TryParse(v, out var d)) _tanahForm.Latitude = d; })"
+                                            Lng="@(_tanahForm.Longitude?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
+                                            LngChanged="@(v => { if (double.TryParse(v, out var d)) _tanahForm.Longitude = d; })" />
+                        </div>
+
+                        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+                            <button type="button" class="neo-btn" @onclick="CloseModal">❌ Batal</button>
+                            <button type="submit" class="neo-btn-primary">💾 Simpan</button>
+                        </div>
+                    </div>
+                </EditForm>
+            }
+            else
+            {
+                <EditForm Model="_bangunanForm" OnValidSubmit="SaveBangunanAsync">
+                    <div style="display:flex;flex-direction:column;gap:10px;">
+                        <InputText @bind-Value="_bangunanForm.NomorIimbPbg" class="neo-input" placeholder="Nomor IMB/PBG *" />
+                        <div class="grid-2">
+                            <select @bind="_bangunanForm.JenisBangunan" class="neo-select">
+                                <option value="">Pilih Jenis *</option>
+                                <option>Rumah Tinggal</option><option>Ruko</option><option>Gudang</option>
+                                <option>Kantor</option><option>Apartemen</option><option>Hotel</option>
+                                <option>Villa</option><option>Pabrik</option><option>Mall</option>
+                            </select>
+                            <InputNumber @bind-Value="_bangunanForm.JumlahLantai" class="neo-input" placeholder="Jumlah Lantai" />
+                        </div>
+                        <div class="grid-2">
+                            <InputNumber @bind-Value="_bangunanForm.LuasBangunan" class="neo-input" placeholder="Luas Bangunan (m²)" />
+                            <InputText @bind-Value="_bangunanForm.MaterialUtama" class="neo-input" placeholder="Material Utama" />
+                        </div>
+                        <div class="grid-2">
+                            <InputNumber @bind-Value="_bangunanForm.TahunPembangunan" class="neo-input" placeholder="Tahun Pembangunan" />
+                            <select @bind="_bangunanForm.FungsiBangunan" class="neo-select">
+                                <option value="">Pilih Fungsi</option>
+                                <option>Hunian</option><option>Komersial</option><option>Industri</option>
+                                <option>Pendidikan</option><option>Kesehatan</option><option>Pemerintahan</option><option>Ibadah</option>
+                            </select>
+                        </div>
+                        <InputText @bind-Value="_bangunanForm.Lokasi" class="neo-input" placeholder="Lokasi *" />
+                        <InputText @bind-Value="_bangunanForm.NamaPemilik" class="neo-input" placeholder="Nama Pemilik" />
+                        <select @bind="_bangunanForm.Status" class="neo-select">
+                            <option>Aktif</option>
+                            <option>Dalam Perbaikan</option>
+                            <option>Tidak Aktif</option>
+                        </select>
+                        <textarea @bind="_bangunanForm.Keterangan" class="neo-textarea" placeholder="Keterangan..."></textarea>
+
+                        <!-- ✅ LOCATION PICKER untuk Bangunan -->
+                        <div style="margin-top:8px;">
+                            <label style="font-weight:700;color:var(--accent);">🗺️ Peta Bidang Bangunan</label>
+                            <small style="color:var(--text-secondary);display:block;margin-bottom:6px;">
+                                Gambar footprint bangunan (polygon) atau titik lokasi
+                            </small>
+                            <LocationPicker @ref="_locationPicker"
+                                            GeoJson="@_bangunanForm.PolygonGeoJson"
+                                            GeoJsonChanged="@(v => _bangunanForm.PolygonGeoJson = v)"
+                                            Lat="@(_bangunanForm.Latitude?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
+                                            LatChanged="@(v => { if (double.TryParse(v, out var d)) _bangunanForm.Latitude = d; })"
+                                            Lng="@(_bangunanForm.Longitude?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
+                                            LngChanged="@(v => { if (double.TryParse(v, out var d)) _bangunanForm.Longitude = d; })" />
+                        </div>
+
+                        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+                            <button type="button" class="neo-btn" @onclick="CloseModal">❌ Batal</button>
+                            <button type="submit" class="neo-btn-primary">💾 Simpan</button>
+                        </div>
+                    </div>
+                </EditForm>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private string _activeTab = "tanah";
+    private string _searchKeyword = "";
+    private string? _filterJenisHak, _filterStatusPajak, _filterJenisBangunan;
+    private bool _showModal, _isEditing;
+
+    private List<Tanah> _tanahList = new();
+    private List<Bangunan> _bangunanList = new();
+    private Tanah _tanahForm = new();
+    private Bangunan _bangunanForm = new();
+    private LocationPicker? _locationPicker;
+
+    [Inject] private ITanahService TanahService { get; set; } = null!;
+    [Inject] private IBangunanService BangunanService { get; set; } = null!;
+    [Inject] private IJSRuntime JS { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync() => await LoadDataAsync();
+
+    private async Task LoadDataAsync()
+    {
+        _tanahList = await TanahService.GetAllAsync();
+        _bangunanList = await BangunanService.GetAllAsync();
+    }
+
+    private void SwitchToTanah() => SwitchTab("tanah");
+    private void SwitchToBangunan() => SwitchTab("bangunan");
+
+    private void SwitchTab(string tab)
+    {
+        _activeTab = tab;
+        _searchKeyword = "";
+        _filterJenisHak = null;
+        _filterStatusPajak = null;
+        _filterJenisBangunan = null;
+    }
+
+    private async Task HandleSearch(KeyboardEventArgs e)
+    {
+        if (_activeTab == "tanah") _tanahList = await TanahService.SearchAsync(_searchKeyword);
+        else _bangunanList = await BangunanService.SearchAsync(_searchKeyword);
+    }
+
+    private async Task ApplyFilter()
+    {
+        if (_activeTab == "tanah") _tanahList = await TanahService.FilterAsync(_filterJenisHak, _filterStatusPajak, null);
+        else _bangunanList = await BangunanService.FilterAsync(_filterJenisBangunan, null, null);
+    }
+
+    private void OpenCreateModal()
+    {
+        _isEditing = false;
+        _tanahForm = new Tanah();
+        _bangunanForm = new Bangunan();
+        _locationPicker = null;
+        _showModal = true;
+    }
+
+    private void OpenEditTanahModal(Tanah item)
+    {
+        _isEditing = true;
+        _tanahForm = new Tanah
+        {
+            Id = item.Id, NomorSertifikat = item.NomorSertifikat, JenisHak = item.JenisHak,
+            Luas = item.Luas, Lokasi = item.Lokasi, NIB = item.NIB, Kelurahan = item.Kelurahan,
+            Kecamatan = item.Kecamatan, KotaKabupaten = item.KotaKabupaten, Provinsi = item.Provinsi,
+            Pemilik = item.Pemilik, NikPemilik = item.NikPemilik, StatusPajak = item.StatusPajak,
+            PajakTahunan = item.PajakTahunan, Keterangan = item.Keterangan,
+            PolygonGeoJson = item.PolygonGeoJson,
+            Latitude = item.Latitude, Longitude = item.Longitude
+        };
+        _locationPicker = null;
+        _showModal = true;
+    }
+
+    private void OpenEditBangunanModal(Bangunan item)
+    {
+        _isEditing = true;
+        _bangunanForm = new Bangunan
+        {
+            Id = item.Id, NomorIimbPbg = item.NomorIimbPbg, JenisBangunan = item.JenisBangunan,
+            JumlahLantai = item.JumlahLantai, LuasBangunan = item.LuasBangunan,
+            MaterialUtama = item.MaterialUtama, TahunPembangunan = item.TahunPembangunan,
+            FungsiBangunan = item.FungsiBangunan, Lokasi = item.Lokasi, NamaPemilik = item.NamaPemilik,
+            Status = item.Status, Keterangan = item.Keterangan,
+            PolygonGeoJson = item.PolygonGeoJson,
+            Latitude = item.Latitude, Longitude = item.Longitude
+        };
+        _locationPicker = null;
+        _showModal = true;
+    }
+
+    private async Task SaveTanahAsync()
+    {
+        try
+        {
+            if (_isEditing) await TanahService.UpdateAsync(_tanahForm);
+            else await TanahService.CreateAsync(_tanahForm);
+            _showModal = false;
+            await LoadDataAsync();
+        }
+        catch { }
+    }
+
+    private async Task SaveBangunanAsync()
+    {
+        try
+        {
+            if (_isEditing) await BangunanService.UpdateAsync(_bangunanForm);
+            else await BangunanService.CreateAsync(_bangunanForm);
+            _showModal = false;
+            await LoadDataAsync();
+        }
+        catch { }
+    }
+
+    private async Task DeleteTanah(int id) { await TanahService.DeleteAsync(id); await LoadDataAsync(); }
+    private async Task DeleteBangunan(int id) { await BangunanService.DeleteAsync(id); await LoadDataAsync(); }
+    private void CloseModal() => _showModal = false;
+
+    private static string GetPajakBadge(string? status) => status switch
+    {
+        "Lunas" => "badge-success",
+        "Menunggak" => "badge-danger",
+        _ => "badge-warning"
+    };
+
+    private async Task ExportData()
+    {
+        var csv = new System.Text.StringBuilder();
+        if (_activeTab == "tanah")
+        {
+            csv.AppendLine("No,Nomor Sertifikat,Jenis Hak,Luas,Lokasi,Kelurahan,Kecamatan,Kota,Provinsi,Pemilik,Status Pajak,Lat,Lng,Bidang");
+            int i = 1;
+            foreach (var t in _tanahList)
+                csv.AppendLine($"{i++},{t.NomorSertifikat},{t.JenisHak},{t.Luas},{t.Lokasi},{t.Kelurahan},{t.Kecamatan},{t.KotaKabupaten},{t.Provinsi},{t.Pemilik},{t.StatusPajak},{t.Latitude},{t.Longitude},{(string.IsNullOrEmpty(t.PolygonGeoJson) ? "Titik" : "Polygon")}");
+        }
+        else
+        {
+            csv.AppendLine("No,Nomor IMB/PBG,Jenis Bangunan,Luas,Lantai,Lokasi,Pemilik,Fungsi,Status,Lat,Lng,Bidang");
+            int i = 1;
+            foreach (var b in _bangunanList)
+                csv.AppendLine($"{i++},{b.NomorIimbPbg},{b.JenisBangunan},{b.LuasBangunan},{b.JumlahLantai},{b.Lokasi},{b.NamaPemilik},{b.FungsiBangunan},{b.Status},{b.Latitude},{b.Longitude},{(string.IsNullOrEmpty(b.PolygonGeoJson) ? "Titik" : "Polygon")}");
+        }
+        var bytes = System.Text.Encoding.UTF8.GetBytes(csv.ToString());
+        await JS.InvokeVoidAsync("eval", $"window.open('data:text/csv;base64,{Convert.ToBase64String(bytes)}')");
+    }
+}

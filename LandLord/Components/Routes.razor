@@ -1,0 +1,28 @@
+@rendermode InteractiveServer
+
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+            <NotAuthorized>
+                <RedirectToLogin />
+            </NotAuthorized>
+            <Authorizing>
+                <div class="neo-card" style="text-align:center;padding:40px;">
+                    <h3>🔐 Memeriksa autentikasi...</h3>
+                </div>
+            </Authorizing>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>404 - Not Found</PageTitle>
+        <LayoutView Layout="typeof(MainLayout)">
+            <div class="neo-card" style="text-align:center;padding:40px;">
+                <span style="font-size:4rem;">🚧</span>
+                <h2>404 - Halaman Tidak Ditemukan</h2>
+                <p>Waduh! Sepertinya halaman yang kamu cari tidak ada nih...</p>
+                <a href="/" class="neo-btn-primary" style="margin-top:16px;display:inline-block;text-decoration:none;">🏠 Kembali ke Home</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

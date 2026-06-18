@@ -1,0 +1,86 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@using Microsoft.AspNetCore.WebUtilities
+
+<PageTitle>🔐 Login - LandLord</PageTitle>
+
+<div class="animate-in" style="max-width:450px;margin:40px auto;">
+    <div class="neo-card" style="padding:32px;">
+        <div style="text-align:center;margin-bottom:24px;">
+            <span style="font-size:3rem;">🏘️</span>
+            <h2 style="color:var(--accent);">Login LandLord</h2>
+            <p style="color:var(--text-secondary);">Masuk untuk mengelola data properti</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="neo-badge badge-danger" style="display:block;text-align:center;margin-bottom:16px;padding:12px;">
+                ❌ @_errorMessage
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_successMessage))
+        {
+            <div class="neo-badge badge-success" style="display:block;text-align:center;margin-bottom:16px;padding:12px;">
+                ✅ @_successMessage
+            </div>
+        }
+
+        <form method="post" action="/api/auth/login">
+            <div style="display:flex;flex-direction:column;gap:16px;">
+                <div>
+                    <label>Username atau Email</label>
+                    <input name="username" class="neo-input" placeholder="Username atau email..." />
+                </div>
+                <div>
+                    <label>Password</label>
+                    <input name="password" type="password" class="neo-input" placeholder="Password..." />
+                </div>
+
+                <!-- Redirect URL agar setelah login kembali ke halaman yang diminta -->
+                <input type="hidden" name="redirect" value="@_redirectUrl" />
+
+                <button type="submit" class="neo-btn-primary" style="width:100%;">
+                    🔐 Login
+                </button>
+            </div>
+        </form>
+
+        <div style="text-align:center;margin-top:16px;display:flex;flex-direction:column;gap:8px;">
+            <a href="/register" style="color:var(--accent);">📝 Belum punya akun? Register</a>
+            <a href="/reset-password" style="color:var(--text-secondary);font-size:0.9rem;">Lupa password?</a>
+        </div>
+
+        <div style="margin-top:16px;padding:12px;background:var(--accent-soft);border-radius:8px;font-size:0.85rem;">
+            <strong>🔑 Demo Accounts:</strong><br/>
+            Admin: <code>admin</code> / <code>Admin123!</code><br/>
+            User: <code>budi_santoso</code> / <code>User123!</code>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string? _errorMessage;
+    private string? _successMessage;
+    private string _redirectUrl = "/";
+
+    [Inject] private NavigationManager Navigation { get; set; } = null!;
+
+    protected override void OnInitialized()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+
+        if (query.TryGetValue("redirect", out var redirectValue))
+            _redirectUrl = redirectValue.ToString();
+
+        if (query.ContainsKey("registered"))
+            _successMessage = "Akun berhasil dibuat. Silakan login.";
+
+        if (query.ContainsKey("loggedout"))
+            _successMessage = "Anda berhasil logout.";
+
+        if (query.ContainsKey("error"))
+            _errorMessage = "Username atau password salah. Silakan coba lagi.";
+    }
+}

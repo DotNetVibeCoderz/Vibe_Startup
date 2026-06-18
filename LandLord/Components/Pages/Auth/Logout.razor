@@ -1,0 +1,12 @@
+@page "/logout"
+@attribute [Authorize]
+
+@code {
+    [Inject] private NavigationManager Navigation { get; set; } = null!;
+
+    protected override void OnInitialized()
+    {
+        // Redirect ke endpoint logout agar cookie dihapus di browser
+        Navigation.NavigateTo("/api/auth/logout?redirect=/login?loggedout=true", forceLoad: true);
+    }
+}

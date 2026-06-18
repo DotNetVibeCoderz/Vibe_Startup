@@ -1,0 +1,221 @@
+@page "/profile"
+@attribute [Authorize]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Authorization
+
+<PageTitle>👤 Profile - LandLord</PageTitle>
+
+<div class="animate-in" style="max-width:650px;margin:0 auto;">
+    <div class="neo-card" style="padding:32px;">
+
+        <!-- AVATAR SECTION -->
+        <div style="text-align:center;margin-bottom:24px;">
+            <div style="position:relative;display:inline-block;cursor:pointer;" @onclick="TriggerAvatarUpload">
+                @if (!string.IsNullOrEmpty(_avatarUrl))
+                {
+                    <img src="@_avatarUrl" alt="Avatar"
+                         style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:4px solid var(--accent);box-shadow:3px 3px 0px rgba(0,0,0,0.2);" />
+                }
+                else
+                {
+                    <div style="width:100px;height:100px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;border:4px solid var(--accent);box-shadow:3px 3px 0px rgba(0,0,0,0.2);margin:0 auto;">
+                        <span style="font-size:3rem;">👤</span>
+                    </div>
+                }
+                <div style="position:absolute;bottom:0;right:0;background:var(--accent);color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;border:2px solid var(--border-color);">📷</div>
+            </div>
+            <InputFile OnChange="HandleAvatarSelected" style="display:none;" id="avatar-upload" accept="image/*" />
+            @if (_isUploadingAvatar)
+            { <div style="margin-top:8px;color:var(--text-secondary);">⏳ Mengupload avatar...</div> }
+            <h2 style="color:var(--accent);margin-top:12px;">@_fullName</h2>
+            <p style="color:var(--text-secondary);">@_username &bull; @_role</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_message))
+        {
+            <div class="neo-badge @(_isSuccess ? "badge-success" : "badge-danger")"
+                 style="display:block;text-align:center;margin-bottom:16px;padding:12px;">@((MarkupString)_message)</div>
+        }
+
+        <!-- PROFILE FORM -->
+        <div style="display:flex;flex-direction:column;gap:14px;">
+            <div><label><strong>👤 Username</strong></label><input class="neo-input" value="@_username" readonly /></div>
+            <div><label><strong>📧 Email</strong></label><input class="neo-input" value="@_email" readonly /></div>
+            <div><label><strong>📝 Nama Lengkap</strong></label><input class="neo-input" @bind="_fullName" placeholder="Nama lengkap..." /></div>
+            <div><label><strong>📱 No. Telepon</strong></label><input class="neo-input" @bind="_phoneNumber" placeholder="08xxxxxxxxxx" /></div>
+            <div><label><strong>🔑 Role</strong></label><input class="neo-input" value="@_role" readonly /></div>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-top:20px;">
+            <button class="neo-btn-primary" @onclick="UpdateProfileAsync" disabled="@_isSaving">
+                @(_isSaving ? "🔄 Menyimpan..." : "💾 Update Profile")
+            </button>
+        </div>
+
+        <hr style="border:2px solid var(--border-color);margin:24px 0;" />
+
+        <!-- CHANGE PASSWORD -->
+        <h3 style="color:var(--accent);">🔒 Ganti Password</h3>
+        <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px;">
+            <input type="password" class="neo-input" @bind="_oldPassword" placeholder="Password lama..." />
+            <input type="password" class="neo-input" @bind="_newPassword" placeholder="Password baru (min. 6 karakter)..." />
+            <input type="password" class="neo-input" @bind="_confirmPassword" placeholder="Konfirmasi password baru..." />
+            <button class="neo-btn-primary" @onclick="ChangePasswordAsync" disabled="@_isChangingPassword">
+                @(_isChangingPassword ? "🔄 Mengganti..." : "🔒 Ganti Password")
+            </button>
+        </div>
+
+        <hr style="border:2px solid var(--border-color);margin:24px 0;" />
+        <div style="text-align:center;font-size:0.8rem;color:var(--text-secondary);">
+            🕐 Terakhir login: @_lastLoginStr &bull; 📅 Bergabung: @_createdAtStr
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _username = "", _email = "", _fullName = "", _phoneNumber = "", _role = "";
+    private string? _avatarUrl;
+    private string _userId = "";
+    private string _lastLoginStr = "-", _createdAtStr = "-";
+    private string _oldPassword = "", _newPassword = "", _confirmPassword = "";
+    private string? _message;
+    private bool _isSuccess, _isSaving, _isChangingPassword, _isUploadingAvatar;
+
+    [Inject] private IAuthService AuthService { get; set; } = null!;
+    [Inject] private IStorageService StorageService { get; set; } = null!;
+    [Inject] private AuthenticationStateProvider AuthStateProvider { get; set; } = null!;
+    [Inject] private IHttpContextAccessor HttpContextAccessor { get; set; } = null!;
+    [Inject] private IJSRuntime JS { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync() => await LoadUserDataAsync();
+
+    private async Task LoadUserDataAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = state.User;
+        if (user.Identity?.IsAuthenticated != true) return;
+
+        _username = user.Identity.Name ?? "";
+        _userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+        _email = user.FindFirstValue(ClaimTypes.Email) ?? "";
+        _role = user.FindFirstValue(ClaimTypes.Role) ?? "User";
+        _fullName = user.FindFirstValue("FullName") ?? "";
+
+        if (int.TryParse(_userId, out var uid))
+        {
+            var db = await AuthService.GetUserByIdAsync(uid);
+            if (db != null)
+            {
+                _fullName = db.FullName ?? _fullName;
+                _phoneNumber = db.PhoneNumber ?? "";
+                _avatarUrl = db.AvatarUrl;
+                _lastLoginStr = db.LastLoginAt?.ToString("dd MMM yyyy HH:mm") ?? "-";
+                _createdAtStr = db.CreatedAt.ToString("dd MMM yyyy");
+            }
+        }
+    }
+
+    // ================================================================
+    // AVATAR UPLOAD
+    // ================================================================
+
+    private async Task TriggerAvatarUpload() => await JS.InvokeVoidAsync("eval", "document.getElementById('avatar-upload').click()");
+
+    private async Task HandleAvatarSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File; if (file == null) return;
+        if (!file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) { Show("❌ Hanya file gambar (JPG, PNG, GIF, WebP).", false); return; }
+        if (file.Size > 5 * 1024 * 1024) { Show("❌ Maksimum 5 MB.", false); return; }
+
+        _isUploadingAvatar = true; StateHasChanged();
+        try
+        {
+            using var stream = file.OpenReadStream(5 * 1024 * 1024);
+            var stored = await StorageService.UploadAsync($"avatar-{_userId}-{Guid.NewGuid():N}{Path.GetExtension(file.Name)}", stream, file.ContentType);
+            var url = await StorageService.GetPublicUrlAsync(stored);
+
+            if (int.TryParse(_userId, out var uid))
+            {
+                var db = await AuthService.GetUserByIdAsync(uid);
+                if (db != null) { db.AvatarUrl = url; await AuthService.UpdateProfileAsync(db); }
+            }
+            _avatarUrl = url;
+            await RefreshCookieAsync();
+            Show("✅ Foto profil berhasil diperbarui!", true);
+        }
+        catch (Exception ex) { Show($"❌ {ex.Message}", false); }
+        finally { _isUploadingAvatar = false; StateHasChanged(); }
+    }
+
+    // ================================================================
+    // UPDATE PROFILE
+    // ================================================================
+
+    private async Task UpdateProfileAsync()
+    {
+        _message = null; _isSaving = true; StateHasChanged();
+        try
+        {
+            if (int.TryParse(_userId, out var uid))
+            {
+                var u = await AuthService.GetUserByIdAsync(uid);
+                if (u != null) { u.FullName = _fullName; u.PhoneNumber = _phoneNumber; if (await AuthService.UpdateProfileAsync(u)) { await RefreshCookieAsync(); Show("✅ Profil diperbarui!", true); } else Show("❌ Gagal.", false); }
+            }
+        }
+        catch (Exception ex) { Show($"❌ {ex.Message}", false); }
+        finally { _isSaving = false; StateHasChanged(); }
+    }
+
+    // ================================================================
+    // CHANGE PASSWORD
+    // ================================================================
+
+    private async Task ChangePasswordAsync()
+    {
+        _message = null;
+        if (string.IsNullOrWhiteSpace(_oldPassword)) { Show("❌ Password lama wajib diisi.", false); return; }
+        if (_newPassword != _confirmPassword) { Show("❌ Password baru tidak cocok.", false); return; }
+        if (_newPassword.Length < 6) { Show("❌ Minimal 6 karakter.", false); return; }
+
+        _isChangingPassword = true; StateHasChanged();
+        try
+        {
+            if (int.TryParse(_userId, out var uid))
+            {
+                if (await AuthService.ChangePasswordAsync(uid, _oldPassword, _newPassword))
+                { _oldPassword = _newPassword = _confirmPassword = ""; Show("✅ Password diganti!", true); }
+                else Show("❌ Password lama salah.", false);
+            }
+        }
+        catch (Exception ex) { Show($"❌ {ex.Message}", false); }
+        finally { _isChangingPassword = false; StateHasChanged(); }
+    }
+
+    // ================================================================
+    // HELPERS
+    // ================================================================
+
+    private async Task RefreshCookieAsync()
+    {
+        try
+        {
+            if (int.TryParse(_userId, out var uid))
+            {
+                var db = await AuthService.GetUserByIdAsync(uid);
+                if (db != null)
+                {
+                    var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, db.Id.ToString()), new(ClaimTypes.Name, db.Username), new(ClaimTypes.Email, db.Email), new(ClaimTypes.Role, db.Role) };
+                    if (!string.IsNullOrWhiteSpace(db.FullName)) claims.Add(new Claim("FullName", db.FullName));
+                    if (!string.IsNullOrWhiteSpace(db.AvatarUrl)) claims.Add(new Claim("AvatarUrl", db.AvatarUrl));
+                    var ctx = HttpContextAccessor.HttpContext;
+                    if (ctx != null) await ctx.SignInAsync("LandLordAuth", new ClaimsPrincipal(new ClaimsIdentity(claims, "LandLordAuth")), new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddDays(7) });
+                }
+            }
+        }
+        catch { }
+    }
+
+    private void Show(string msg, bool ok) { _isSuccess = ok; _message = msg; }
+}

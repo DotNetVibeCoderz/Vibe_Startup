@@ -1,0 +1,204 @@
+@using System.Text.Json
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="ll-picker-container">
+    <!-- Toolbar -->
+    <div class="ll-picker-toolbar">
+        <button type="button" class="@(_drawMode == "polygon" ? "active" : "")"
+                @onclick="SwitchToPolygon" title="Gambar bidang tanah (polygon)">
+            📐 Polygon
+        </button>
+        <button type="button" class="@(_drawMode == "marker" ? "active" : "")"
+                @onclick="SwitchToMarker" title="Tandai titik lokasi">
+            📍 Titik
+        </button>
+        <button type="button" @onclick="ClearAllAsync" title="Hapus semua">
+            🗑️ Hapus
+        </button>
+        <button type="button" @onclick="RecenterJakartaAsync" title="Kembali ke Jakarta">
+            🇮🇩 Jakarta
+        </button>
+        <span style="margin-left:auto;font-size:0.75rem;color:var(--text-secondary);">
+            @_statusText
+        </span>
+    </div>
+
+    <!-- Map Container -->
+    <div id="@_mapId" class="ll-picker-map"></div>
+
+    <!-- Info Bar -->
+    <div class="ll-picker-info">
+        <span>
+            @if (_hasGeometry)
+            {
+                <span style="color:var(--success);">✅ Bidang sudah ditandai</span>
+            }
+            else
+            {
+                <span style="color:var(--text-secondary);">💡 Klik Polygon/Titik lalu gambar di peta, atau cari lokasi</span>
+            }
+        </span>
+        <span>
+            <button type="button" class="neo-btn-small" @onclick="EditCoordinatesManually">✏️ Edit Manual</button>
+            @if (!string.IsNullOrEmpty(_geoJsonPreview))
+            {
+                <code style="font-size:0.7rem;margin-left:4px;">@(_geoJsonPreview.Length > 60 ? _geoJsonPreview[..60] + "..." : _geoJsonPreview)</code>
+            }
+        </span>
+    </div>
+</div>
+
+<!-- Manual coordinate editor -->
+@if (_showManualEdit)
+{
+    <div class="neo-card" style="margin-top:8px;">
+        <label style="font-weight:700;color:var(--accent);">📝 Edit Koordinat (GeoJSON)</label>
+        <textarea class="neo-textarea" @bind="_manualGeoJson" rows="4"
+                  placeholder='Polygon: {"type":"Polygon","coordinates":[[[lng,lat],...]]}'></textarea>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+            <button type="button" class="neo-btn-small" @onclick="ApplyManualGeoJson">✅ Terapkan</button>
+            <button type="button" class="neo-btn-small" @onclick="() => _showManualEdit = false">✕ Tutup</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? InitialGeoJson { get; set; }
+    [Parameter] public string? GeoJson { get; set; }
+    [Parameter] public EventCallback<string?> GeoJsonChanged { get; set; }
+    [Parameter] public string? Lat { get; set; }
+    [Parameter] public EventCallback<string?> LatChanged { get; set; }
+    [Parameter] public string? Lng { get; set; }
+    [Parameter] public EventCallback<string?> LngChanged { get; set; }
+    [Parameter] public int Zoom { get; set; } = 16;
+
+    private string _mapId = $"lp-map-{Guid.NewGuid():N}";
+    private string _drawMode = "polygon";
+    private bool _hasGeometry;
+    private string _statusText = "Siap";
+    private string _geoJsonPreview = "";
+    private bool _showManualEdit;
+    private string _manualGeoJson = "";
+    private bool _initialized;
+    private DotNetObjectReference<LocationPicker>? _dotNetRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+
+            double lat = -6.2088, lng = 106.8456;
+            if (!string.IsNullOrEmpty(Lat)) double.TryParse(Lat, out lat);
+            if (!string.IsNullOrEmpty(Lng)) double.TryParse(Lng, out lng);
+
+            var existing = InitialGeoJson ?? GeoJson;
+            if (string.IsNullOrWhiteSpace(existing)) existing = "";
+
+            await JS.InvokeVoidAsync("LocationPicker.init", _mapId, _dotNetRef, existing, lat, lng, Zoom);
+            _initialized = true;
+
+            if (!string.IsNullOrEmpty(existing))
+            {
+                _hasGeometry = true;
+                _geoJsonPreview = existing.Length > 80 ? existing[..80] + "..." : existing;
+                _statusText = "Bidang dimuat";
+            }
+        }
+    }
+
+    private async Task SwitchToPolygon() => await SetDrawModeAsync("polygon");
+    private async Task SwitchToMarker() => await SetDrawModeAsync("marker");
+
+    private async Task SetDrawModeAsync(string mode)
+    {
+        _drawMode = mode;
+        if (_initialized) await JS.InvokeVoidAsync("LocationPicker.setMode", mode);
+    }
+
+    private async Task ClearAllAsync()
+    {
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("LocationPicker.clearAll");
+            GeoJson = null;
+            await GeoJsonChanged.InvokeAsync(null);
+            _hasGeometry = false;
+            _geoJsonPreview = "";
+            _statusText = "🗑️ Dihapus";
+        }
+    }
+
+    private async Task RecenterJakartaAsync()
+    {
+        if (_initialized) await JS.InvokeVoidAsync("LocationPicker.flyTo", -6.2088, 106.8456, 13);
+    }
+
+    [JSInvokable]
+    public async Task OnGeometryChanged(string? geoJson, string? centerJson)
+    {
+        _hasGeometry = !string.IsNullOrEmpty(geoJson);
+        _geoJsonPreview = geoJson?.Length > 80 ? geoJson[..80] + "..." : geoJson ?? "";
+        _statusText = _hasGeometry ? "✅ Bidang tersimpan" : "🗑️ Kosong";
+
+        GeoJson = geoJson;
+        await GeoJsonChanged.InvokeAsync(geoJson);
+
+        if (!string.IsNullOrEmpty(centerJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(centerJson);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("lat", out var latEl)) { Lat = latEl.GetDouble().ToString("F6"); await LatChanged.InvokeAsync(Lat); }
+                if (root.TryGetProperty("lng", out var lngEl)) { Lng = lngEl.GetDouble().ToString("F6"); await LngChanged.InvokeAsync(Lng); }
+            }
+            catch { }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnLocationSearched(double lat, double lng, string name)
+    {
+        Lat = lat.ToString("F6");
+        Lng = lng.ToString("F6");
+        await LatChanged.InvokeAsync(Lat);
+        await LngChanged.InvokeAsync(Lng);
+        _statusText = $"📍 {name[..Math.Min(50, name.Length)]}";
+    }
+
+    private void EditCoordinatesManually()
+    {
+        _manualGeoJson = GeoJson ?? "";
+        _showManualEdit = !_showManualEdit;
+    }
+
+    private async Task ApplyManualGeoJson()
+    {
+        if (string.IsNullOrWhiteSpace(_manualGeoJson)) return;
+        try { JsonDocument.Parse(_manualGeoJson); } catch { return; }
+
+        GeoJson = _manualGeoJson;
+        await GeoJsonChanged.InvokeAsync(GeoJson);
+        _geoJsonPreview = _manualGeoJson.Length > 80 ? _manualGeoJson[..80] + "..." : _manualGeoJson;
+        _hasGeometry = true;
+        _statusText = "📝 Manual edit";
+
+        if (_initialized)
+        {
+            double lat = -6.2088, lng = 106.8456;
+            if (!string.IsNullOrEmpty(Lat)) double.TryParse(Lat, out lat);
+            if (!string.IsNullOrEmpty(Lng)) double.TryParse(Lng, out lng);
+            await JS.InvokeVoidAsync("LocationPicker.init", _mapId, _dotNetRef, _manualGeoJson, lat, lng, Zoom);
+        }
+        _showManualEdit = false;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_initialized) await JS.InvokeVoidAsync("LocationPicker.destroy"); } catch { }
+        _dotNetRef?.Dispose();
+        GC.SuppressFinalize(this);
+    }
+}

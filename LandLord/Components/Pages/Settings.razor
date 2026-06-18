@@ -1,0 +1,415 @@
+@page "/settings"
+@attribute [Authorize(Roles = "Admin")]
+
+<PageTitle>⚙️ Settings - LandLord</PageTitle>
+
+<div class="animate-in">
+    <h2 style="margin-bottom:16px;">⚙️ Konfigurasi Aplikasi</h2>
+
+    <div style="display:flex;flex-direction:column;gap:20px;">
+        
+        <!-- LLM Provider -->
+        <div class="neo-card">
+            <h3 style="color:var(--accent);">🤖 LLM Provider</h3>
+            <p style="color:var(--text-secondary);margin-bottom:12px;">Konfigurasi model AI untuk chat bot Frengky Ganteng</p>
+            <div class="grid-2">
+                <div>
+                    <label>Provider</label>
+                    <select class="neo-select" @bind="_llmProvider">
+                        <option value="OpenAI">OpenAI</option>
+                        <option value="Anthropic">Anthropic (Claude)</option>
+                        <option value="Gemini">Google Gemini</option>
+                        <option value="Ollama">Ollama (Local)</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Model</label>
+                    <select class="neo-select" @bind="_llmModel">
+                        @if (_llmProvider == "OpenAI")
+                        {
+                            <option value="gpt-4o">GPT-4o</option>
+                            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                        }
+                        else if (_llmProvider == "Anthropic")
+                        {
+                            <option value="claude-3-opus">Claude 3 Opus</option>
+                            <option value="claude-3-sonnet">Claude 3 Sonnet</option>
+                            <option value="claude-3-haiku">Claude 3 Haiku</option>
+                        }
+                        else if (_llmProvider == "Gemini")
+                        {
+                            <option value="gemini-pro">Gemini Pro</option>
+                            <option value="gemini-ultra">Gemini Ultra</option>
+                        }
+                        else
+                        {
+                            <option value="llama3">Llama 3</option>
+                            <option value="mistral">Mistral</option>
+                            <option value="phi3">Phi-3</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            <div class="grid-2" style="margin-top:12px;">
+                <div><label>API Key</label><input type="password" class="neo-input" @bind="_llmApiKey" placeholder="sk-..." /></div>
+                <div><label>Endpoint (opsional)</label><input class="neo-input" @bind="_llmEndpoint" placeholder="https://api.openai.com/v1" /></div>
+            </div>
+            <div style="margin-top:12px;">
+                <label>Temperature (@_llmTemperature)</label>
+                <input type="range" class="neo-input" @bind="_llmTemperature" min="0" max="2" step="0.1" style="padding:0;" />
+            </div>
+        </div>
+
+        <!-- Vector DB -->
+        <div class="neo-card">
+            <h3 style="color:var(--accent);">🧬 Vector Database</h3>
+            <p style="color:var(--text-secondary);margin-bottom:12px;">Konfigurasi vector database untuk semantic search</p>
+            <div class="grid-2">
+                <div>
+                    <label>Provider</label>
+                    <select class="neo-select" @bind="_vectorDbProvider">
+                        <option value="InMemory">In-Memory (Simple)</option>
+                        <option value="SQLite">SQLite Vector</option>
+                        <option value="Qdrant">Qdrant</option>
+                        <option value="Chroma">Chroma DB</option>
+                    </select>
+                </div>
+                <div><label>Connection String</label><input class="neo-input" @bind="_vectorDbConnection" placeholder="https://localhost:6333" /></div>
+            </div>
+        </div>
+
+        <!-- ==================== TAVILY SEARCH ==================== -->
+        <div class="neo-card" style="border-color:var(--accent);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <div>
+                    <h3 style="color:var(--accent);">🌐 Tavily Search API</h3>
+                    <p style="color:var(--text-secondary);">AI-Optimized Internet Search untuk Chatbot</p>
+                </div>
+                <span class="neo-badge @(_tavilyConfigured ? "badge-success" : "badge-warning")">
+                    @(_tavilyConfigured ? "✅ Terkonfigurasi" : "⚠️ Belum di-setup")
+                </span>
+            </div>
+            
+            <div style="margin-bottom:8px;padding:12px;background:var(--accent-soft);border-radius:8px;font-size:0.85rem;">
+                💡 <strong>Tavily</strong> adalah search engine khusus AI agent. Dapatkan API key gratis di 
+                <a href="https://tavily.com" target="_blank" style="color:var(--accent);">tavily.com</a> (1000 req/bulan gratis).
+                API key digunakan oleh chatbot <strong>Frengky Ganteng</strong> untuk mencari informasi terkini di internet.
+            </div>
+
+            <div class="grid-2">
+                <div>
+                    <label><strong>Tavily API Key</strong></label>
+                    <input type="password" class="neo-input" @bind="_tavilyApiKey" placeholder="tvly-xxxxxxxxxxxxxxxxxxxxxxxx" style="border-width:3px;" />
+                    <small style="color:var(--text-secondary);">API key dari dashboard Tavily</small>
+                </div>
+                <div>
+                    <label>Base URL</label>
+                    <input class="neo-input" @bind="_tavilyBaseUrl" placeholder="https://api.tavily.com" />
+                </div>
+            </div>
+
+            <div class="grid-2" style="margin-top:12px;">
+                <div>
+                    <label>Search Depth</label>
+                    <select class="neo-select" @bind="_tavilySearchDepth">
+                        <option value="basic">Basic (Cepat)</option>
+                        <option value="advanced">Advanced (Mendalam)</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Max Results (1-20)</label>
+                    <input type="number" class="neo-input" @bind="_tavilyMaxResults" min="1" max="20" />
+                </div>
+            </div>
+
+            <div class="grid-2" style="margin-top:12px;">
+                <div>
+                    <label>Include AI Answer</label>
+                    <select class="neo-select" @bind="_tavilyIncludeAnswer">
+                        <option value="true">✅ Ya (Ringkasan AI)</option>
+                        <option value="false">❌ Tidak</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Timeout (detik)</label>
+                    <input type="number" class="neo-input" @bind="_tavilyTimeoutSeconds" min="5" max="60" />
+                </div>
+            </div>
+
+            <div style="margin-top:16px;display:flex;gap:12px;">
+                <button class="neo-btn" @onclick="TestTavilyConnectionAsync" disabled="@_isTestingTavily">
+                    @(_isTestingTavily ? "🔄 Testing..." : "🔌 Test Tavily API")
+                </button>
+                @if (!string.IsNullOrEmpty(_tavilyTestResult))
+                {
+                    <span class="neo-badge @(_tavilyTestOk ? "badge-success" : "badge-danger")">
+                        @_tavilyTestResult
+                    </span>
+                }
+            </div>
+        </div>
+
+        <!-- Storage Settings -->
+        <div class="neo-card">
+            <h3 style="color:var(--accent);">📁 Storage Provider</h3>
+            <p style="color:var(--text-secondary);margin-bottom:12px;">Konfigurasi penyimpanan file dan dokumen</p>
+            <div class="grid-2" style="margin-bottom:16px;">
+                <div>
+                    <label><strong>Active Provider</strong></label>
+                    <select class="neo-select" @bind="_storageProvider" @bind:after="OnStorageProviderChanged" style="border-width:3px;font-weight:700;">
+                        <option value="FileSystem">💾 File System (Local)</option>
+                        <option value="AzureBlob">☁️ Azure Blob Storage</option>
+                        <option value="S3">☁️ Amazon S3</option>
+                        <option value="MinIO">🪣 MinIO (Self-Hosted)</option>
+                    </select>
+                </div>
+                <div><label>Max File Size (MB)</label><input type="number" class="neo-input" @bind="_maxFileSizeMb" min="1" max="500" /></div>
+            </div>
+            @if (_storageProvider == "FileSystem")
+            {
+                <div class="grid-2">
+                    <div><label>Base Path</label><input class="neo-input" @bind="_fsBasePath" placeholder="wwwroot/uploads" /></div>
+                    <div><label>Base URL</label><input class="neo-input" @bind="_fsBaseUrl" placeholder="/uploads" /></div>
+                </div>
+            }
+            @if (_storageProvider == "AzureBlob")
+            {
+                <div><label>Connection String</label><input type="password" class="neo-input" @bind="_azureConnectionString" /></div>
+                <div class="grid-2" style="margin-top:8px;">
+                    <div><label>Container Name</label><input class="neo-input" @bind="_azureContainerName" /></div>
+                    <div><label>CDN Endpoint</label><input class="neo-input" @bind="_azureCdnEndpoint" /></div>
+                </div>
+            }
+            @if (_storageProvider == "S3")
+            {
+                <div class="grid-2">
+                    <div><label>Access Key</label><input type="password" class="neo-input" @bind="_s3AccessKey" /></div>
+                    <div><label>Secret Key</label><input type="password" class="neo-input" @bind="_s3SecretKey" /></div>
+                </div>
+                <div class="grid-2" style="margin-top:8px;">
+                    <div><label>Bucket</label><input class="neo-input" @bind="_s3BucketName" /></div>
+                    <div><label>Region</label><input class="neo-input" @bind="_s3Region" /></div>
+                </div>
+            }
+            @if (_storageProvider == "MinIO")
+            {
+                <div class="grid-2">
+                    <div><label>Access Key</label><input class="neo-input" @bind="_minioAccessKey" /></div>
+                    <div><label>Secret Key</label><input type="password" class="neo-input" @bind="_minioSecretKey" /></div>
+                </div>
+                <div class="grid-2" style="margin-top:8px;">
+                    <div><label>Service URL</label><input class="neo-input" @bind="_minioServiceUrl" /></div>
+                    <div><label>Public Endpoint</label><input class="neo-input" @bind="_minioPublicEndpoint" /></div>
+                </div>
+            }
+            <div style="margin-top:12px;">
+                <button class="neo-btn" @onclick="TestStorageConnectionAsync" disabled="@_isTestingStorage">
+                    @(_isTestingStorage ? "🔄 Testing..." : "🔌 Test Koneksi Storage")
+                </button>
+                @if (!string.IsNullOrEmpty(_storageTestResult))
+                { <span class="neo-badge @(_storageTestOk ? "badge-success" : "badge-danger")" style="margin-left:8px;">@_storageTestResult</span> }
+            </div>
+        </div>
+
+        <!-- Database -->
+        <div class="neo-card">
+            <h3 style="color:var(--accent);">🗄️ Database Provider</h3>
+            <div class="grid-2">
+                <div>
+                    <label>Provider</label>
+                    <select class="neo-select" @bind="_dbProvider">
+                        <option value="SQLite">SQLite (Default)</option>
+                        <option value="SQLServer">SQL Server</option>
+                        <option value="MySQL">MySQL</option>
+                        <option value="PostgreSQL">PostgreSQL</option>
+                    </select>
+                </div>
+                <div><label>Connection String</label><input class="neo-input" @bind="_dbConnectionString" /></div>
+            </div>
+        </div>
+
+        <!-- Chat Bot -->
+        <div class="neo-card">
+            <h3 style="color:var(--accent);">💬 Chat Bot - Frengky Ganteng</h3>
+            <p style="color:var(--text-secondary);margin-bottom:12px;">Persona dan perilaku chat bot</p>
+            <div><label>Nama Bot</label><input class="neo-input" @bind="_chatBotName" placeholder="Frengky Ganteng" /></div>
+            <div style="margin-top:8px;"><label>System Prompt (Persona)</label><textarea class="neo-textarea" @bind="_chatBotSystemPrompt" rows="3"></textarea></div>
+            <div class="grid-3" style="margin-top:8px;">
+                <div><label>Temperature</label><input type="number" class="neo-input" @bind="_chatBotTemperature" step="0.1" /></div>
+                <div><label>Max Tokens</label><input type="number" class="neo-input" @bind="_chatBotMaxTokens" /></div>
+                <div><label>Max History</label><input type="number" class="neo-input" @bind="_chatBotMaxHistory" /></div>
+            </div>
+            <div class="grid-2" style="margin-top:12px;">
+                <div>
+                    <label>Enable Internet Search</label>
+                    <select class="neo-select" @bind="_chatBotEnableSearch">
+                        <option value="true">✅ Ya (via Tavily)</option>
+                        <option value="false">❌ Tidak</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Enable Database Query</label>
+                    <select class="neo-select" @bind="_chatBotEnableDbQuery">
+                        <option value="true">✅ Ya</option>
+                        <option value="false">❌ Tidak</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Save -->
+        <div style="display:flex;gap:12px;justify-content:flex-end;">
+            <button class="neo-btn" @onclick="ResetSettings">🔄 Reset Default</button>
+            <button class="neo-btn-primary" @onclick="SaveSettingsAsync">💾 Simpan Konfigurasi</button>
+        </div>
+        @if (!string.IsNullOrEmpty(_saveMessage))
+        {
+            <div class="neo-badge @(_saveSuccess ? "badge-success" : "badge-danger")" style="display:block;text-align:center;padding:12px;">
+                @_saveMessage
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string _llmProvider = "OpenAI", _llmModel = "gpt-4o", _llmApiKey = "", _llmEndpoint = "";
+    private double _llmTemperature = 0.7;
+    private string _vectorDbProvider = "InMemory", _vectorDbConnection = "";
+
+    // Tavily
+    private string _tavilyApiKey = "", _tavilyBaseUrl = "https://api.tavily.com", _tavilySearchDepth = "advanced";
+    private string _tavilyIncludeAnswer = "true";
+    private int _tavilyMaxResults = 5, _tavilyTimeoutSeconds = 30;
+    private bool _isTestingTavily, _tavilyTestOk, _tavilyConfigured;
+    private string? _tavilyTestResult;
+
+    // Storage
+    private string _storageProvider = "FileSystem", _fsBasePath = "wwwroot/uploads", _fsBaseUrl = "/uploads";
+    private int _maxFileSizeMb = 50;
+    private string _azureConnectionString = "", _azureContainerName = "landlord-documents", _azureCdnEndpoint = "";
+    private string _s3AccessKey = "", _s3SecretKey = "", _s3BucketName = "landlord-documents", _s3Region = "ap-southeast-3", _s3ServiceUrl = "";
+    private string _minioAccessKey = "minioadmin", _minioSecretKey = "minioadmin", _minioBucketName = "landlord-documents", _minioRegion = "us-east-1", _minioServiceUrl = "http://localhost:9000", _minioPublicEndpoint = "http://localhost:9000";
+    private bool _isTestingStorage, _storageTestOk;
+    private string? _storageTestResult;
+    private string _dbProvider = "SQLite", _dbConnectionString = "Data Source=LandLord.db";
+    private string _chatBotName = "Frengky Ganteng", _chatBotSystemPrompt = "";
+    private double _chatBotTemperature = 0.8;
+    private int _chatBotMaxTokens = 4096, _chatBotMaxHistory = 20;
+    private string _chatBotEnableSearch = "true", _chatBotEnableDbQuery = "true";
+    private string? _saveMessage;
+    private bool _saveSuccess;
+
+    [Inject] private ISettingsService SettingsService { get; set; } = null!;
+    [Inject] private IConfiguration Configuration { get; set; } = null!;
+    [Inject] private IStorageService StorageService { get; set; } = null!;
+    [Inject] private IHttpClientFactory HttpClientFactory { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _llmProvider = Configuration.GetValue("LLMProvider:Provider", "OpenAI")!;
+        _llmModel = Configuration.GetValue("LLMProvider:Model", "gpt-4o")!;
+        _llmTemperature = Configuration.GetValue("LLMProvider:Temperature", 0.7);
+        _llmApiKey = Configuration.GetValue("LLMProvider:ApiKey", "")!;
+        _llmEndpoint = Configuration.GetValue("LLMProvider:Endpoint", "")!;
+        _vectorDbProvider = Configuration.GetValue("VectorDB:Provider", "InMemory")!;
+
+        _tavilyApiKey = Configuration.GetValue("Tavily:ApiKey", "")!;
+        _tavilyBaseUrl = Configuration.GetValue("Tavily:BaseUrl", "https://api.tavily.com")!;
+        _tavilySearchDepth = Configuration.GetValue("Tavily:SearchDepth", "advanced")!;
+        _tavilyIncludeAnswer = Configuration.GetValue("Tavily:IncludeAnswer", true).ToString().ToLower();
+        _tavilyMaxResults = Configuration.GetValue("Tavily:MaxResults", 5);
+        _tavilyTimeoutSeconds = Configuration.GetValue("Tavily:TimeoutSeconds", 30);
+        _tavilyConfigured = !string.IsNullOrEmpty(_tavilyApiKey) && _tavilyApiKey != "YOUR_TAVILY_API_KEY";
+
+        _storageProvider = Configuration.GetValue("StorageProvider:Provider", "FileSystem")!;
+        _maxFileSizeMb = Configuration.GetValue("StorageProvider:MaxFileSizeMB", 50);
+        _fsBasePath = Configuration.GetValue("StorageProvider:FileSystem:BasePath", "wwwroot/uploads")!;
+        _azureConnectionString = Configuration.GetValue("StorageProvider:AzureBlob:ConnectionString", "")!;
+        _s3AccessKey = Configuration.GetValue("StorageProvider:S3:AccessKey", "")!;
+        _minioServiceUrl = Configuration.GetValue("StorageProvider:MinIO:ServiceUrl", "http://localhost:9000")!;
+        _minioPublicEndpoint = Configuration.GetValue("StorageProvider:MinIO:PublicEndpoint", "http://localhost:9000")!;
+
+        _dbProvider = Configuration.GetValue("DatabaseProvider:Provider", "SQLite")!;
+        _dbConnectionString = Configuration.GetValue("DatabaseProvider:ConnectionString", "Data Source=LandLord.db")!;
+        _chatBotName = Configuration.GetValue("ChatBot:Name", "Frengky Ganteng")!;
+        _chatBotSystemPrompt = Configuration.GetValue("ChatBot:SystemPrompt", "")!;
+        _chatBotTemperature = Configuration.GetValue("ChatBot:Temperature", 0.8);
+        _chatBotMaxTokens = Configuration.GetValue("ChatBot:MaxTokens", 4096);
+        _chatBotMaxHistory = Configuration.GetValue("ChatBot:MaxHistory", 20);
+        _chatBotEnableSearch = Configuration.GetValue("ChatBot:EnableInternetSearch", true).ToString().ToLower();
+        _chatBotEnableDbQuery = Configuration.GetValue("ChatBot:EnableDatabaseQuery", true).ToString().ToLower();
+    }
+
+    private void OnStorageProviderChanged() => _storageTestResult = null;
+
+    private async Task TestTavilyConnectionAsync()
+    {
+        _isTestingTavily = true; _tavilyTestResult = null;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_tavilyApiKey))
+            {
+                _tavilyTestOk = false; _tavilyTestResult = "❌ API key kosong.";
+                return;
+            }
+            var client = HttpClientFactory.CreateClient();
+            var httpReq = new HttpRequestMessage(HttpMethod.Post, $"{_tavilyBaseUrl}/search");
+
+            // ✅ Tavily API: pakai Authorization: Bearer
+            httpReq.Headers.Add("Authorization", $"Bearer {_tavilyApiKey}");
+
+            httpReq.Content = new StringContent("{\"query\":\"test\",\"max_results\":1}", System.Text.Encoding.UTF8, "application/json");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var resp = await client.SendAsync(httpReq, cts.Token);
+            _tavilyTestOk = resp.IsSuccessStatusCode;
+            _tavilyConfigured = _tavilyTestOk;
+            _tavilyTestResult = _tavilyTestOk ? "✅ Tavily API — Terhubung!" : $"❌ Status: {(int)resp.StatusCode}";
+        }
+        catch (Exception ex) { _tavilyTestOk = false; _tavilyTestResult = $"❌ {ex.Message}"; }
+        finally { _isTestingTavily = false; }
+    }
+
+    private async Task TestStorageConnectionAsync()
+    {
+        _isTestingStorage = true; _storageTestResult = null;
+        try { var ok = await StorageService.CheckConnectionAsync(); _storageTestOk = ok; _storageTestResult = ok ? $"✅ {StorageService.ProviderName} — Terhubung!" : $"❌ {StorageService.ProviderName} — Gagal."; }
+        catch (Exception ex) { _storageTestOk = false; _storageTestResult = $"❌ {ex.Message}"; }
+        finally { _isTestingStorage = false; }
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        _saveMessage = null;
+        try
+        {
+            await SettingsService.UpdateSettingAsync("Tavily:ApiKey", _tavilyApiKey);
+            await SettingsService.UpdateSettingAsync("Tavily:BaseUrl", _tavilyBaseUrl);
+            await SettingsService.UpdateSettingAsync("Tavily:SearchDepth", _tavilySearchDepth);
+            await SettingsService.UpdateSettingAsync("Tavily:IncludeAnswer", _tavilyIncludeAnswer == "true");
+            await SettingsService.UpdateSettingAsync("Tavily:MaxResults", _tavilyMaxResults);
+            await SettingsService.UpdateSettingAsync("Tavily:TimeoutSeconds", _tavilyTimeoutSeconds);
+            await SettingsService.UpdateSettingAsync("ChatBot:EnableInternetSearch", _chatBotEnableSearch == "true");
+            await SettingsService.UpdateSettingAsync("ChatBot:EnableDatabaseQuery", _chatBotEnableDbQuery == "true");
+            await SettingsService.UpdateSettingAsync("StorageProvider:Provider", _storageProvider);
+            await SettingsService.UpdateSettingAsync("DatabaseProvider:Provider", _dbProvider);
+            await SettingsService.SaveSettingsToFileAsync();
+            _saveSuccess = true;
+            _saveMessage = "✅ Konfigurasi berhasil disimpan! Restart aplikasi untuk menerapkan perubahan.";
+        }
+        catch (Exception ex) { _saveSuccess = false; _saveMessage = $"❌ Gagal: {ex.Message}"; }
+    }
+
+    private void ResetSettings()
+    {
+        _llmProvider = "OpenAI"; _llmModel = "gpt-4o"; _llmTemperature = 0.7;
+        _vectorDbProvider = "InMemory";
+        _tavilyApiKey = ""; _tavilyBaseUrl = "https://api.tavily.com"; _tavilySearchDepth = "advanced";
+        _tavilyMaxResults = 5; _tavilyTimeoutSeconds = 30; _tavilyIncludeAnswer = "true";
+        _storageProvider = "FileSystem"; _maxFileSizeMb = 50;
+        _dbProvider = "SQLite"; _dbConnectionString = "Data Source=LandLord.db";
+        _chatBotName = "Frengky Ganteng"; _chatBotTemperature = 0.8; _chatBotMaxTokens = 4096; _chatBotMaxHistory = 20;
+        _chatBotEnableSearch = "true"; _chatBotEnableDbQuery = "true";
+        _saveMessage = "🔄 Nilai telah di-reset ke default."; _storageTestResult = null; _tavilyTestResult = null;
+    }
+}
