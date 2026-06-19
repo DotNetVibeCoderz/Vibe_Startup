@@ -1,0 +1,1031 @@
+@page "/gifts"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthStateProvider
+
+<div class="gifts-page">
+    <div class="gifts-header">
+        <h2>🎁 Virtual Gifts</h2>
+        <p class="sub">Kirim hadiah digital untuk menunjukkan ketertarikanmu!</p>
+    </div>
+
+    @* ── Success Toast ── *@
+    @if (_showSuccess)
+    {
+        <div class="success-toast">
+            <span>✅ @_successMessage</span>
+            <button class="btn-close-toast" @onclick="() => _showSuccess = false">✕</button>
+        </div>
+    }
+
+    @* ── Section: Gift Catalog ── *@
+    <section class="gifts-section">
+        <h3>📦 Katalog Hadiah</h3>
+        @if (_gifts == null)
+        {
+            <div class="loading">Memuat katalog hadiah...</div>
+        }
+        else if (_gifts.Count == 0)
+        {
+            <div class="empty-block">Belum ada hadiah tersedia.</div>
+        }
+        else
+        {
+            <div class="gifts-grid">
+                @foreach (var gift in _gifts)
+                {
+                    <div class="gift-card">
+                        <span class="gift-icon">@gift.IconUrl</span>
+                        <h4>@gift.Name</h4>
+                        <p>@gift.Description</p>
+                        <span class="gift-price">🪙 @gift.Price koin</span>
+                        <span class="gift-cat">@gift.Category</span>
+                        <button class="btn btn-primary btn-sm" @onclick="() => OpenSendModal(gift)">
+                            🎁 Kirim
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+
+    @* ── Section: Received Gifts ── *@
+    <section class="received-section">
+        <h3>📥 Hadiah Diterima</h3>
+        @if (_receivedGifts == null)
+        {
+            <div class="loading">Memuat hadiah diterima...</div>
+        }
+        else if (_receivedGifts.Count == 0)
+        {
+            <div class="empty-received">
+                <span>💝</span>
+                <p>Belum ada yang mengirimimu hadiah. Ayo lebih aktif!</p>
+            </div>
+        }
+        else
+        {
+            <div class="received-list">
+                @foreach (var tx in _receivedGifts)
+                {
+                    <div class="received-item">
+                        <span class="received-icon">@(tx.Gift?.IconUrl ?? "🎁")</span>
+                        <div class="received-info">
+                            <strong>@(tx.Gift?.Name ?? "Hadiah")</strong>
+                            <span class="received-from">
+                                Dari <em>@(tx.Sender?.Username ?? "Unknown")</em>
+                                &middot; @tx.SentAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+                            </span>
+                            @if (!string.IsNullOrEmpty(tx.Message))
+                            {
+                                <p class="received-msg">&ldquo;@tx.Message&rdquo;</p>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+</div>
+
+@* ═══════════════════════════════════════════ *@
+@* ── Send Modal ── *@
+@* ═══════════════════════════════════════════ *@
+@if (_showModal)
+{
+    <div class="modal-overlay" @onclick="CloseModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>🎁 Kirim @_selectedGift?.Name</h3>
+                <button class="btn-close" @onclick="CloseModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="gift-preview">
+                    <span class="gift-preview-icon">@_selectedGift?.IconUrl</span>
+                    <div>
+                        <strong>@_selectedGift?.Name</strong>
+                        <span class="gift-preview-price">🪙 @_selectedGift?.Price koin</span>
+                    </div>
+                </div>
+
+                <div class="search-box">
+                    <label>Cari Penerima (username)</label>
+                    <div class="search-input-group">
+                        <input type="text"
+                               class="form-input"
+                               placeholder="Ketik username..."
+                               @bind-value="_searchQuery"
+                               @bind-value:event="oninput"
+                               @onkeyup="HandleSearchKeyUp" />
+                        <button class="btn btn-secondary btn-sm"
+                                @onclick="SearchUsersAsync"
+                                disabled="@(!HasValidSearchQuery)">
+                            🔍 Cari
+                        </button>
+                    </div>
+                </div>
+
+                @if (_isSearching)
+                {
+                    <div class="search-status">🔍 Mencari...</div>
+                }
+                else if (_searchResults != null)
+                {
+                    if (_searchResults.Count == 0)
+                    {
+                        <div class="search-status empty">😕 Tidak ditemukan. Coba username lain.</div>
+                    }
+                    else
+                    {
+                        <div class="search-results">
+                            @foreach (var user in _searchResults)
+                            {
+                                <div class="search-result-item @(user.Id == _selectedReceiverId ? "selected" : "")"
+                                     @onclick="() => SelectReceiver(user)">
+                                    <span class="user-avatar">👤</span>
+                                    <div class="user-detail">
+                                        <strong>@user.Username</strong>
+                                        <small>@(user.City ?? "Lokasi tidak diketahui")</small>
+                                    </div>
+                                    @if (user.Id == _selectedReceiverId)
+                                    {
+                                        <span class="check">✅</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+
+                @if (_selectedReceiver != null)
+                {
+                    <div class="message-box">
+                        <label>Pesan (opsional)</label>
+                        <input type="text"
+                               class="form-input"
+                               placeholder="Tulis pesan manis..."
+                               @bind-value="_messageText"
+                               maxlength="500" />
+                        <small class="char-count">@(_messageText?.Length ?? 0)/500</small>
+                    </div>
+                }
+
+                @if (_sendError != null)
+                {
+                    <div class="error-msg">⚠️ @_sendError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseModal">Batal</button>
+                <button class="btn btn-primary"
+                        @onclick="SendGiftAsync"
+                        disabled="@(_selectedReceiver == null || _isSending)">
+                    @if (_isSending)
+                    {
+                        <span>⏳ Mengirim...</span>
+                    }
+                    else
+                    {
+                        <span>🎁 Kirim Hadiah</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Gift>? _gifts;
+    private List<GiftTransaction>? _receivedGifts;
+    private Guid _currentUserId;
+
+    // ── Modal State ──
+    private bool _showModal;
+    private Gift? _selectedGift;
+    private string _searchQuery = string.Empty;
+    private bool HasValidSearchQuery => !string.IsNullOrWhiteSpace(_searchQuery) && _searchQuery.Trim().Length >= 2;
+    private List<User>? _searchResults;
+    private bool _isSearching;
+    private User? _selectedReceiver;
+    private Guid? _selectedReceiverId;
+    private string _messageText = string.Empty;
+    private bool _isSending;
+    private string? _sendError;
+
+    // ── Success Toast ──
+    private bool _showSuccess;
+    private string _successMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCurrentUserAsync();
+        await LoadGiftsAsync();
+        await LoadReceivedGiftsAsync();
+    }
+
+    private async Task LoadCurrentUserAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = state.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!string.IsNullOrEmpty(userIdClaim) && Guid.TryParse(userIdClaim, out var uid))
+            {
+                _currentUserId = uid;
+            }
+        }
+    }
+
+    private async Task LoadGiftsAsync()
+    {
+        try
+        {
+            _gifts = await Db.Gifts
+                .Where(g => g.IsActive)
+                .OrderBy(g => g.Category)
+                .ThenBy(g => g.Price)
+                .ToListAsync();
+        }
+        catch
+        {
+            _gifts = new List<Gift>();
+        }
+    }
+
+    private async Task LoadReceivedGiftsAsync()
+    {
+        try
+        {
+            _receivedGifts = await Db.GiftTransactions
+                .Include(t => t.Gift)
+                .Include(t => t.Sender)
+                .Where(t => t.ReceiverId == _currentUserId)
+                .OrderByDescending(t => t.SentAt)
+                .Take(50)
+                .ToListAsync();
+        }
+        catch
+        {
+            _receivedGifts = new List<GiftTransaction>();
+        }
+    }
+
+    // ── Modal Handlers ──
+
+    private void OpenSendModal(Gift gift)
+    {
+        _selectedGift = gift;
+        _searchQuery = string.Empty;
+        _searchResults = null;
+        _selectedReceiver = null;
+        _selectedReceiverId = null;
+        _messageText = string.Empty;
+        _sendError = null;
+        _isSearching = false;
+        _showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+        _selectedGift = null;
+        _searchQuery = string.Empty;
+        _searchResults = null;
+        _selectedReceiver = null;
+        _selectedReceiverId = null;
+        _messageText = string.Empty;
+        _sendError = null;
+    }
+
+    private async Task HandleSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && HasValidSearchQuery)
+        {
+            await SearchUsersAsync();
+        }
+    }
+
+    private async Task SearchUsersAsync()
+    {
+        if (!HasValidSearchQuery) return;
+
+        _isSearching = true;
+        _searchResults = null;
+        _selectedReceiver = null;
+        _selectedReceiverId = null;
+
+        try
+        {
+            var query = _searchQuery.Trim();
+            _searchResults = await Db.Users
+                .Where(u => u.Username.Contains(query) && u.Id != _currentUserId && !u.IsBanned)
+                .OrderBy(u => u.Username)
+                .Take(10)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _sendError = $"Error mencari user: {ex.Message}";
+        }
+        finally
+        {
+            _isSearching = false;
+        }
+    }
+
+    private void SelectReceiver(User user)
+    {
+        _selectedReceiver = user;
+        _selectedReceiverId = user.Id;
+        _sendError = null;
+    }
+
+    private async Task SendGiftAsync()
+    {
+        if (_selectedGift == null || _selectedReceiver == null) return;
+
+        _isSending = true;
+        _sendError = null;
+
+        try
+        {
+            var transaction = new GiftTransaction
+            {
+                GiftId = _selectedGift.Id,
+                SenderId = _currentUserId,
+                ReceiverId = _selectedReceiver.Id,
+                Message = string.IsNullOrWhiteSpace(_messageText) ? null : _messageText.Trim(),
+                SentAt = DateTime.UtcNow
+            };
+
+            Db.GiftTransactions.Add(transaction);
+            await Db.SaveChangesAsync();
+
+            var receiverName = _selectedReceiver.Username;
+            var giftName = _selectedGift.Name;
+            CloseModal();
+
+            _successMessage = $"Hadiah {giftName} berhasil dikirim ke @{receiverName}!";
+            _showSuccess = true;
+
+            await LoadReceivedGiftsAsync();
+
+            // Auto-hide success toast after 5 seconds
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(5000);
+                await InvokeAsync(() =>
+                {
+                    _showSuccess = false;
+                    StateHasChanged();
+                });
+            });
+        }
+        catch (Exception ex)
+        {
+            _sendError = $"Gagal mengirim hadiah: {ex.Message}";
+        }
+        finally
+        {
+            _isSending = false;
+        }
+    }
+}
+
+<style>
+/* ═══════════════════════════════════════════ */
+/* ── PAGE LAYOUT ── */
+/* ═══════════════════════════════════════════ */
+.gifts-page {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 1.5rem 1rem;
+}
+.gifts-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+.gifts-header h2 {
+    font-size: 2rem;
+    margin-bottom: 0.25rem;
+}
+.sub {
+    opacity: 0.7;
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+/* ── Sections ── */
+.gifts-section,
+.received-section {
+    margin-bottom: 2.5rem;
+}
+.gifts-section h3,
+.received-section h3 {
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* ═══════════════════════════════════════════ */
+/* ── SUCCESS TOAST ── */
+/* ═══════════════════════════════════════════ */
+.success-toast {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(135deg, #4caf50, #2e7d32);
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+    animation: slideDown 0.4s ease;
+    box-shadow: 0 4px 20px rgba(76,175,80,0.4);
+}
+@@keyframes slideDown {
+    from { transform: translateY(-30px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+.btn-close-toast {
+    background: rgba(255,255,255,0.25);
+    border: none;
+    color: white;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.2s;
+}
+.btn-close-toast:hover {
+    background: rgba(255,255,255,0.5);
+}
+
+/* ═══════════════════════════════════════════ */
+/* ── GIFT CATALOG GRID ── */
+/* ═══════════════════════════════════════════ */
+.gifts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 1rem;
+}
+.gift-card {
+    background: var(--card-bg, #fff);
+    border-radius: var(--border-radius, 14px);
+    padding: 1.3rem 1rem;
+    text-align: center;
+    box-shadow: var(--card-shadow, 0 2px 12px rgba(0,0,0,0.08));
+    transition: all 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    animation: cardIn 0.35s ease backwards;
+}
+@@keyframes cardIn {
+    from { opacity: 0; transform: scale(0.85) translateY(16px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.gift-card:nth-child(1) { animation-delay: 0.02s; }
+.gift-card:nth-child(2) { animation-delay: 0.06s; }
+.gift-card:nth-child(3) { animation-delay: 0.10s; }
+.gift-card:nth-child(4) { animation-delay: 0.14s; }
+.gift-card:nth-child(5) { animation-delay: 0.18s; }
+.gift-card:nth-child(6) { animation-delay: 0.22s; }
+.gift-card:nth-child(7) { animation-delay: 0.26s; }
+.gift-card:nth-child(8) { animation-delay: 0.30s; }
+.gift-card:nth-child(9) { animation-delay: 0.34s; }
+.gift-card:nth-child(10){ animation-delay: 0.38s; }
+.gift-card:nth-child(11){ animation-delay: 0.42s; }
+.gift-card:nth-child(12){ animation-delay: 0.46s; }
+
+.gift-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 10px 32px rgba(0,0,0,0.15);
+}
+.gift-icon {
+    font-size: 2.8rem;
+    display: block;
+    margin-bottom: 0.15rem;
+    transition: transform 0.3s;
+}
+.gift-card:hover .gift-icon {
+    transform: scale(1.15) rotate(-5deg);
+}
+.gift-card h4 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+.gift-card p {
+    font-size: 0.74rem;
+    opacity: 0.6;
+    margin: 0;
+    line-height: 1.35;
+    min-height: 2.6em;
+}
+.gift-price {
+    font-weight: 700;
+    color: #f9a825;
+    font-size: 0.85rem;
+}
+.gift-cat {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.45;
+    margin-bottom: 0.25rem;
+}
+.gift-card .btn {
+    margin-top: auto;
+    width: 100%;
+}
+
+/* ═══════════════════════════════════════════ */
+/* ── LOADING / EMPTY ── */
+/* ═══════════════════════════════════════════ */
+.loading {
+    text-align: center;
+    padding: 2.5rem;
+    opacity: 0.55;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+@@keyframes pulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+}
+.empty-block {
+    text-align: center;
+    padding: 2rem;
+    opacity: 0.5;
+    font-size: 0.95rem;
+}
+.empty-received {
+    text-align: center;
+    padding: 2.5rem;
+    opacity: 0.5;
+}
+.empty-received span {
+    font-size: 3.2rem;
+    display: block;
+    margin-bottom: 0.5rem;
+    animation: float 3s ease-in-out infinite;
+}
+@@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+}
+.empty-received p {
+    margin: 0;
+    font-size: 0.92rem;
+}
+
+/* ═══════════════════════════════════════════ */
+/* ── RECEIVED GIFTS LIST ── */
+/* ═══════════════════════════════════════════ */
+.received-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.received-item {
+    background: var(--card-bg, #fff);
+    border-radius: var(--border-radius, 14px);
+    padding: 1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: var(--card-shadow, 0 2px 12px rgba(0,0,0,0.08));
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.received-item:hover {
+    transform: translateX(6px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+}
+.received-icon {
+    font-size: 2.4rem;
+    flex-shrink: 0;
+}
+.received-info {
+    flex: 1;
+    min-width: 0;
+}
+.received-info strong {
+    display: block;
+    font-size: 0.95rem;
+    margin-bottom: 0.15rem;
+}
+.received-from {
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+.received-from em {
+    font-style: normal;
+    font-weight: 600;
+    color: var(--accent, #e91e63);
+}
+.received-msg {
+    margin: 0.4rem 0 0;
+    font-size: 0.82rem;
+    opacity: 0.8;
+    font-style: italic;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ═══════════════════════════════════════════ */
+/* ── MODAL ── */
+/* ═══════════════════════════════════════════ */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+    animation: fadeIn 0.2s ease;
+    backdrop-filter: blur(4px);
+}
+@@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+.modal-content {
+    background: var(--card-bg, #fff);
+    color: var(--text-color, #333);
+    border-radius: 18px;
+    width: 100%;
+    max-width: 480px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.35);
+    animation: modalIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@@keyframes modalIn {
+    from {
+        opacity: 0;
+        transform: scale(0.88) translateY(28px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border-color, #e0e0e0);
+}
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+.btn-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    opacity: 0.45;
+    transition: opacity 0.2s;
+    color: inherit;
+    line-height: 1;
+}
+.btn-close:hover {
+    opacity: 1;
+}
+.modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+}
+
+/* ── Gift Preview ── */
+.gift-preview {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--hover-bg, #f5f5f5);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+}
+.gift-preview-icon {
+    font-size: 3.2rem;
+}
+.gift-preview-price {
+    display: block;
+    font-size: 0.8rem;
+    color: #f9a825;
+    font-weight: 600;
+}
+
+/* ── Search Box ── */
+.search-box label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+    opacity: 0.85;
+}
+.search-input-group {
+    display: flex;
+    gap: 0.5rem;
+}
+.search-input-group input {
+    flex: 1;
+}
+.form-input {
+    padding: 0.6rem 0.9rem;
+    border: 2px solid var(--border-color, #ddd);
+    border-radius: 10px;
+    font-size: 0.9rem;
+    width: 100%;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+    background: var(--input-bg, #fff);
+    color: var(--text-color, #333);
+}
+.form-input:focus {
+    border-color: var(--accent, #e91e63);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(233,30,99,0.1);
+}
+
+/* ── Search Results ── */
+.search-status {
+    text-align: center;
+    padding: 0.75rem;
+    font-size: 0.85rem;
+    opacity: 0.7;
+}
+.search-status.empty {
+    opacity: 0.85;
+}
+.search-results {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    max-height: 210px;
+    overflow-y: auto;
+}
+.search-result-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    border: 2px solid transparent;
+}
+.search-result-item:hover {
+    background: var(--hover-bg, #f0f0f0);
+}
+.search-result-item.selected {
+    background: rgba(233,30,99,0.07);
+    border-color: var(--accent, #e91e63);
+}
+.user-avatar {
+    font-size: 1.8rem;
+    flex-shrink: 0;
+}
+.user-detail {
+    flex: 1;
+    min-width: 0;
+}
+.user-detail strong {
+    display: block;
+    font-size: 0.9rem;
+}
+.user-detail small {
+    font-size: 0.75rem;
+    opacity: 0.6;
+}
+.check {
+    margin-left: auto;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+/* ── Message Box ── */
+.message-box label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+    opacity: 0.85;
+}
+.char-count {
+    display: block;
+    text-align: right;
+    font-size: 0.7rem;
+    opacity: 0.5;
+    margin-top: 0.2rem;
+}
+
+/* ── Error ── */
+.error-msg {
+    color: #d32f2f;
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 0.6rem;
+    background: rgba(211,47,47,0.07);
+    border-radius: 8px;
+}
+
+/* ── Modal Footer ── */
+.modal-footer {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color, #e0e0e0);
+}
+
+/* ═══════════════════════════════════════════ */
+/* ── SHARED BUTTON STYLES ── */
+/* ═══════════════════════════════════════════ */
+.btn {
+    padding: 0.55rem 1.2rem;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+}
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.btn-primary {
+    background: linear-gradient(135deg, #e91e63, #c2185b);
+    color: white;
+}
+.btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(233,30,99,0.4);
+}
+.btn-secondary {
+    background: var(--secondary-bg, #e0e0e0);
+    color: var(--text-color, #333);
+}
+.btn-secondary:hover:not(:disabled) {
+    background: var(--hover-bg, #ccc);
+}
+.btn-sm {
+    padding: 0.4rem 0.9rem;
+    font-size: 0.8rem;
+    border-radius: 8px;
+}
+
+/* ═══════════════════════════════════════════ */
+/* ── RESPONSIVE: TABLET ── */
+/* ═══════════════════════════════════════════ */
+@@media (max-width: 768px) {
+    .gifts-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 0.85rem;
+    }
+    .gift-card {
+        padding: 1.1rem 0.85rem;
+    }
+    .gift-icon {
+        font-size: 2.3rem;
+    }
+    .gift-card h4 {
+        font-size: 0.85rem;
+    }
+    .received-icon {
+        font-size: 2rem;
+    }
+}
+
+/* ═══════════════════════════════════════════ */
+/* ── RESPONSIVE: MOBILE ── */
+/* ═══════════════════════════════════════════ */
+@@media (max-width: 640px) {
+    .gifts-page {
+        padding: 0.75rem;
+    }
+    .gifts-header h2 {
+        font-size: 1.5rem;
+    }
+    .sub {
+        font-size: 0.82rem;
+    }
+    .gifts-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.65rem;
+    }
+    .gift-card {
+        padding: 0.9rem 0.7rem;
+    }
+    .gift-icon {
+        font-size: 2rem;
+    }
+    .gift-card h4 {
+        font-size: 0.8rem;
+    }
+    .gift-card p {
+        font-size: 0.68rem;
+        min-height: 1.6em;
+    }
+    .gift-price {
+        font-size: 0.75rem;
+    }
+    .gift-cat {
+        font-size: 0.6rem;
+    }
+
+    .modal-content {
+        max-width: 100%;
+        margin: 0 0.4rem;
+        max-height: 92vh;
+        border-radius: 14px;
+    }
+    .modal-header,
+    .modal-body,
+    .modal-footer {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    .modal-footer {
+        flex-wrap: wrap;
+    }
+    .modal-footer .btn {
+        flex: 1;
+        min-width: 120px;
+    }
+
+    .received-item {
+        padding: 0.75rem 0.9rem;
+        gap: 0.75rem;
+    }
+    .received-icon {
+        font-size: 1.8rem;
+    }
+
+    .gift-preview {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .btn-sm {
+        font-size: 0.75rem;
+        padding: 0.35rem 0.7rem;
+    }
+}
+
+/* ═══════════════════════════════════════════ */
+/* ── RESPONSIVE: SMALL MOBILE ── */
+/* ═══════════════════════════════════════════ */
+@@media (max-width: 380px) {
+    .gifts-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+    }
+    .gift-card {
+        padding: 0.7rem 0.55rem;
+    }
+    .gift-icon {
+        font-size: 1.7rem;
+    }
+    .gift-card h4 {
+        font-size: 0.73rem;
+    }
+    .gift-price {
+        font-size: 0.7rem;
+    }
+
+    .search-input-group {
+        flex-direction: column;
+    }
+
+    .modal-header h3 {
+        font-size: 0.95rem;
+    }
+    .modal-body {
+        gap: 0.8rem;
+    }
+}
+</style>

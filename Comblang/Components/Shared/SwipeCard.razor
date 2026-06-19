@@ -1,0 +1,56 @@
+<div class="swipe-card">
+    <div class="card-photo">
+        @if (!string.IsNullOrEmpty(Profile.PhotoUrl))
+        {
+            <img src="@Profile.PhotoUrl" alt="@Profile.Name" />
+        }
+        else
+        {
+            <div class="photo-placeholder">
+                <span>@(Profile.Gender == "Female" ? "👩" : "👨")</span>
+                <div class="avatar-circle">@(Profile.Name.Length > 0 ? Profile.Name[0].ToString() : "?")</div>
+            </div>
+        }
+    </div>
+    <div class="card-info">
+        <div class="name-row">
+            <h3>@Profile.Name, @Profile.Age</h3>
+            <span class="compat-badge">@Profile.CompatibilityScore% Match</span>
+        </div>
+        <p class="city">📍 @Profile.City</p>
+        <p class="bio">@Profile.Bio</p>
+        @if (Profile.Interests.Length > 0)
+        {
+            <div class="interests">
+                @foreach (var tag in Profile.Interests)
+                { <span class="interest-tag">@tag</span> }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public UserProfileCard Profile { get; set; } = new();
+    [Parameter] public EventCallback OnSwipeLeft { get; set; }
+    [Parameter] public EventCallback OnSwipeRight { get; set; }
+    [Parameter] public EventCallback OnSuperLike { get; set; }
+}
+
+<style>
+.swipe-card { background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 20px rgba(255,107,157,0.15); max-width: 400px; margin: 0 auto; }
+.dark-theme .swipe-card { background: rgba(255,255,255,0.05); }
+.card-photo { height: 350px; background: linear-gradient(135deg, #FFF0F5, #FFD1B3); display: flex; align-items: center; justify-content: center; }
+.card-photo img { width: 100%; height: 100%; object-fit: cover; }
+.photo-placeholder { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+.photo-placeholder > span { font-size: 3rem; }
+.avatar-circle { width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #FF6B9D, #FF8A80); color: white; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; }
+.card-info { padding: 1.25rem; }
+.name-row { display: flex; justify-content: space-between; align-items: center; }
+.name-row h3 { margin: 0; }
+.compat-badge { background: #A8E6CF; color: #1a5c3a; padding: 0.3rem 0.75rem; border-radius: 15px; font-size: 0.8rem; font-weight: 600; }
+.city { opacity: 0.6; font-size: 0.85rem; }
+.bio { line-height: 1.5; margin: 0.5rem 0; }
+.interests { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.75rem; }
+.interest-tag { background: #FFF0F5; color: #FF6B9D; padding: 0.3rem 0.75rem; border-radius: 15px; font-size: 0.8rem; font-weight: 500; }
+@@media (max-width: 480px) { .card-photo { height: 280px; } }
+</style>

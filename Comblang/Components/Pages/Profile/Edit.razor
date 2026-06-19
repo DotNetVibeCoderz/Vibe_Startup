@@ -1,0 +1,194 @@
+@page "/profile/edit"
+@attribute [Authorize]
+@using System.Security.Claims
+@inject NavigationManager Navigation
+@inject AuthService AuthService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<div class="profile-page">
+    <h2>✏️ Edit Profil</h2>
+    <p class="sub">Lengkapi profilmu agar lebih mudah menemukan jodoh!</p>
+
+    @if (_isLoading)
+    {
+        <div class="loading">⏳ Memuat profil...</div>
+    }
+    else
+    {
+        <div class="profile-form">
+            <div class="photo-section">
+                <div class="photo-preview">
+                    @if (!string.IsNullOrEmpty(_profilePictureUrl))
+                    {
+                        <img src="@_profilePictureUrl" alt="Profile" />
+                    }
+                    else
+                    {
+                        <span class="photo-placeholder">📷</span>
+                    }
+                </div>
+                <div>
+                    <h3>Foto Profil</h3>
+                    <InputFile OnChange="OnPhotoUpload" accept="image/*" />
+                    @if (_isUploading) { <span>⏳ Uploading...</span> }
+                    @if (!string.IsNullOrEmpty(_uploadError)) { <span class="text-error">@_uploadError</span> }
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Bio</label>
+                <textarea @bind="_bio" placeholder="Ceritakan tentang dirimu..." rows="4" maxlength="500"></textarea>
+                <small>@(_bio?.Length ?? 0)/500</small>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Gender</label>
+                    <select @bind="_gender">
+                        <option value="">Pilih...</option>
+                        <option value="Male">Pria</option>
+                        <option value="Female">Wanita</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Tanggal Lahir</label>
+                    <InputDate @bind-Value="_dateOfBirth" />
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group"><label>Pekerjaan</label><input type="text" @bind="_occupation" placeholder="Software Engineer" /></div>
+                <div class="form-group"><label>Pendidikan</label><input type="text" @bind="_education" placeholder="S1 Informatika" /></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Tinggi (cm)</label><input type="number" @bind="_heightCm" min="100" max="250" /></div>
+                <div class="form-group">
+                    <label>Tujuan</label>
+                    <select @bind="_relationshipGoal">
+                        <option value="">Pilih...</option>
+                        <option value="Serious">Serius</option>
+                        <option value="Casual">Santai</option>
+                        <option value="Friendship">Pertemanan</option>
+                        <option value="Marriage">Pernikahan</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>Kota</label><input type="text" @bind="_city" placeholder="Jakarta" /></div>
+                <div class="form-group"><label>Negara</label><input type="text" @bind="_country" placeholder="Indonesia" /></div>
+            </div>
+
+            <div class="section-divider">
+                <h3>🔐 Ganti Password</h3>
+                <small>Kosongkan jika tidak ingin ganti</small>
+            </div>
+            <div class="form-group"><label>Password Lama</label><input type="password" @bind="_oldPassword" /></div>
+            <div class="form-row">
+                <div class="form-group"><label>Password Baru</label><input type="password" @bind="_newPassword" placeholder="Min 6 karakter" /></div>
+                <div class="form-group"><label>Konfirmasi</label><input type="password" @bind="_confirmNewPassword" /></div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_message))
+            {
+                <div class="alert @(_isError ? "alert-error" : "alert-success")">@_message</div>
+            }
+
+            <button class="btn btn-primary btn-full" @onclick="SaveProfile" disabled="@_isSaving">
+                @(_isSaving ? "⏳ Menyimpan..." : "💾 Simpan Profil")
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _isLoading = true, _isSaving, _isUploading, _isError;
+    private string _message = "", _uploadError = "";
+    private string? _profilePictureUrl;
+    private string _bio = "", _gender = "", _occupation = "", _education = "", _relationshipGoal = "", _city = "", _country = "";
+    private int _heightCm;
+    private DateTime? _dateOfBirth;
+    private string _oldPassword = "", _newPassword = "", _confirmNewPassword = "";
+    private Guid _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userIdClaim = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!Guid.TryParse(userIdClaim, out _userId)) { Navigation.NavigateTo("/auth/login"); return; }
+        var user = await AuthService.GetUserByIdAsync(_userId);
+        if (user?.Profile != null)
+        {
+            var p = user.Profile;
+            _bio = p.Bio ?? ""; _gender = p.Gender ?? ""; _occupation = p.Occupation ?? "";
+            _education = p.Education ?? ""; _relationshipGoal = p.RelationshipGoal ?? "";
+            _heightCm = p.HeightCm; _profilePictureUrl = p.ProfilePictureUrl;
+            _dateOfBirth = p.DateOfBirth;
+        }
+        _city = user?.City ?? ""; _country = user?.Country ?? "";
+        _isLoading = false;
+    }
+
+    private async Task OnPhotoUpload(InputFileChangeEventArgs e)
+    {
+        _uploadError = ""; _isUploading = true; StateHasChanged();
+        try
+        {
+            var file = e.File;
+            await using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            var (url, error) = await AuthService.UploadProfilePhotoAsync(_userId, stream, file.Name, file.ContentType);
+            if (error != null) _uploadError = error; else _profilePictureUrl = url;
+        }
+        catch (Exception ex) { _uploadError = $"Upload gagal: {ex.Message}"; }
+        finally { _isUploading = false; }
+    }
+
+    private async Task SaveProfile()
+    {
+        _message = ""; _isError = false; _isSaving = true; StateHasChanged();
+        try
+        {
+            await AuthService.UpdateProfileAsync(_userId, _bio, _gender, _dateOfBirth, _occupation, _education, _relationshipGoal, _heightCm, _city, _country);
+
+            if (!string.IsNullOrWhiteSpace(_newPassword))
+            {
+                if (_newPassword != _confirmNewPassword) { _message = "Password baru tidak cocok."; _isError = true; return; }
+                var (ok, msg) = await AuthService.ChangePasswordAsync(_userId, _oldPassword, _newPassword);
+                _message = msg; _isError = !ok;
+                if (!ok) return;
+            }
+
+            _message = "✅ Profil berhasil disimpan!";
+            StateHasChanged();
+            await Task.Delay(1000);
+            Navigation.NavigateTo("/swipe");
+        }
+        catch (Exception ex) { _message = $"Error: {ex.Message}"; _isError = true; }
+        finally { _isSaving = false; }
+    }
+}
+
+<style>
+.profile-page { max-width: 700px; margin: 0 auto; }
+.sub { opacity: 0.7; margin-bottom: 2rem; }
+.loading { text-align: center; padding: 3rem; font-size: 1.2rem; }
+.profile-form { display: flex; flex-direction: column; gap: 1.25rem; }
+.photo-section { display: flex; align-items: center; gap: 1.5rem; background: var(--card-bg); padding: 1.5rem; border-radius: var(--border-radius); box-shadow: var(--card-shadow); }
+.photo-preview { width: 100px; height: 100px; border-radius: 50%; overflow: hidden; background: var(--pink-soft); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.photo-preview img { width: 100%; height: 100%; object-fit: cover; }
+.photo-placeholder { font-size: 2.5rem; }
+.text-error { color: #d32f2f; font-size: 0.85rem; }
+.form-group { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; }
+.form-group label { font-weight: 600; font-size: 0.85rem; }
+.form-group input, .form-group select, .form-group textarea { padding: 0.65rem 0.85rem; border-radius: var(--border-radius-sm); border: 1.5px solid var(--pink-light); font-size: 0.9rem; background: transparent; outline: none; font-family: inherit; }
+.form-group textarea { resize: vertical; }
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--pink-primary); }
+.form-group small { opacity: 0.5; font-size: 0.75rem; }
+.form-row { display: flex; gap: 1rem; }
+.section-divider { border-top: 1px solid var(--pink-light); padding-top: 1rem; margin-top: 0.5rem; }
+.section-divider h3 { margin: 0; color: var(--pink-primary); }
+.section-divider small { opacity: 0.5; }
+.alert-error { background: #fff0f0; color: #d32f2f; padding: 0.75rem 1rem; border-radius: var(--border-radius-sm); font-size: 0.85rem; border: 1px solid #ffcdd2; }
+.alert-success { background: #e8f5e9; color: #2e7d32; padding: 0.75rem 1rem; border-radius: var(--border-radius-sm); font-size: 0.85rem; border: 1px solid #c8e6c9; }
+.btn-full { width: 100%; justify-content: center; }
+@@media (max-width: 768px) { .form-row { flex-direction: column; gap: 1rem; } .photo-section { flex-direction: column; text-align: center; } }
+</style>

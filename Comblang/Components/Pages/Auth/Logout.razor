@@ -1,0 +1,22 @@
+@page "/auth/logout"
+@inject IHttpContextAccessor HttpContextAccessor
+@inject NavigationManager Navigation
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+
+@code {
+    /// <summary>
+    /// Logout page — signs out cookie auth during initial HTTP request
+    /// BEFORE Blazor circuit starts, so cookie headers can be written.
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        var ctx = HttpContextAccessor.HttpContext;
+        if (ctx != null)
+        {
+            await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        }
+        // Force full page redirect — browser akan request fresh page tanpa auth cookie
+        Navigation.NavigateTo("/", forceLoad: true);
+    }
+}

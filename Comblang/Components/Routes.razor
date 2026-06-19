@@ -1,0 +1,35 @@
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+                <NotAuthorized>
+                    <div class="not-auth-page">
+                        <span>🔐</span>
+                        <h2>Akses Dibatasi</h2>
+                        <p>Kamu harus login terlebih dahulu untuk mengakses halaman ini.</p>
+                        <a href="/auth/login" class="btn btn-primary">🔑 Login Sekarang</a>
+                    </div>
+                </NotAuthorized>
+                <Authorizing>
+                    <div class="loading-page">⏳ Memeriksa autentikasi...</div>
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>Not Found - Comblang</PageTitle>
+            <LayoutView Layout="typeof(MainLayout)">
+                <div class="error-page"><span>🔍</span><h2>404 - Halaman Tidak Ditemukan</h2><p>Waduh, halaman yang kamu cari kayaknya belum ada jodohnya nih...</p><a href="/" class="btn btn-primary">🏠 Kembali ke Beranda</a></div>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>
+<AntiforgeryToken />
+
+<style>
+.not-auth-page { text-align: center; padding: 4rem 2rem; }
+.not-auth-page span { font-size: 4rem; display: block; margin-bottom: 1rem; }
+.not-auth-page h2 { color: var(--pink-primary); }
+.not-auth-page p { opacity: 0.7; margin-bottom: 2rem; }
+.loading-page { text-align: center; padding: 4rem; font-size: 1.2rem; }
+</style>

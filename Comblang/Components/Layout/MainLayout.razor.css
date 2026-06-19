@@ -1,0 +1,20 @@
+/* MainLayout component-specific styles are now inline in MainLayout.razor */
+/* This file kept for any additional layout overrides */
+
+/* Dark theme scrollbar */
+.dark-theme ::-webkit-scrollbar {
+    width: 8px;
+}
+
+.dark-theme ::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.dark-theme ::-webkit-scrollbar-thumb {
+    background: rgba(255, 107, 157, 0.25);
+    border-radius: 8px;
+}
+
+.dark-theme ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 107, 157, 0.4);
+}

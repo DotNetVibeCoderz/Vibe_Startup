@@ -1,0 +1,274 @@
+@page "/makcomblang"
+@rendermode InteractiveServer
+@attribute [AllowAnonymous]
+@using System.Security.Claims
+@using Comblang.Models
+@using Comblang.Services.AI
+@using Comblang.Services.Chat
+@using Comblang.Services.Storage
+@using Microsoft.AspNetCore.Components.Authorization
+@inject KernelService KernelService
+@inject ChatSessionService ChatSessionService
+@inject IStorageProvider StorageProvider
+@inject AuthenticationStateProvider AuthStateProvider
+@implements IDisposable
+
+<div class="makcomblang-layout">
+    <aside class="session-sidebar @(_showSidebar ? "sidebar-open" : "")">
+        <div class="sidebar-header">
+            <h3>💬 Percakapan</h3>
+            <button class="btn-new-session" @onclick="CreateNewSession" title="Baru">➕</button>
+        </div>
+        <div class="session-list">
+            @if (_dbSessions.Count == 0)
+            { <p class="no-sessions">Belum ada percakapan. Mulai ngobrol! 💕</p> }
+            else
+            {
+                @foreach (var sess in _dbSessions)
+                {
+                    <div class="session-item @(sess.Id == _currentSessionId ? "active" : "")" @onclick="() => SwitchSession(sess.Id)">
+                        <span class="session-title">@sess.SessionTitle</span>
+                        <span class="session-date">@sess.CreatedAt.ToString("dd/MMM")</span>
+                        <button class="btn-delete-session" @onclick="() => DeleteSession(sess.Id)" @onclick:stopPropagation="true" title="Hapus">🗑️</button>
+                    </div>
+                }
+            }
+        </div>
+    </aside>
+    @if (_showSidebar) { <div class="sidebar-overlay" @onclick="ToggleSidebar"></div> }
+
+    <main class="chat-main">
+        <header class="chat-header">
+            <button class="btn-hamburger" @onclick="ToggleSidebar">☰</button>
+            <div class="bot-avatar">🤖</div>
+            <div class="header-info"><h2>Si Mak Comblang</h2><p class="subtitle">Asisten AI Perjodohanmu 💕</p></div>
+            <div class="header-actions">
+                <select class="model-select" @bind="_selectedModel">
+                    <option value="OpenAI">🧠 GPT-4o</option><option value="Anthropic">🔮 Claude</option>
+                    <option value="Gemini">🌟 Gemini</option><option value="Ollama">🦙 Ollama</option>
+                </select>
+                <button class="btn-icon" @onclick="ResetCurrentSession" title="Reset">🔄</button>
+            </div>
+        </header>
+
+        <div class="chat-messages" @ref="_messagesContainer">
+            @if (_displayMessages.Count == 0)
+            {
+                <div class="welcome-screen">
+                    <div class="welcome-icon">🤖💕</div><h3>Halo! Aku Si Mak Comblang</h3>
+                    <p>Asisten perjodohanmu! Cerita aja sama Mak Comblang! 💕</p>
+                    <div class="suggestion-chips">
+                        <button class="chip" @onclick="SuggestCariJodoh">💝 Cari Jodoh</button>
+                        <button class="chip" @onclick="SuggestTipsProfil">✨ Tips Profil</button>
+                        <button class="chip" @onclick="SuggestTipsKencan">💕 Tips Kencan</button>
+                        <button class="chip" @onclick="SuggestAnalisisKecocokan">🔍 Analisis Kecocokan</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @foreach (var msg in _displayMessages)
+                {
+                    <div class="message @(msg.IsUser ? "msg-user" : "msg-bot")">
+                        @if (!msg.IsUser) { <div class="msg-avatar">🤖</div> }
+                        <div class="msg-bubble">
+                            <MarkdownRenderer Content="@msg.Content" />
+                            @if (!string.IsNullOrEmpty(msg.ImageUrl))
+                            { <img src="@msg.ImageUrl" class="chat-image" alt="attached" /> }
+                        </div>
+                        @if (msg.IsUser) { <div class="msg-avatar">👤</div> }
+                    </div>
+                }
+            }
+            @if (_isLoading)
+            { <div class="message msg-bot"><div class="msg-avatar">🤖</div><div class="msg-bubble typing"><span></span><span></span><span></span></div></div> }
+        </div>
+
+        <div class="chat-footer">
+            @if (!string.IsNullOrEmpty(_uploadError))
+            { <div class="upload-error">⚠️ @_uploadError</div> }
+            @if (_attachedFile != null)
+            {
+                <div class="attach-preview">
+                    <img src="@_attachedPreview" alt="preview" />
+                    <span>@_attachedFile.Name <small>(@(_attachedFile.Size / 1024)KB)</small></span>
+                    <button class="btn-remove-attach" @onclick="RemoveAttachment">✕</button>
+                </div>
+            }
+            <div class="input-area">
+                <label class="attach-label" title="Lampirkan gambar (max 2MB)">📷
+                    <InputFile OnChange="OnFileSelected" accept="image/*" class="file-input-hidden" />
+                </label>
+                <textarea class="chat-input" @bind="_messageInput" @bind:event="oninput" @onkeydown="HandleKeyDown"
+                    placeholder="Ketik pesan ke Si Mak Comblang..." rows="1" disabled="@_isLoading"></textarea>
+                <button class="send-btn" @onclick="SendMessage"
+                    disabled="@(string.IsNullOrWhiteSpace(_messageInput) || _isLoading)" title="Kirim">➤</button>
+            </div>
+        </div>
+    </main>
+</div>
+
+@code {
+    private class SimpleMessage { public bool IsUser { get; set; } public string Content { get; set; } = ""; public string? ImageUrl { get; set; } }
+
+    private List<ChatSession> _dbSessions = new();
+    private Guid _currentSessionId;
+    private List<SimpleMessage> _displayMessages = new();
+    private List<(string role, string content)> _kernelHistory = new();
+    private Guid? _currentUserId;
+    private string _messageInput = "", _selectedModel = "OpenAI";
+    private bool _isLoading, _showSidebar;
+    private ElementReference _messagesContainer;
+
+    // Image upload
+    private IBrowserFile? _attachedFile;
+    private string? _attachedPreview, _storageUrl, _dataUriForAI, _uploadError;
+
+    protected override async Task OnInitializedAsync() { await LoadCurrentUserAsync(); await LoadSessionsFromDbAsync(); }
+
+    private async Task LoadCurrentUserAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        var uid = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (Guid.TryParse(uid, out var id)) _currentUserId = id;
+    }
+
+    // ── Sessions ──
+    private async Task LoadSessionsFromDbAsync()
+    { _dbSessions = await ChatSessionService.GetUserSessionsAsync(_currentUserId); if (_dbSessions.Count > 0) await SwitchSession(_dbSessions[0].Id); else await CreateNewSession(); }
+    private async Task CreateNewSession()
+    { var s = await ChatSessionService.CreateSessionAsync(_currentUserId, $"Percakapan {_dbSessions.Count + 1}"); _dbSessions.Insert(0, s); _currentSessionId = s.Id; _displayMessages = new(); _kernelHistory = new(); ClearAttachments(); _showSidebar = false; }
+    private async Task SwitchSession(Guid id)
+    { _currentSessionId = id; var ms = await ChatSessionService.GetSessionMessagesAsync(id); var o = ms.OrderBy(m => m.CreatedAt).ToList(); _displayMessages = o.Select(m => new SimpleMessage { IsUser = m.Role == "user", Content = m.Content, ImageUrl = m.ImageUrl }).ToList(); _kernelHistory = o.Select(m => (m.Role, m.Content)).ToList(); _showSidebar = false; ClearAttachments(); StateHasChanged(); }
+    private async Task DeleteSession(Guid id)
+    { await ChatSessionService.DeleteSessionAsync(id); _dbSessions.RemoveAll(s => s.Id == id); if (_currentSessionId == id) { if (_dbSessions.Count > 0) await SwitchSession(_dbSessions[0].Id); else await CreateNewSession(); } StateHasChanged(); }
+    private async Task ResetCurrentSession()
+    { if (_currentSessionId == Guid.Empty) return; await ChatSessionService.ResetSessionAsync(_currentSessionId); _displayMessages = new(); _kernelHistory = new(); ClearAttachments(); }
+
+    private async Task SuggestCariJodoh() { _messageInput = "Cari jodoh yang cocok buat aku dong Mak!"; await SendMessage(); }
+    private async Task SuggestTipsProfil() { _messageInput = "Bagaimana cara bikin profil yang menarik?"; await SendMessage(); }
+    private async Task SuggestTipsKencan() { _messageInput = "Apa aja tips kencan pertama yang seru?"; await SendMessage(); }
+    private async Task SuggestAnalisisKecocokan() { _messageInput = "Analisis kecocokan aku sama seseorang dong"; await SendMessage(); }
+
+    private async Task SendMessage()
+    {
+        var text = _messageInput.Trim();
+        if (string.IsNullOrEmpty(text) || _currentSessionId == Guid.Empty) return;
+        var capUrl = _storageUrl; var capDataUri = _dataUriForAI;
+        _messageInput = ""; _isLoading = true; StateHasChanged();
+        try
+        {
+            await ChatSessionService.AddMessageAsync(_currentSessionId, "user", text, capUrl);
+            _displayMessages.Add(new SimpleMessage { IsUser = true, Content = text, ImageUrl = capUrl });
+            _kernelHistory.Add(("user", text)); ClearAttachments();
+            var resp = await KernelService.ChatSimpleAsync(_kernelHistory, capDataUri, null, _selectedModel);
+            await ChatSessionService.AddMessageAsync(_currentSessionId, "assistant", resp, null);
+            _displayMessages.Add(new SimpleMessage { IsUser = false, Content = resp });
+            _kernelHistory.Add(("assistant", resp));
+        }
+        catch (Exception ex)
+        { _displayMessages.Add(new SimpleMessage { IsUser = false, Content = $"⚠️ Maaf, error: {ex.Message} 😅" }); }
+        finally { _isLoading = false; _storageUrl = null; _dataUriForAI = null; StateHasChanged(); }
+    }
+    private async Task HandleKeyDown(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey) await SendMessage(); }
+
+    // ── IMAGE UPLOAD ──
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _attachedFile = e.File; _uploadError = null;
+        const long maxBytes = 2 * 1024 * 1024;
+        if (_attachedFile.Size > maxBytes)
+        { _uploadError = $"Gambar terlalu besar ({_attachedFile.Size / 1024}KB). Maks 2MB."; _attachedFile = null; StateHasChanged(); return; }
+        try
+        {
+            var buffer = new byte[_attachedFile.Size];
+            await using var fs = _attachedFile.OpenReadStream(maxAllowedSize: maxBytes);
+            var total = 0; while (total < buffer.Length) { var r = await fs.ReadAsync(buffer.AsMemory(total)); if (r == 0) break; total += r; }
+            var b64 = Convert.ToBase64String(buffer);
+            _attachedPreview = $"data:{_attachedFile.ContentType};base64,{b64}"; _dataUriForAI = _attachedPreview;
+            try { var ext = Path.GetExtension(_attachedFile.Name).ToLowerInvariant(); using var us = new MemoryStream(buffer); us.Position = 0; _storageUrl = await StorageProvider.UploadAsync($"chat-images/{Guid.NewGuid()}{ext}", us, _attachedFile.ContentType); }
+            catch { _storageUrl = _attachedPreview; }
+        }
+        catch (Exception ex) { _uploadError = $"Gagal: {ex.Message}"; _attachedFile = null; }
+        StateHasChanged();
+    }
+
+    private void RemoveAttachment() { _attachedFile = null; _attachedPreview = null; _storageUrl = null; _dataUriForAI = null; _uploadError = null; }
+    private void ClearAttachments() => RemoveAttachment();
+    private void ToggleSidebar() => _showSidebar = !_showSidebar;
+    public void Dispose() { }
+}
+
+<style>
+.makcomblang-layout { display: flex; height: calc(100vh - 120px); max-width: 1100px; margin: 0 auto; background: #fff; border-radius: 16px; box-shadow: 0 4px 24px rgba(255,107,157,0.12); overflow: hidden; }
+.dark-theme .makcomblang-layout { background: rgba(255,255,255,0.03); }
+.session-sidebar { width: 280px; min-width: 280px; border-right: 1px solid #FFE0EB; display: flex; flex-direction: column; background: #FFFAFC; transition: transform 0.3s ease; z-index: 20; }
+.sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid #FFE0EB; }
+.sidebar-header h3 { margin: 0; font-size: 1rem; color: #FF6B9D; }
+.btn-new-session { width: 36px; height: 36px; border-radius: 50%; border: none; background: linear-gradient(135deg, #FF6B9D, #FF8A80); color: white; font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
+.btn-new-session:hover { transform: scale(1.1); }
+.session-list { flex: 1; overflow-y: auto; padding: 0.5rem; }
+.no-sessions { text-align: center; padding: 2rem 1rem; color: #999; font-size: 0.85rem; }
+.session-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; border-radius: 10px; cursor: pointer; margin-bottom: 0.25rem; transition: background 0.2s; }
+.session-item:hover { background: #FFF0F5; } .session-item.active { background: linear-gradient(135deg, #FFF0F5, #FFE0EB); }
+.session-title { flex: 1; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #333; }
+.session-date { font-size: 0.7rem; color: #999; flex-shrink: 0; }
+.btn-delete-session { background: none; border: none; font-size: 0.85rem; cursor: pointer; opacity: 0; transition: opacity 0.2s; padding: 2px 4px; border-radius: 4px; flex-shrink: 0; }
+.session-item:hover .btn-delete-session { opacity: 0.6; } .btn-delete-session:hover { opacity: 1 !important; background: rgba(255,0,0,0.1); }
+.sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 15; }
+
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chat-header { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.25rem; background: linear-gradient(135deg, #FF6B9D, #FF8A80); color: white; flex-shrink: 0; }
+.btn-hamburger { display: none; background: rgba(255,255,255,0.2); border: none; color: white; font-size: 1.3rem; padding: 0.3rem 0.6rem; border-radius: 6px; cursor: pointer; }
+.bot-avatar { font-size: 2.2rem; animation: wave 2s infinite; flex-shrink: 0; }
+@@keyframes wave { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(10deg); } 75% { transform: rotate(-10deg); } }
+.header-info { flex: 1; min-width: 0; } .header-info h2 { margin: 0; font-size: 1.2rem; } .subtitle { margin: 0; font-size: 0.75rem; opacity: 0.9; }
+.header-actions { display: flex; gap: 0.5rem; align-items: center; flex-shrink: 0; }
+.model-select { padding: 0.35rem 0.65rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.4); background: rgba(255,255,255,0.2); color: white; font-size: 0.78rem; cursor: pointer; outline: none; }
+.model-select option { background: #333; color: white; }
+.btn-icon { background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.45rem 0.55rem; border-radius: 50%; cursor: pointer; font-size: 1rem; transition: background 0.2s; }
+.btn-icon:hover { background: rgba(255,255,255,0.4); }
+
+.chat-messages { flex: 1; overflow-y: auto; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.85rem; }
+.welcome-screen { text-align: center; padding: 3rem 1.5rem; margin: auto; } .welcome-icon { font-size: 4rem; margin-bottom: 0.5rem; }
+.welcome-screen h3 { color: #FF6B9D; margin: 0.75rem 0; font-size: 1.3rem; } .welcome-screen p { color: #666; margin: 0.5rem 0 1.5rem; }
+.suggestion-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+.chip { padding: 0.5rem 1rem; border-radius: 20px; background: #FFF0F5; border: 1px solid #FFB5D0; color: #FF6B9D; cursor: pointer; font-size: 0.85rem; transition: all 0.2s; font-family: inherit; }
+.chip:hover { background: #FF6B9D; color: white; }
+
+.message { display: flex; gap: 0.6rem; align-items: flex-start; } .msg-user { flex-direction: row-reverse; }
+.msg-avatar { width: 34px; height: 34px; border-radius: 50%; background: #FFF0F5; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+.msg-bubble { max-width: 75%; padding: 0.7rem 0.95rem; border-radius: 16px; font-size: 0.93rem; line-height: 1.5; word-wrap: break-word; overflow-wrap: break-word; }
+.msg-user .msg-bubble { background: linear-gradient(135deg, #FF6B9D, #FF8A80); color: white; border-bottom-right-radius: 4px; }
+.msg-bot .msg-bubble { background: #f0f0f5; border-bottom-left-radius: 4px; color: #333; }
+.dark-theme .msg-bot .msg-bubble { background: rgba(255,255,255,0.08); color: #ddd; }
+.chat-image { max-width: 200px; border-radius: 8px; margin-top: 0.5rem; display: block; }
+
+.typing { display: flex; align-items: center; gap: 4px; padding: 0.85rem 1.1rem !important; }
+.typing span { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #999; animation: bounce 1.4s infinite; }
+.typing span:nth-child(2) { animation-delay: 0.2s; } .typing span:nth-child(3) { animation-delay: 0.4s; }
+@@keyframes bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-8px); } }
+
+.chat-footer { padding: 0.75rem 1.25rem; border-top: 1px solid #FFE0EB; flex-shrink: 0; }
+.upload-error { color: #d32f2f; font-size: 0.8rem; margin-bottom: 0.4rem; padding: 0.35rem 0.75rem; background: #fff0f0; border-radius: 8px; }
+.attach-preview { display: inline-flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; padding: 0.3rem 0.75rem; background: #FFF0F5; border-radius: 10px; font-size: 0.8rem; max-width: 100%; }
+.attach-preview img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.attach-preview span small { opacity: 0.5; }
+.btn-remove-attach { background: #FF8A80; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 0.65rem; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.input-area { display: flex; align-items: flex-end; gap: 0.5rem; }
+.attach-label { font-size: 1.3rem; cursor: pointer; opacity: 0.6; transition: opacity 0.2s; flex-shrink: 0; user-select: none; }
+.attach-label:hover { opacity: 1; } .file-input-hidden { display: none; }
+.chat-input { flex: 1; padding: 0.7rem 1rem; border-radius: 20px; border: 1.5px solid #FFD0E0; resize: none; font-family: inherit; font-size: 0.93rem; outline: none; background: transparent; color: inherit; line-height: 1.4; max-height: 120px; }
+.chat-input:focus { border-color: #FF6B9D; }
+.send-btn { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, #FF6B9D, #FF8A80); color: white; border: none; font-size: 1.2rem; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: transform 0.2s, opacity 0.2s; }
+.send-btn:hover:not(:disabled) { transform: scale(1.05); } .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+@@media (max-width: 768px) {
+    .makcomblang-layout { height: calc(100vh - 100px); border-radius: 0; max-width: 100%; }
+    .session-sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 20; width: 280px; transform: translateX(-100%); box-shadow: 4px 0 20px rgba(0,0,0,0.15); }
+    .session-sidebar.sidebar-open { transform: translateX(0); } .sidebar-overlay { display: block; } .btn-hamburger { display: block; }
+    .msg-bubble { max-width: 88%; } .chat-header { padding: 0.6rem 1rem; } .chat-messages { padding: 1rem; } .chat-footer { padding: 0.6rem 1rem; }
+    .header-info h2 { font-size: 1.05rem; } .subtitle { display: none; }
+}
+@@media (max-width: 480px) { .msg-bubble { max-width: 92%; font-size: 0.88rem; } .chat-input { font-size: 0.88rem; padding: 0.6rem 0.85rem; } .send-btn { width: 38px; height: 38px; } }
+</style>

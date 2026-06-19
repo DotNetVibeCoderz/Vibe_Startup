@@ -1,0 +1,757 @@
+@page "/events"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+
+<div class="events-page">
+    @* ── Header ── *@
+    <div class="events-header">
+        <div class="events-header-text">
+            <h2>🎉 Event & Community</h2>
+            <p class="sub">Ikuti acara seru dan temukan teman baru!</p>
+        </div>
+        <button class="btn btn-primary btn-create" @onclick="OpenCreateModal">
+            <span>+ Buat Event</span>
+        </button>
+    </div>
+
+    @* ── Loading State ── *@
+    @if (_isLoading)
+    {
+        <div class="loading-container">
+            <div class="spinner"></div>
+            <p>Memuat events...</p>
+        </div>
+    }
+    else if (_events.Count == 0)
+    {
+        <div class="empty-state">
+            <span class="empty-emoji">📭</span>
+            <h3>Belum ada event</h3>
+            <p>Jadilah yang pertama membuat event! Klik tombol "+ Buat Event" di atas.</p>
+        </div>
+    }
+    else
+    {
+        @* ── Events Grid ── *@
+        <div class="events-grid">
+            @foreach (var ev in _events)
+            {
+                var eventTypeClass = (ev.EventType ?? "Online").ToLowerInvariant();
+                var gradient = eventTypeClass == "offline"
+                    ? "linear-gradient(135deg, #a8e6cf, #88d8b0)"
+                    : "linear-gradient(135deg, #ff6b9d, #ff8a80)";
+                var emoji = eventTypeClass == "offline" ? "📍" : "💻";
+                var participantCount = _participantCounts.GetValueOrDefault(ev.Id, 0);
+                var isJoined = _joinedEventIds.Contains(ev.Id);
+                var isFull = participantCount >= ev.MaxParticipants;
+
+                <div class="event-card" @onclick="() => OpenDetailModal(ev)" @onkeydown="(e) => HandleCardKey(e, ev)" role="button" tabindex="0">
+                    <div class="event-banner" style="background: @gradient">
+                        <span class="event-emoji">@emoji</span>
+                    </div>
+                    <div class="event-details">
+                        <span class="event-type @eventTypeClass">@ev.EventType</span>
+                        <h4>@ev.Title</h4>
+                        <p class="event-desc">@(ev.Description?.Length > 80 ? ev.Description[..80] + "..." : ev.Description)</p>
+                        <div class="event-info">
+                            <span>📅 @ev.StartTime.ToString("dd MMM yyyy, HH:mm") WIB</span>
+                            <span>📍 @(string.IsNullOrWhiteSpace(ev.Location) ? "-" : ev.Location)</span>
+                        </div>
+                        <div class="event-parts">
+                            <span>👥 @participantCount/@ev.MaxParticipants peserta</span>
+                            @if (isFull) { <span class="badge-full">Penuh</span> }
+                        </div>
+                        <button class="btn btn-sm @(isJoined ? "btn-outline" : "btn-primary")"
+                                @onclick="() => ToggleJoin(ev)"
+                                @onclick:stopPropagation="true"
+                                disabled="@(!isJoined && isFull)">
+                            @(isJoined ? "✅ Joined" : (isFull ? "🔒 Full" : "Join Event"))
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @* ═══════════════════════════════════════
+       CREATE EVENT MODAL
+       ═══════════════════════════════════════ *@
+    @if (_showCreateModal)
+    {
+        <div class="modal-overlay" @onclick="CloseCreateModal">
+            <div class="modal-dialog" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h3>✨ Buat Event Baru</h3>
+                    <button class="modal-close" @onclick="CloseCreateModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="_createModel" OnValidSubmit="HandleCreateEvent" FormName="createEvent">
+                        <DataAnnotationsValidator />
+                        <div class="form-group">
+                            <label for="title">Judul Event <span class="required">*</span></label>
+                            <InputText id="title" @bind-Value="_createModel.Title" class="form-input" placeholder="Misal: Speed Dating Online" maxlength="200" />
+                            <ValidationMessage For="() => _createModel.Title" />
+                        </div>
+                        <div class="form-group">
+                            <label for="desc">Deskripsi</label>
+                            <InputTextArea id="desc" @bind-Value="_createModel.Description" class="form-input form-textarea" placeholder="Ceritakan detail acaranya..." rows="3" maxlength="5000" />
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group form-group-half">
+                                <label for="eventType">Tipe Event <span class="required">*</span></label>
+                                <InputSelect id="eventType" @bind-Value="_createModel.EventType" class="form-input">
+                                    <option value="Online">💻 Online</option>
+                                    <option value="Offline">📍 Offline</option>
+                                </InputSelect>
+                            </div>
+                            <div class="form-group form-group-half">
+                                <label for="location">Lokasi</label>
+                                <InputText id="location" @bind-Value="_createModel.Location" class="form-input" placeholder="Zoom / Anomali Coffee..." maxlength="500" />
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group form-group-half">
+                                <label for="startTime">Waktu Mulai <span class="required">*</span></label>
+                                <InputDate Type="InputDateType.DateTimeLocal" id="startTime" @bind-Value="_createModel.StartTime" class="form-input" />
+                                <ValidationMessage For="() => _createModel.StartTime" />
+                            </div>
+                            <div class="form-group form-group-half">
+                                <label for="endTime">Waktu Selesai <span class="required">*</span></label>
+                                <InputDate Type="InputDateType.DateTimeLocal" id="endTime" @bind-Value="_createModel.EndTime" class="form-input" />
+                                <ValidationMessage For="() => _createModel.EndTime" />
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="maxParts">Maksimal Peserta <span class="required">*</span></label>
+                            <InputNumber id="maxParts" @bind-Value="_createModel.MaxParticipants" class="form-input" min="2" max="10000" />
+                            <ValidationMessage For="() => _createModel.MaxParticipants" />
+                        </div>
+                        @if (!string.IsNullOrEmpty(_createError))
+                        {
+                            <div class="alert-error">@_createError</div>
+                        }
+                        <div class="modal-actions">
+                            <button type="button" class="btn btn-outline" @onclick="CloseCreateModal">Batal</button>
+                            <button type="submit" class="btn btn-primary" disabled="@_isSubmitting">
+                                @if (_isSubmitting) { <span class="spinner-sm"></span> }
+                                🚀 Buat Event
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ═══════════════════════════════════════
+       DETAIL EVENT MODAL
+       ═══════════════════════════════════════ *@
+    @if (_showDetailModal && _selectedEvent != null)
+    {
+        var detailEventType = (_selectedEvent.EventType ?? "Online").ToLowerInvariant();
+        var detailGradient = detailEventType == "offline"
+            ? "linear-gradient(135deg, #a8e6cf, #88d8b0)"
+            : "linear-gradient(135deg, #ff6b9d, #ff8a80)";
+        var detailEmoji = detailEventType == "offline" ? "📍" : "💻";
+        var detailCount = _participantCounts.GetValueOrDefault(_selectedEvent.Id, 0);
+        var detailJoined = _joinedEventIds.Contains(_selectedEvent.Id);
+        var detailFull = detailCount >= _selectedEvent.MaxParticipants;
+
+        <div class="modal-overlay" @onclick="CloseDetailModal">
+            <div class="modal-dialog modal-detail" @onclick:stopPropagation="true">
+                <div class="modal-header" style="background: @detailGradient; color: white; border-radius: 16px 16px 0 0;">
+                    <span class="detail-emoji">@detailEmoji</span>
+                    <h3>@_selectedEvent.Title</h3>
+                    <button class="modal-close modal-close-light" @onclick="CloseDetailModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="detail-meta">
+                        <span class="event-type @detailEventType">@_selectedEvent.EventType</span>
+                        <span class="detail-participants">👥 @detailCount / @_selectedEvent.MaxParticipants peserta</span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_selectedEvent.Description))
+                    {
+                        <div class="detail-section">
+                            <h4>📋 Deskripsi</h4>
+                            <p>@_selectedEvent.Description</p>
+                        </div>
+                    }
+                    <div class="detail-section">
+                        <h4>📅 Waktu</h4>
+                        <p>Mulai: <strong>@_selectedEvent.StartTime.ToString("dd MMMM yyyy, HH:mm")</strong></p>
+                        <p>Selesai: <strong>@_selectedEvent.EndTime.ToString("dd MMMM yyyy, HH:mm")</strong></p>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_selectedEvent.Location))
+                    {
+                        <div class="detail-section">
+                            <h4>📍 Lokasi</h4>
+                            <p>@_selectedEvent.Location</p>
+                        </div>
+                    }
+                    <div class="modal-actions">
+                        <button class="btn btn-outline" @onclick="CloseDetailModal">Tutup</button>
+                        <button class="btn @(detailJoined ? "btn-outline" : "btn-primary") btn-lg"
+                                @onclick="() => ToggleJoin(_selectedEvent)"
+                                disabled="@(!detailJoined && detailFull)">
+                            @(detailJoined ? "❌ Leave Event" : (detailFull ? "🔒 Event Penuh" : "🎉 Join Event"))
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Inject] private AppDbContext Db { get; set; } = default!;
+    [Inject] private AuthenticationStateProvider AuthStateProvider { get; set; } = default!;
+
+    private List<Event> _events = new();
+    private HashSet<Guid> _joinedEventIds = new();
+    private Dictionary<Guid, int> _participantCounts = new();
+    private bool _isLoading = true;
+    private bool _isSubmitting;
+    private string? _createError;
+    private Guid _currentUserId;
+
+    // Modal states
+    private bool _showCreateModal;
+    private bool _showDetailModal;
+    private Event? _selectedEvent;
+
+    // Create form model
+    private CreateEventModel _createModel = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCurrentUserAsync();
+        await LoadEventsAsync();
+    }
+
+    private async Task LoadCurrentUserAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var email = user.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+                        ?? user.FindFirst("email")?.Value;
+            if (!string.IsNullOrEmpty(email))
+            {
+                var dbUser = await Db.Users.FirstOrDefaultAsync(u => u.Email == email);
+                if (dbUser != null) _currentUserId = dbUser.Id;
+            }
+        }
+    }
+
+    private async Task LoadEventsAsync()
+    {
+        _isLoading = true;
+        try
+        {
+            _events = await Db.Events
+                .Where(e => e.IsActive && e.EndTime > DateTime.UtcNow)
+                .OrderBy(e => e.StartTime)
+                .ToListAsync();
+
+            // Load participant counts + joined status
+            var eventIds = _events.Select(e => e.Id).ToList();
+            if (eventIds.Count > 0)
+            {
+                var counts = await Db.EventParticipants
+                    .Where(ep => eventIds.Contains(ep.EventId))
+                    .GroupBy(ep => ep.EventId)
+                    .Select(g => new { EventId = g.Key, Count = g.Count() })
+                    .ToListAsync();
+
+                _participantCounts = counts.ToDictionary(x => x.EventId, x => x.Count);
+
+                if (_currentUserId != Guid.Empty)
+                {
+                    _joinedEventIds = (await Db.EventParticipants
+                        .Where(ep => eventIds.Contains(ep.EventId) && ep.UserId == _currentUserId)
+                        .Select(ep => ep.EventId)
+                        .ToListAsync())
+                        .ToHashSet();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Community] LoadEvents error: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    // ── Keyboard handler for card Enter key ──
+    private async Task HandleCardKey(KeyboardEventArgs e, Event ev)
+    {
+        if (e.Key == "Enter")
+        {
+            await OpenDetailModal(ev);
+        }
+    }
+
+    // ── Create Modal ──
+    private void OpenCreateModal()
+    {
+        _createModel = new CreateEventModel
+        {
+            StartTime = DateTime.Now.AddDays(1),
+            EndTime = DateTime.Now.AddDays(1).AddHours(2),
+            MaxParticipants = 50,
+            EventType = "Online"
+        };
+        _createError = null;
+        _showCreateModal = true;
+    }
+
+    private void CloseCreateModal()
+    {
+        _showCreateModal = false;
+        _createError = null;
+    }
+
+    private async Task HandleCreateEvent()
+    {
+        if (_currentUserId == Guid.Empty)
+        {
+            _createError = "Anda harus login untuk membuat event.";
+            return;
+        }
+
+        if (_createModel.StartTime >= _createModel.EndTime)
+        {
+            _createError = "Waktu selesai harus setelah waktu mulai.";
+            return;
+        }
+
+        if (_createModel.StartTime < DateTime.Now)
+        {
+            _createError = "Waktu mulai tidak boleh di masa lalu.";
+            return;
+        }
+
+        _isSubmitting = true;
+        _createError = null;
+        try
+        {
+            var newEvent = new Event
+            {
+                Title = _createModel.Title?.Trim() ?? "",
+                Description = _createModel.Description?.Trim(),
+                EventType = _createModel.EventType,
+                Location = _createModel.Location?.Trim(),
+                StartTime = DateTime.SpecifyKind(_createModel.StartTime, DateTimeKind.Utc),
+                EndTime = DateTime.SpecifyKind(_createModel.EndTime, DateTimeKind.Utc),
+                MaxParticipants = _createModel.MaxParticipants,
+                CreatedById = _currentUserId,
+                IsActive = true
+            };
+
+            Db.Events.Add(newEvent);
+            await Db.SaveChangesAsync();
+
+            _showCreateModal = false;
+            _createModel = new CreateEventModel();
+            await LoadEventsAsync();
+        }
+        catch (Exception ex)
+        {
+            _createError = $"Gagal membuat event: {ex.Message}";
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    // ── Detail Modal ──
+    private async Task OpenDetailModal(Event ev)
+    {
+        _selectedEvent = await Db.Events
+            .FirstOrDefaultAsync(e => e.Id == ev.Id);
+        if (_selectedEvent != null)
+        {
+            _participantCounts[_selectedEvent.Id] = await Db.EventParticipants
+                .CountAsync(ep => ep.EventId == _selectedEvent.Id);
+            _showDetailModal = true;
+        }
+    }
+
+    private void CloseDetailModal()
+    {
+        _showDetailModal = false;
+        _selectedEvent = null;
+    }
+
+    // ── Join / Leave ──
+    private async Task ToggleJoin(Event ev)
+    {
+        if (_currentUserId == Guid.Empty) return;
+
+        var existing = await Db.EventParticipants
+            .FirstOrDefaultAsync(ep => ep.EventId == ev.Id && ep.UserId == _currentUserId);
+
+        if (existing != null)
+        {
+            // Leave
+            Db.EventParticipants.Remove(existing);
+            await Db.SaveChangesAsync();
+            _joinedEventIds.Remove(ev.Id);
+        }
+        else
+        {
+            // Check capacity
+            var count = await Db.EventParticipants.CountAsync(ep => ep.EventId == ev.Id);
+            if (count >= ev.MaxParticipants) return;
+
+            // Join
+            Db.EventParticipants.Add(new EventParticipant
+            {
+                EventId = ev.Id,
+                UserId = _currentUserId,
+                JoinedAt = DateTime.UtcNow
+            });
+            await Db.SaveChangesAsync();
+            _joinedEventIds.Add(ev.Id);
+        }
+
+        // Refresh counts
+        _participantCounts[ev.Id] = await Db.EventParticipants.CountAsync(ep => ep.EventId == ev.Id);
+
+        // If detail modal is open for same event, sync
+        if (_showDetailModal && _selectedEvent?.Id == ev.Id)
+        {
+            _selectedEvent = await Db.Events.FirstOrDefaultAsync(e => e.Id == ev.Id);
+        }
+    }
+
+    // ── Form Model ──
+    private class CreateEventModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Judul wajib diisi")]
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string Title { get; set; } = "";
+
+        [System.ComponentModel.DataAnnotations.MaxLength(5000)]
+        public string? Description { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Required]
+        public string EventType { get; set; } = "Online";
+
+        [System.ComponentModel.DataAnnotations.MaxLength(500)]
+        public string? Location { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Waktu mulai wajib diisi")]
+        public DateTime StartTime { get; set; } = DateTime.Now.AddDays(1);
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Waktu selesai wajib diisi")]
+        public DateTime EndTime { get; set; } = DateTime.Now.AddDays(1).AddHours(2);
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Maksimal peserta wajib diisi")]
+        [System.ComponentModel.DataAnnotations.Range(2, 10000, ErrorMessage = "Minimal 2, maksimal 10000 peserta")]
+        public int MaxParticipants { get; set; } = 50;
+    }
+}
+
+<style>
+/* ═══════════════════════════════════════════
+   EVENTS PAGE LAYOUT
+   ═══════════════════════════════════════════ */
+.events-page { max-width: 1100px; margin: 0 auto; }
+
+/* ── Header ── */
+.events-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+.events-header-text h2 { margin: 0; font-size: 1.75rem; color: var(--text-dark); }
+.sub { opacity: 0.65; margin: 0.25rem 0 0; font-size: 0.95rem; }
+.btn-create { flex-shrink: 0; white-space: nowrap; }
+.btn-create span { font-weight: 700; }
+
+/* ── Loading ── */
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 0;
+    gap: 1rem;
+    opacity: 0.7;
+}
+.spinner {
+    width: 40px; height: 40px;
+    border: 4px solid var(--pink-light);
+    border-top-color: var(--pink-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@@keyframes spin { to { transform: rotate(360deg); } }
+.spinner-sm {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+
+/* ── Empty State ── */
+.empty-state {
+    text-align: center;
+    padding: 4rem 1rem;
+    opacity: 0.7;
+}
+.empty-emoji { font-size: 4rem; display: block; margin-bottom: 0.5rem; }
+.empty-state h3 { margin: 0.5rem 0; color: var(--text-dark); }
+.empty-state p { margin: 0; }
+
+/* ── Events Grid ── */
+.events-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.5rem;
+}
+
+/* ── Event Card ── */
+.event-card {
+    background: var(--card-bg);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    box-shadow: var(--card-shadow);
+    transition: var(--transition);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    outline: none;
+}
+.event-card:hover, .event-card:focus-visible {
+    transform: translateY(-4px);
+    box-shadow: var(--card-shadow-hover);
+}
+.event-card:focus-visible { box-shadow: 0 0 0 3px var(--pink-primary); }
+.event-banner {
+    height: 130px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.event-emoji { font-size: 3.5rem; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); }
+.event-details { padding: 1.25rem; flex: 1; display: flex; flex-direction: column; }
+.event-type {
+    display: inline-block;
+    font-size: 0.72rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    width: fit-content;
+}
+.event-type.online { background: #e3f2fd; color: #1565c0; }
+.event-type.offline { background: #e8f5e9; color: #2e7d32; }
+.event-details h4 {
+    margin: 0.6rem 0 0.3rem;
+    font-size: 1.1rem;
+    color: var(--text-dark);
+    line-height: 1.3;
+}
+.event-desc {
+    font-size: 0.85rem;
+    opacity: 0.65;
+    margin: 0 0 0.6rem;
+    flex: 1;
+}
+.event-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.8rem;
+    opacity: 0.6;
+    margin-bottom: 0.5rem;
+}
+.event-parts {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+    margin-bottom: 0.85rem;
+    font-weight: 600;
+}
+.badge-full {
+    font-size: 0.7rem;
+    background: #ffcdd2;
+    color: #c62828;
+    padding: 0.15rem 0.55rem;
+    border-radius: 8px;
+    font-weight: 700;
+}
+
+/* ═══════════════════════════════════════════
+   MODALS
+   ═══════════════════════════════════════════ */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+    animation: fadeIn 0.2s ease;
+}
+@@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-dialog {
+    background: white;
+    border-radius: var(--border-radius);
+    width: 100%;
+    max-width: 560px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    animation: slideUp 0.25s ease;
+}
+.modal-detail { max-width: 580px; }
+@@keyframes slideUp {
+    from { transform: translateY(30px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1.25rem 1.5rem;
+    border-radius: var(--border-radius) var(--border-radius) 0 0;
+}
+.modal-header h3 { margin: 0; flex: 1; font-size: 1.15rem; }
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.8rem;
+    cursor: pointer;
+    color: var(--text-muted);
+    line-height: 1;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: var(--transition);
+}
+.modal-close:hover { background: rgba(0,0,0,0.08); }
+.modal-close-light { color: rgba(255,255,255,0.85); }
+.modal-close-light:hover { background: rgba(255,255,255,0.2); }
+.detail-emoji { font-size: 2.5rem; }
+
+.modal-body { padding: 1.5rem; }
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+    flex-wrap: wrap;
+}
+
+/* ── Forms ── */
+.form-group { margin-bottom: 1rem; }
+.form-group label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+    color: var(--text-dark);
+}
+.required { color: var(--pink-primary); }
+.form-input {
+    width: 100%;
+    padding: 0.7rem 0.85rem;
+    border: 2px solid #e8e8ee;
+    border-radius: var(--border-radius-sm);
+    font-size: 0.92rem;
+    font-family: inherit;
+    transition: var(--transition);
+    background: #fafafe;
+    color: var(--text-dark);
+}
+.form-input:focus {
+    outline: none;
+    border-color: var(--pink-primary);
+    box-shadow: 0 0 0 3px rgba(255,107,157,0.15);
+    background: white;
+}
+.form-textarea { resize: vertical; min-height: 70px; }
+.form-row { display: flex; gap: 1rem; }
+.form-group-half { flex: 1; min-width: 0; }
+.alert-error {
+    background: #fff0f0;
+    color: #c62828;
+    padding: 0.65rem 1rem;
+    border-radius: var(--border-radius-sm);
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+    border: 1px solid #ffcdd2;
+}
+
+/* ── Detail Sections ── */
+.detail-meta {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+}
+.detail-participants { font-size: 0.9rem; font-weight: 600; opacity: 0.7; }
+.detail-section {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #f0f0f5;
+}
+.detail-section:last-of-type { border-bottom: none; }
+.detail-section h4 { margin: 0 0 0.4rem; font-size: 0.95rem; color: var(--text-dark); }
+.detail-section p { margin: 0.15rem 0; font-size: 0.9rem; opacity: 0.8; }
+
+/* ═══════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════ */
+@@media (max-width: 768px) {
+    .events-header { flex-direction: column; }
+    .events-header-text h2 { font-size: 1.4rem; }
+    .btn-create { width: 100%; justify-content: center; }
+    .events-grid { grid-template-columns: 1fr; gap: 1rem; }
+    .modal-dialog { max-width: 100%; margin: 0; border-radius: var(--border-radius) var(--border-radius) 0 0; }
+    .form-row { flex-direction: column; gap: 0; }
+    .event-banner { height: 100px; }
+    .event-emoji { font-size: 2.8rem; }
+}
+
+@@media (max-width: 480px) {
+    .events-page { padding: 0; }
+    .events-header-text h2 { font-size: 1.2rem; }
+    .sub { font-size: 0.85rem; }
+    .events-grid { gap: 0.75rem; }
+    .event-details { padding: 1rem; }
+    .event-details h4 { font-size: 1rem; }
+    .modal-body { padding: 1rem; }
+    .modal-header { padding: 1rem; }
+    .modal-header h3 { font-size: 1rem; }
+}
+</style>

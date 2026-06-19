@@ -1,0 +1,230 @@
+@page "/dashboard"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+
+@inject AppDbContext Db
+
+<div class="dash-page">
+    <div class="dash-hdr">
+        <div><h2>📊 Dashboard</h2><p class="sub">Analisis real-time dari database</p></div>
+        <div class="filters">
+            <button class="fb @(SelectedRange == DateRange.Today ? "on" : "")" @onclick="() => SetRange(DateRange.Today)">Hari Ini</button>
+            <button class="fb @(SelectedRange == DateRange.Last7Days ? "on" : "")" @onclick="() => SetRange(DateRange.Last7Days)">7 Hari</button>
+            <button class="fb @(SelectedRange == DateRange.Last30Days ? "on" : "")" @onclick="() => SetRange(DateRange.Last30Days)">30 Hari</button>
+            <button class="fb @(SelectedRange == DateRange.AllTime ? "on" : "")" @onclick="() => SetRange(DateRange.AllTime)">Semua</button>
+        </div>
+    </div>
+
+    <div class="cards">
+        <div class="cd cd-pink"><span>👥</span><div><strong>@TotalUsers.ToString("N0")</strong><small>Total Pengguna</small></div></div>
+        <div class="cd cd-mint"><span>🟢</span><div><strong>@ActiveUsers.ToString("N0")</strong><small>Aktif 7 hari</small></div></div>
+        <div class="cd cd-coral"><span>💕</span><div><strong>@TotalMatches.ToString("N0")</strong><small>Total Match</small></div></div>
+        <div class="cd cd-sky"><span>💬</span><div><strong>@MessagesToday.ToString("N0")</strong><small>Pesan Hari Ini</small></div></div>
+    </div>
+
+    <div class="g2">
+        <div class="pn">
+            <h3>📈 Traffic Harian</h3>
+            @if (DailyTraffic.Count == 0) { <div class="empty">Belum ada data</div> }
+            else {
+                var mx = DailyTraffic.Values.DefaultIfEmpty(1).Max();
+                <div class="bars">
+                    @foreach (var kv in DailyTraffic) {
+                        var hp = mx > 0 ? (int)(kv.Value / (double)mx * 100) : 0;
+                        var dl = DateTime.TryParse(kv.Key, out var dt) ? dt.ToString("dd/MM") : kv.Key;
+                        <div class="bc" title="@kv.Key: @kv.Value">
+                            <span class="bv">@kv.Value</span>
+                            <div class="bf" style="height:@hp%"><div class="bg"></div></div>
+                            <span class="bl">@dl</span>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="pn">
+            <h3>🔗 Halaman Terpopuler</h3>
+            @if (TopPages.Count == 0) { <div class="empty">Belum ada data</div> }
+            else {
+                int rk = 0;
+                var tpmax = TopPages.Values.DefaultIfEmpty(1).Max();
+                <div class="tpl">
+                    @foreach (var kv in TopPages) {
+                        rk++;
+                        var md = rk switch { 1=>"🥇", 2=>"🥈", 3=>"🥉", _=>"" };
+                        var du = string.IsNullOrEmpty(kv.Key) || kv.Key=="/" ? "🏠 Home" : kv.Key;
+                        <div class="tpr">
+                            <span>@md @rk.</span>
+                            <span class="pu">@du</span>
+                            <span class="pc">@kv.Value</span>
+                            <div class="pbb"><div class="pbf" style="width:@(kv.Value/(double)tpmax*100)%"></div></div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="pn">
+            <h3>🆕 Pendaftaran / Hari</h3>
+            @if (NewUsersPerDay.Count == 0) { <div class="empty">Belum ada data</div> }
+            else {
+                var mx2 = NewUsersPerDay.Values.DefaultIfEmpty(1).Max();
+                <div class="bars">
+                    @foreach (var kv in NewUsersPerDay) {
+                        var hp = mx2 > 0 ? (int)(kv.Value / (double)mx2 * 100) : 0;
+                        <div class="bc" title="@kv.Key: @kv.Value">
+                            <span class="bv">@kv.Value</span>
+                            <div class="bf bfg" style="height:@hp%"><div class="bg"></div></div>
+                            <span class="bl">@(DateTime.TryParse(kv.Key,out var d)?d.ToString("dd/MM"):kv.Key)</span>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="pn">
+            <h3>💝 Insight Kecocokan</h3>
+            <div class="ig">
+                <div class="it"><span>Match Rate</span><strong>@MatchRate.ToString("F1")%</strong><small>@TotalActiveMatches match / @TotalLikes likes</small></div>
+                <div class="it"><span>Skor Kecocokan</span><strong>@AvgCompatibilityScore.ToString("F0")/100</strong><small>Dari @TotalActiveMatches match</small></div>
+            </div>
+            <h4 style="margin-top:1.2rem">👫 Distribusi Gender</h4>
+            @if (GenderData.Count > 0) {
+                <div class="gs">
+                    <div class="pie-wrap"><div class="pie" style="background:conic-gradient(@GetPieGradient())"></div><div class="pie-c">@TotalUsers</div></div>
+                    <div class="gl">
+                        @foreach (var g in GenderData) {
+                            <div class="li"><span class="ld" style="background:@g.Color"></span>@g.Label <strong>@g.Count</strong> <small>@g.Percentage.ToString("F1")%</small></div>
+                        }
+                    </div>
+                </div>
+            } else { <div class="empty">Belum ada data</div> }
+        </div>
+    </div>
+</div>
+
+<style>
+.dash-page { max-width: 1200px; margin: 0 auto; }
+.dash-hdr { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+.dash-hdr h2 { margin: 0 0 0.25rem; font-size: 1.6rem; }
+.sub { opacity: 0.6; font-size: 0.9rem; }
+.filters { display: flex; gap: 4px; background: #fff; border-radius: 30px; padding: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+.fb { padding: 0.5rem 1.1rem; border-radius: 26px; border: none; background: none; font-weight: 600; font-size: 0.85rem; cursor: pointer; white-space: nowrap; font-family: inherit; }
+.fb:hover { color: var(--pink-primary); }
+.fb.on { background: linear-gradient(135deg, var(--pink-primary), var(--coral)); color: white; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.cd { background: #fff; border-radius: 16px; padding: 1.25rem 1.5rem; display: flex; align-items: center; gap: 1rem; box-shadow: 0 4px 20px rgba(255,107,157,0.15); border-left: 4px solid transparent; }
+.cd:hover { transform: translateY(-2px); }
+.cd-pink { border-left-color: #FF6B9D; } .cd-mint { border-left-color: #A8E6CF; } .cd-coral { border-left-color: #FF8A80; } .cd-sky { border-left-color: #88D8F5; }
+.cd span { font-size: 2.2rem; }
+.cd strong { display: block; font-size: 1.4rem; font-weight: 700; }
+.cd small { opacity: 0.5; font-size: 0.8rem; }
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+.pn { background: #fff; border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 20px rgba(255,107,157,0.15); }
+.pn h3 { margin: 0 0 1rem; font-size: 1.1rem; }
+.pn h4 { margin: 0 0 0.75rem; color: #888; }
+.empty { min-height: 100px; display: flex; align-items: center; justify-content: center; opacity: 0.5; font-style: italic; }
+.bars { display: flex; align-items: flex-end; gap: 6px; height: 200px; padding-top: 10px; }
+.bc { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-width: 0; height: 100%; }
+.bv { font-size: 0.7rem; font-weight: 600; margin-bottom: 3px; }
+.bf { width: 100%; max-width: 44px; background: linear-gradient(180deg, #FF6B9D, #FFB5D0); border-radius: 6px 6px 0 0; min-height: 4px; overflow: hidden; }
+.bfg { background: linear-gradient(180deg, #A8E6CF, #6dd5a8); }
+.bg { height: 20px; background: rgba(255,255,255,0.3); border-radius: 6px 6px 0 0; }
+.bl { font-size: 0.65rem; opacity: 0.5; margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.tpl { display: flex; flex-direction: column; gap: 0.6rem; }
+.tpr { display: grid; grid-template-columns: 40px 1fr 55px; gap: 2px 0.5rem; align-items: center; font-size: 0.85rem; }
+.tpr span:first-child { font-weight: 600; }
+.pu { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc { font-weight: 600; color: #FF6B9D; text-align: right; }
+.pbb { grid-column: 1/-1; height: 5px; background: #eee; border-radius: 3px; }
+.pbf { height: 100%; background: linear-gradient(90deg, #FF6B9D, #FF8A80); border-radius: 3px; }
+.ig { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.it { background: #FFF0F5; border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 2px; }
+.it span { font-size: 0.78rem; opacity: 0.6; }
+.it strong { font-size: 1.4rem; color: #FF6B9D; }
+.it small { font-size: 0.7rem; opacity: 0.5; }
+.gs { display: flex; align-items: center; gap: 2rem; }
+.pie-wrap { position: relative; width: 120px; height: 120px; flex-shrink: 0; }
+.pie { width: 100%; height: 100%; border-radius: 50%; }
+.pie-c { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 60px; height: 60px; background: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.gl { display: flex; flex-direction: column; gap: 0.4rem; }
+.li { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+.ld { width: 10px; height: 10px; border-radius: 50%; }
+.li strong { min-width: 30px; }
+.li small { opacity: 0.5; }
+
+@@media (max-width: 900px) { .g2 { grid-template-columns: 1fr; } .cards { grid-template-columns: repeat(2, 1fr); } .bars { height: 160px; } }
+@@media (max-width: 600px) { .dash-hdr { flex-direction: column; } .filters { width: 100%; justify-content: center; } .cards { grid-template-columns: 1fr; } .gs { flex-direction: column; align-items: center; } .bars { height: 130px; } .ig { grid-template-columns: 1fr; } }
+</style>
+
+@code {
+    private enum DateRange { Today, Last7Days, Last30Days, AllTime }
+    private DateRange SelectedRange = DateRange.Last7Days;
+
+    private int TotalUsers, ActiveUsers, TotalMatches, MessagesToday, TotalActiveMatches, TotalLikes;
+    private double AvgCompatibilityScore, MatchRate;
+    private Dictionary<string, int> DailyTraffic = new(), NewUsersPerDay = new(), TopPages = new();
+    private List<GenderSlice> GenderData = new();
+
+    protected override async Task OnInitializedAsync() => await LoadDataAsync();
+
+    private async Task SetRange(DateRange r) { SelectedRange = r; await LoadDataAsync(); StateHasChanged(); }
+
+    private async Task LoadDataAsync()
+    {
+        DateTime? startDate = SelectedRange switch { DateRange.Today => DateTime.UtcNow.Date, DateRange.Last7Days => DateTime.UtcNow.Date.AddDays(-6), DateRange.Last30Days => DateTime.UtcNow.Date.AddDays(-29), _ => null };
+        var today = DateTime.UtcNow.Date;
+        var sevenDaysAgo = today.AddDays(-6);
+
+        TotalUsers = await Db.Users.CountAsync();
+        ActiveUsers = await Db.Users.CountAsync(u => u.LastActiveAt >= sevenDaysAgo);
+        TotalMatches = await Db.Matches.CountAsync();
+        MessagesToday = await Db.Messages.CountAsync(m => m.SentAt >= today);
+
+        // Traffic
+        if (startDate.HasValue) {
+            var td = await Db.TrafficLogs.Where(t => t.Timestamp >= startDate.Value).ToListAsync();
+            DailyTraffic = td.GroupBy(t => t.Timestamp.Date).OrderBy(g => g.Key).ToDictionary(g => g.Key.ToString("yyyy-MM-dd"), g => g.Count());
+            var days = (int)((today - startDate.Value).TotalDays) + 1;
+            var f = new Dictionary<string, int>();
+            for (int i = 0; i < days; i++) { var d = startDate.Value.AddDays(i).ToString("yyyy-MM-dd"); f[d] = DailyTraffic.GetValueOrDefault(d, 0); }
+            DailyTraffic = f;
+        } else {
+            var at = await Db.TrafficLogs.ToListAsync();
+            DailyTraffic = at.GroupBy(t => t.Timestamp.Date).OrderBy(g => g.Key).ToDictionary(g => g.Key.ToString("yyyy-MM-dd"), g => g.Count());
+        }
+
+        // Top Pages — FIXED: client-side grouping
+        var topLogs = startDate.HasValue ? await Db.TrafficLogs.Where(t => t.Timestamp >= startDate.Value).ToListAsync() : await Db.TrafficLogs.ToListAsync();
+        TopPages = topLogs.GroupBy(t => t.PageUrl ?? "/").OrderByDescending(g => g.Count()).Take(5).ToDictionary(g => g.Key, g => g.Count());
+
+        // New Users
+        var nu = startDate.HasValue ? await Db.Users.Where(u => u.CreatedAt >= startDate.Value).ToListAsync() : await Db.Users.ToListAsync();
+        var nug = nu.GroupBy(u => u.CreatedAt.Date).ToDictionary(g => g.Key.ToString("yyyy-MM-dd"), g => g.Count());
+        if (startDate.HasValue) {
+            var days = (int)((today - startDate.Value).TotalDays) + 1;
+            var f = new Dictionary<string, int>();
+            for (int i = 0; i < days; i++) { var d = startDate.Value.AddDays(i).ToString("yyyy-MM-dd"); f[d] = nug.GetValueOrDefault(d, 0); }
+            NewUsersPerDay = f;
+        } else NewUsersPerDay = nug.OrderBy(k => k.Key).ToDictionary(k => k.Key, k => k.Value);
+
+        TotalActiveMatches = await Db.Matches.CountAsync(m => m.IsActive);
+        TotalLikes = await Db.Swipes.CountAsync(s => s.SwipeType == "Like" || s.SwipeType == "SuperLike");
+        MatchRate = TotalLikes > 0 ? (double)TotalActiveMatches / TotalLikes * 100 : 0;
+        AvgCompatibilityScore = await Db.Matches.Where(m => m.IsActive).AverageAsync(m => (double?)m.CompatibilityScore) ?? 0;
+
+        var gc = await Db.Profiles.GroupBy(p => p.Gender ?? "Unknown").Select(g => new { g.Key, Cnt = g.Count() }).ToListAsync();
+        var tot = gc.Sum(g => g.Cnt);
+        var colors = new Dictionary<string, string> { ["Female"] = "#FF6B9D", ["Male"] = "#88D8F5", ["Unknown"] = "#C5A3D4" };
+        GenderData = gc.OrderByDescending(g => g.Cnt).Select(g => new GenderSlice { Label = g.Key, Count = g.Cnt, Percentage = tot > 0 ? (double)g.Cnt / tot * 100 : 0, Color = colors.GetValueOrDefault(g.Key, "#FFD1B3") }).ToList();
+    }
+
+    private string GetPieGradient() {
+        if (GenderData.Count == 0) return "#eee 0% 100%";
+        var s = new List<string>(); double c = 0;
+        foreach (var g in GenderData) { var st = c; c += g.Percentage; s.Add($"{g.Color} {st:F1}% {c:F1}%"); }
+        return string.Join(", ", s);
+    }
+
+    private class GenderSlice { public string Label = "", Color = ""; public int Count; public double Percentage; }
+}

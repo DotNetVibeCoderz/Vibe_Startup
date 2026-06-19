@@ -1,0 +1,314 @@
+@page "/swipe"
+@rendermode InteractiveServer
+@attribute [Authorize]
+
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@inject MatchEngine MatchEngine
+@inject AppDbContext DbContext
+@inject AuthenticationStateProvider AuthState
+
+<div class="swipe-page">
+    <h2>💝 Cari Jodoh</h2>
+    <p class="sub">Swipe kanan untuk suka, kiri untuk skip!</p>
+
+    @* ── Filter Bar ── *@
+    <div class="filter-bar">
+        <label>
+            🎯 Radius:
+            <input type="range" min="5" max="200" step="5" value="@_radiusKm"
+                   @onchange="OnRadiusChanged" class="rng" />
+            <span class="val">@_radiusKm km</span>
+        </label>
+        <label>
+            👤 Gender:
+            <select @bind="_genderFilter" @bind:after="OnGenderFilterChanged" class="gender-select">
+                <option value="Both">Semua</option>
+                <option value="Male">Pria</option>
+                <option value="Female">Wanita</option>
+            </select>
+        </label>
+        @if (_isLoading) { <span class="loading-spinner">⏳ Memuat...</span> }
+    </div>
+
+    @* ── Cards ── *@
+    @if (!_isLoading && _cards.Count > 0 && _currentIndex < _cards.Count)
+    {
+        var card = _cards[_currentIndex];
+        var offsetX = _dragOffsetX;
+        var rotateDeg = offsetX * 0.1;
+        var opacity = 1.0 - Math.Abs(offsetX) / 300.0;
+
+        <div class="swipe-stack">
+            @if (_isDragging)
+            {
+                <div class="drag-hint @(offsetX > 50 ? "hint-like" : offsetX < -50 ? "hint-skip" : "")">
+                    <span class="hint-text">@(offsetX > 50 ? "❤️ LIKE" : offsetX < -50 ? "✕ SKIP" : "")</span>
+                </div>
+            }
+
+            <div class="swipe-card @(_isAnimatingOut ? "animating-out-" + _animOutDir : "")"
+                 style="transform: translateX(@(offsetX)px) rotate(@(rotateDeg)deg); opacity: @opacity; @(_isAnimatingOut ? "" : "transition: transform 0.05s ease-out;")"
+                 @ontouchstart="OnTouchStart" @ontouchmove="OnTouchMove" @ontouchend="OnTouchEnd"
+                 @onmousedown="OnMouseDown" @onmousemove="OnMouseMove" @onmouseup="OnMouseUp"
+                 @onmouseleave="OnDragCancel">
+
+                <div class="card-photo">
+                    @if (!string.IsNullOrWhiteSpace(card.PhotoUrl))
+                    { <img src="@card.PhotoUrl" alt="@card.Name" draggable="false" /> }
+                    else
+                    {
+                        <div class="photo-placeholder">
+                            <span>@(card.Gender == "Female" ? "👩" : "👨")</span>
+                            <div class="avatar-circle">@(card.Name.Length > 0 ? card.Name[0].ToString().ToUpper() : "?")</div>
+                        </div>
+                    }
+                    @if (card.IsVerified) { <span class="verified-badge" title="Verified">✅</span> }
+                    @if (card.IsPremium) { <span class="premium-badge" title="Premium">⭐</span> }
+                </div>
+
+                <div class="card-info">
+                    <div class="name-row">
+                        <h3>@card.Name, @card.Age</h3>
+                        <span class="compat">@card.CompatibilityScore% Match</span>
+                    </div>
+                    <p class="loc">📍 @card.City@(!string.IsNullOrWhiteSpace(card.Country) ? $", {card.Country}" : "")</p>
+                    <p class="bio">@card.Bio</p>
+                    @if (card.Interests.Length > 0)
+                    {
+                        <div class="interests">
+                            @foreach (var tag in card.Interests) { <span class="tag">@tag</span> }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="swipe-actions">
+            <button class="act skip" @onclick="OnSkipClick" title="Skip">✕</button>
+            <button class="act super" @onclick="OnSuperLikeClick" title="Super Like">⭐</button>
+            <button class="act like" @onclick="OnLikeClick" title="Like">♥</button>
+        </div>
+    }
+    else if (!_isLoading && (_cards.Count == 0 || _currentIndex >= _cards.Count))
+    {
+        <div class="no-profiles">
+            <span>🔍</span>
+            <h3>Tidak ada profil lagi</h3>
+            <p>Perluas radius atau ubah filter gender</p>
+            <button class="btn btn-primary" @onclick="LoadRecommendationsAsync">🔄 Muat Ulang</button>
+        </div>
+    }
+    else if (_isLoading)
+    {
+        <div class="no-profiles"><span class="load-spin">⏳</span><h3>Mencari jodoh terdekat...</h3></div>
+    }
+
+    @if (_matchResult != null)
+    {
+        <div class="match-overlay" @onclick="DismissMatch">
+            <div class="match-popup @(_matchResult.IsMatch ? "match" : "")" @onclick:stopPropagation="true">
+                <span>@(_matchResult.IsMatch ? "🎉" : "👋")</span>
+                <h2>@(_matchResult.IsMatch ? "It's a Match!" : "")</h2>
+                <p>@_matchResult.Message</p>
+                @if (_matchResult.IsMatch) { <a href="/chat" class="btn btn-primary">💬 Chat Sekarang</a> }
+                <button class="btn btn-outline" @onclick="DismissMatch">Lanjutkan</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<UserProfileCard> _cards = [];
+    private int _currentIndex;
+    private double _radiusKm = 50;
+    private string _genderFilter = "Both";
+    private bool _isLoading;
+    private MatchResult? _matchResult;
+    private Guid _currentUserId;
+
+    // Drag state
+    private bool _isDragging, _isAnimatingOut;
+    private double _dragStartX, _dragOffsetX, _dragStartY, _dragOffsetY;
+    private string _animOutDir = "";
+    private const double SwipeThreshold = 80;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user?.Identity?.IsAuthenticated == true)
+        {
+            var claim = user.FindFirst(ClaimTypes.NameIdentifier) ?? user.FindFirst("sub");
+            if (claim != null && Guid.TryParse(claim.Value, out var uid)) _currentUserId = uid;
+        }
+
+        if (_currentUserId != Guid.Empty)
+        {
+            // 🔑 Load user's LookingForGender preference as default filter
+            var profile = await DbContext.Profiles.FirstOrDefaultAsync(p => p.UserId == _currentUserId);
+            _genderFilter = profile?.LookingForGender ?? "Both";
+            await LoadRecommendationsAsync();
+        }
+    }
+
+    private async Task LoadRecommendationsAsync()
+    {
+        _isLoading = true; _cards.Clear(); _currentIndex = 0; _matchResult = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var users = await MatchEngine.GetRecommendationsAsync(_currentUserId, count: 30, radiusKm: _radiusKm);
+
+            // 🔑 Filter client-side by gender preference from dropdown
+            if (_genderFilter != "Both")
+                users = users.Where(u => u.Profile?.Gender != null &&
+                    u.Profile.Gender.Equals(_genderFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            var cardList = new List<UserProfileCard>();
+            foreach (var u in users)
+            {
+                var age = u.Profile?.DateOfBirth.HasValue == true ? CalculateAge(u.Profile.DateOfBirth.Value) : 0;
+                var score = await MatchEngine.CalculateCompatibilityAsync(_currentUserId, u.Id);
+                cardList.Add(new UserProfileCard
+                {
+                    Id = u.Id, Name = u.Username, Username = u.Username, Age = age,
+                    City = u.City ?? "", Country = u.Country ?? "", Bio = u.Profile?.Bio ?? "",
+                    Gender = u.Profile?.Gender ?? "", PhotoUrl = u.Profile?.ProfilePictureUrl ?? "",
+                    Interests = u.InterestTags?.Select(t => t.TagName).ToArray() ?? [],
+                    CompatibilityScore = score, IsPremium = u.IsPremium, IsVerified = u.IsVerified
+                });
+            }
+            _cards = cardList;
+        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Error: {ex.Message}"); }
+        finally { _isLoading = false; await InvokeAsync(StateHasChanged); }
+    }
+
+    private async Task OnRadiusChanged(ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var val)) { _radiusKm = val; await LoadRecommendationsAsync(); }
+    }
+
+    private async Task OnGenderFilterChanged()
+    {
+        // 🔑 Simpan preferensi ke profile + reload
+        try
+        {
+            var profile = await DbContext.Profiles.FirstOrDefaultAsync(p => p.UserId == _currentUserId);
+            if (profile != null) { profile.LookingForGender = _genderFilter; await DbContext.SaveChangesAsync(); }
+        }
+        catch { }
+        await LoadRecommendationsAsync();
+    }
+
+    // ── Touch ──
+    private void OnTouchStart(TouchEventArgs e) => StartDrag(e.Touches[0].ClientX, e.Touches[0].ClientY);
+    private void OnTouchMove(TouchEventArgs e) => MoveDrag(e.Touches[0].ClientX);
+    private async Task OnTouchEnd(TouchEventArgs e) => await EndDrag();
+    private void OnMouseDown(MouseEventArgs e) => StartDrag(e.ClientX, e.ClientY);
+    private void OnMouseMove(MouseEventArgs e) => MoveDrag(e.ClientX);
+    private async Task OnMouseUp(MouseEventArgs e) => await EndDrag();
+
+    private void StartDrag(double x, double y) { if (_isAnimatingOut) return; _isDragging = true; _dragStartX = x; _dragStartY = y; _dragOffsetX = 0; _dragOffsetY = 0; }
+    private void MoveDrag(double x) { if (!_isDragging || _isAnimatingOut) return; _dragOffsetX = x - _dragStartX; }
+    private async Task EndDrag()
+    {
+        if (!_isDragging || _isAnimatingOut) return; _isDragging = false;
+        var o = _dragOffsetX;
+        if (Math.Abs(o) > SwipeThreshold) { if (o > 0) await AnimateOutAndSwipe("Like"); else await AnimateOutAndSwipe("Skip"); }
+        else { _dragOffsetX = 0; _dragOffsetY = 0; }
+    }
+    private void OnDragCancel() { if (_isDragging && !_isAnimatingOut) { _isDragging = false; _dragOffsetX = 0; _dragOffsetY = 0; } }
+
+    private async Task OnSkipClick() => await TriggerSwipe("Skip");
+    private async Task OnLikeClick() => await TriggerSwipe("Like");
+    private async Task OnSuperLikeClick() => await TriggerSwipe("SuperLike");
+
+    private async Task TriggerSwipe(string type) { if (_isAnimatingOut || _currentIndex >= _cards.Count) return; _animOutDir = type switch { "Like" => "right", "SuperLike" => "up", _ => "left" }; await AnimateOutAndSwipe(type); }
+
+    private async Task AnimateOutAndSwipe(string type)
+    {
+        _isAnimatingOut = true;
+        _dragOffsetX = type switch { "Like" => 600, "Skip" => -600, _ => 0 }; _dragOffsetY = type == "SuperLike" ? -800 : 0;
+        await Task.Delay(400);
+        var targetId = _cards[_currentIndex].Id; var targetName = _cards[_currentIndex].Name;
+        try
+        {
+            var (isMatch, message) = await MatchEngine.SwipeAsync(_currentUserId, targetId, type);
+            _matchResult = new MatchResult { IsMatch = isMatch, Message = isMatch ? $"🎉 Match dengan {targetName}!" : type switch { "SuperLike" => $"⭐ Super Like ke {targetName}!", "Like" => $"Like ke {targetName}!", _ => $"Skip {targetName}" }, MatchedUserName = isMatch ? targetName : "" };
+        }
+        catch (Exception ex) { _matchResult = new MatchResult { IsMatch = false, Message = $"Gagal: {ex.Message}" }; }
+        _isAnimatingOut = false; _dragOffsetX = 0; _dragOffsetY = 0; _isDragging = false; _currentIndex++;
+    }
+
+    private void DismissMatch() => _matchResult = null;
+
+    private static int CalculateAge(DateTime dob) { var t = DateTime.Today; var a = t.Year - dob.Year; if (dob.Date > t.AddYears(-a)) a--; return a; }
+}
+
+<style>
+.swipe-page{max-width:500px;margin:0 auto;text-align:center;padding:1rem;user-select:none;-webkit-user-select:none;touch-action:none}
+h2{margin-bottom:.25rem;font-size:1.75rem}.sub{opacity:.7;margin-bottom:1.25rem;font-size:.9rem}
+.filter-bar{background:var(--card-bg,#fff);padding:.85rem 1.25rem;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);margin-bottom:1.25rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem}
+.filter-bar label{display:flex;align-items:center;gap:.5rem;font-size:.9rem}
+.rng{accent-color:#FF6B9D;width:120px}.val{font-weight:700;color:#FF6B9D;min-width:50px}
+.gender-select{padding:.3rem .6rem;border-radius:8px;border:1px solid #FFB5D0;background:transparent;font-size:.85rem;cursor:pointer;outline:none;font-family:inherit}
+.gender-select:focus{border-color:#FF6B9D}
+.loading-spinner{font-size:.8rem;opacity:.7;animation:pulse 1.5s ease-in-out infinite}
+@@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+
+.swipe-stack{position:relative;min-height:420px;display:flex;align-items:center;justify-content:center;margin-bottom:1rem}
+.drag-hint{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1;pointer-events:none;transition:all .2s ease}
+.hint-text{font-size:2rem;font-weight:800;text-transform:uppercase;letter-spacing:.15em;padding:.5rem 1.25rem;border-radius:10px}
+.hint-like .hint-text{color:#22c55e;background:rgba(34,197,94,.1);border:3px solid #22c55e}
+.hint-skip .hint-text{color:#ef4444;background:rgba(239,68,68,.1);border:3px solid #ef4444}
+
+.swipe-card{background:var(--card-bg,#fff);border-radius:20px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.12);width:100%;max-width:400px;cursor:grab;position:relative;z-index:2;will-change:transform,opacity}
+.swipe-card:active{cursor:grabbing}
+.animating-out-right{transition:transform .35s cubic-bezier(.25,.46,.45,.94),opacity .35s ease!important}
+.animating-out-left{transition:transform .35s cubic-bezier(.25,.46,.45,.94),opacity .35s ease!important}
+.animating-out-up{transition:transform .35s cubic-bezier(.25,.46,.45,.94),opacity .35s ease!important}
+.dark-theme .swipe-card{background:rgba(255,255,255,.06);box-shadow:0 8px 32px rgba(0,0,0,.35)}
+
+.card-photo{height:380px;background:linear-gradient(135deg,#FFF0F5,#FFD1B3);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.card-photo img{width:100%;height:100%;object-fit:cover;pointer-events:none}
+.photo-placeholder{display:flex;flex-direction:column;align-items:center;gap:.5rem}.photo-placeholder>span{font-size:4rem}
+.avatar-circle{width:90px;height:90px;border-radius:50%;background:linear-gradient(135deg,#FF6B9D,#FF8A80);color:#fff;display:flex;align-items:center;justify-content:center;font-size:2.5rem;font-weight:700;box-shadow:0 4px 16px rgba(255,107,157,.4)}
+.verified-badge{position:absolute;top:12px;left:12px;background:rgba(0,0,0,.5);padding:.25rem .5rem;border-radius:8px;font-size:.85rem}
+.premium-badge{position:absolute;top:12px;right:12px;background:rgba(255,215,0,.85);padding:.25rem .5rem;border-radius:8px;font-size:.85rem}
+
+.card-info{padding:1.25rem;text-align:left}
+.name-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:.3rem}.name-row h3{margin:0;font-size:1.3rem}
+.compat{background:#A8E6CF;color:#1a5c3a;padding:.3rem .75rem;border-radius:15px;font-size:.8rem;font-weight:600;white-space:nowrap}
+.loc{opacity:.6;font-size:.85rem;margin:.25rem 0}
+.bio{line-height:1.5;margin:.5rem 0;font-size:.9rem;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.interests{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.75rem}
+.tag{background:#FFF0F5;color:#FF6B9D;padding:.3rem .75rem;border-radius:15px;font-size:.78rem;font-weight:500}
+
+.swipe-actions{display:flex;justify-content:center;gap:1.5rem;margin-top:1.25rem}
+.act{width:60px;height:60px;border-radius:50%;border:none;font-size:1.5rem;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.12);transition:transform .2s ease,box-shadow .2s ease;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
+.act:active{transform:scale(.9)}
+.skip{background:#fff;color:#ff4444;border:2px solid #ff4444}.skip:hover{background:#fff5f5;box-shadow:0 6px 24px rgba(255,68,68,.25)}
+.like{background:linear-gradient(135deg,#FF6B9D,#FF8A80);color:#fff}.like:hover{box-shadow:0 6px 24px rgba(255,107,157,.4);transform:scale(1.08)}.like:active{transform:scale(.9)}
+.super{background:linear-gradient(135deg,#FFD700,#FFA500);color:#fff;font-size:1.3rem}.super:hover{box-shadow:0 6px 24px rgba(255,165,0,.4);transform:scale(1.08)}.super:active{transform:scale(.9)}
+
+.no-profiles{padding:4rem 1.5rem;text-align:center}.no-profiles>span{font-size:4rem;display:block;margin-bottom:1rem}.no-profiles h3{margin-bottom:.5rem;font-size:1.3rem}.no-profiles p{opacity:.6;margin-bottom:1.5rem}
+.load-spin{display:inline-block;animation:spin 1s linear infinite}
+@@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+
+.btn{display:inline-block;padding:.65rem 1.5rem;border-radius:25px;font-weight:600;text-decoration:none;cursor:pointer;border:none;font-size:.95rem;transition:all .2s ease}
+.btn-primary{background:linear-gradient(135deg,#FF6B9D,#FF8A80);color:#fff}.btn-primary:hover{opacity:.9;transform:translateY(-1px);box-shadow:0 4px 16px rgba(255,107,157,.35)}
+.btn-outline{background:transparent;color:inherit;border:1px solid rgba(255,255,255,.4);margin-top:.75rem;margin-left:.5rem}
+
+.match-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:center;justify-content:center;animation:fadeIn .25s ease}
+@@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.match-popup{background:#fff;padding:2.5rem 2rem;border-radius:20px;text-align:center;box-shadow:0 25px 70px rgba(0,0,0,.35);animation:popIn .45s cubic-bezier(.175,.885,.32,1.275);max-width:360px;width:90%}
+.match-popup.match{background:linear-gradient(135deg,#FF6B9D,#FF8A80);color:#fff}.match-popup>span{font-size:3.5rem;display:block;margin-bottom:.5rem}.match-popup h2{font-size:1.5rem;margin-bottom:.5rem}.match-popup p{margin-bottom:1rem;opacity:.9}
+@@keyframes popIn{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+
+@@media(max-width:768px){.swipe-page{padding:.75rem}h2{font-size:1.4rem}.card-photo{height:320px}.swipe-stack{min-height:370px}.act{width:54px;height:54px;font-size:1.3rem}.super{font-size:1.1rem}}
+@@media(max-width:480px){.swipe-page{padding:.5rem}h2{font-size:1.25rem}.sub{font-size:.8rem;margin-bottom:1rem}.card-photo{height:260px}.swipe-stack{min-height:310px}.swipe-actions{gap:1rem}.act{width:48px;height:48px;font-size:1.15rem}.super{font-size:1rem}.filter-bar{padding:.65rem .9rem}.rng{width:90px}.card-info{padding:.9rem}.name-row h3{font-size:1.1rem}.hint-text{font-size:1.5rem}}
+@@media(max-width:360px){.card-photo{height:220px}.swipe-stack{min-height:270px}.act{width:42px;height:42px;font-size:1rem}.swipe-actions{gap:.75rem}}
+</style>

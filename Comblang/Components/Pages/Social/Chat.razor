@@ -1,0 +1,345 @@
+@page "/chat"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Security.Claims
+@using Comblang.Data
+@using Comblang.Models
+@using Comblang.Services.Chat
+@using Comblang.Services.Storage
+@using Comblang.Hubs
+@using Microsoft.AspNetCore.SignalR
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AppDbContext Db
+@inject ChatService ChatService
+@inject AuthenticationStateProvider AuthState
+@inject IStorageProvider StorageProvider
+@inject IHubContext<ChatHub> ChatHubContext
+@inject IHubContext<NotificationHub> NotificationHubContext
+@inject SignalRConnectionManager ConnectionManager
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="chat-page">
+    <div class="toast-container">
+        @foreach (var t in _toasts)
+        {
+            <div class="toast-item" @onclick="() => OnToastClick(t)">
+                <span class="toast-icon">💬</span>
+                <div class="toast-body"><strong>@t.Username</strong><span>@t.Preview</span></div>
+                <button class="toast-close" @onclick="() => DismissToast(t)" @onclick:stopPropagation="true">×</button>
+            </div>
+        }
+    </div>
+
+    <div class="chat-sidebar @(_showConversation ? "hidden" : "")">
+        <div class="sidebar-header"><h3>💬 Chat</h3><span class="match-count">@_matchList.Count match</span></div>
+        <div class="chat-list">
+            @if (_matchList.Count == 0)
+            { <div class="empty-list"><span>🤷</span><p>Belum ada match. Yuk, swipe!</p></div> }
+            else
+            {
+                @foreach (var m in _matchList)
+                {
+                    <div class="chat-item @(m.Id == _selectedMatchId ? "active" : "")" @onclick="() => SelectChatAsync(m)">
+                        <div class="chat-avatar @(IsImageUrl(m.Avatar) ? "avatar-img" : "")">
+                            @if (IsImageUrl(m.Avatar)) { <img src="@m.Avatar" class="avatar-pic" /> }
+                            else { @m.Avatar }
+                            @if (m.IsOnline) { <span class="online-dot"></span> }
+                        </div>
+                        <div class="chat-info"><span class="chat-name">@m.Name</span><span class="chat-last">@m.LastMessage</span></div>
+                        <div class="chat-meta">
+                            <span class="chat-time">@FormatTime(m.LastMessageAt)</span>
+                            @if (m.Unread > 0) { <span class="unread-badge">@(m.Unread > 99 ? "99+" : m.Unread.ToString())</span> }
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
+    <div class="chat-main @(!_showConversation ? "hidden-mobile" : "")">
+        @if (_selectedMatchId != null)
+        {
+            var match = _matchList.FirstOrDefault(m => m.Id == _selectedMatchId);
+            <div class="chat-window">
+                <div class="chat-header">
+                    <button class="back-btn" @onclick="GoBackToMatchList">←</button>
+                    <div class="chat-avatar @(match != null && IsImageUrl(match.Avatar) ? "avatar-img" : "")">
+                        @if (match != null && IsImageUrl(match.Avatar)) { <img src="@match.Avatar" class="avatar-pic" /> }
+                        else { @match?.Avatar }
+                        @if (match?.IsOnline == true) { <span class="online-dot small"></span> }
+                    </div>
+                    <div class="chat-header-info">
+                        <strong>@match?.Name</strong>
+                        <small class="status-text @(match?.IsOnline == true ? "online" : "")">@(match?.IsOnline == true ? "Online" : "Offline")</small>
+                    </div>
+                </div>
+
+                <div class="chat-messages" @ref="_messagesContainer">
+                    @if (_isLoadingMessages) { <div class="loading"><span class="spinner"></span> Memuat...</div> }
+                    else if (_messages.Count == 0) { <div class="empty-conv"><span>💬</span><p>Kirim pesan ke @match?.Name!</p></div> }
+                    else
+                    {
+                        @foreach (var msg in _messages)
+                        {
+                            <div class="chat-msg @(msg.IsMine ? "mine" : "theirs")">
+                                @if (!msg.IsMine) {
+                                    <div class="msg-avatar @(match != null && IsImageUrl(match.Avatar) ? "avatar-img" : "")">
+                                        @if (match != null && IsImageUrl(match.Avatar)) { <img src="@match.Avatar" class="avatar-pic" /> }
+                                        else { @match?.Avatar }
+                                    </div>
+                                }
+                                <div class="msg-bubble">
+                                    @switch (msg.Type)
+                                    {
+                                        case "Image":
+                                            <img src="@msg.MediaUrl" class="msg-media" loading="lazy" />
+                                            @if (!string.IsNullOrEmpty(msg.Content)) { <span>@msg.Content</span> }
+                                            break;
+                                        case "Video":
+                                            <video src="@msg.MediaUrl" class="msg-media" controls preload="metadata"></video>
+                                            @if (!string.IsNullOrEmpty(msg.Content)) { <span>@msg.Content</span> }
+                                            break;
+                                        case "Audio":
+                                            <audio src="@msg.MediaUrl" class="msg-audio" controls preload="metadata"></audio>
+                                            @if (!string.IsNullOrEmpty(msg.Content)) { <span>@msg.Content</span> }
+                                            break;
+                                        case "Document":
+                                            <a href="@msg.MediaUrl" target="_blank" class="msg-doc"><span class="doc-icon">📎</span><span>@(msg.Content ?? "Dokumen")</span></a>
+                                            break;
+                                        case "Emoji":
+                                            <span class="msg-emoji">@msg.Content</span>
+                                            break;
+                                        default:
+                                            <span>@msg.Content</span>
+                                            break;
+                                    }
+                                    <small class="msg-time">@msg.Time @if (msg.IsMine) { <span>@(msg.IsRead ? "✓✓" : "✓")</span> }</small>
+                                </div>
+                            </div>
+                        }
+                        @if (_isTyping) {
+                            <div class="chat-msg theirs">
+                                <div class="msg-avatar @(match != null && IsImageUrl(match.Avatar) ? "avatar-img" : "")">
+                                    @if (match != null && IsImageUrl(match.Avatar)) { <img src="@match.Avatar" class="avatar-pic" /> }
+                                    else { @match?.Avatar }
+                                </div>
+                                <div class="msg-bubble typing"><span class="td"><span></span><span></span><span></span></span><small>mengetik...</small></div>
+                            </div>
+                        }
+                    }
+                </div>
+
+                @if (_attachmentPreview != null)
+                {
+                    <div class="attach-preview">
+                        @if (_attachmentPreview.Type == "Image") { <img src="@_attachmentPreview.PreviewUrl" class="prev-thumb" /> }
+                        else if (_attachmentPreview.Type == "Video") { <video src="@_attachmentPreview.PreviewUrl" class="prev-thumb" controls></video> }
+                        else { <div class="prev-file"><span>@GetAttIcon(_attachmentPreview.Type)</span><span>@_attachmentPreview.FileName</span><small>@FmtSize(_attachmentPreview.Size)</small></div> }
+                        <button class="prev-rm" @onclick="ClearAttachment">✕</button>
+                    </div>
+                }
+
+                @if (_showEmojiPicker)
+                { <div class="emoji-picker">@foreach (var em in _emojiList) { <button class="emoji-btn" @onclick="() => InsertEmoji(em)">@em</button> }</div> }
+
+                <div class="chat-input-area">
+                    <button class="btn-attach" @onclick="() => _showAttachmentMenu = !_showAttachmentMenu">📎</button>
+                    @if (_showAttachmentMenu)
+                    {
+                        <div class="attach-menu">
+                            <label class="attach-opt">📷<InputFile OnChange="OnFileImage" accept="image/*" class="file-hidden" /></label>
+                            <label class="attach-opt">🎥<InputFile OnChange="OnFileVideo" accept="video/*" class="file-hidden" /></label>
+                            <label class="attach-opt">🎵<InputFile OnChange="OnFileAudio" accept="audio/*" class="file-hidden" /></label>
+                            <label class="attach-opt">📄<InputFile OnChange="OnFileDocument" accept=".pdf,.doc,.docx,.txt" class="file-hidden" /></label>
+                        </div>
+                    }
+                    <button class="btn-emoji" @onclick="ToggleEmojiPicker">😊</button>
+                    <input type="text" class="msg-input" placeholder="Ketik pesan..." @bind="_newMessage" @bind:event="oninput" @onkeydown="HandleKeyDown" disabled="@_isUploading" />
+                    <button class="btn-send" @onclick="SendMessageAsync" disabled="@(string.IsNullOrWhiteSpace(_newMessage) && _attachmentPreview == null || _isUploading)">Kirim</button>
+                </div>
+            </div>
+        }
+        else { <div class="no-chat"><span>💬</span><h3>Pilih chat untuk memulai</h3><p>Kamu bisa chat dengan siapapun yang sudah match!</p></div> }
+    </div>
+</div>
+
+@code {
+    private class AttachmentPrev { public string Type="",FileName="",ContentType=""; public long Size; public byte[] Data=[]; public string? PreviewUrl; }
+    private class ToastItem { public Guid Id,MatchId; public string Username="",Preview=""; }
+
+    private Guid? _selectedMatchId; private bool _showConversation,_showEmojiPicker,_showAttachmentMenu,_isTyping,_isLoadingMessages,_isUploading;
+    private string _newMessage=""; private Guid _currentUserId; private ElementReference _messagesContainer;
+    private List<ChatItem> _matchList=[]; private List<ChatMessageDto> _messages=[]; private List<ToastItem> _toasts=[];
+    private AttachmentPrev? _attachmentPreview; private IJSObjectReference? _chatJs;
+    private static readonly string[] _emojiList=["😀","😂","🤣","😍","🥰","😘","😜","😎","🤩","😇","😢","😡","👍","👎","❤️","🔥","🎉","💯","🙏","😅","🤔","😴","😱","🤗","😋","🤐","😤","🥺","😷","🤯"];
+
+    /// <summary>Returns true if the avatar string is an image URL (starts with http/https).</summary>
+    private static bool IsImageUrl(string? avatar) => !string.IsNullOrEmpty(avatar) && (avatar.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || avatar.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var uid = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? state.User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(uid, out _currentUserId)) { Nav.NavigateTo("/auth/login", true); return; }
+        await LoadMatchListAsync();
+        _ = InitSignalRAsync();
+    }
+
+    private async Task InitSignalRAsync()
+    {
+        try {
+            _chatJs = await JS.InvokeAsync<IJSObjectReference>("eval",
+                @"(function(){const m={};const c=new signalR.HubConnectionBuilder().withUrl('/hubs/chat').withAutomaticReconnect().build();
+                const n=new signalR.HubConnectionBuilder().withUrl('/hubs/notification').withAutomaticReconnect().build();
+                m.start=async()=>{await c.start();await n.start();};
+                m.onMsg=dr=>c.on('ReceiveMessage',d=>dr.invokeMethodAsync('OnReceiveMessage',d));
+                m.onTyping=dr=>c.on('UserTyping',d=>dr.invokeMethodAsync('OnUserTyping',d));
+                m.onNotif=dr=>n.on('ReceiveNotification',d=>dr.invokeMethodAsync('OnReceiveNotification',d));
+                m.sendTyping=rid=>c.invoke('Typing',rid);
+                m.sendMsg=(rid,msg,type,url)=>c.invoke('SendMessage',rid,msg,type||'Text',url||null);
+                return m;})()");
+            var dr = DotNetObjectReference.Create(this);
+            await _chatJs.InvokeVoidAsync("onMsg", dr); await _chatJs.InvokeVoidAsync("onTyping", dr);
+            await _chatJs.InvokeVoidAsync("onNotif", dr); await _chatJs.InvokeVoidAsync("start");
+        } catch { }
+    }
+
+    [JSInvokable] public async Task OnReceiveMessage(dynamic d) {
+        var sid = Guid.Parse((string)d.senderId);
+        if (_selectedMatchId == sid) {
+            _messages.Add(new ChatMessageDto { Id=Guid.NewGuid(),SenderId=sid,IsMine=false,Content=d.message??"",Time=FmtTs(DateTime.UtcNow),Type=d.messageType??"Text",MediaUrl=d.mediaUrl,IsRead=true });
+            await ChatService.MarkMessagesAsReadAsync(_currentUserId, sid); await InvokeAsync(StateHasChanged); await ScrollToBottom();
+        } else { var mu = _matchList.FirstOrDefault(m => m.Id == sid); ShowToast(sid, mu?.Name??"Seseorang", Trunc(d.message??"",40)); }
+        await LoadMatchListAsync();
+    }
+    [JSInvokable] public async Task OnUserTyping(string uid) { if (_selectedMatchId?.ToString()==uid) { _isTyping=true; await InvokeAsync(StateHasChanged); _=Task.Run(async()=>{await Task.Delay(3000);_isTyping=false;await InvokeAsync(StateHasChanged);}); } }
+    [JSInvokable] public async Task OnReceiveNotification(dynamic d) { if ((string)d.type=="NewMessage") ShowToast(Guid.Empty,(string)d.title,Trunc((string)d.message,40)); await InvokeAsync(StateHasChanged); }
+
+    private async Task LoadMatchListAsync() {
+        try { _matchList = await ChatService.GetMatchListWithLastMessageAsync(_currentUserId); foreach(var m in _matchList) m.IsOnline = ConnectionManager.IsUserOnline(m.Id); } catch { _matchList=[]; }
+    }
+
+    private async Task SelectChatAsync(ChatItem m) {
+        _selectedMatchId=m.Id; _showConversation=true; _showEmojiPicker=false; _showAttachmentMenu=false; _isTyping=false; _isLoadingMessages=true; _messages.Clear(); await InvokeAsync(StateHasChanged);
+        try {
+            await ChatService.MarkMessagesAsReadAsync(_currentUserId, m.Id);
+            var dbm = await ChatService.GetConversationWithUsersAsync(_currentUserId, m.Id);
+            _messages = dbm.Select(x => new ChatMessageDto { Id=x.Id,SenderId=x.SenderId,IsMine=x.SenderId==_currentUserId,Content=x.Content??"",Time=FmtTs(x.SentAt),Type=x.MessageType??"Text",MediaUrl=x.MediaUrl,IsRead=x.IsRead }).ToList();
+        } catch { _messages=[]; } finally { _isLoadingMessages=false; }
+        await LoadMatchListAsync(); await InvokeAsync(StateHasChanged); await ScrollToBottom();
+    }
+    private void GoBackToMatchList() { _showConversation=false; _selectedMatchId=null; _messages.Clear(); }
+
+    private async Task SendMessageAsync() {
+        if (_selectedMatchId==null||(string.IsNullOrWhiteSpace(_newMessage)&&_attachmentPreview==null)||_isUploading) return;
+        var type="Text"; var content=_newMessage?.Trim()??""; string? mediaUrl=null;
+        if (_attachmentPreview!=null) { _isUploading=true; await InvokeAsync(StateHasChanged);
+            try { mediaUrl=await UploadAsync(_attachmentPreview); type=_attachmentPreview.Type; if(string.IsNullOrEmpty(content)) content=_attachmentPreview.FileName; }
+            catch(Exception ex) { ShowToast(_selectedMatchId.Value,"Error",ex.Message); _isUploading=false; await InvokeAsync(StateHasChanged); return; } finally { _isUploading=false; }
+        }
+        if(string.IsNullOrEmpty(content)&&string.IsNullOrEmpty(mediaUrl)) return;
+        try {
+            var msg = await ChatService.SendMessageAsync(_currentUserId,_selectedMatchId.Value,content,type,mediaUrl);
+            _messages.Add(new ChatMessageDto { Id=msg.Id,SenderId=_currentUserId,IsMine=true,Content=content,Time=FmtTs(msg.SentAt),Type=type,MediaUrl=mediaUrl,IsRead=false });
+            try { if(_chatJs!=null) await _chatJs.InvokeVoidAsync("sendMsg",_selectedMatchId.Value.ToString(),content,type,mediaUrl); } catch { }
+            _newMessage=""; _attachmentPreview=null; _showAttachmentMenu=false;
+            await InvokeAsync(StateHasChanged); await ScrollToBottom(); await LoadMatchListAsync(); await InvokeAsync(StateHasChanged);
+        } catch(Exception ex) { ShowToast(_selectedMatchId.Value,"Error",ex.Message); }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e) { if(e.Key=="Enter"&&!e.ShiftKey) await SendMessageAsync(); else if(_selectedMatchId!=null&&_chatJs!=null) { try { await _chatJs.InvokeVoidAsync("sendTyping",_selectedMatchId.Value.ToString()); } catch { } } }
+    private async Task OnFileImage(InputFileChangeEventArgs e) => await OnFileSelected(e, "Image");
+    private async Task OnFileVideo(InputFileChangeEventArgs e) => await OnFileSelected(e, "Video");
+    private async Task OnFileAudio(InputFileChangeEventArgs e) => await OnFileSelected(e, "Audio");
+    private async Task OnFileDocument(InputFileChangeEventArgs e) => await OnFileSelected(e, "Document");
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e, string type) {
+        _showAttachmentMenu=false; var f=e.File;
+        if(f==null||f.Size>5*1024*1024) { ShowToast(_selectedMatchId??Guid.Empty,"Error","Maks 5MB"); return; }
+        await using var fs = f.OpenReadStream(5 * 1024 * 1024);
+        using var ms = new MemoryStream(); await fs.CopyToAsync(ms); var buf = ms.ToArray();
+        string? prev=null;
+        if(type is "Image" or "Video") { var b64=Convert.ToBase64String(buf); prev=$"data:{(type=="Image"?"image/jpeg":"video/mp4")};base64,{b64}"; }
+        _attachmentPreview=new AttachmentPrev{Type=type,FileName=f.Name,Size=f.Size,ContentType=f.ContentType,Data=buf,PreviewUrl=prev};
+        await InvokeAsync(StateHasChanged);
+    }
+    private void ClearAttachment() { _attachmentPreview=null; }
+    private async Task<string> UploadAsync(AttachmentPrev a) { var ext=Path.GetExtension(a.FileName); var folder=a.Type.ToLowerInvariant() switch {"image"=>"chat/images","video"=>"chat/videos","audio"=>"chat/audio",_=>"chat/documents"}; using var s=new MemoryStream(a.Data); return await StorageProvider.UploadAsync($"{folder}/{Guid.NewGuid()}{ext}",s,a.ContentType); }
+
+    private void ToggleEmojiPicker() { _showEmojiPicker=!_showEmojiPicker; _showAttachmentMenu=false; }
+    private void InsertEmoji(string e) { _newMessage+=e; }
+
+    private void ShowToast(Guid mid,string name,string prev) { var t=new ToastItem{Id=Guid.NewGuid(),MatchId=mid,Username=name,Preview=prev}; _toasts.Add(t); _=Task.Run(async()=>{await Task.Delay(5000); DismissToast(t);}); }
+    private void DismissToast(ToastItem t) { _toasts.Remove(t); InvokeAsync(StateHasChanged); }
+    private async void OnToastClick(ToastItem t) { _toasts.Remove(t); if(t.MatchId!=Guid.Empty) { var m=_matchList.FirstOrDefault(x=>x.Id==t.MatchId); if(m!=null) await SelectChatAsync(m); } await InvokeAsync(StateHasChanged); }
+
+    private async Task ScrollToBottom() { try { await JS.InvokeVoidAsync("eval","document.querySelector('.chat-messages')?.scrollTo({top:document.querySelector('.chat-messages').scrollHeight,behavior:'smooth'})"); } catch { } }
+    private static string FmtTs(DateTime dt) { var l=dt.Kind==DateTimeKind.Utc?dt.ToLocalTime():dt; return l.Date==DateTime.Today?l.ToString("HH:mm"):l.Date==DateTime.Today.AddDays(-1)?"Kemarin":l.ToString("dd/MM/yy"); }
+    private static string FormatTime(DateTime dt) { var l=dt.Kind==DateTimeKind.Utc?dt.ToLocalTime():dt; return l.Date==DateTime.Today?l.ToString("HH:mm"):l.Date==DateTime.Today.AddDays(-1)?"Kemarin":l.ToString("dd/MM"); }
+    private static string Trunc(string t,int m) => string.IsNullOrEmpty(t)?"":t.Length<=m?t:t[..m]+"...";
+    private static string GetAttIcon(string t) => t switch {"Image"=>"🖼️","Video"=>"🎬","Audio"=>"🎵","Document"=>"📄",_=>"📎"};
+    private static string FmtSize(long b) => b<1024?$"{b}B":b<1048576?$"{b/1024.0:F1}KB":$"{b/1048576.0:F1}MB";
+
+    public async ValueTask DisposeAsync() { if(_chatJs!=null) await _chatJs.DisposeAsync(); }
+}
+
+<style>
+.chat-page{display:flex;height:calc(100vh - 120px);gap:1rem;max-width:1100px;margin:0 auto;position:relative}
+.toast-container{position:fixed;top:80px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:.5rem;max-width:350px}
+.toast-item{display:flex;align-items:center;gap:.6rem;background:#fff;border-radius:12px;padding:.75rem 1rem;box-shadow:0 4px 20px rgba(0,0,0,.15);cursor:pointer;animation:toastIn .3s ease;border-left:4px solid #ff6b9d}
+.toast-item:hover{transform:scale(1.02)}.toast-icon{font-size:1.4rem;flex-shrink:0}
+.toast-body{flex:1;min-width:0;display:flex;flex-direction:column}.toast-body strong{font-size:.85rem}.toast-body span{font-size:.75rem;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toast-close{background:none;border:none;font-size:1.2rem;cursor:pointer;opacity:.4;padding:0;flex-shrink:0}.toast-close:hover{opacity:.8}
+@@keyframes toastIn{from{opacity:0;transform:translateX(100px)}to{opacity:1;transform:translateX(0)}}
+.chat-sidebar{width:320px;min-width:320px;background:#fff;border-radius:16px;box-shadow:0 2px 12px rgba(0,0,0,.08);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-header{display:flex;justify-content:space-between;align-items:center;padding:1rem;border-bottom:1px solid #eee}.sidebar-header h3{margin:0;font-size:1.1rem}.match-count{font-size:.75rem;background:#fff0f5;color:#ff6b9d;padding:.25rem .6rem;border-radius:12px;font-weight:600}
+.chat-list{flex:1;overflow-y:auto}.empty-list{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;opacity:.5}.empty-list span{font-size:2.5rem}
+.chat-item{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;cursor:pointer;transition:background .2s;border-bottom:1px solid #f5f5f5}.chat-item:hover{background:#fff0f5}.chat-item.active{background:rgba(255,107,157,.1)}
+
+/* 🔑 Avatar — support both emoji text and real image URLs */
+.chat-avatar{width:48px;height:48px;border-radius:50%;background:#fff0f5;display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0;position:relative;overflow:hidden}
+.chat-avatar.avatar-img{background:transparent}
+.avatar-pic{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.msg-avatar{width:30px;height:30px;border-radius:50%;background:#fff0f5;display:flex;align-items:center;justify-content:center;font-size:.85rem;flex-shrink:0;overflow:hidden}
+.msg-avatar.avatar-img{background:transparent}
+.msg-avatar .avatar-pic{width:100%;height:100%;object-fit:cover;border-radius:50%}
+
+.online-dot{position:absolute;bottom:2px;right:2px;width:12px;height:12px;background:#4caf50;border-radius:50%;border:2px solid #fff}.online-dot.small{width:10px;height:10px}
+.chat-info{flex:1;overflow:hidden;min-width:0}.chat-name{display:block;font-weight:600;font-size:.9rem}.chat-last{display:block;font-size:.78rem;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.chat-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}.chat-time{font-size:.68rem;opacity:.5}
+.unread-badge{background:#ff6b9d;color:#fff;border-radius:50%;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700;padding:0 4px}
+.chat-main{flex:1;background:#fff;border-radius:16px;box-shadow:0 2px 12px rgba(0,0,0,.08);overflow:hidden;display:flex;flex-direction:column;min-width:0}.chat-window{display:flex;flex-direction:column;height:100%}
+.chat-header{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;border-bottom:1px solid #eee;background:#fafafa}
+.chat-header-info{flex:1}.chat-header-info strong{font-size:.95rem}.status-text{display:block;font-size:.72rem;color:#999}.status-text.online{color:#4caf50}
+.back-btn{display:none;background:none;border:none;font-size:1.4rem;cursor:pointer;padding:0 .25rem;color:#666}
+.chat-messages{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.75rem;background:#fafbfc}
+.loading,.empty-conv{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 1rem;opacity:.5;margin:auto}.empty-conv span{font-size:3rem}
+.spinner{width:24px;height:24px;border:3px solid #ffb8d0;border-top-color:#ff6b9d;border-radius:50%;animation:spin .7s linear infinite;margin-bottom:.5rem}
+@@keyframes spin{to{transform:rotate(360deg)}}
+.chat-msg{display:flex;gap:.5rem;align-items:flex-end;animation:msgIn .25s ease}.chat-msg.mine{flex-direction:row-reverse}
+@@keyframes msgIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.msg-bubble{max-width:68%;padding:.6rem .9rem;border-radius:16px;word-break:break-word}.chat-msg.mine .msg-bubble{background:linear-gradient(135deg,#ff6b9d,#ff8e53);color:#fff;border-bottom-right-radius:4px}.chat-msg.theirs .msg-bubble{background:#e8e8ee;color:#333;border-bottom-left-radius:4px}
+.msg-time{display:block;font-size:.62rem;opacity:.7;margin-top:.2rem;text-align:right}
+.msg-media{max-width:240px;max-height:300px;border-radius:10px;display:block;margin-bottom:.3rem}
+.msg-audio{max-width:220px;height:36px;display:block;margin-bottom:.3rem}
+.msg-doc{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;background:rgba(255,255,255,.2);padding:.5rem .75rem;border-radius:8px;margin-bottom:.3rem}.doc-icon{font-size:1.3rem}.msg-emoji{font-size:2.5rem;line-height:1}
+.msg-bubble.typing{padding:.5rem .9rem;display:flex;align-items:center;gap:.5rem}.td{display:flex;gap:4px}.td span{width:7px;height:7px;border-radius:50%;background:#999;animation:tb 1.4s ease infinite}.td span:nth-child(2){animation-delay:.2s}.td span:nth-child(3){animation-delay:.4s}
+@@keyframes tb{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-6px);opacity:1}}
+.attach-preview{display:flex;align-items:center;gap:.75rem;padding:.6rem 1rem;background:#f0f0f5;border-top:1px solid #e0e0e8}
+.prev-thumb{width:60px;height:60px;object-fit:cover;border-radius:8px}.prev-file{display:flex;align-items:center;gap:.5rem;flex:1;font-size:.85rem}.prev-file small{opacity:.5;margin-left:auto}
+.prev-rm{background:#ff4757;color:#fff;border:none;width:24px;height:24px;border-radius:50%;cursor:pointer;font-size:.75rem;display:flex;align-items:center;justify-content:center}
+.emoji-picker{display:grid;grid-template-columns:repeat(10,1fr);gap:4px;padding:.5rem;background:#fafafa;border-top:1px solid #eee;max-height:140px;overflow-y:auto}
+.emoji-btn{background:none;border:none;font-size:1.4rem;cursor:pointer;padding:4px;border-radius:6px;transition:background .15s}.emoji-btn:hover{background:#e8e8ee}
+.chat-input-area{display:flex;gap:.4rem;padding:.65rem .75rem;border-top:1px solid #eee;align-items:center;background:#fff;position:relative}
+.msg-input{flex:1;padding:.6rem .9rem;border-radius:20px;border:1px solid #ddd;font-size:.9rem;background:#f5f5f8;outline:none}.msg-input:focus{border-color:#ff6b9d;background:#fff}
+.btn-attach,.btn-emoji{background:none;border:none;font-size:1.3rem;cursor:pointer;padding:.35rem;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center}.btn-attach:hover,.btn-emoji:hover{background:#e8e8ee}
+.btn-send{background:#ff6b9d;color:#fff;border:none;padding:.55rem 1.1rem;border-radius:20px;cursor:pointer;font-weight:600;font-size:.85rem;white-space:nowrap}.btn-send:hover:not(:disabled){background:#e85d8a}.btn-send:disabled{opacity:.5;cursor:not-allowed}
+.attach-menu{position:absolute;bottom:100%;left:.75rem;display:flex;gap:.25rem;background:#fff;padding:.4rem;border-radius:12px;box-shadow:0 -2px 12px rgba(0,0,0,.1);margin-bottom:.5rem}
+.attach-opt{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.2rem;cursor:pointer;background:#f5f5f8;position:relative}.attach-opt:hover{background:#e8e8ee}
+.file-hidden{position:absolute;inset:0;opacity:0;cursor:pointer}
+.no-chat{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:.4;gap:.5rem}.no-chat span{font-size:4rem}
+@@media(max-width:768px){.chat-page{flex-direction:column;height:calc(100vh - 100px);gap:0}.chat-sidebar{width:100%;min-width:100%;border-radius:0;flex:1}.chat-sidebar.hidden{display:none}.chat-main{border-radius:0;flex:1}.chat-main.hidden-mobile{display:none}.back-btn{display:block}.toast-container{top:60px;right:10px;left:10px;max-width:none}.msg-bubble{max-width:80%}.msg-media{max-width:180px;max-height:220px}.emoji-picker{grid-template-columns:repeat(8,1fr)}}
+@@media(max-width:480px){.msg-input{font-size:.85rem;padding:.5rem .75rem}.btn-send{padding:.5rem .9rem;font-size:.8rem}.msg-bubble{max-width:85%}.msg-media{max-width:150px;max-height:200px}.emoji-picker{grid-template-columns:repeat(6,1fr)}}
+</style>

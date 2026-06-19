@@ -1,0 +1,77 @@
+@inherits LayoutComponentBase
+
+<div class="app-container">
+    @* ── Mobile Hamburger Button ── *@
+    <button class="hamburger" @onclick="ToggleMenu" aria-label="Toggle menu">
+        <span class="hamburger-line @(_menuOpen ? "open" : "")"></span>
+        <span class="hamburger-line @(_menuOpen ? "open" : "")"></span>
+        <span class="hamburger-line @(_menuOpen ? "open" : "")"></span>
+    </button>
+
+    @* ── Mobile Overlay ── *@
+    @if (_menuOpen)
+    {
+        <div class="menu-overlay" @onclick="ToggleMenu"></div>
+    }
+
+    @* ── Sidebar Nav ── *@
+    <aside class="sidebar @(_menuOpen ? "show" : "")">
+        <NavMenu OnNavClicked="CloseMenu" />
+    </aside>
+
+    @* ── Main Content Area ── *@
+    <main class="main-content">
+        <header class="top-bar">
+            <span class="top-bar-title">💕 Comblang</span>
+            <div class="top-bar-right">
+                <span class="user-avatar">👤</span>
+            </div>
+        </header>
+        <div class="page-content">
+            @Body
+        </div>
+    </main>
+</div>
+
+@code {
+    private bool _menuOpen;
+
+    private void ToggleMenu() => _menuOpen = !_menuOpen;
+    private void CloseMenu() => _menuOpen = false;
+}
+
+<style>
+.app-container { display: flex; min-height: 100vh; position: relative; }
+
+.hamburger { display: none; position: fixed; top: 14px; left: 14px; z-index: 200; width: 40px; height: 40px; background: white; border: none; border-radius: 10px; cursor: pointer; flex-direction: column; align-items: center; justify-content: center; gap: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 8px; }
+.hamburger-line { display: block; width: 22px; height: 3px; background: var(--pink-primary); border-radius: 2px; transition: var(--transition); }
+.hamburger-line.open:nth-child(1) { transform: rotate(45deg) translate(5px, 5px); }
+.hamburger-line.open:nth-child(2) { opacity: 0; }
+.hamburger-line.open:nth-child(3) { transform: rotate(-45deg) translate(6px, -6px); }
+
+.sidebar { width: 260px; min-width: 260px; background: linear-gradient(180deg, var(--pink-primary) 0%, var(--coral) 100%); padding: 1rem; color: white; position: fixed; left: 0; top: 0; bottom: 0; z-index: 150; box-shadow: 4px 0 20px rgba(255,107,157,0.3); overflow-y: auto; transition: transform 0.3s ease; }
+
+.main-content { flex: 1; margin-left: 260px; display: flex; flex-direction: column; min-width: 0; }
+.top-bar { height: 56px; background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: space-between; padding: 0 1.5rem; border-bottom: 1px solid var(--pink-light); position: sticky; top: 0; z-index: 50; }
+.top-bar-title { font-weight: 700; font-size: 1.1rem; color: var(--pink-primary); }
+.user-avatar { font-size: 1.5rem; }
+.page-content { flex: 1; padding: 1.5rem; overflow-y: auto; }
+
+.menu-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 140; animation: fadeIn 0.2s ease; }
+@@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+@@media (max-width: 768px) {
+    .hamburger { display: flex; }
+    .menu-overlay { display: block; }
+    .sidebar { transform: translateX(-100%); width: 280px; min-width: 280px; box-shadow: 4px 0 30px rgba(0,0,0,0.3); }
+    .sidebar.show { transform: translateX(0); }
+    .main-content { margin-left: 0; }
+    .top-bar { padding: 0 1rem 0 3.5rem; }
+    .top-bar-title { display: none; }
+    .page-content { padding: 1rem; }
+}
+
+@@media (max-width: 480px) {
+    .page-content { padding: 0.75rem; }
+}
+</style>

@@ -1,0 +1,97 @@
+@page "/"
+
+<div class="home-page">
+    <section class="hero">
+        <div class="hero-content">
+            <h1 class="hero-title">
+                <span class="title-icon">💕</span>
+                Temukan Jodohmu dengan <span class="gradient-text">Comblang</span>
+            </h1>
+            <p class="hero-subtitle">
+                Dibantu Si Mak Comblang yang siap menjodohkan kamu! Swipe, chat, dan temukan cinta sejatimu. ✨
+            </p>
+            <div class="hero-actions">
+                <a href="/swipe" class="btn btn-primary btn-lg">💝 Mulai Mencari</a>
+                <a href="/makcomblang" class="btn btn-secondary btn-lg">🤖 Si Mak Comblang</a>
+                <a href="/auth/login" class="btn btn-outline btn-lg">📝 Daftar Gratis</a>
+            </div>
+        </div>
+        <div class="hero-visual">
+            <div class="floating-cards">
+                <div class="float-card card-1">💕</div>
+                <div class="float-card card-2">💝</div>
+                <div class="float-card card-3">💖</div>
+                <div class="float-card card-4">💗</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="features">
+        <h2 class="section-title">✨ Fitur Unggulan</h2>
+        <div class="features-grid">
+            <div class="feature-card"><span class="feature-icon">🤖</span><h3>Si Mak Comblang AI</h3><p>Asisten AI yang bantu cari jodoh, kasih saran kencan, dan analisis kecocokan!</p></div>
+            <div class="feature-card"><span class="feature-icon">💝</span><h3>Swipe Matching</h3><p>Swipe kanan kiri untuk temukan pasangan ideal dengan rekomendasi AI.</p></div>
+            <div class="feature-card"><span class="feature-icon">💬</span><h3>Chat Real-time</h3><p>Obrolan instan dengan teks, gambar, voice note, dan video call.</p></div>
+            <div class="feature-card"><span class="feature-icon">📍</span><h3>Lokasi Sekitar</h3><p>Temukan calon pasangan di dekatmu dengan radius pencarian fleksibel.</p></div>
+            <div class="feature-card"><span class="feature-icon">🎯</span><h3>Skor Kecocokan</h3><p>Analisis kompatibilitas berdasarkan minat, hobi, dan gaya hidup.</p></div>
+            <div class="feature-card"><span class="feature-icon">🛡️</span><h3>Aman & Terpercaya</h3><p>Verifikasi foto, block & report, dan kontrol privasi penuh.</p></div>
+        </div>
+    </section>
+
+    <section class="stats">
+        <div class="stat-item"><span class="stat-number">10K+</span><span class="stat-label">Pengguna Aktif</span></div>
+        <div class="stat-item"><span class="stat-number">50K+</span><span class="stat-label">Match Terjadi</span></div>
+        <div class="stat-item"><span class="stat-number">4.8⭐</span><span class="stat-label">Rating</span></div>
+    </section>
+</div>
+
+<style>
+.home-page { max-width: 1100px; margin: 0 auto; }
+
+/* ── Hero ── */
+.hero { display: flex; align-items: center; justify-content: space-between; padding: 2rem 0; gap: 2rem; }
+.hero-content { flex: 1; }
+.hero-title { font-size: 2.5rem; line-height: 1.3; margin-bottom: 1rem; }
+.title-icon { font-size: 2rem; display: inline-block; animation: wave 2s infinite; }
+@@keyframes wave { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(15deg); } 75% { transform: rotate(-15deg); } }
+.gradient-text { background: linear-gradient(135deg, var(--pink-primary), var(--coral), var(--lavender)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.hero-subtitle { font-size: 1.15rem; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6; }
+.hero-actions { display: flex; gap: 1rem; flex-wrap: wrap; }
+
+/* ── Floating Cards ── */
+.hero-visual { flex: 0 0 300px; }
+.floating-cards { position: relative; height: 300px; }
+.float-card { position: absolute; font-size: 3rem; animation: float 3s infinite ease-in-out; }
+.card-1 { top: 0; left: 50px; animation-delay: 0s; }
+.card-2 { top: 60px; left: 180px; animation-delay: 0.5s; }
+.card-3 { top: 150px; left: 30px; animation-delay: 1s; }
+.card-4 { top: 180px; left: 200px; animation-delay: 1.5s; }
+@@keyframes float { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-20px) rotate(5deg); } }
+
+/* ── Features Grid ── */
+.section-title { text-align: center; font-size: 1.8rem; margin-bottom: 2rem; }
+.features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-bottom: 3rem; }
+.feature-card { background: var(--card-bg); border-radius: var(--border-radius); padding: 1.5rem; text-align: center; box-shadow: var(--card-shadow); transition: var(--transition); border: 1px solid var(--pink-light); }
+.feature-card:hover { transform: translateY(-5px); box-shadow: var(--card-shadow-hover); }
+.feature-icon { font-size: 2.5rem; display: block; margin-bottom: 1rem; }
+.feature-card h3 { color: var(--pink-primary); margin-bottom: 0.5rem; }
+.feature-card p { opacity: 0.7; font-size: 0.9rem; }
+
+/* ── Stats ── */
+.stats { display: flex; justify-content: center; gap: 3rem; padding: 2rem; background: linear-gradient(135deg, var(--pink-soft), var(--peach)); border-radius: var(--border-radius); margin-bottom: 2rem; }
+.stat-item { text-align: center; }
+.stat-number { display: block; font-size: 1.8rem; font-weight: bold; color: var(--pink-primary); }
+.stat-label { font-size: 0.85rem; opacity: 0.7; }
+
+/* ── Mobile ── */
+@@media (max-width: 768px) {
+    .hero { flex-direction: column; text-align: center; padding: 1rem 0; }
+    .hero-title { font-size: 1.7rem; }
+    .hero-actions { justify-content: center; }
+    .hero-visual { display: none; }
+    .section-title { font-size: 1.4rem; }
+    .features-grid { grid-template-columns: 1fr; gap: 1rem; }
+    .stats { gap: 1.5rem; flex-wrap: wrap; padding: 1.5rem; }
+    .stat-number { font-size: 1.4rem; }
+}
+</style>

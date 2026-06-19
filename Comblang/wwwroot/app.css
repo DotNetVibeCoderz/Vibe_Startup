@@ -1,0 +1,91 @@
+/* ═══════════════════════════════════════════════════════
+   Comblang — Global CSS Variables & Base Styles
+   Cute, soft, cheerful dating app theme 💕
+   ═══════════════════════════════════════════════════════ */
+
+:root {
+    /* ── Primary Colors ── */
+    --pink-primary: #FF6B9D;
+    --pink-dark: #E8557D;
+    --pink-light: #FFB5D0;
+    --pink-soft: #FFF0F5;
+    --coral: #FF8A80;
+    --peach: #FFD1B3;
+    --mint: #A8E6CF;
+    --mint-dark: #7ec8a0;
+    --sky: #88D8F5;
+    --lavender: #C5A3D4;
+    --yellow-soft: #FFF3B0;
+
+    /* ── Backgrounds ── */
+    --bg-light: #FFFBFE;
+    --bg-dark: #1A1A2E;
+    --card-bg: #ffffff;
+    --card-bg-dark: rgba(255,255,255,0.05);
+
+    /* ── Text ── */
+    --text-dark: #333344;
+    --text-light: #F5F5FF;
+    --text-muted: #888899;
+
+    /* ── Effects ── */
+    --card-shadow: 0 4px 20px rgba(255,107,157,0.15);
+    --card-shadow-dark: 0 4px 20px rgba(0,0,0,0.3);
+    --card-shadow-hover: 0 8px 30px rgba(255,107,157,0.25);
+    --border-radius: 16px;
+    --border-radius-sm: 10px;
+    --border-radius-lg: 20px;
+    --transition: all 0.3s ease;
+}
+
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
+    background: var(--bg-light);
+    color: var(--text-dark);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: var(--pink-primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Utility Buttons ── */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 25px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    border: none;
+    text-decoration: none;
+    transition: var(--transition);
+    font-family: inherit;
+}
+
+.btn-lg { padding: 0.85rem 2rem; font-size: 1.05rem; }
+.btn-sm { padding: 0.5rem 1rem; font-size: 0.85rem; }
+
+.btn-primary {
+    background: linear-gradient(135deg, var(--pink-primary), var(--coral));
+    color: white;
+    box-shadow: 0 4px 15px rgba(255,107,157,0.4);
+}
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255,107,157,0.5); }
+
+.btn-secondary { background: var(--mint); color: #1a5c3a; }
+.btn-outline { border: 2px solid var(--pink-primary); color: var(--pink-primary); background: transparent; }
+.btn-outline:hover { background: var(--pink-soft); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--pink-light); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--pink-primary); }
