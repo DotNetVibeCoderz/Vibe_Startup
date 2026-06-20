@@ -15,15 +15,10 @@
             <h1 style="margin:0;">🔗 Database Connections</h1>
             <span class="text-muted text-small">Kelola koneksi database untuk analisis data</span>
         </div>
-        <button class="btn-primary" @onclick="ShowAddForm">
-            ➕ Tambah Koneksi
-        </button>
+        <button class="btn-primary" @onclick="ShowAddForm">➕ Tambah Koneksi</button>
     </div>
 
-    @if (!string.IsNullOrEmpty(_errorMessage))
-    {
-        <div class="alert alert-error">@_errorMessage</div>
-    }
+    @if (!string.IsNullOrEmpty(_errorMessage)) { <div class="alert alert-error">@_errorMessage</div> }
 
     @if (_connections.Count == 0)
     {
@@ -45,14 +40,12 @@
                     <p class="text-small text-muted">@(conn.Description ?? "No description")</p>
                     <div class="text-small text-muted mt-1">
                         Created: @conn.CreatedAt.ToString("dd MMM yyyy")
-                        @if (conn.LastUsedAt.HasValue) {
-                            <span>· Last used: @conn.LastUsedAt.Value.ToString("dd MMM yyyy")</span>
-                        }
+                        @if (conn.LastUsedAt.HasValue) { <span>· Used: @conn.LastUsedAt.Value.ToString("dd MMM yyyy")</span> }
                     </div>
                     <div class="flex-gap mt-1">
                         <button class="btn-secondary btn-small" @onclick="() => TestConnection(conn)">🔍 Test</button>
                         <button class="btn-secondary btn-small" @onclick="() => EditConnection(conn)">✏️ Edit</button>
-                        <button class="btn-secondary btn-small" @onclick="() => DeleteConnection(conn)" style="color:#e74c3c;">🗑️ Delete</button>
+                        <button class="btn-secondary btn-small" @onclick="() => ShowDeleteConfirm(conn)" style="color:#e74c3c;">🗑️ Delete</button>
                     </div>
                     @if (_testResults.ContainsKey(conn.Id))
                     {
@@ -68,57 +61,76 @@
     }
 </div>
 
+<!-- ========== POPUP: Add / Edit ========== -->
 @if (_showForm)
 {
     <div class="modal-overlay" @onclick="HideForm">
-        <div class="modal-content neo-card" @onclick:stopPropagation="true" style="max-width:600px;max-height:90vh;overflow-y:auto;">
-            <h2>@(_isEditing ? "✏️ Edit Koneksi" : "➕ Tambah Koneksi")</h2>
-
-            <div class="form-group">
-                <label class="form-label">Nama Koneksi *</label>
-                <input class="form-input" @bind="_form.Name" placeholder="My Database" />
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>@(_isEditing ? "✏️ Edit Koneksi" : "➕ Tambah Koneksi")</h2>
+                <button class="modal-close" @onclick="HideForm">✕</button>
             </div>
-
-            <div class="form-group">
-                <label class="form-label">Deskripsi</label>
-                <textarea class="form-textarea" @bind="_form.Description" placeholder="Deskripsi koneksi..." rows="2"></textarea>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Tipe Database *</label>
-                <select class="form-select" @bind="_form.DatabaseType" @bind:after="OnDbTypeChanged">
-                    <option value="SQLite">SQLite</option>
-                    <option value="SQLServer">SQL Server</option>
-                    <option value="MySQL">MySQL</option>
-                    <option value="PostgreSQL">PostgreSQL</option>
-                    <option value="Oracle">Oracle</option>
-                    <option value="MsAccess">MS Access</option>
-                    <option value="Excel">Excel File</option>
-                    <option value="CSV">CSV File</option>
-                </select>
-            </div>
-
-            @if (IsFileBased(_form.DatabaseType))
-            {
+            <div class="modal-body">
                 <div class="form-group">
-                    <label class="form-label">File Path</label>
-                    <input class="form-input" @bind="_form.FilePath" placeholder="path/to/file.db" />
+                    <label class="form-label">Nama Koneksi *</label>
+                    <input class="form-input" @bind="_form.Name" placeholder="Contoh: MySQL Production" />
                 </div>
-            }
-            else
-            {
                 <div class="form-group">
-                    <label class="form-label">Connection String</label>
-                    <textarea class="form-textarea" @bind="_form.ConnectionString" 
-                              placeholder="Server=localhost;Database=mydb;User Id=sa;Password=..." rows="3"></textarea>
+                    <label class="form-label">Deskripsi</label>
+                    <textarea class="form-textarea" @bind="_form.Description" placeholder="Keterangan opsional..." rows="2"></textarea>
                 </div>
-            }
-
-            <div class="flex-gap" style="justify-content:flex-end;">
+                <div class="form-group">
+                    <label class="form-label">Tipe Database *</label>
+                    <select class="form-select" @bind="_form.DatabaseType" @bind:after="OnDbTypeChanged">
+                        <option value="SQLite">SQLite</option>
+                        <option value="SQLServer">SQL Server</option>
+                        <option value="MySQL">MySQL</option>
+                        <option value="PostgreSQL">PostgreSQL</option>
+                    </select>
+                </div>
+                @if (IsFileBased(_form.DatabaseType))
+                {
+                    <div class="form-group">
+                        <label class="form-label">File Path</label>
+                        <input class="form-input" @bind="_form.FilePath" placeholder="path/to/database.db" />
+                    </div>
+                }
+                else
+                {
+                    <div class="form-group">
+                        <label class="form-label">Connection String</label>
+                        <textarea class="form-textarea" @bind="_form.ConnectionString"
+                                  placeholder="@GetConnStringPlaceholder(_form.DatabaseType)" rows="3" style="font-family:monospace;font-size:12px;"></textarea>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
                 <button class="btn-secondary" @onclick="HideForm">Cancel</button>
                 <button class="btn-primary" @onclick="SaveConnection" disabled="@_isSaving">
-                    @if (_isSaving) { <span>Saving...</span> } else { <span>💾 Simpan</span> }
+                    @(_isSaving ? "⏳ Saving..." : "💾 Simpan")
                 </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========== POPUP: Delete Confirmation ========== -->
+@if (_showDeleteConfirm)
+{
+    <div class="modal-overlay" @onclick="CancelDelete">
+        <div class="modal-content" @onclick:stopPropagation="true" style="max-width:420px;">
+            <div class="modal-header">
+                <h2>🗑️ Hapus Koneksi?</h2>
+                <button class="modal-close" @onclick="CancelDelete">✕</button>
+            </div>
+            <div class="modal-body text-center">
+                <p>Anda yakin ingin menghapus koneksi:</p>
+                <p style="font-size:1.2em;font-weight:700;margin:12px 0;">📊 @(_deleteTarget?.Name ?? "?")</p>
+                <p class="text-small text-muted">Tipe: @_deleteTarget?.DatabaseType · Semua data chat yang terkait akan tetap ada.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" @onclick="CancelDelete">Batal</button>
+                <button class="btn-primary" style="background:#e74c3c;" @onclick="ConfirmDelete">🗑️ Hapus</button>
             </div>
         </div>
     </div>
@@ -127,9 +139,8 @@
 @code {
     private List<DatabaseConnection> _connections = new();
     private Dictionary<int, (bool Success, string Message, TimeSpan Duration)> _testResults = new();
-    private bool _showForm;
-    private bool _isEditing;
-    private bool _isSaving;
+    private bool _showForm; private bool _isEditing; private bool _isSaving;
+    private bool _showDeleteConfirm; private DatabaseConnection? _deleteTarget;
     private DatabaseConnection _form = new();
     private string _currentUserId = "";
     private string? _errorMessage;
@@ -137,69 +148,31 @@
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var claimsPrincipal = authState.User;
-
-        // Coba beberapa claim type untuk dapat UserId
-        _currentUserId = claimsPrincipal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                      ?? claimsPrincipal.FindFirst("sub")?.Value
-                      ?? claimsPrincipal.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value
-                      ?? "";
-
-        Logger.LogInformation("Connections page - Current UserId: {UserId}, IsAuthenticated: {IsAuth}",
-            string.IsNullOrEmpty(_currentUserId) ? "(EMPTY)" : _currentUserId,
-            claimsPrincipal.Identity?.IsAuthenticated);
-
+        _currentUserId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
         if (string.IsNullOrEmpty(_currentUserId))
-        {
-            _errorMessage = "⚠️ Tidak dapat mendeteksi user ID. Pastikan Anda sudah login. Coba logout lalu login kembali.";
-        }
-
+            _errorMessage = "⚠️ Tidak dapat mendeteksi user. Silakan logout lalu login kembali.";
         await LoadConnectionsAsync();
     }
 
     private async Task LoadConnectionsAsync()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        _connections = await db.DatabaseConnections
-            .Where(c => c.UserId == _currentUserId)
-            .OrderByDescending(c => c.CreatedAt)
-            .ToListAsync();
+        _connections = await db.DatabaseConnections.Where(c => c.UserId == _currentUserId).OrderByDescending(c => c.CreatedAt).ToListAsync();
     }
 
-    private void ShowAddForm()
-    {
-        _form = new DatabaseConnection { DatabaseType = "SQLite" };
-        _isEditing = false;
-        _showForm = true;
-    }
+    private void ShowAddForm() { _form = new DatabaseConnection { DatabaseType = "SQLite" }; _isEditing = false; _showForm = true; }
+    private void EditConnection(DatabaseConnection conn) { _form = new DatabaseConnection { Id = conn.Id, Name = conn.Name, Description = conn.Description, DatabaseType = conn.DatabaseType, ConnectionString = conn.ConnectionString, FilePath = conn.FilePath, UserId = conn.UserId }; _isEditing = true; _showForm = true; }
+    private void HideForm() { _showForm = false; _form = new(); }
 
-    private void EditConnection(DatabaseConnection conn)
-    {
-        _form = new DatabaseConnection
-        {
-            Id = conn.Id,
-            Name = conn.Name,
-            Description = conn.Description,
-            DatabaseType = conn.DatabaseType,
-            ConnectionString = conn.ConnectionString,
-            FilePath = conn.FilePath,
-            UserId = conn.UserId
-        };
-        _isEditing = true;
-        _showForm = true;
-    }
-
-    private void HideForm()
-    {
-        _showForm = false;
-        _form = new();
-    }
+    private void ShowDeleteConfirm(DatabaseConnection conn) { _deleteTarget = conn; _showDeleteConfirm = true; }
+    private void CancelDelete() { _showDeleteConfirm = false; _deleteTarget = null; }
+    private async Task ConfirmDelete() { if (_deleteTarget == null) return; await using var db = await DbFactory.CreateDbContextAsync(); var e = await db.DatabaseConnections.FindAsync(_deleteTarget.Id); if (e != null) { db.DatabaseConnections.Remove(e); await db.SaveChangesAsync(); } _showDeleteConfirm = false; _deleteTarget = null; await LoadConnectionsAsync(); }
 
     private void OnDbTypeChanged()
     {
         _form.ConnectionString = _form.DatabaseType switch
         {
-            "SQLite" => "Data Source=mydatabase.db",
+            "SQLite" => "Data Source=mydb.db",
             "SQLServer" => "Server=localhost;Database=mydb;Trusted_Connection=true;TrustServerCertificate=true",
             "MySQL" => "Server=localhost;Database=mydb;User=root;Password=;",
             "PostgreSQL" => "Host=localhost;Database=mydb;Username=postgres;Password=;",
@@ -209,102 +182,29 @@
 
     private async Task SaveConnection()
     {
-        _isSaving = true;
-        _errorMessage = null;
-
-        // Validasi: UserId harus ada
-        if (string.IsNullOrEmpty(_currentUserId))
-        {
-            _errorMessage = "❌ Gagal menyimpan: User tidak terdeteksi. Silakan logout dan login kembali.";
-            _isSaving = false;
-            StateHasChanged();
-            return;
-        }
-
+        _isSaving = true; _errorMessage = null;
+        if (string.IsNullOrEmpty(_currentUserId)) { _errorMessage = "❌ User tidak terdeteksi."; _isSaving = false; return; }
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
-
-            if (_isEditing)
-            {
-                var existing = await db.DatabaseConnections.FindAsync(_form.Id);
-                if (existing != null)
-                {
-                    existing.Name = _form.Name;
-                    existing.Description = _form.Description;
-                    existing.DatabaseType = _form.DatabaseType;
-                    existing.ConnectionString = _form.ConnectionString;
-                    existing.FilePath = _form.FilePath;
-                }
-            }
-            else
-            {
-                _form.UserId = _currentUserId;
-                _form.CreatedAt = DateTime.UtcNow;
-                _form.IsActive = true;
-                db.DatabaseConnections.Add(_form);
-            }
-
-            await db.SaveChangesAsync();
-            _showForm = false;
-            await LoadConnectionsAsync();
+            if (_isEditing) { var ex = await db.DatabaseConnections.FindAsync(_form.Id); if (ex != null) { ex.Name = _form.Name; ex.Description = _form.Description; ex.DatabaseType = _form.DatabaseType; ex.ConnectionString = _form.ConnectionString; ex.FilePath = _form.FilePath; } }
+            else { _form.UserId = _currentUserId; _form.CreatedAt = DateTime.UtcNow; _form.IsActive = true; db.DatabaseConnections.Add(_form); }
+            await db.SaveChangesAsync(); _showForm = false; await LoadConnectionsAsync();
         }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to save connection. UserId={UserId}", _currentUserId);
-            _errorMessage = $"❌ Gagal menyimpan: {ex.InnerException?.Message ?? ex.Message}";
-        }
-        finally
-        {
-            _isSaving = false;
-        }
-    }
-
-    private async Task DeleteConnection(DatabaseConnection conn)
-    {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var entity = await db.DatabaseConnections.FindAsync(conn.Id);
-        if (entity != null)
-        {
-            db.DatabaseConnections.Remove(entity);
-            await db.SaveChangesAsync();
-            await LoadConnectionsAsync();
-        }
+        catch (Exception ex) { Logger.LogError(ex, "Save failed"); _errorMessage = $"❌ Gagal: {ex.InnerException?.Message ?? ex.Message}"; }
+        finally { _isSaving = false; }
     }
 
     private async Task TestConnection(DatabaseConnection conn)
     {
-        // Cek dulu tipe database yang disupport oleh factory
         if (conn.DatabaseType.ToLower() is not ("sqlite" or "sqlserver" or "mysql" or "postgresql" or "postgre"))
-        {
-            _testResults[conn.Id] = (false, $"Database type '{conn.DatabaseType}' belum didukung untuk testing. Gunakan SQLite, SQLServer, MySQL, atau PostgreSQL.", TimeSpan.Zero);
-            return;
-        }
-
-        var result = await DbConnectorFactory.TestConnectionAsync(conn.DatabaseType, conn.ConnectionString, conn.FilePath);
-        _testResults[conn.Id] = result;
-
-        if (result.Success)
-        {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            var entity = await db.DatabaseConnections.FindAsync(conn.Id);
-            if (entity != null)
-            {
-                entity.LastUsedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync();
-            }
-        }
+        { _testResults[conn.Id] = (false, $"Tipe '{conn.DatabaseType}' belum didukung testing.", TimeSpan.Zero); return; }
+        var r = await DbConnectorFactory.TestConnectionAsync(conn.DatabaseType, conn.ConnectionString, conn.FilePath);
+        _testResults[conn.Id] = r;
+        if (r.Success) { await using var db = await DbFactory.CreateDbContextAsync(); var e = await db.DatabaseConnections.FindAsync(conn.Id); if (e != null) { e.LastUsedAt = DateTime.UtcNow; await db.SaveChangesAsync(); } }
     }
 
-    private static bool IsFileBased(string dbType)
-        => dbType is "SQLite" or "Excel" or "CSV" or "MsAccess";
-
-    private static string GetDbTypeBadge(string dbType) => dbType switch
-    {
-        "SQLite" => "badge-success",
-        "SQLServer" => "badge-info",
-        "MySQL" => "badge-warning",
-        "PostgreSQL" => "badge-info",
-        _ => "badge-purple"
-    };
+    private static bool IsFileBased(string t) => t is "SQLite" or "Excel" or "CSV" or "MsAccess";
+    private static string GetDbTypeBadge(string t) => t switch { "SQLite" => "badge-success", "SQLServer" => "badge-info", "MySQL" => "badge-warning", "PostgreSQL" => "badge-info", _ => "badge-purple" };
+    private static string GetConnStringPlaceholder(string t) => t switch { "SQLServer" => "Server=localhost;Database=mydb;Trusted_Connection=true;TrustServerCertificate=true", "MySQL" => "Server=localhost;Database=mydb;User=root;Password=;", "PostgreSQL" => "Host=localhost;Database=mydb;Username=postgres;Password=;", _ => "" };
 }
