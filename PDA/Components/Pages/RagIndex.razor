@@ -1,0 +1,119 @@
+@page "/rag-index"
+@attribute [Authorize]
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject PDA.Services.CommonFunctionsService CommonFn
+
+<PageTitle>RAG Index - PDA</PageTitle>
+
+<div>
+    <div class="flex-between mb-2">
+        <div>
+            <h1 style="margin:0;">📚 Knowledge Base Index</h1>
+            <span class="text-muted text-small">Dokumen yang sudah di-index untuk RAG (Retrieval Augmented Generation)</span>
+        </div>
+        <div class="flex-gap">
+            <span class="text-small text-muted">Auto-scan: setiap 30 menit</span>
+            <button class="btn-secondary btn-small" @onclick="RefreshData">🔄 Refresh</button>
+        </div>
+    </div>
+
+    @if (_documents.Count == 0)
+    {
+        <div class="neo-card text-center">
+            <h3>📭 Belum ada dokumen terindex</h3>
+            <p class="text-muted">Letakkan file di folder <code>KnowledgeBase/</code> dan file akan otomatis di-index.</p>
+            <p class="text-small text-muted">
+                Format yang didukung: PDF, DOCX, XLSX, TXT, CSV, PPTX, MD, JSON, HTML
+            </p>
+        </div>
+    }
+    else
+    {
+        <div class="neo-card" style="overflow-x:auto;">
+            <table class="neo-table">
+                <thead>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Type</th>
+                        <th>Size</th>
+                        <th>Chunks</th>
+                        <th>Vector Store</th>
+                        <th>Indexed At</th>
+                        <th>Status</th>
+                        <th>Keywords</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var doc in _documents)
+                    {
+                        <tr>
+                            <td class="font-bold">📄 @doc.FileName</td>
+                            <td><span class="badge @GetFileTypeBadge(doc.FileType)">@doc.FileType.ToUpper()</span></td>
+                            <td class="font-mono text-small">@CommonFn.FormatFileSize(doc.FileSize)</td>
+                            <td class="font-mono text-small">@doc.ChunkCount</td>
+                            <td class="text-small">@doc.VectorProvider</td>
+                            <td class="text-small font-mono">@doc.IndexedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>
+                                <span class="badge @(doc.Status == "Indexed" ? "badge-success" : doc.Status == "Failed" ? "badge-danger" : "badge-warning")">
+                                    @doc.Status
+                                </span>
+                            </td>
+                            <td class="text-small" style="max-width:200px;">
+                                @(doc.Keywords?.Length > 60 ? doc.Keywords[..60] + "..." : doc.Keywords ?? "-")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Summary -->
+        <div class="grid-3 mt-2">
+            <div class="stat-card">
+                <div class="stat-value">@_documents.Count</div>
+                <div class="stat-label">Total Documents</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">@_documents.Sum(d => d.ChunkCount)</div>
+                <div class="stat-label">Total Chunks</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">@CommonFn.FormatFileSize(_documents.Sum(d => d.FileSize))</div>
+                <div class="stat-label">Total Size</div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<RagIndexedDocument> _documents = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDocumentsAsync();
+    }
+
+    private async Task LoadDocumentsAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _documents = await db.RagIndexedDocuments
+            .OrderByDescending(d => d.IndexedAt)
+            .ToListAsync();
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadDocumentsAsync();
+        StateHasChanged();
+    }
+
+    private static string GetFileTypeBadge(string fileType) => fileType.ToLower() switch
+    {
+        "pdf" => "badge-danger",
+        "docx" or "doc" => "badge-info",
+        "xlsx" or "xls" => "badge-success",
+        "csv" => "badge-warning",
+        "txt" or "md" => "badge-purple",
+        _ => "badge-info"
+    };
+}

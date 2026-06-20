@@ -1,0 +1,45 @@
+@page "/error"
+@using System.Diagnostics
+
+<PageTitle>Error - PDA</PageTitle>
+
+<div class="error-page" style="text-align:center;padding:60px 20px;">
+    <h1 style="font-size:6em;font-weight:900;color:var(--accent-primary);margin:0;">500</h1>
+    <h2>Internal Server Error</h2>
+    <p class="text-muted">Maaf, terjadi kesalahan pada server. Silakan coba lagi nanti.</p>
+
+    @if (_showDetails && !string.IsNullOrEmpty(_errorDetails))
+    {
+        <div class="neo-card mt-2" style="text-align:left;max-width:800px;margin:20px auto;">
+            <h4>Error Details</h4>
+            <pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;">@_errorDetails</pre>
+        </div>
+    }
+
+    <div class="flex-center flex-gap mt-2">
+        <a href="/" class="btn-primary">🏠 Kembali ke Home</a>
+        <button class="btn-secondary" @onclick="ToggleDetails">🔍 @(_showDetails ? "Sembunyikan" : "Lihat") Details</button>
+    </div>
+</div>
+
+@code {
+    private bool _showDetails;
+    private string? _errorDetails;
+
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    protected override void OnInitialized()
+    {
+        var exception = HttpContext?.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        if (exception != null)
+        {
+            _errorDetails = exception.Error.ToString();
+        }
+    }
+
+    private void ToggleDetails()
+    {
+        _showDetails = !_showDetails;
+    }
+}

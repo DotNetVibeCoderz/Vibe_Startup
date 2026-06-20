@@ -1,0 +1,84 @@
+@page "/audit-logs"
+@attribute [Authorize(Roles = "Admin")]
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject AuditLogService AuditLogService
+
+<PageTitle>Audit Logs - PDA</PageTitle>
+
+<div>
+    <h1>📋 Audit Logs</h1>
+    <p class="text-muted mb-2">Semua aktivitas sistem tercatat di sini</p>
+
+    @if (_logs.Count == 0)
+    {
+        <div class="neo-card text-center"><p class="text-muted">Tidak ada audit logs ditemukan.</p></div>
+    }
+    else
+    {
+        <div class="neo-card" style="overflow-x:auto;">
+            <table class="neo-table">
+                <thead>
+                    <tr>
+                        <th style="cursor:pointer;" @onclick='() => OnSortClick("Timestamp")'>Timestamp @_sortIcons["Timestamp"]</th>
+                        <th>User</th>
+                        <th style="cursor:pointer;" @onclick='() => OnSortClick("Category")'>Category @_sortIcons["Category"]</th>
+                        <th>Action</th>
+                        <th>Description</th>
+                        <th style="cursor:pointer;" @onclick='() => OnSortClick("DurationMs")'>Duration @_sortIcons["DurationMs"]</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var log in _logs)
+                    {
+                        <tr>
+                            <td class="text-small font-mono">@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td class="text-small">@(log.User?.FullName ?? log.UserId ?? "-")</td>
+                            <td><span class="badge badge-info">@log.Category</span></td>
+                            <td class="text-small">@log.Action</td>
+                            <td class="text-small">@(log.Description != null && log.Description.Length > 60 ? log.Description[..60] + "..." : log.Description ?? "-")</td>
+                            <td class="text-small font-mono">@(log.DurationMs?.ToString("F0") ?? "-")ms</td>
+                            <td><span class="badge @(log.IsSuccess ? "badge-success" : "badge-danger")">@(log.IsSuccess ? "OK" : "ERR")</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <div class="flex-between mt-2">
+                <span class="text-small text-muted">Page @_currentPage of @_totalPages (@_totalCount total)</span>
+                <div class="flex-gap">
+                    <button class="btn-secondary btn-small" disabled="@(_currentPage <= 1)" @onclick="() => ChangePage(-1)">Prev</button>
+                    <button class="btn-secondary btn-small" disabled="@(_currentPage >= _totalPages)" @onclick="() => ChangePage(1)">Next</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<AuditLog> _logs = new(); private int _totalCount; private int _currentPage = 1; private int _pageSize = 30; private int _totalPages;
+    private string _sortBy = "Timestamp"; private bool _sortDesc = true;
+    private Dictionary<string, string> _sortIcons = new() { ["Timestamp"] = "", ["Category"] = "", ["DurationMs"] = "" };
+
+    protected override async Task OnInitializedAsync() { await LoadLogs(); UpdateIcons(); }
+
+    private async Task LoadLogs()
+    {
+        var (logs, total) = await AuditLogService.GetLogsAsync(_currentPage, _pageSize, null, null, null, null, null, _sortBy, _sortDesc);
+        _logs = logs; _totalCount = total; _totalPages = (int)Math.Ceiling((double)_totalCount / _pageSize);
+    }
+
+    private async Task ChangePage(int delta) { _currentPage = Math.Clamp(_currentPage + delta, 1, Math.Max(1, _totalPages)); await LoadLogs(); }
+
+    private async Task OnSortClick(string column)
+    {
+        if (_sortBy == column) _sortDesc = !_sortDesc; else { _sortBy = column; _sortDesc = true; }
+        UpdateIcons(); await LoadLogs();
+    }
+
+    private void UpdateIcons()
+    {
+        _sortIcons["Timestamp"] = _sortBy == "Timestamp" ? (_sortDesc ? " ▼" : " ▲") : "";
+        _sortIcons["Category"] = _sortBy == "Category" ? (_sortDesc ? " ▼" : " ▲") : "";
+        _sortIcons["DurationMs"] = _sortBy == "DurationMs" ? (_sortDesc ? " ▼" : " ▲") : "";
+    }
+}

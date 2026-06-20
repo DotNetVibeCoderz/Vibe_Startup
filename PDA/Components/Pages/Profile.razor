@@ -1,0 +1,105 @@
+@page "/profile"
+@attribute [Authorize]
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Profile - PDA</PageTitle>
+
+<div>
+    <h1>⚙️ User Profile</h1>
+    <p class="text-muted mb-2">Kelola profil dan pengaturan akun Anda</p>
+
+    @if (!string.IsNullOrEmpty(_success)) { <div class="alert alert-success">@_success</div> }
+    @if (!string.IsNullOrEmpty(_error)) { <div class="alert alert-error">@_error</div> }
+
+    <div class="grid-2">
+        <div class="neo-card">
+            <h3>👤 Informasi Profil</h3>
+            <EditForm Model="_profileModel" OnValidSubmit="UpdateProfile" FormName="profileForm">
+                <div class="form-group"><label class="form-label">Nama Lengkap</label><InputText @bind-Value="_profileModel.FullName" class="form-input" /></div>
+                <div class="form-group"><label class="form-label">Email</label><InputText @bind-Value="_profileModel.Email" class="form-input" disabled /></div>
+                <div class="form-group"><label class="form-label">Tema</label>
+                    <select class="form-select" @bind="_profileModel.Theme"><option value="dark">🌙 Dark</option><option value="light">☀️ Light</option></select>
+                </div>
+                <button type="submit" class="btn-primary">💾 Simpan</button>
+            </EditForm>
+        </div>
+
+        <div class="neo-card">
+            <h3>🔒 Ganti Password</h3>
+            <EditForm Model="_passwordModel" OnValidSubmit="ChangePassword" FormName="passwordForm">
+                <div class="form-group"><label class="form-label">Password Saat Ini</label><InputText @bind-Value="_passwordModel.CurrentPassword" type="password" class="form-input" /></div>
+                <div class="form-group"><label class="form-label">Password Baru</label><InputText @bind-Value="_passwordModel.NewPassword" type="password" class="form-input" /></div>
+                <div class="form-group"><label class="form-label">Konfirmasi Password Baru</label><InputText @bind-Value="_passwordModel.ConfirmPassword" type="password" class="form-input" /></div>
+                <button type="submit" class="btn-primary">🔒 Update Password</button>
+            </EditForm>
+        </div>
+    </div>
+
+    <div class="neo-card mt-2">
+        <h3>📊 Statistik Akun</h3>
+        <div class="grid-3 mt-1">
+            <div><strong>Member sejak</strong><p class="text-muted">@_currentUser?.CreatedAt.ToString("dd MMMM yyyy")</p></div>
+            <div><strong>Last Login</strong><p class="text-muted">@(_currentUser?.LastLoginAt?.ToString("dd MMMM yyyy HH:mm") ?? "N/A")</p></div>
+            <div><strong>Role</strong><p class="text-muted">@string.Join(", ", _roles)</p></div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private ApplicationUser? _currentUser;
+    private List<string> _roles = new();
+    private ProfileModel _profileModel = new();
+    private PasswordModel _passwordModel = new();
+    private string? _success;
+    private string? _error;
+    private System.Security.Claims.ClaimsPrincipal _user = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _user = authState.User;
+        var appUser = await UserManager.GetUserAsync(_user);
+        if (appUser != null)
+        {
+            _currentUser = appUser;
+            _profileModel = new ProfileModel { FullName = appUser.FullName ?? "", Email = appUser.Email ?? "", Theme = appUser.ThemePreference ?? "dark" };
+            _roles = (await UserManager.GetRolesAsync(appUser)).ToList();
+        }
+    }
+
+    private async Task UpdateProfile()
+    {
+        _success = null; _error = null;
+        var user = await UserManager.GetUserAsync(_user);
+        if (user != null)
+        {
+            user.FullName = _profileModel.FullName;
+            user.ThemePreference = _profileModel.Theme;
+            var result = await UserManager.UpdateAsync(user);
+            if (result.Succeeded) _success = "Profil berhasil diupdate!";
+            else _error = string.Join(", ", result.Errors.Select(e => e.Description));
+        }
+    }
+
+    private async Task ChangePassword()
+    {
+        _success = null; _error = null;
+        if (_passwordModel.NewPassword != _passwordModel.ConfirmPassword) { _error = "Password baru dan konfirmasi tidak cocok."; return; }
+        var user = await UserManager.GetUserAsync(_user);
+        if (user != null)
+        {
+            var result = await UserManager.ChangePasswordAsync(user, _passwordModel.CurrentPassword, _passwordModel.NewPassword);
+            if (result.Succeeded) _success = "Password berhasil diubah!";
+            else _error = string.Join(", ", result.Errors.Select(e => e.Description));
+        }
+    }
+
+    private class ProfileModel { public string FullName { get; set; } = ""; public string Email { get; set; } = ""; public string Theme { get; set; } = "dark"; }
+    private class PasswordModel
+    {
+        [System.ComponentModel.DataAnnotations.Required] public string CurrentPassword { get; set; } = "";
+        [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.MinLength(8)] public string NewPassword { get; set; } = "";
+        [System.ComponentModel.DataAnnotations.Required] public string ConfirmPassword { get; set; } = "";
+    }
+}

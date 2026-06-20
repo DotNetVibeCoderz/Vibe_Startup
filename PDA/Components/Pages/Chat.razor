@@ -1,0 +1,234 @@
+@page "/chat"
+@attribute [Authorize]
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ChatAgentService ChatAgent
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IStorageService StorageService
+@implements IAsyncDisposable
+
+<PageTitle>Chat with Data - PDA</PageTitle>
+
+<div class="chat-page">
+    <div class="flex-between flex-wrap mb-2">
+        <div><h1 style="margin:0;">💬 Chat with Data</h1><span class="text-muted text-small">AI-powered data analysis assistant</span></div>
+        <div class="flex-gap">
+            <button class="btn-secondary btn-small" @onclick="ResetSession">🔄 Reset</button>
+            <button class="btn-secondary btn-small" @onclick="CreateNewSession">✨ New Chat</button>
+            <button class="btn-secondary btn-small" @onclick="ShowVoiceMockup">🎤 Voice</button>
+        </div>
+    </div>
+
+    <div style="display:flex;gap:16px;height:calc(100vh - 160px);">
+        <div style="width:280px;min-width:280px;">
+            <div class="neo-card" style="height:100%;display:flex;flex-direction:column;">
+                <div class="flex-between mb-1"><strong>📋 Sessions</strong></div>
+                <div style="flex:1;overflow-y:auto;">
+                    @if (_sessions.Count == 0) { <p class="text-muted text-small text-center">No sessions yet.</p> }
+                    else { foreach (var s in _sessions) {
+                        <div class="session-item @(s.Id == _currentSession?.Id ? "active" : "")" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
+                            <div @onclick="() => SelectSession(s)" style="flex:1;min-width:0;">
+                                <div class="font-bold text-small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">@(s.Title?.Length > 22 ? s.Title[..22] + "..." : s.Title)</div>
+                                <div class="text-muted" style="font-size:10px;">@s.UpdatedAt.ToString("MMM dd HH:mm") · @s.ModelName</div>
+                            </div>
+                            <button class="btn-icon-delete" @onclick="() => DeleteSession(s)" @onclick:stopPropagation="true" title="Hapus sesi">🗑️</button>
+                        </div>
+                    }}
+                </div>
+                @if (_currentSession != null) {
+                    <div class="mt-2" style="border-top:2px solid var(--border-color);padding-top:12px;">
+                        <label class="form-label">🔗 Database</label>
+                        <select class="form-select" @bind="_selectedDbId" @bind:after="OnDatabaseChanged">
+                            <option value="">-- Pilih Database --</option>
+                            @foreach (var db in _databases) { <option value="@db.Id">@db.Name (@db.DatabaseType)</option> }
+                        </select>
+                        @if (_currentSession.DatabaseConnection != null) {
+                            <div class="text-small text-muted mt-1">📊 Aktif: <strong>@_currentSession.DatabaseConnection.Name</strong> (@_currentSession.DatabaseConnection.DatabaseType)</div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div style="flex:1;display:flex;flex-direction:column;">
+            @if (_currentSession == null) {
+                <div class="neo-card flex-center" style="height:100%;"><div class="text-center"><h2>💬 PDA Chat</h2><p class="text-muted">Pilih sesi atau buat sesi baru.</p><button class="btn-primary mt-1" @onclick="CreateNewSession">✨ Buat Sesi Baru</button></div></div>
+            } else {
+                <div class="neo-card mb-1" style="padding:10px 16px;">
+                    <div class="flex-gap flex-wrap">
+                        <select class="form-select" style="width:auto;" @bind="_currentSession.ModelProvider" @bind:after="SaveSessionConfig">
+                            <option value="OpenAI">OpenAI</option><option value="Anthropic">Anthropic</option><option value="Gemini">Gemini</option><option value="Ollama">Ollama</option>
+                        </select>
+                        <select class="form-select" style="width:auto;" @bind="_currentSession.ModelName" @bind:after="SaveSessionConfig">
+                            <option value="gpt-4o">GPT-4o</option><option value="gpt-4o-mini">GPT-4o mini</option>
+                        </select>
+                        <span class="text-small text-muted">Temp:</span>
+                        <input type="range" min="0" max="1" step="0.1" @bind="_currentSession.Temperature" @bind:after="SaveSessionConfig" style="width:80px;" />
+                        <span class="text-small font-mono">@_currentSession.Temperature</span>
+                    </div>
+                </div>
+
+                <div class="chat-messages" id="chatMessages" style="flex:1;overflow-y:auto;">
+                    @foreach (var msg in _messages) {
+                        <div class="chat-message @(msg.Role == "user" ? "user" : "assistant")">
+                            <div class="msg-header">
+                                @(msg.Role == "user" ? "👤 You" : "🤖 PDA Assistant") @(msg.ResponseTimeMs.HasValue ? $"{msg.ResponseTimeMs.Value:F0}ms" : "")
+                                <button class="btn-copy-msg" @onclick="() => CopyContent(msg)" title="Copy konten">📋</button>
+                            </div>
+                            <div class="markdown-content">@((MarkupString)MarkdownRenderer.Render(msg.Content))</div>
+                            @if (!string.IsNullOrEmpty(msg.DashboardHtml)) { <DashboardPanel HtmlContent="@msg.DashboardHtml" /> }
+                            @if (!string.IsNullOrEmpty(msg.Attachments))
+                            {
+                                <div class="chat-attachments mt-1">
+                                    @foreach (var att in ParseAttachments(msg.Attachments))
+                                    {
+                                        if (att.IsImage) { <a href="@att.FileUrl" target="_blank"><img src="@att.FileUrl" class="chat-img" alt="@att.FileName" /></a> }
+                                        else { <a href="@att.FileUrl" target="_blank" class="badge badge-info" style="text-decoration:none;">📎 @att.FileName</a> }
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    @if (_isLoading) { <div class="chat-message assistant"><div class="msg-header">🤖 PDA Assistant</div><div class="loading-spinner" style="width:20px;height:20px;"></div></div> }
+                </div>
+
+                @if (_samplePrompts.Count > 0 && _messages.Count <= 1) {
+                    <div class="flex-gap flex-wrap mb-1" style="padding:0 16px;">
+                        @foreach (var prompt in _samplePrompts.Take(4)) { <button class="btn-secondary btn-small" @onclick="() => SendMessage(prompt)">💡 @(prompt.Length > 40 ? prompt[..40] + "..." : prompt)</button> }
+                    </div>
+                }
+
+                @if (_pendingAttachments.Count > 0)
+                {
+                    <div class="upload-preview-area" style="padding:0 16px 8px 16px;">
+                        @foreach (var att in _pendingAttachments)
+                        {
+                            <div class="upload-preview-item" style="display:inline-flex;align-items:center;gap:4px;margin-right:8px;margin-bottom:4px;background:var(--bg-input);padding:4px 8px;border-radius:4px;border:1px solid var(--border-color);font-size:12px;">
+                                @(att.IsImage ? "🖼️" : "📄") @att.FileName
+                                <button class="btn-icon-delete" @onclick="() => RemoveAttachment(att)" style="opacity:1;font-size:11px;">✕</button>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="chat-input-area">
+                    <textarea class="chat-input" @bind="_newMessage" @oninput="OnInputChanged" @onkeydown="OnKeyDown" @onkeydown:preventDefault="false" placeholder="Tanya tentang data... (Enter ↵)" rows="2" disabled="@_isLoading"></textarea>
+                    <InputFile id="fileUpload" OnChange="HandleFileUpload" multiple hidden accept="image/*,.pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.pptx,.ppt,.md,.json,.xml,.html" />
+                    <button class="btn-secondary btn-icon" @onclick="TriggerFileUpload" title="Upload file" type="button">📎</button>
+                    <button class="btn-primary" @onclick="() => SendMessage(_newMessage)" disabled="@(_isLoading || (string.IsNullOrWhiteSpace(_newMessage) && _pendingAttachments.Count == 0))">@(_isLoading ? "⏳" : "➤")</button>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ChatSession> _sessions = new(); private ChatSession? _currentSession; private List<ChatMessage> _messages = new();
+    private List<DatabaseConnection> _databases = new(); private List<string> _samplePrompts = new();
+    private string _newMessage = ""; private bool _isLoading; private int? _selectedDbId; private string _currentUserId = ""; private Timer? _refreshTimer;
+    private List<MessageAttachment> _pendingAttachments = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _currentUserId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        await LoadDataAsync();
+        _refreshTimer = new Timer(async _ => await InvokeAsync(LoadDataAsync), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private void OnInputChanged(ChangeEventArgs e) { _newMessage = e.Value?.ToString() ?? ""; StateHasChanged(); }
+    private async Task OnKeyDown(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey) { e = default!; await SendMessage(_newMessage); } }
+
+    private async Task LoadDataAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _sessions = await db.ChatSessions.Where(s => s.UserId == _currentUserId).OrderByDescending(s => s.UpdatedAt).Take(20).ToListAsync();
+        _databases = await db.DatabaseConnections.Where(d => d.UserId == _currentUserId && d.IsActive).ToListAsync();
+        if (_currentSession != null) await LoadMessagesAsync();
+    }
+    private async Task LoadMessagesAsync()
+    {
+        if (_currentSession == null) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _messages = await db.ChatMessages.Where(m => m.ChatSessionId == _currentSession.Id).OrderBy(m => m.Timestamp).ToListAsync();
+    }
+    private async Task SelectSession(ChatSession session)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _currentSession = await db.ChatSessions.Include(s => s.DatabaseConnection).FirstOrDefaultAsync(s => s.Id == session.Id);
+        if (_currentSession == null) return; _selectedDbId = _currentSession.DatabaseConnectionId;
+        await LoadMessagesAsync(); await LoadSamplePrompts();
+        await JS.InvokeVoidAsync("eval", "setTimeout(() => { const el = document.getElementById('chatMessages'); if(el) el.scrollTop = el.scrollHeight; }, 100)");
+    }
+    private async Task CreateNewSession()
+    {
+        if (string.IsNullOrEmpty(_currentUserId)) return;
+        _currentSession = await ChatAgent.CreateSessionAsync(_currentUserId, _selectedDbId);
+        _messages = new(); _pendingAttachments = new(); await LoadDataAsync(); await LoadSamplePrompts();
+    }
+    private async Task ResetSession() { if (_currentSession == null) return; await ChatAgent.ResetSessionAsync(_currentSession.Id); _messages = new(); StateHasChanged(); }
+    private async Task DeleteSession(ChatSession session)
+    {
+        var isCurrent = _currentSession?.Id == session.Id; await ChatAgent.DeleteSessionAsync(session.Id);
+        if (isCurrent) { await using var db = await DbFactory.CreateDbContextAsync(); var o = await db.ChatSessions.Where(s => s.UserId == _currentUserId && s.Id != session.Id).OrderByDescending(s => s.UpdatedAt).FirstOrDefaultAsync(); if (o != null) await SelectSession(o); else { _currentSession = null; _messages = new(); _selectedDbId = null; } }
+        await LoadDataAsync(); StateHasChanged();
+    }
+    private async Task SendMessage(string message)
+    {
+        var hasContent = !string.IsNullOrWhiteSpace(message); var hasAttachments = _pendingAttachments.Count > 0;
+        if (_currentSession == null || (!hasContent && !hasAttachments) || _isLoading) return;
+        _isLoading = true; _newMessage = ""; var atts = new List<MessageAttachment>(_pendingAttachments); _pendingAttachments = new(); StateHasChanged();
+        try { await ChatAgent.ProcessMessageAsync(new ChatRequest { SessionId = _currentSession.Id, Message = message, Attachments = atts }); await LoadMessagesAsync(); await LoadDataAsync(); }
+        catch (Exception ex) { _messages.Add(new ChatMessage { Role = "assistant", Content = $"Error: {ex.Message}", Timestamp = DateTime.UtcNow }); }
+        finally { _isLoading = false; await JS.InvokeVoidAsync("eval", "setTimeout(() => { const el = document.getElementById('chatMessages'); if(el) el.scrollTop = el.scrollHeight; }, 100)"); StateHasChanged(); }
+    }
+    private async Task TriggerFileUpload() { await JS.InvokeVoidAsync("eval", "document.getElementById('fileUpload').click()"); }
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles(5))
+        {
+            try
+            {
+                if (file.Size > 50 * 1024 * 1024) { _newMessage += $"\n⚠️ File terlalu besar: {file.Name}"; continue; }
+                await using var stream = file.OpenReadStream(50 * 1024 * 1024);
+                var path = await StorageService.UploadAsync(file.Name, stream, file.ContentType);
+                var url = await StorageService.GetPublicUrlAsync(path);
+                var isImg = file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+                _pendingAttachments.Add(new MessageAttachment { FileName = file.Name, FileUrl = url, ContentType = file.ContentType, FileSize = file.Size, IsImage = isImg });
+                if (isImg) _newMessage += $"![{file.Name}]({url})\n";
+            }
+            catch (Exception ex) { _newMessage += $"\n⚠️ {file.Name}: {ex.Message}"; }
+        }
+        StateHasChanged();
+    }
+    private void RemoveAttachment(MessageAttachment att) { _pendingAttachments.Remove(att); StateHasChanged(); }
+
+    /// <summary>Copy konten pesan ke clipboard via JS interop.</summary>
+    private async Task CopyContent(ChatMessage msg)
+    {
+        var text = msg.Content ?? "";
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    private async Task OnDatabaseChanged()
+    {
+        if (_currentSession == null) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var fresh = await db.ChatSessions.FindAsync(_currentSession.Id); if (fresh == null) return;
+        fresh.DatabaseConnectionId = _selectedDbId; await db.SaveChangesAsync();
+        _currentSession = await db.ChatSessions.Include(s => s.DatabaseConnection).FirstOrDefaultAsync(s => s.Id == fresh.Id);
+        await LoadSamplePrompts(); StateHasChanged();
+    }
+    private async Task SaveSessionConfig()
+    {
+        if (_currentSession == null) return; await using var db = await DbFactory.CreateDbContextAsync();
+        var fresh = await db.ChatSessions.FindAsync(_currentSession.Id);
+        if (fresh != null) { fresh.ModelProvider = _currentSession.ModelProvider; fresh.ModelName = _currentSession.ModelName; fresh.Temperature = _currentSession.Temperature; fresh.MaxTokens = _currentSession.MaxTokens; await db.SaveChangesAsync(); }
+    }
+    private async Task LoadSamplePrompts() { _samplePrompts = _currentSession?.DatabaseConnectionId != null ? await ChatAgent.GenerateSamplePromptsAsync(_currentSession.DatabaseConnectionId.Value) : new(); }
+    private async Task ShowVoiceMockup() { await JS.InvokeVoidAsync("alert", "🎤 Fitur Voice Chat belum di rilis. Coming soon!"); }
+    private static List<MessageAttachment> ParseAttachments(string json)
+    { try { return System.Text.Json.JsonSerializer.Deserialize<List<MessageAttachment>>(json) ?? new(); } catch { return new(); } }
+    public async ValueTask DisposeAsync() { _refreshTimer?.Dispose(); await Task.CompletedTask; }
+}

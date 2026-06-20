@@ -1,0 +1,150 @@
+@page "/monitoring"
+@attribute [Authorize(Roles = "Admin")]
+@inject PDA.Services.PdaMonitoringService PdaMonitoring
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IWebHostEnvironment Env
+
+<PageTitle>Monitoring Dashboard - PDA</PageTitle>
+
+<div>
+    <div class="flex-between mb-2">
+        <div>
+            <h1 style="margin:0;">📈 Monitoring Dashboard</h1>
+            <span class="text-muted text-small">Real-time metrics & database statistics</span>
+        </div>
+        <button class="btn-secondary btn-small" @onclick="RefreshData">🔄 Refresh</button>
+    </div>
+
+    <div class="grid-4 mb-2">
+        <div class="stat-card">
+            <div class="stat-value">@_dbStats.TotalUsers</div>
+            <div class="stat-label">👤 Registered Users</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_realtime.ChatsLastHour</div>
+            <div class="stat-label">💬 Chats (1h real-time)</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_dbStats.TotalMessages</div>
+            <div class="stat-label">💬 Total Messages</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@(_dbStats.TotalTokens / 1000)k</div>
+            <div class="stat-label">🪙 Total Tokens</div>
+        </div>
+    </div>
+
+    <div class="grid-2 mb-2">
+        <div class="neo-card">
+            <h3>📊 Database Statistics</h3>
+            <table class="neo-table" style="margin-top:12px;">
+                <tr><th>Metric</th><th>Value</th></tr>
+                <tr><td>Total Users</td><td class="font-mono">@_dbStats.TotalUsers.ToString("N0")</td></tr>
+                <tr><td>Active Users (24h)</td><td class="font-mono">@_dbStats.ActiveUsers24h.ToString("N0")</td></tr>
+                <tr><td>Total Chat Sessions</td><td class="font-mono">@_dbStats.TotalChatSessions.ToString("N0")</td></tr>
+                <tr><td>Total Messages</td><td class="font-mono">@_dbStats.TotalMessages.ToString("N0")</td></tr>
+            </table>
+        </div>
+
+        <div class="neo-card">
+            <h3>🪙 Token & Query Stats</h3>
+            <table class="neo-table" style="margin-top:12px;">
+                <tr><th>Metric</th><th>Value</th></tr>
+                <tr><td>Total Tokens</td><td class="font-mono">@_dbStats.TotalTokens.ToString("N0")</td></tr>
+                <tr><td>Total Queries (SQL)</td><td class="font-mono">@_dbStats.TotalSqlQueries.ToString("N0")</td></tr>
+                <tr><td>Total Audit Logs</td><td class="font-mono">@_dbStats.TotalAuditLogs.ToString("N0")</td></tr>
+                <tr><td>Chats (1h real-time)</td><td class="font-mono">@_realtime.ChatsLastHour.ToString("N0")</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="grid-2 mb-2">
+        <div class="neo-card">
+            <h3>📋 Recent Activity</h3>
+            @if (_recentLogs.Count == 0) { <p class="text-muted">No recent activity.</p> }
+            else {
+            <table class="neo-table" style="margin-top:8px;">
+                <tr><th>Time</th><th>Action</th><th>User</th></tr>
+                @foreach (var log in _recentLogs)
+                {
+                    <tr>
+                        <td class="text-small font-mono">@log.Timestamp.ToString("HH:mm:ss")</td>
+                        <td class="text-small">@log.Action</td>
+                        <td class="text-small">@(log.User?.FullName ?? log.UserId ?? "-")</td>
+                    </tr>
+                }
+            </table>
+            }
+        </div>
+
+        <div class="neo-card">
+            <h3>🔗 Database Connections</h3>
+            <table class="neo-table" style="margin-top:8px;">
+                <tr><th>Type</th><th>Count</th></tr>
+                @foreach (var kv in _dbStats.ConnectionsByType)
+                {
+                    <tr><td>@kv.Key</td><td class="font-mono">@kv.Value</td></tr>
+                }
+            </table>
+        </div>
+    </div>
+
+    <div class="neo-card mt-2">
+        <h3>⚙️ System Info</h3>
+        <div class="grid-3 mt-1">
+            <div><strong>Timestamp</strong><p class="text-small font-mono text-muted">@DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss UTC")</p></div>
+            <div><strong>App Version</strong><p class="text-small text-muted">PDA v1.0.0</p></div>
+            <div><strong>Environment</strong><p class="text-small text-muted">@Env.EnvironmentName</p></div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private DbStats _dbStats = new();
+    private MonitoringSnapshot _realtime = new();
+    private List<AuditLog> _recentLogs = new();
+
+    protected override async Task OnInitializedAsync() => await LoadAllData();
+
+    private async Task RefreshData() { await LoadAllData(); StateHasChanged(); }
+
+    private async Task LoadAllData()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var now = DateTime.UtcNow;
+
+        _dbStats = new DbStats
+        {
+            TotalUsers = await db.Users.CountAsync(),
+            ActiveUsers24h = await db.Users.CountAsync(u => u.LastLoginAt != null && u.LastLoginAt >= now.AddHours(-24)),
+            TotalChatSessions = await db.ChatSessions.CountAsync(),
+            TotalMessages = await db.ChatMessages.CountAsync(),
+            TotalSqlQueries = await db.AuditLogs.CountAsync(a => a.Action == "SQLExecuted"),
+            TotalAuditLogs = await db.AuditLogs.CountAsync(),
+            TotalTokens = await db.ChatMessages.SumAsync(m => (long?)(m.TotalTokens ?? 0)) ?? 0,
+            ConnectionsByType = (await db.DatabaseConnections.ToListAsync())
+                .GroupBy(c => c.DatabaseType)
+                .ToDictionary(g => g.Key, g => g.Count())
+        };
+
+        _realtime = PdaMonitoring.GetSnapshot();
+
+        _recentLogs = await db.AuditLogs
+            .Include(a => a.User)
+            .OrderByDescending(a => a.Timestamp)
+            .Take(10)
+            .ToListAsync();
+    }
+
+    private class DbStats
+    {
+        public int TotalUsers { get; set; }
+        public int ActiveUsers24h { get; set; }
+        public int TotalChatSessions { get; set; }
+        public int TotalMessages { get; set; }
+        public int TotalSqlQueries { get; set; }
+        public int TotalAuditLogs { get; set; }
+        public long TotalTokens { get; set; }
+        public Dictionary<string, int> ConnectionsByType { get; set; } = new();
+    }
+}

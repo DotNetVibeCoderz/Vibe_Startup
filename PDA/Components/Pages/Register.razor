@@ -1,0 +1,63 @@
+@page "/register"
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager Navigation
+
+<PageTitle>Register - PDA</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card">
+        <h1>📝 Register</h1>
+        <p class="auth-subtitle">Buat akun PDA baru</p>
+
+        @if (!string.IsNullOrEmpty(_error)) { <div class="alert alert-error">@_error</div> }
+        @if (!string.IsNullOrEmpty(_success)) { <div class="alert alert-success">@_success</div> }
+
+        <EditForm Model="_model" OnValidSubmit="HandleRegister" FormName="registerForm">
+            <AntiforgeryToken />
+            <div class="form-group"><label class="form-label">Nama Lengkap</label><InputText @bind-Value="_model.FullName" class="form-input" placeholder="John Doe" /></div>
+            <div class="form-group"><label class="form-label">Email</label><InputText @bind-Value="_model.Email" class="form-input" placeholder="john@example.com" /></div>
+            <div class="form-group"><label class="form-label">Password</label><InputText @bind-Value="_model.Password" type="password" class="form-input" placeholder="Min. 8 karakter" /></div>
+            <div class="form-group"><label class="form-label">Konfirmasi Password</label><InputText @bind-Value="_model.ConfirmPassword" type="password" class="form-input" placeholder="Ulangi password" /></div>
+            <button type="submit" class="btn-primary" style="width:100%" disabled="@_isLoading">@(_isLoading ? "Loading..." : "📝 Register")</button>
+        </EditForm>
+
+        <div class="text-center mt-2"><p class="text-small text-muted">Sudah punya akun? <a href="/login">Login</a></p></div>
+    </div>
+</div>
+
+@code {
+    private RegisterModel _model = new();
+    private string? _error;
+    private string? _success;
+    private bool _isLoading;
+
+    private async Task HandleRegister()
+    {
+        _isLoading = true; _error = null; _success = null;
+        if (_model.Password != _model.ConfirmPassword) { _error = "Password dan konfirmasi tidak cocok."; _isLoading = false; return; }
+
+        var user = new ApplicationUser { UserName = _model.Email, Email = _model.Email, FullName = _model.FullName, CreatedAt = DateTime.UtcNow, IsActive = true, ThemePreference = "dark" };
+        var result = await UserManager.CreateAsync(user, _model.Password);
+        if (result.Succeeded)
+        {
+            await UserManager.AddToRoleAsync(user, "User");
+            _success = "Registrasi berhasil! Silakan login.";
+            await Task.Delay(1500);
+            Navigation.NavigateTo("/login", forceLoad: true);
+        }
+        else { _error = string.Join(", ", result.Errors.Select(e => e.Description)); }
+        _isLoading = false;
+    }
+
+    private class RegisterModel
+    {
+        public string FullName { get; set; } = "";
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Email wajib diisi"), System.ComponentModel.DataAnnotations.EmailAddress(ErrorMessage = "Format email tidak valid")]
+        public string Email { get; set; } = "";
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Password wajib diisi"), System.ComponentModel.DataAnnotations.MinLength(8, ErrorMessage = "Password minimal 8 karakter")]
+        public string Password { get; set; } = "";
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Konfirmasi password wajib diisi")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

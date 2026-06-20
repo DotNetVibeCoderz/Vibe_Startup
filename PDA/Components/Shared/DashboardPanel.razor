@@ -1,0 +1,155 @@
+<!-- Dashboard Panel - Expandable/Collapsible with Fullscreen + Export -->
+<div class="dashboard-panel">
+    <div class="dashboard-header" @onclick="ToggleExpand">
+        <span>📊 @Title</span>
+        <span>@(_isExpanded ? "▲" : "▼")</span>
+    </div>
+    @if (_isExpanded)
+    {
+        <div class="dashboard-body" id="@_panelId" style="overflow:auto;">
+            @((MarkupString)HtmlContent)
+        </div>
+        <div style="padding:8px 16px;border-top:2px solid var(--border-color);display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn-secondary btn-small" @onclick="OpenFullscreenNewTab" title="Buka di tab baru">
+                🖥️ Fullscreen
+            </button>
+            <button class="btn-secondary btn-small" @onclick="ExportToImage" title="Export dashboard sebagai gambar PNG">
+                📸 Image
+            </button>
+            <button class="btn-secondary btn-small" @onclick="ExportToCsv" title="Export data tabel sebagai CSV">
+                📄 CSV
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string HtmlContent { get; set; } = "";
+    [Parameter] public string Title { get; set; } = "Dashboard";
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    private bool _isExpanded = true;
+    private string _panelId = $"db-{Guid.NewGuid():N}";
+
+    private void ToggleExpand() => _isExpanded = !_isExpanded;
+
+    private async Task OpenFullscreenNewTab()
+    {
+        var escapedContent = HtmlContent
+            .Replace("\\", "\\\\").Replace("`", "\\`").Replace("$", "\\$")
+            .Replace("\r", "").Replace("\n", "\\n");
+        var escapedTitle = Title.Replace("\\", "\\\\").Replace("'", "\\'");
+
+        await JS.InvokeVoidAsync("eval", $@"
+(function() {{
+    var html = `
+<!DOCTYPE html><html lang='en'>
+<head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'>
+<title>📊 {escapedTitle} — PDA</title>
+<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js'><\/script>
+<style>
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#1e2a3a;color:#e8eaed;padding:20px;min-height:100vh}}
+.db-header{{background:#4ecdc4;color:#000;padding:16px 24px;border-radius:8px;margin-bottom:20px;font-size:1.4em;font-weight:700}}
+.db-content{{background:#1a2535;padding:24px;border-radius:8px;border:2px solid #2d3a4a}}
+.neo-table{{width:100%;border-collapse:collapse;margin:12px 0}}
+.neo-table th{{background:#ff6b6b;color:#fff;padding:10px 14px;text-align:left;border-bottom:2px solid #000}}
+.neo-table td{{padding:8px 14px;border-bottom:1px solid #2d3a4a}}
+canvas{{max-width:100%;margin:16px 0}} a{{color:#4d96ff}}
+.footer{{margin-top:20px;text-align:center;color:#6b7c93;font-size:11px}}
+@media print{{body{{background:#fff;color:#000}}.footer{{display:none}}}}
+</style></head>
+<body><div class='db-header'>📊 {escapedTitle}</div><div class='db-content'>{escapedContent}</div><div class='footer'>PDA — generated</div></body></html>`;
+    var blob = new Blob([html],{{type:'text/html'}});
+    window.open(URL.createObjectURL(blob),'_blank');
+}})();");
+    }
+
+    /// <summary>
+    /// Export dashboard panel sebagai gambar PNG via html2canvas.
+    /// </summary>
+    private async Task ExportToImage()
+    {
+        await JS.InvokeVoidAsync("eval", $@"
+(async function() {{
+    try {{
+        var panel = document.getElementById('{_panelId}');
+        if (!panel) {{ alert('Dashboard panel tidak ditemukan.'); return; }}
+
+        // Load html2canvas dynamically
+        if (typeof html2canvas === 'undefined') {{
+            await new Promise(function(resolve) {{
+                var s = document.createElement('script');
+                s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+                s.onload = resolve;
+                document.head.appendChild(s);
+            }});
+        }}
+
+        var canvas = await html2canvas(panel, {{
+            backgroundColor: '#1e2a3a',
+            scale: 2,
+            useCORS: true,
+            logging: false
+        }});
+
+        // Download as PNG
+        var link = document.createElement('a');
+        link.download = 'dashboard_{Title.Replace("'", "").Replace(" ", "_")}_{DateTime.UtcNow:yyyyMMddHHmmss}.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    }} catch(e) {{ alert('❌ Gagal export image: ' + e.message); }}
+}})();");
+    }
+
+    /// <summary>
+    /// Export data tabel dari dashboard sebagai CSV file.
+    /// </summary>
+    private async Task ExportToCsv()
+    {
+        await JS.InvokeVoidAsync("eval", $@"
+(function() {{
+    try {{
+        var panel = document.getElementById('{_panelId}');
+        if (!panel) {{ alert('Dashboard panel tidak ditemukan.'); return; }}
+
+        var tables = panel.querySelectorAll('table');
+        if (tables.length === 0) {{ alert('Tidak ada tabel di dashboard ini.'); return; }}
+
+        var csvContent = '';
+
+        tables.forEach(function(table, tableIdx) {{
+            if (tableIdx > 0) csvContent += '\n\n';
+            csvContent += '=== Table ' + (tableIdx + 1) + ' ===\n';
+
+            var rows = table.querySelectorAll('tr');
+            rows.forEach(function(row) {{
+                var cols = row.querySelectorAll('td, th');
+                var rowData = [];
+                cols.forEach(function(col) {{
+                    var text = col.innerText || col.textContent || '';
+                    // Escape CSV: wrap in quotes if contains comma, quote, or newline
+                    text = text.replace(/""/g, '""""');
+                    if (text.includes(',') || text.includes('""') || text.includes('\n')) {{
+                        text = '""' + text + '""';
+                    }}
+                    rowData.push(text);
+                }});
+                if (rowData.length > 0) csvContent += rowData.join(',') + '\n';
+            }});
+        }});
+
+        var blob = new Blob(['\uFEFF' + csvContent], {{ type: 'text/csv;charset=utf-8;' }});
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = 'dashboard_{Title.Replace("'", "").Replace(" ", "_")}_{DateTime.UtcNow:yyyyMMddHHmmss}.csv';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }} catch(e) {{ alert('❌ Gagal export CSV: ' + e.message); }}
+}})();");
+    }
+}

@@ -1,0 +1,67 @@
+@page "/login"
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Login - PDA</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card">
+        <h1>📊 PDA</h1>
+        <p class="auth-subtitle">Personal Data Analyst</p>
+
+        @if (!string.IsNullOrEmpty(_error)) { <div class="alert alert-error">@_error</div> }
+
+        <form method="post" action="/auth/login">
+            <AntiforgeryToken />
+            <input type="hidden" name="ReturnUrl" value="@ReturnUrl" />
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input name="Email" class="form-input" placeholder="admin@pda.com" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input name="Password" type="password" class="form-input" placeholder="••••••••" />
+            </div>
+            <div class="form-group flex-between">
+                <label class="flex-gap">
+                    <input name="RememberMe" type="checkbox" />
+                    <span class="text-small">Remember me</span>
+                </label>
+                <a href="/forgot-password" class="text-small">Forgot password?</a>
+            </div>
+            <button type="submit" class="btn-primary" style="width:100%">🔑 Login</button>
+        </form>
+
+        <div class="text-center mt-2">
+            <p class="text-small text-muted">Belum punya akun? <a href="/register">Register</a></p>
+            <p class="text-small text-muted mt-1">Sample: <strong>admin@pda.com</strong> / Admin@123<br /><strong>user@pda.com</strong> / User@1234</p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string? _error;
+    private System.Security.Claims.ClaimsPrincipal _user = new();
+
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _user = authState.User;
+        if (_user.Identity?.IsAuthenticated == true)
+            Navigation.NavigateTo(ReturnUrl ?? "/", forceLoad: true);
+    }
+
+    protected override void OnParametersSet()
+    {
+        _error = Error switch
+        {
+            "inactive" => "Akun tidak aktif.",
+            "locked" => "Akun terkunci.",
+            "invalid" => "Email atau password salah.",
+            _ => null
+        };
+    }
+}

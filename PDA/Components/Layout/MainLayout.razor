@@ -1,0 +1,129 @@
+@inherits LayoutComponentBase
+@inject PDA.Services.CommonFunctionsService CommonFn
+
+<div class="app-container @(_isDarkTheme ? "dark-theme" : "light-theme")">
+    <!-- Sidebar -->
+    <nav class="sidebar neo-brutalism">
+        <div class="sidebar-header">
+            <a href="/" class="brand-link">
+                <span class="brand-icon">📊</span>
+                <span class="brand-text">PDA</span>
+            </a>
+            <span class="brand-subtitle">Personal Data Analyst</span>
+        </div>
+
+        <div class="sidebar-menu">
+            <NavLink href="/" Match="NavLinkMatch.All" class="nav-item">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-text">Home</span>
+            </NavLink>
+
+            <AuthorizeView>
+                <Authorized>
+                    <NavLink href="/chat" class="nav-item">
+                        <span class="nav-icon">💬</span>
+                        <span class="nav-text">Chat Data</span>
+                    </NavLink>
+
+                    <NavLink href="/connections" class="nav-item">
+                        <span class="nav-icon">🔗</span>
+                        <span class="nav-text">Connections</span>
+                    </NavLink>
+
+                    <NavLink href="/rag-index" class="nav-item">
+                        <span class="nav-icon">📚</span>
+                        <span class="nav-text">RAG Index</span>
+                    </NavLink>
+
+                    @if (_isAdmin)
+                    {
+                        <NavLink href="/monitoring" class="nav-item">
+                            <span class="nav-icon">📈</span>
+                            <span class="nav-text">Monitoring</span>
+                        </NavLink>
+
+                        <NavLink href="/audit-logs" class="nav-item">
+                            <span class="nav-icon">📋</span>
+                            <span class="nav-text">Audit Logs</span>
+                        </NavLink>
+                    }
+                </Authorized>
+            </AuthorizeView>
+        </div>
+
+        <div class="sidebar-footer">
+            <AuthorizeView>
+                <Authorized>
+                    <div class="user-info">
+                        <span class="user-avatar">👤</span>
+                        <span class="user-name">@_userName</span>
+                    </div>
+                    <a href="/profile" class="nav-item small">
+                        <span class="nav-icon">⚙️</span>
+                        <span class="nav-text">Profile</span>
+                    </a>
+                    <form method="post" action="/auth/logout">
+                        <AntiforgeryToken />
+                        <button type="submit" class="nav-item small logout-btn">
+                            <span class="nav-icon">🚪</span>
+                            <span class="nav-text">Logout</span>
+                        </button>
+                    </form>
+                </Authorized>
+                <NotAuthorized>
+                    <a href="/login" class="nav-item">
+                        <span class="nav-icon">🔑</span>
+                        <span class="nav-text">Login</span>
+                    </a>
+                    <a href="/register" class="nav-item">
+                        <span class="nav-icon">📝</span>
+                        <span class="nav-text">Register</span>
+                    </a>
+                </NotAuthorized>
+            </AuthorizeView>
+
+            <button class="theme-toggle" @onclick="ToggleTheme">
+                <span>@(_isDarkTheme ? "☀️ Light" : "🌙 Dark")</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="content-wrapper">
+            @Body
+        </div>
+    </main>
+</div>
+
+@code {
+    private bool _isDarkTheme = false;
+    private bool _isAdmin;
+    private string _userName = "";
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthenticationStateTask != null)
+        {
+            var authState = await AuthenticationStateTask;
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                _userName = user.FindFirst("FullName")?.Value 
+                    ?? user.FindFirst(ClaimTypes.Name)?.Value 
+                    ?? user.Identity.Name 
+                    ?? "User";
+                _isAdmin = user.IsInRole("Admin");
+            }
+        }
+    }
+
+    private void ToggleTheme()
+    {
+        _isDarkTheme = !_isDarkTheme;
+    }
+}

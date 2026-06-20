@@ -1,0 +1,101 @@
+@page "/"
+@attribute [Authorize]
+@inject NavigationManager Navigation
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject PDA.Services.PdaMonitoringService PdaMonitoring
+
+<PageTitle>Home - PDA</PageTitle>
+
+<div class="home-container">
+    <div class="neo-card accent mb-2">
+        <div class="flex-between flex-wrap">
+            <div>
+                <h1 style="font-size:2em;font-weight:900;margin:0;">
+                    📊 Selamat datang di <span class="text-accent">PDA</span>
+                </h1>
+                <p class="text-muted mt-1" style="font-size:16px;">
+                    Personal Data Analyst — Asisten AI untuk analisis data Anda
+                </p>
+            </div>
+            <div class="flex-gap">
+                <a href="/chat" class="btn-primary">💬 Mulai Chat</a>
+                <a href="/connections" class="btn-secondary">🔗 Kelola Database</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid-4 mb-2">
+        <div class="stat-card">
+            <div class="stat-value">@_dbStats.TotalChatSessions</div>
+            <div class="stat-label">Chat Sessions</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_dbStats.TotalMessages</div>
+            <div class="stat-label">Messages</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_dbStats.TotalQueries</div>
+            <div class="stat-label">Queries Executed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_dbStats.TotalTokens.ToString("N0")</div>
+            <div class="stat-label">Tokens Used</div>
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <div class="neo-card">
+            <h3>💬 Chat with Data</h3>
+            <p class="text-muted">Tanya apa saja tentang data Anda dengan bahasa natural. Didukung oleh AI LLM modern.</p>
+            <a href="/chat" class="btn-primary btn-small mt-1">Mulai Chat →</a>
+        </div>
+        <div class="neo-card success">
+            <h3>📊 Dashboard & Report</h3>
+            <p class="text-muted">Generate dashboard dan report otomatis dari data Anda dalam format yang profesional.</p>
+            <a href="/chat" class="btn-primary btn-small mt-1">Buat Dashboard →</a>
+        </div>
+        <div class="neo-card info">
+            <h3>🔗 Multi Database</h3>
+            <p class="text-muted">Support SQLite, SQLServer, MySQL, PostgreSQL, Oracle, Access, Excel, dan CSV.</p>
+            <a href="/connections" class="btn-primary btn-small mt-1">Kelola Koneksi →</a>
+        </div>
+        <div class="neo-card">
+            <h3>📚 Knowledge Base (RAG)</h3>
+            <p class="text-muted">Index dokumen Anda untuk pencarian konteks yang lebih baik dengan vector search.</p>
+            <a href="/rag-index" class="btn-primary btn-small mt-1">Lihat Index →</a>
+        </div>
+    </div>
+
+    <div class="neo-card mt-2">
+        <h3>🚀 Quick Start Guide</h3>
+        <div class="grid-3 mt-1">
+            <div><strong>1. Connect Database</strong><p class="text-small text-muted">Tambahkan koneksi database Anda di halaman Connections.</p></div>
+            <div><strong>2. Start Chatting</strong><p class="text-small text-muted">Buat sesi chat baru, pilih database, dan mulai bertanya!</p></div>
+            <div><strong>3. Get Insights</strong><p class="text-small text-muted">Dapatkan insight, visualisasi, dan report otomatis.</p></div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private DbStats _dbStats = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _dbStats = new DbStats
+        {
+            TotalChatSessions = await db.ChatSessions.CountAsync(),
+            TotalMessages = await db.ChatMessages.CountAsync(),
+            TotalQueries = await db.AuditLogs.CountAsync(a => a.Action == "SQLExecuted" || a.Action == "MessageProcessed"),
+            TotalTokens = await db.ChatMessages.SumAsync(m => (long?)(m.TotalTokens ?? 0)) ?? 0
+        };
+    }
+
+    private class DbStats
+    {
+        public int TotalChatSessions { get; set; }
+        public int TotalMessages { get; set; }
+        public int TotalQueries { get; set; }
+        public long TotalTokens { get; set; }
+    }
+}
