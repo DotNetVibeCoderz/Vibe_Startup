@@ -1,6 +1,7 @@
 @page "/chat"
 @inject BotService BotService
 @inject AppDbContext Db
+@inject StorageService StorageService
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Navigation
 @inject IConfiguration Config
@@ -34,7 +35,7 @@
                     <div class="text-center" style="padding:40px;">
                         <div style="font-size:4rem;">🤖</div>
                         <h3>Bang Tony Brewok</h3>
-                        <p class="text-muted">Halo bro/sis! Ada yang bisa dibantu?</p>
+                        <p class="text-muted">Halo bro/sis! Ada yang bisa dibantu? Bisa upload gambar juga lho! 📷</p>
                         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px;">
                             <button class="btn-clay" @onclick='() => SendQuickMessage("Cari mobil murah")'>🚗 Cari Mobil</button>
                             <button class="btn-clay" @onclick='() => SendQuickMessage("Ada promo apa?")'>🎁 Cek Promo</button>
@@ -53,6 +54,24 @@
                                     <strong>🤖 Bang Tony Brewok</strong>
                                 </div>
                             }
+                            @* Render attached images *@
+                            @if (!string.IsNullOrWhiteSpace(msg.ImageUrls))
+                            {
+                                var imgUrls = System.Text.Json.JsonSerializer.Deserialize<List<string>>(msg.ImageUrls);
+                                @foreach (var img in imgUrls ?? new())
+                                {
+                                    <img src="@img" style="max-width:250px;max-height:200px;border-radius:8px;margin-bottom:8px;display:block;" />
+                                }
+                            }
+                            @* Render attached documents *@
+                            @if (!string.IsNullOrWhiteSpace(msg.DocumentUrls))
+                            {
+                                var docUrls = System.Text.Json.JsonSerializer.Deserialize<List<string>>(msg.DocumentUrls);
+                                @foreach (var doc in docUrls ?? new())
+                                {
+                                    <a href="@doc" target="_blank" class="badge-clay badge-clay-info mb-8" style="display:inline-block;text-decoration:none;">📎 @GetFileName(doc)</a>
+                                }
+                            }
                             <div>@((MarkupString)msg.Content.Replace("\n", "<br/>"))</div>
                             <small style="opacity:0.7;font-size:0.7rem;">@msg.CreatedAt.ToLocalTime().ToString("HH:mm")</small>
                         </div>
@@ -63,7 +82,33 @@
                     }
                 }
             </div>
+
+            <!-- Attachments Preview Bar -->
+            @if (attachments.Any())
+            {
+                <div style="padding:8px 16px;display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--clay-border);background:var(--clay-bg);">
+                    @foreach (var att in attachments)
+                    {
+                        var idx = attachments.IndexOf(att);
+                        <div style="position:relative;display:inline-flex;align-items:center;gap:4px;background:var(--clay-surface);border-radius:8px;padding:4px 8px;font-size:0.75rem;box-shadow:var(--clay-shadow-sm);">
+                            @if (att.IsImage)
+                            { <img src="@att.Url" style="width:32px;height:24px;object-fit:cover;border-radius:4px;" /> }
+                            else
+                            { <span>📎</span> }
+                            <span>@GetFileName(att.Url)</span>
+                            <button style="border:none;background:none;cursor:pointer;color:var(--danger);padding:0;font-size:0.9rem;" @onclick="() => RemoveAttachment(idx)">✕</button>
+                        </div>
+                    }
+                </div>
+            }
+
+            <!-- Input Area -->
             <div class="chat-input-area">
+                <InputFile id="fileUpload" OnChange="HandleFileUpload" accept="image/*,.pdf,.doc,.docx,.txt,.csv,.json,.xml" style="display:none;" />
+                <label for="fileUpload" class="btn-icon" style="cursor:pointer;" title="Upload gambar/dokumen">
+                    <i class="bi bi-paperclip"></i>
+                </label>
+
                 <input type="text" class="form-clay" style="flex:1;" placeholder="Ketik pesan..."
                        @bind="chatInput" @bind:event="oninput" @onkeydown="HandleKeyDown" disabled="@isTyping" />
                 <button class="btn-clay btn-clay-primary" @onclick="SendMessage" disabled="@(string.IsNullOrWhiteSpace(chatInput) || isTyping)">➤</button>
@@ -78,6 +123,8 @@
                 {
                     <div class="badge-clay badge-clay-danger mt-8" style="white-space:pre-wrap;font-size:0.75rem;">@lastError</div>
                 }
+                <hr />
+                <p style="font-size:0.8rem;"><strong>📷 Tips:</strong> Upload foto kendaraan untuk analisis visual. Upload PDF/doc untuk dibaca.</p>
             </div>
         </div>
     </div>
@@ -92,6 +139,14 @@
     private List<RentalBoil.Models.ChatSession> sessions = new();
     private List<RentalBoil.Models.ChatHistory> messages = new();
     private string userId = "";
+    private List<AttachmentItem> attachments = new();
+
+    private class AttachmentItem
+    {
+        public string Url { get; set; } = "";
+        public string FileName { get; set; } = "";
+        public bool IsImage { get; set; }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -99,123 +154,127 @@
         var user = authState.User;
         if (!user.Identity?.IsAuthenticated ?? true) { Navigation.NavigateTo("/login"); return; }
         userId = user.FindFirstValue(ClaimTypes.NameIdentifier)!;
-        sessions = await Db.ChatSessions
-            .Where(s => s.UserId == userId && s.IsActive)
-            .OrderByDescending(s => s.UpdatedAt)
-            .ToListAsync();
-        if (sessions.Any())
-        {
-            currentSessionId = sessions.First().Id;
-            messages = await Db.ChatHistories
-                .Where(h => h.SessionId == currentSessionId)
-                .OrderBy(h => h.CreatedAt)
-                .ToListAsync();
-        }
+        sessions = await Db.ChatSessions.Where(s => s.UserId == userId && s.IsActive).OrderByDescending(s => s.UpdatedAt).ToListAsync();
+        if (sessions.Any()) { currentSessionId = sessions.First().Id; messages = await Db.ChatHistories.Where(h => h.SessionId == currentSessionId).OrderBy(h => h.CreatedAt).ToListAsync(); }
         isReady = true;
     }
 
     private async Task LoadSession()
     {
-        if (currentSessionId > 0)
-            messages = await Db.ChatHistories
-                .Where(h => h.SessionId == currentSessionId)
-                .OrderBy(h => h.CreatedAt)
-                .ToListAsync();
-        else
-            messages = new();
+        if (currentSessionId > 0) messages = await Db.ChatHistories.Where(h => h.SessionId == currentSessionId).OrderBy(h => h.CreatedAt).ToListAsync();
+        else messages = new();
     }
+
+    private static string GetFileName(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri) ? Path.GetFileName(uri.LocalPath) : url.Split('/').LastOrDefault() ?? url;
+
+    /// <summary>
+    /// Upload file ke storage (gambar, PDF, dokumen, dll). Gambar langsung ditambahkan sebagai attachment.
+    /// </summary>
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size > 10 * 1024 * 1024) { lastError = "⚠️ File terlalu besar (max 10MB)."; return; }
+
+        try
+        {
+            var url = await StorageService.UploadFileAsync(new FormFileProxy(file), "chat");
+            var isImage = file.ContentType.StartsWith("image/");
+            attachments.Add(new AttachmentItem { Url = url, FileName = file.Name, IsImage = isImage });
+        }
+        catch (Exception ex) { lastError = $"❌ Upload gagal: {ex.Message}"; }
+    }
+
+    private void RemoveAttachment(int idx) => attachments.RemoveAt(idx);
 
     private async Task SendQuickMessage(string msg) { chatInput = msg; await SendMessage(); }
 
-    /// <summary>
-    /// Kirim pesan ke Bang Tony Brewok.
-    /// ★ FIX: StateHasChanged() setelah isTyping=false agar UI re-render.
-    /// ★ FIX: StateHasChanged() + Task.Delay(50) setelah isTyping=true agar loading indicator muncul.
-    /// </summary>
     private async Task SendMessage()
     {
         if (string.IsNullOrWhiteSpace(chatInput) || isTyping) return;
         lastError = null;
 
+        // Buat session
         if (currentSessionId == 0)
         {
-            var session = new RentalBoil.Models.ChatSession
-            {
-                UserId = userId,
-                Title = chatInput.Length > 50 ? chatInput[..50] + "..." : chatInput,
-                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
-            };
-            Db.ChatSessions.Add(session);
-            await Db.SaveChangesAsync();
+            var session = new RentalBoil.Models.ChatSession { UserId = userId, Title = chatInput.Length > 50 ? chatInput[..50] + "..." : chatInput, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+            Db.ChatSessions.Add(session); await Db.SaveChangesAsync();
             currentSessionId = session.Id;
-            sessions = await Db.ChatSessions.Where(s => s.UserId == userId && s.IsActive)
-                .OrderByDescending(s => s.UpdatedAt).ToListAsync();
+            sessions = await Db.ChatSessions.Where(s => s.UserId == userId && s.IsActive).OrderByDescending(s => s.UpdatedAt).ToListAsync();
         }
 
+        // Kumpulkan image URLs & document URLs dari attachments
+        var imgUrls = attachments.Where(a => a.IsImage).Select(a => a.Url).ToList();
+        var docUrls = attachments.Where(a => !a.IsImage).Select(a => a.Url).ToList();
+        var imgUrlsJson = imgUrls.Any() ? System.Text.Json.JsonSerializer.Serialize(imgUrls) : null;
+        var docUrlsJson = docUrls.Any() ? System.Text.Json.JsonSerializer.Serialize(docUrls) : null;
+
+        // Simpan user message dengan attachment info
         var userMsg = new RentalBoil.Models.ChatHistory
         {
-            SessionId = currentSessionId, Role = "user", Content = chatInput, CreatedAt = DateTime.UtcNow
+            SessionId = currentSessionId, Role = "user", Content = chatInput,
+            ImageUrls = imgUrlsJson, DocumentUrls = docUrlsJson,
+            CreatedAt = DateTime.UtcNow
         };
         Db.ChatHistories.Add(userMsg);
         await Db.SaveChangesAsync();
 
         var sent = chatInput;
+        var sentImages = imgUrls;
+        var sentDocs = docUrls;
         chatInput = "";
+        attachments.Clear();
         isTyping = true;
         StateHasChanged();
-        await Task.Delay(50); // beri waktu renderer flush loading indicator
+        await Task.Delay(50);
 
         try
         {
-            var history = await Db.ChatHistories
-                .Where(h => h.SessionId == currentSessionId).OrderBy(h => h.CreatedAt).ToListAsync();
-            var resp = await BotService.ChatAsync(sent, history);
+            var history = await Db.ChatHistories.Where(h => h.SessionId == currentSessionId).OrderBy(h => h.CreatedAt).ToListAsync();
 
-            var botMsg = new RentalBoil.Models.ChatHistory
-            {
-                SessionId = currentSessionId, Role = "assistant", Content = resp, CreatedAt = DateTime.UtcNow
-            };
+            // Kirim gambar pertama sebagai ImageContent, sisanya + dokumen sebagai URL di teks
+            var imageUrl = sentImages.FirstOrDefault();
+            var documentUrlList = sentDocs.Any() ? string.Join(", ", sentDocs) : null;
+            // Kalau ada >1 gambar, sisanya masuk ke teks
+            var extraImages = sentImages.Skip(1).ToList();
+            var extraText = "";
+            if (extraImages.Any()) extraText += "\n\n[Gambar tambahan: " + string.Join(", ", extraImages) + "]";
+            if (!string.IsNullOrWhiteSpace(documentUrlList)) extraText += "\n\n[Dokumen: " + documentUrlList + "]";
+
+            var resp = await BotService.ChatAsync(sent + extraText, history, imageUrl, documentUrlList);
+
+            var botMsg = new RentalBoil.Models.ChatHistory { SessionId = currentSessionId, Role = "assistant", Content = resp, CreatedAt = DateTime.UtcNow };
             Db.ChatHistories.Add(botMsg);
             await Db.SaveChangesAsync();
         }
         catch (Exception ex)
         {
             lastError = ex.Message;
-            var errorMsg = new RentalBoil.Models.ChatHistory
-            {
-                SessionId = currentSessionId, Role = "assistant",
-                Content = $"⚠️ Error: {ex.Message}", CreatedAt = DateTime.UtcNow
-            };
-            Db.ChatHistories.Add(errorMsg);
+            Db.ChatHistories.Add(new RentalBoil.Models.ChatHistory { SessionId = currentSessionId, Role = "assistant", Content = $"⚠️ Error: {ex.Message}", CreatedAt = DateTime.UtcNow });
             await Db.SaveChangesAsync();
         }
 
-        // Reload messages dari DB
-        messages = await Db.ChatHistories
-            .Where(h => h.SessionId == currentSessionId).OrderBy(h => h.CreatedAt).ToListAsync();
-
-        // ★ FIX: StateHasChanged() wajib setelah isTyping=false
+        messages = await Db.ChatHistories.Where(h => h.SessionId == currentSessionId).OrderBy(h => h.CreatedAt).ToListAsync();
         isTyping = false;
         StateHasChanged();
-
-        try { await JSRuntime.InvokeVoidAsync("eval", "var el=document.getElementById('chatMessages');if(el)el.scrollTop=el.scrollHeight;"); }
-        catch { }
+        try { await JSRuntime.InvokeVoidAsync("eval", "var el=document.getElementById('chatMessages');if(el)el.scrollTop=el.scrollHeight;"); } catch { }
     }
 
-    private async Task HandleKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter" && !e.ShiftKey) await SendMessage();
-    }
+    private async Task HandleKeyDown(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey) await SendMessage(); }
+    private void NewSession() { currentSessionId = 0; messages = new(); lastError = null; attachments.Clear(); }
+    private async Task ResetSession() { if (currentSessionId > 0) { var s = await Db.ChatSessions.FindAsync(currentSessionId); if (s != null) { s.IsActive = false; await Db.SaveChangesAsync(); } } currentSessionId = 0; messages = new(); lastError = null; attachments.Clear(); }
 
-    private void NewSession() { currentSessionId = 0; messages = new(); lastError = null; }
-
-    private async Task ResetSession()
+    private class FormFileProxy : Microsoft.AspNetCore.Http.IFormFile
     {
-        if (currentSessionId > 0)
-        {
-            var s = await Db.ChatSessions.FindAsync(currentSessionId);
-            if (s != null) { s.IsActive = false; await Db.SaveChangesAsync(); }
-        }
-        currentSessionId = 0; messages = new(); lastError = null;
+        private readonly Microsoft.AspNetCore.Components.Forms.IBrowserFile _f;
+        public FormFileProxy(Microsoft.AspNetCore.Components.Forms.IBrowserFile f) => _f = f;
+        public string ContentType => _f.ContentType;
+        public string ContentDisposition => $"form-data; name=file; filename={_f.Name}";
+        public Microsoft.AspNetCore.Http.IHeaderDictionary Headers => new Microsoft.AspNetCore.Http.HeaderDictionary();
+        public long Length => _f.Size;
+        public string Name => "file";
+        public string FileName => _f.Name;
+        public Stream OpenReadStream() => _f.OpenReadStream(10 * 1024 * 1024);
+        public void CopyTo(Stream target) { using var s = OpenReadStream(); s.CopyTo(target); }
+        public async Task CopyToAsync(Stream target, CancellationToken ct = default) { using var s = OpenReadStream(); await s.CopyToAsync(target, ct); }
     }
 }
