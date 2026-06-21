@@ -1,0 +1,107 @@
+@page "/vehicles"
+@page "/vehicles/{SearchQuery}"
+@inject VehicleService VehicleService
+@inject NavigationManager Navigation
+
+@if (vehicles != null)
+{
+    var totalPages = (int)Math.Ceiling((double)total / 12);
+
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">🚘 Cari Kendaraan</h1>
+            <p class="page-subtitle">@total kendaraan ditemukan</p>
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <input type="text" class="form-clay" style="max-width:250px;" placeholder="Cari kendaraan..." @bind="searchInput" />
+        <select class="form-clay" style="max-width:150px;" @bind="selectedTypeStr">
+            <option value="">Semua Jenis</option>
+            <option value="Car">🚗 Mobil</option>
+            <option value="Motorcycle">🏍️ Motor</option>
+        </select>
+        <select class="form-clay" style="max-width:150px;" @bind="selectedBrand">
+            <option value="">Semua Merek</option>
+            @foreach (var b in brands)
+            {
+                <option value="@b">@b</option>
+            }
+        </select>
+        <select class="form-clay" style="max-width:150px;" @bind="sortBy">
+            <option value="popular">🔥 Terpopuler</option>
+            <option value="price">💰 Harga</option>
+            <option value="rating">⭐ Rating</option>
+        </select>
+        <button class="btn-icon" @onclick="ToggleSort"><i class="bi bi-arrow-@(sortDesc ? "down" : "up")"></i></button>
+        <button class="btn-clay" @onclick="ApplyFilter">🔍 Cari</button>
+        <button class="btn-clay" @onclick="ResetFilters">🔄 Reset</button>
+    </div>
+
+    @if (!vehicles.Any())
+    {
+        <div class="clay-card text-center" style="padding:60px;"><div style="font-size:4rem;">🔍</div><h3>Tidak ada kendaraan ditemukan</h3></div>
+    }
+    else
+    {
+        <div class="grid-3">
+            @foreach (var v in vehicles)
+            {
+                var vid = v.Id;
+                <div class="vehicle-card clay-card-interactive" @onclick="() => GoToDetail(vid)" style="cursor:pointer;">
+                    <div class="vehicle-card-image" style="display:flex;align-items:center;justify-content:center;font-size:3.5rem;background:linear-gradient(135deg,@(v.Type==VehicleType.Car?"#74B9FF,#A29BFE":"#00B894,#55EFC4"));">
+                        @(v.Type == VehicleType.Car ? "🚗" : "🏍️")
+                    </div>
+                    <div class="vehicle-card-body">
+                        <span class="badge-clay @(v.Type==VehicleType.Car?"badge-clay-info":"badge-clay-success")">@(v.Type==VehicleType.Car?"Mobil":"Motor")</span>
+                        <h5 class="mt-8" style="font-weight:700;">@v.Name</h5>
+                        <div class="flex-between mt-8">
+                            <div class="vehicle-card-price">Rp @v.PricePerDay.ToString("N0") <small>/hari</small></div>
+                            <span class="badge-clay @(v.IsAvailable?"badge-clay-success":"badge-clay-danger")">@(v.IsAvailable?"Tersedia":"Disewa")</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+        @if (totalPages > 1)
+        {
+            <div class="pagination-clay">
+                <div class="page-item" @onclick="() => GoToPage(currentPage - 1)">◀</div>
+                @for (int i = 1; i <= totalPages; i++) { var p = i; <div class="page-item @(i==currentPage?"active":"")" @onclick="() => GoToPage(p)">@i</div> }
+                <div class="page-item" @onclick="() => GoToPage(currentPage + 1)">▶</div>
+            </div>
+        }
+    }
+}
+
+@code {
+    [Parameter] public string? SearchQuery { get; set; }
+    private List<Vehicle>? vehicles;
+    private int total;
+    private List<string> brands = new();
+    private string searchInput = "";
+    private string selectedTypeStr = "";
+    private string? selectedBrand;
+    private string sortBy = "popular";
+    private bool sortDesc = true;
+    private int currentPage = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        VehicleType? type = selectedTypeStr switch { "Car" => VehicleType.Car, "Motorcycle" => VehicleType.Motorcycle, _ => null };
+        var (items, count) = await VehicleService.GetVehiclesAsync(search: SearchQuery ?? "", type: type, brand: selectedBrand, sortBy: sortBy, sortDesc: sortDesc, page: currentPage, pageSize: 12);
+        vehicles = items; total = count;
+        brands = await VehicleService.GetBrandsAsync();
+    }
+
+    private async void GoToPage(int page) { currentPage = Math.Max(1, page); await LoadData(); }
+    private async void GoToDetail(int id) => Navigation.NavigateTo($"/vehicles/{id}");
+    private async void ToggleSort() { sortDesc = !sortDesc; await LoadData(); }
+    private async void ApplyFilter() { SearchQuery = searchInput; currentPage = 1; await LoadData(); }
+    private async void ResetFilters() { selectedTypeStr = ""; selectedBrand = null; sortBy = "popular"; sortDesc = true; currentPage = 1; searchInput = ""; SearchQuery = ""; await LoadData(); }
+}

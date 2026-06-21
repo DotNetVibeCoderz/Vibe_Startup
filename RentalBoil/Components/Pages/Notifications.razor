@@ -1,0 +1,87 @@
+@page "/notifications"
+@attribute [Authorize]
+@inject NotificationService NotificationService
+@inject AuthenticationStateProvider AuthState
+
+@if (isReady)
+{
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">🔔 Notifikasi</h1>
+            <p class="page-subtitle">@(unreadOnly ? $"{notifications.Count(n=>!n.IsRead)} belum dibaca" : $"{notifications.Count} total")</p>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn-clay @(!unreadOnly ? "btn-clay-primary" : "")" @onclick="() => { unreadOnly = false; Load(); }">Semua</button>
+            <button class="btn-clay @(unreadOnly ? "btn-clay-primary" : "")" @onclick="() => { unreadOnly = true; Load(); }">Belum Dibaca</button>
+            <button class="btn-clay" @onclick="MarkAllRead">✅ Tandai Semua Dibaca</button>
+        </div>
+    </div>
+
+    @if (!notifications.Any())
+    {
+        <div class="clay-card text-center" style="padding:60px;">
+            <div style="font-size:4rem;">🔔</div>
+            <h3>Tidak ada notifikasi</h3>
+            <p class="text-muted">Notifikasi booking, pembayaran, dan promo akan muncul di sini.</p>
+        </div>
+    }
+    else
+    {
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            @foreach (var n in notifications)
+            {
+                <div class="clay-card @(n.IsRead ? "" : "clay-card-inset")" style="padding:16px;cursor:pointer;@(n.IsRead?"opacity:0.7;":"")" @onclick="() => MarkRead(n)">
+                    <div class="flex-between" style="margin-bottom:4px;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            @if (!n.IsRead) { <span style="width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;"></span> }
+                            <strong>@n.Title</strong>
+                        </div>
+                        <small class="text-muted">@n.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm")</small>
+                    </div>
+                    <p style="font-size:0.9rem;color:var(--text-secondary);margin:0;">@n.Message</p>
+                    @if (!string.IsNullOrWhiteSpace(n.Link))
+                    {
+                        <a href="@n.Link" class="badge-clay badge-clay-accent mt-8" style="display:inline-block;text-decoration:none;" @onclick:stopPropagation="true">
+                            🔗 Buka →
+                        </a>
+                    }
+                    <div style="margin-top:4px;">
+                        <span class="badge-clay @GetTypeBadge(n.Type)" style="font-size:0.65rem;">@n.Type</span>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private bool isReady;
+    private bool unreadOnly;
+    private List<Notification> notifications = new();
+    private string userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        userId = authState.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        await Load();
+        isReady = true;
+    }
+
+    private async Task Load() => notifications = await NotificationService.GetUserNotificationsAsync(userId, unreadOnly);
+
+    private async Task MarkRead(Notification n)
+    {
+        if (!n.IsRead) { await NotificationService.MarkAsReadAsync(n.Id); n.IsRead = true; }
+    }
+
+    private async Task MarkAllRead()
+    {
+        foreach (var n in notifications.Where(x => !x.IsRead))
+            await NotificationService.MarkAsReadAsync(n.Id);
+        await Load();
+    }
+
+    private string GetTypeBadge(string type) => type switch
+    { "success" => "badge-clay-success", "warning" => "badge-clay-warning", "danger" => "badge-clay-danger", _ => "badge-clay-info" };
+}

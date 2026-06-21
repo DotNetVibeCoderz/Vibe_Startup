@@ -1,0 +1,153 @@
+@page "/gps"
+@attribute [Authorize]
+@inject GpsSimulatorService GpsService
+@inject IServiceScopeFactory ScopeFactory
+@inject IConfiguration Config
+@inject NavigationManager Navigation
+
+@if (isReady)
+{
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">🛰️ GPS Live Tracking</h1>
+            <p class="page-subtitle">
+                @(vehicles.Count) kendaraan aktif | Refresh: setiap @refreshInterval detik | 
+                Mode: @(Config.GetValue<string>("GPS:UpdateMode") ?? "DirectDB")
+            </p>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn-clay @(autoRefresh ? "btn-clay-primary" : "")" @onclick="ToggleAutoRefresh">
+                @(autoRefresh ? "⏸️ Pause" : "▶️ Auto Refresh")
+            </button>
+            <button class="btn-clay" @onclick="ManualRefresh">🔄 Refresh</button>
+            <select class="form-clay" style="width:120px;" @bind="refreshInterval" @bind:after="() => { if (autoRefresh) { StopTimer(); StartTimer(); } }">
+                <option value="2">2 detik</option>
+                <option value="5">5 detik</option>
+                <option value="10">10 detik</option>
+            </select>
+        </div>
+    </div>
+
+    @if (!vehicles.Any())
+    {
+        <div class="clay-card text-center" style="padding:60px;">
+            <div style="font-size:4rem;">🛰️</div>
+            <h3>Tidak ada kendaraan yang sedang disewa</h3>
+            <p class="text-muted">Booking kendaraan dulu dan aktifkan sewa untuk melihat GPS tracking.<br/>Atau klik "Mulai Simulasi" di bawah untuk demo.</p>
+            <button class="btn-clay btn-clay-primary mt-16" @onclick="StartDemoSimulation">🚀 Mulai Simulasi Demo</button>
+            @if (!string.IsNullOrEmpty(statusMessage)) { <div class="badge-clay badge-clay-success mt-8">@statusMessage</div> }
+        </div>
+    }
+    else
+    {
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            @foreach (var v in vehicles)
+            {
+                <div class="clay-card" style="padding:20px;">
+                    <div class="flex-between mb-8">
+                        <div>
+                            <strong style="font-size:1.1rem;">@v.GetType().GetProperty("Name")?.GetValue(v)</strong>
+                            <span class="text-muted" style="margin-left:8px;">@v.GetType().GetProperty("PlateNumber")?.GetValue(v)</span>
+                        </div>
+                        <span class="badge-clay badge-clay-success">🟢 Aktif</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.85rem;">
+                        <div class="clay-card-inset" style="padding:8px;"><span class="text-muted">📍 Latitude</span><strong style="float:right;">@(v.GetType().GetProperty("Latitude")?.GetValue(v)?.ToString() ?? "N/A")</strong></div>
+                        <div class="clay-card-inset" style="padding:8px;"><span class="text-muted">📍 Longitude</span><strong style="float:right;">@(v.GetType().GetProperty("Longitude")?.GetValue(v)?.ToString() ?? "N/A")</strong></div>
+                        <div class="clay-card-inset" style="padding:8px;"><span class="text-muted">🚀 Speed</span><strong style="float:right;">@v.GetType().GetProperty("CurrentSpeed")?.GetValue(v) km/h</strong></div>
+                        <div class="clay-card-inset" style="padding:8px;"><span class="text-muted">🧭 Heading</span><strong style="float:right;">@v.GetType().GetProperty("CurrentHeading")?.GetValue(v)°</strong></div>
+                    </div>
+                    <div class="flex-between mt-8" style="font-size:0.8rem;flex-wrap:wrap;gap:4px;">
+                        <span class="badge-clay @(v.GetType().GetProperty("LockStatus")?.GetValue(v)?.ToString() == "Unlocked" ? "badge-clay-success" : "badge-clay-danger")">🔐 @v.GetType().GetProperty("LockStatus")?.GetValue(v)</span>
+                        <span class="badge-clay @(v.GetType().GetProperty("EngineStatus")?.GetValue(v)?.ToString() == "On" ? "badge-clay-success" : "badge-clay-danger")">⚡ @v.GetType().GetProperty("EngineStatus")?.GetValue(v)</span>
+                        <span class="badge-clay @(v.GetType().GetProperty("MotionStatus")?.GetValue(v)?.ToString() == "Moving" ? "badge-clay-info" : "badge-clay-warning")">🏃 @v.GetType().GetProperty("MotionStatus")?.GetValue(v)</span>
+                    </div>
+                    <div class="flex-between mt-12" style="flex-wrap:wrap;gap:4px;">
+                        @{
+                            var vid = (int)v.GetType().GetProperty("Id")!.GetValue(v)!;
+                            var motion = v.GetType().GetProperty("MotionStatus")?.GetValue(v)?.ToString();
+                            var engine = v.GetType().GetProperty("EngineStatus")?.GetValue(v)?.ToString();
+                        }
+                        <button class="btn-clay" style="font-size:0.75rem;padding:4px 10px;" @onclick="() => ToggleTracking(vid, motion)">@(motion == "Moving" ? "🛑 Stop" : "▶️ Start")</button>
+                        <button class="btn-clay" style="font-size:0.75rem;padding:4px 10px;" @onclick="() => ToggleEngine(vid)">@(engine == "On" ? "⚫ Matikan Mesin" : "🟢 Nyalakan Mesin")</button>
+                        <button class="btn-clay" style="font-size:0.75rem;padding:4px 10px;" @onclick="() => ToggleLock(vid)">🔒 Toggle Kunci</button>
+                    </div>
+                    <small class="text-muted mt-8" style="display:block;">Update: @(v.GetType().GetProperty("UpdatedAt")?.GetValue(v) is DateTime dt ? dt.ToLocalTime().ToString("HH:mm:ss") : "-")</small>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="clay-card mt-24" style="padding:20px;">
+        <h3 style="font-weight:700;">⚙️ Konfigurasi Simulator</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px;">
+            <div><span class="text-muted">Status</span><br/><span class="badge-clay @(Config.GetValue<bool>("GPS:SimulatorEnabled") ? "badge-clay-success" : "badge-clay-danger")">@(Config.GetValue<bool>("GPS:SimulatorEnabled") ? "✅ Running" : "⏸️ Disabled")</span></div>
+            <div><span class="text-muted">Mode</span><br/><strong>@(Config.GetValue<string>("GPS:UpdateMode") ?? "DirectDB")</strong></div>
+            <div><span class="text-muted">Interval</span><br/><strong>@(Config.GetValue<int>("GPS:UpdateIntervalSeconds")) detik</strong></div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isReady; private bool autoRefresh = true; private int refreshInterval = 5;
+    private string? statusMessage; private List<object> vehicles = new();
+    private System.Timers.Timer? timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        vehicles = await GpsService.GetActiveVehicleStatusesAsync();
+        isReady = true;
+        if (autoRefresh) StartTimer();
+    }
+
+    private void StartTimer()
+    {
+        timer?.Stop(); timer?.Dispose();
+        timer = new System.Timers.Timer(refreshInterval * 1000);
+        timer.Elapsed += async (_, _) => await InvokeAsync(ManualRefresh);
+        timer.AutoReset = true; timer.Start();
+    }
+
+    private void StopTimer() { timer?.Stop(); timer?.Dispose(); timer = null; }
+    private void ToggleAutoRefresh() { autoRefresh = !autoRefresh; if (autoRefresh) StartTimer(); else StopTimer(); }
+
+    private async Task ManualRefresh() { vehicles = await GpsService.GetActiveVehicleStatusesAsync(); StateHasChanged(); }
+    private async Task ToggleTracking(int id, string? m) { if (m == "Moving") await GpsService.StopTrackingAsync(id); else await GpsService.StartTrackingAsync(id); await ManualRefresh(); }
+    private async Task ToggleEngine(int id) { await GpsService.ToggleEngineAsync(id); await ManualRefresh(); }
+    private async Task ToggleLock(int id) { await GpsService.ToggleLockAsync(id); await ManualRefresh(); }
+
+    /// <summary>
+    /// Demo simulation — uses IServiceScopeFactory for safe DB access from any thread.
+    /// </summary>
+    private async Task StartDemoSimulation()
+    {
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var booking = await db.Bookings.FirstOrDefaultAsync(b => b.Status == BookingStatus.Confirmed);
+        if (booking != null)
+        {
+            booking.PaymentStatus = PaymentStatus.Paid; booking.PaidAt = DateTime.UtcNow;
+            booking.Status = BookingStatus.Active; booking.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            await GpsService.StartTrackingAsync(booking.VehicleId);
+            statusMessage = $"✅ Booking #{booking.BookingNumber} diaktifkan! GPS tracking dimulai.";
+        }
+        else
+        {
+            var any = await db.Bookings.FirstOrDefaultAsync();
+            if (any != null)
+            {
+                any.Status = BookingStatus.Active; any.PaymentStatus = PaymentStatus.Paid;
+                any.PaidAt = DateTime.UtcNow; any.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+                await GpsService.StartTrackingAsync(any.VehicleId);
+                statusMessage = $"✅ Booking #{any.BookingNumber} diaktifkan!";
+            }
+            else { statusMessage = "❌ Tidak ada booking. Silakan booking kendaraan dulu."; }
+        }
+        await ManualRefresh();
+    }
+
+    public void Dispose() => StopTimer();
+}

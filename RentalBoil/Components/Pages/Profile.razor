@@ -1,0 +1,187 @@
+@page "/profile"
+@attribute [Authorize]
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+@inject StorageService StorageService
+@inject IWebHostEnvironment Env
+
+@if (user != null)
+{
+    <div class="page-header">
+        <h1 class="page-title">👤 Profil</h1>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:800px;">
+        <!-- Avatar & Upload -->
+        <div class="clay-card" style="padding:24px;text-align:center;">
+            @if (!string.IsNullOrWhiteSpace(user.ProfilePhoto))
+            {
+                <img src="@user.ProfilePhoto" alt="Profile" style="width:100px;height:100px;border-radius:50%;object-fit:cover;box-shadow:var(--clay-shadow);" />
+            }
+            else
+            {
+                <div class="user-avatar" style="width:100px;height:100px;font-size:2.5rem;margin:0 auto;">
+                    @(user.FullName?.FirstOrDefault() ?? 'U')
+                </div>
+            }
+
+            <h2 class="mt-8">@user.FullName</h2>
+            <p class="text-muted">@user.Email</p>
+            <span class="badge-clay badge-clay-accent">@user.MembershipTier</span>
+            <span class="badge-clay badge-clay-info" style="margin-left:8px;">@user.LoyaltyPoints pts</span>
+
+            <div class="mt-16">
+                <InputFile id="photoUpload" OnChange="UploadProfilePhoto" accept="image/*" style="display:none;" />
+                <label for="photoUpload" class="btn-clay" style="cursor:pointer;display:inline-block;">
+                    📷 @(isUploading ? "Uploading..." : "Upload Foto Profil")
+                </label>
+                @if (!string.IsNullOrWhiteSpace(uploadMessage))
+                {
+                    <div class="mt-8">
+                        <span class="badge-clay @(uploadSuccess ? "badge-clay-success" : "badge-clay-danger")">@uploadMessage</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Info Akun -->
+        <div class="clay-card" style="padding:24px;">
+            <h3 style="font-weight:700;">📋 Info Akun</h3>
+            <div class="mt-16">
+                <p><strong>Role:</strong> @(user.Role == UserRole.Admin ? "Admin" : user.Role == UserRole.Partner ? "Partner" : "Customer")</p>
+                <p><strong>Phone:</strong> @(user.PhoneNumber ?? "-")</p>
+                <p><strong>Registered:</strong> @user.RegisteredAt.ToString("dd MMM yyyy")</p>
+                <p><strong>Language:</strong> @(user.Language == "en" ? "🇬🇧 English" : "🇮🇩 Indonesia")</p>
+
+                <hr class="mt-16 mb-16" />
+
+                <!-- KTP -->
+                <div class="flex-between" style="margin-bottom:8px;">
+                    <div>
+                        <strong>🪪 KTP</strong>
+                        <span class="badge-clay @(user.KtpVerified == true ? "badge-clay-success" : user.KtpVerified == false ? "badge-clay-warning" : "")" style="margin-left:8px;">
+                            @(user.KtpVerified == true ? "✅ Verified" : user.KtpVerified == false ? "⏳ Pending" : "❌ Not Uploaded")
+                        </span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(user.KtpDocument))
+                    {
+                        <a href="@user.KtpDocument" target="_blank" class="btn-clay" style="font-size:0.75rem;padding:4px 10px;">👁️ Lihat</a>
+                    }
+                </div>
+                <InputFile id="ktpUpload" OnChange="UploadKtp" accept="image/*,.pdf" style="display:none;" />
+                <label for="ktpUpload" class="btn-clay" style="cursor:pointer;font-size:0.8rem;padding:6px 14px;display:inline-block;">
+                    📤 Upload KTP
+                </label>
+
+                <!-- SIM -->
+                <div class="flex-between mt-16" style="margin-bottom:8px;">
+                    <div>
+                        <strong>🚗 SIM</strong>
+                        <span class="badge-clay @(user.SimVerified == true ? "badge-clay-success" : user.SimVerified == false ? "badge-clay-warning" : "")" style="margin-left:8px;">
+                            @(user.SimVerified == true ? "✅ Verified" : user.SimVerified == false ? "⏳ Pending" : "❌ Not Uploaded")
+                        </span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(user.SimDocument))
+                    {
+                        <a href="@user.SimDocument" target="_blank" class="btn-clay" style="font-size:0.75rem;padding:4px 10px;">👁️ Lihat</a>
+                    }
+                </div>
+                <InputFile id="simUpload" OnChange="UploadSim" accept="image/*,.pdf" style="display:none;" />
+                <label for="simUpload" class="btn-clay" style="cursor:pointer;font-size:0.8rem;padding:6px 14px;display:inline-block;">
+                    📤 Upload SIM
+                </label>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private ApplicationUser? user;
+    private bool isUploading;
+    private string? uploadMessage;
+    private bool uploadSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        user = await UserManager.GetUserAsync(authState.User);
+    }
+
+    /// <summary>
+    /// Upload foto profil — file image, simpan ke StorageService, update user.ProfilePhoto.
+    /// </summary>
+    private async Task UploadProfilePhoto(InputFileChangeEventArgs e)
+    {
+        if (user == null) return;
+        var file = e.File;
+        if (file.Size > 2 * 1024 * 1024) { uploadMessage = "File terlalu besar (max 2MB)"; uploadSuccess = false; return; }
+
+        isUploading = true; uploadMessage = null;
+
+        try
+        {
+            // Simpan ke storage
+            var url = await StorageService.UploadFileAsync(new FormFileProxy(file), "profiles");
+            user.ProfilePhoto = url;
+            await UserManager.UpdateAsync(user);
+            uploadMessage = "✅ Foto profil berhasil diupload!"; uploadSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            uploadMessage = $"❌ Gagal: {ex.Message}"; uploadSuccess = false;
+        }
+        finally { isUploading = false; }
+    }
+
+    private async Task UploadKtp(InputFileChangeEventArgs e)
+    {
+        if (user == null) return;
+        var file = e.File;
+        if (file.Size > 5 * 1024 * 1024) { uploadMessage = "File terlalu besar (max 5MB)"; uploadSuccess = false; return; }
+
+        try
+        {
+            var url = await StorageService.UploadFileAsync(new FormFileProxy(file), "documents");
+            user.KtpDocument = url;
+            user.KtpVerified = false; // Menunggu verifikasi admin
+            await UserManager.UpdateAsync(user);
+            uploadMessage = "✅ KTP berhasil diupload! Menunggu verifikasi."; uploadSuccess = true;
+        }
+        catch (Exception ex) { uploadMessage = $"❌ Gagal: {ex.Message}"; uploadSuccess = false; }
+    }
+
+    private async Task UploadSim(InputFileChangeEventArgs e)
+    {
+        if (user == null) return;
+        var file = e.File;
+        if (file.Size > 5 * 1024 * 1024) { uploadMessage = "File terlalu besar (max 5MB)"; uploadSuccess = false; return; }
+
+        try
+        {
+            var url = await StorageService.UploadFileAsync(new FormFileProxy(file), "documents");
+            user.SimDocument = url;
+            user.SimVerified = false; // Menunggu verifikasi
+            await UserManager.UpdateAsync(user);
+            uploadMessage = "✅ SIM berhasil diupload! Menunggu verifikasi."; uploadSuccess = true;
+        }
+        catch (Exception ex) { uploadMessage = $"❌ Gagal: {ex.Message}"; uploadSuccess = false; }
+    }
+
+    /// <summary>
+    /// Proxy adapter: IBrowserFile → IFormFile untuk kompatibilitas dengan StorageService.
+    /// </summary>
+    private class FormFileProxy : IFormFile
+    {
+        private readonly IBrowserFile _file;
+        public FormFileProxy(IBrowserFile file) => _file = file;
+        public string ContentType => _file.ContentType;
+        public string ContentDisposition => $"form-data; name=file; filename={_file.Name}";
+        public IHeaderDictionary Headers => new HeaderDictionary();
+        public long Length => _file.Size;
+        public string Name => "file";
+        public string FileName => _file.Name;
+        public Stream OpenReadStream() => _file.OpenReadStream(5 * 1024 * 1024);
+        public void CopyTo(Stream target) { using var s = OpenReadStream(); s.CopyTo(target); }
+        public async Task CopyToAsync(Stream target, CancellationToken ct = default) { using var s = OpenReadStream(); await s.CopyToAsync(target, ct); }
+    }
+}

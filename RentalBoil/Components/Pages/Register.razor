@@ -1,0 +1,124 @@
+@page "/register"
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject RoleManager<IdentityRole> RoleManager
+@inject NavigationManager Navigation
+@inject LanguageService LanguageService
+
+@{
+    var lang = LanguageService.GetCurrentLanguage();
+}
+
+<div class="flex-center" style="min-height:70vh;">
+    <div class="clay-card" style="width:100%;max-width:480px;padding:40px;">
+        <div class="text-center mb-24">
+            <div style="font-size:3rem;">🚗</div>
+            <h2 style="font-weight:800;">Rental<span class="text-accent">Boil</span></h2>
+            <p class="text-muted">@(lang == "id" ? "Daftar akun baru" : "Create new account")</p>
+        </div>
+
+        <EditForm Model="@model" OnValidSubmit="HandleRegister" FormName="registerForm">
+            <DataAnnotationsValidator />
+
+            <div class="mb-16">
+                <label class="form-label">@(lang == "id" ? "Nama Lengkap" : "Full Name")</label>
+                <InputText @bind-Value="model.FullName" class="form-clay" />
+            </div>
+
+            <div class="mb-16">
+                <label class="form-label">Email</label>
+                <InputText @bind-Value="model.Email" class="form-clay" type="email" />
+                <ValidationMessage For="() => model.Email" />
+            </div>
+
+            <div class="mb-16">
+                <label class="form-label">@(lang == "id" ? "Nomor HP" : "Phone Number")</label>
+                <InputText @bind-Value="model.PhoneNumber" class="form-clay" />
+            </div>
+
+            <div class="mb-16">
+                <label class="form-label">@(lang == "id" ? "Kata Sandi" : "Password")</label>
+                <InputText @bind-Value="model.Password" type="password" class="form-clay" />
+                <ValidationMessage For="() => model.Password" />
+            </div>
+
+            <div class="mb-16">
+                <label class="form-label">@(lang == "id" ? "Konfirmasi Kata Sandi" : "Confirm Password")</label>
+                <InputText @bind-Value="model.ConfirmPassword" type="password" class="form-clay" />
+                <ValidationMessage For="() => model.ConfirmPassword" />
+            </div>
+
+            <div class="mb-16">
+                <label class="form-label">@(lang == "id" ? "Daftar Sebagai" : "Register As")</label>
+                <select @bind="model.Role" class="form-clay">
+                    <option value="Customer">@(lang == "id" ? "Pelanggan" : "Customer")</option>
+                    <option value="Partner">@(lang == "id" ? "Partner (Pemilik Kendaraan)" : "Partner (Vehicle Owner)")</option>
+                </select>
+            </div>
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="badge-clay badge-clay-danger w-100 mb-16">@errorMessage</div>
+            }
+
+            <button type="submit" class="btn-clay btn-clay-primary w-100" disabled="@isLoading">
+                @(isLoading ? (lang == "id" ? "Mendaftar..." : "Registering...") : (lang == "id" ? "Daftar" : "Register"))
+            </button>
+        </EditForm>
+
+        <div class="text-center mt-24">
+            <p class="text-muted">@(lang == "id" ? "Sudah punya akun?" : "Already have an account?") 
+                <a href="/login">@(lang == "id" ? "Masuk" : "Sign In")</a>
+            </p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private RegisterModel model = new();
+    private string? errorMessage;
+    private bool isLoading;
+
+    private class RegisterModel
+    {
+        [Required] public string FullName { get; set; } = "";
+        [Required, EmailAddress] public string Email { get; set; } = "";
+        public string PhoneNumber { get; set; } = "";
+        [Required, MinLength(8)] public string Password { get; set; } = "";
+        [Required, Compare("Password")] public string ConfirmPassword { get; set; } = "";
+        public string Role { get; set; } = "Customer";
+    }
+
+    private async Task HandleRegister()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        var role = model.Role == "Partner" ? UserRole.Partner : UserRole.Customer;
+
+        var user = new ApplicationUser
+        {
+            UserName = model.Email,
+            Email = model.Email,
+            FullName = model.FullName,
+            PhoneNumber = model.PhoneNumber,
+            Role = role,
+            RegisteredAt = DateTime.UtcNow
+        };
+
+        var result = await UserManager.CreateAsync(user, model.Password);
+
+        if (result.Succeeded)
+        {
+            var roleName = role == UserRole.Partner ? "Partner" : "Customer";
+            await UserManager.AddToRoleAsync(user, roleName);
+            await SignInManager.SignInAsync(user, isPersistent: false);
+            Navigation.NavigateTo("/");
+        }
+        else
+        {
+            errorMessage = string.Join(", ", result.Errors.Select(e => e.Description));
+            isLoading = false;
+        }
+    }
+}

@@ -1,0 +1,126 @@
+@page "/customer/bookings"
+@page "/customer/bookings/{BookingId:int}"
+@page "/partner/bookings/{BookingId:int}"
+@attribute [Authorize]
+@inject BookingService BookingService
+@inject PaymentService PaymentService
+@inject GpsSimulatorService GpsService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+
+@if (isReady)
+{
+    <div class="page-header">
+        <h1 class="page-title">📋 Pesanan Saya</h1>
+        <p class="page-subtitle">@allBookings.Count pesanan</p>
+    </div>
+
+    @if (!allBookings.Any())
+    {
+        <div class="clay-card text-center" style="padding:60px;">
+            <div style="font-size:4rem;">📭</div><h3>Belum ada pesanan</h3>
+            <a href="/vehicles" class="btn-clay btn-clay-primary mt-16">Cari Kendaraan</a>
+        </div>
+    }
+    else
+    {
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px;">
+            <button class="btn-clay @(currentFilter == null ? "btn-clay-primary" : "")" @onclick="() => SetFilter(null)">Semua</button>
+            <button class="btn-clay @(currentFilter == BookingStatus.Pending ? "btn-clay-warning" : "")" @onclick="() => SetFilter(BookingStatus.Pending)">⏳ Pending</button>
+            <button class="btn-clay @(currentFilter == BookingStatus.Confirmed ? "btn-clay-info" : "")" @onclick="() => SetFilter(BookingStatus.Confirmed)">✅ Confirmed</button>
+            <button class="btn-clay @(currentFilter == BookingStatus.Active ? "btn-clay-success" : "")" @onclick="() => SetFilter(BookingStatus.Active)">🚗 Active</button>
+            <button class="btn-clay @(currentFilter == BookingStatus.Completed ? "btn-clay-accent" : "")" @onclick="() => SetFilter(BookingStatus.Completed)">🏁 Completed</button>
+        </div>
+
+        @foreach (var b in GetFilteredBookings())
+        {
+            <div class="clay-card mb-16" style="padding:20px;">
+                <div class="flex-between">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <div style="font-size:2rem;">@(b.Vehicle?.Type == VehicleType.Car ? "🚗" : "🏍️")</div>
+                        <div>
+                            <strong style="font-size:1.1rem;">@b.BookingNumber</strong>
+                            <div class="text-muted" style="font-size:0.85rem;">@b.Vehicle?.Name</div>
+                            <div class="text-muted" style="font-size:0.8rem;">📅 @b.StartDate.ToString("dd MMM") → @b.EndDate.ToString("dd MMM")</div>
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        <div class="vehicle-card-price">Rp @b.TotalPrice.ToString("N0")</div>
+                        <span class="badge-clay @GetStatusBadge(b.Status)">@b.Status</span>
+                        <span class="badge-clay @GetPaymentBadge(b.PaymentStatus)" style="margin-left:4px;">@b.PaymentStatus</span>
+                    </div>
+                </div>
+                <div class="flex-between mt-12" style="flex-wrap:wrap;gap:8px;">
+                    <button class="btn-clay" style="font-size:0.8rem;padding:6px 14px;" @onclick="() => ShowDetail(b.Id)">📄 Detail</button>
+                    @if (b.PaymentStatus == PaymentStatus.Unpaid) { <button class="btn-clay btn-clay-primary" style="font-size:0.8rem;padding:6px 14px;" @onclick="() => GoToPayment(b.Id)">💳 Bayar</button> }
+                    @if (b.PaymentStatus == PaymentStatus.Paid && b.Status == BookingStatus.Confirmed) { <button class="btn-clay btn-clay-success" style="font-size:0.8rem;padding:6px 14px;" @onclick="() => PickupVehicle(b.Id)">🔑 Ambil</button> }
+                    @if (b.Status == BookingStatus.Active) { <button class="btn-clay btn-clay-warning" style="font-size:0.8rem;padding:6px 14px;" @onclick="() => ReturnVehicle(b.Id)">🏁 Kembalikan</button> }
+                    @if (b.Status == BookingStatus.Completed) { <button class="btn-clay btn-clay-accent" style="font-size:0.8rem;padding:6px 14px;" @onclick="() => GoToReview(b.Id)">⭐ Ulasan</button> }
+                </div>
+            </div>
+        }
+    }
+
+    @if (!string.IsNullOrEmpty(actionMessage))
+    {
+        <div class="badge-clay @(actionSuccess ? "badge-clay-success" : "badge-clay-danger") w-100 mt-16" style="padding:12px;">@actionMessage</div>
+    }
+
+    @if (selectedBooking != null)
+    {
+        <div style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:999;backdrop-filter:blur(2px);" @onclick="CloseDetail"></div>
+        <div class="clay-card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;width:90%;max-width:700px;max-height:85vh;overflow-y:auto;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div class="flex-between mb-16"><h3 style="font-weight:700;">📄 Detail Booking</h3><button class="btn-icon" @onclick="CloseDetail" style="width:36px;height:36px;font-size:1.2rem;">✕</button></div>
+            <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+                <div style="font-size:3rem;">@(selectedBooking.Vehicle?.Type == VehicleType.Car ? "🚗" : "🏍️")</div>
+                <div><h4 style="margin:0;">@selectedBooking.BookingNumber</h4><p class="text-muted" style="margin:0;">@selectedBooking.Vehicle?.Name</p>
+                <div class="mt-4"><span class="badge-clay @GetStatusBadge(selectedBooking.Status)">@selectedBooking.Status</span><span class="badge-clay @GetPaymentBadge(selectedBooking.PaymentStatus)" style="margin-left:4px;">@selectedBooking.PaymentStatus</span></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div class="clay-card-inset" style="padding:14px;"><div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:4px;">🚗 KENDARAAN</div><strong>@selectedBooking.Vehicle?.Brand @selectedBooking.Vehicle?.Model</strong><p class="text-muted" style="font-size:0.85rem;">Plat: @selectedBooking.Vehicle?.PlateNumber</p>@if(selectedBooking.PaidAt.HasValue){<p class="text-muted">💳 Dibayar: @selectedBooking.PaidAt.Value.ToLocalTime().ToString("dd MMM HH:mm")</p>}</div>
+                <div class="clay-card-inset" style="padding:14px;"><div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:4px;">💰 RINCIAN</div><div class="flex-between"><span>Harga Dasar</span><span>Rp @selectedBooking.BasePrice.ToString("N0")</span></div><div class="flex-between"><span>Asuransi</span><span>Rp @selectedBooking.InsuranceCost.ToString("N0")</span></div>@if(selectedBooking.Discount>0){<div class="flex-between" style="color:var(--success);"><span>Diskon</span><span>-Rp @selectedBooking.Discount.ToString("N0")</span></div>}<hr/><div class="flex-between" style="font-weight:700;color:var(--accent);"><span>TOTAL</span><span>Rp @selectedBooking.TotalPrice.ToString("N0")</span></div></div>
+            </div>
+            <div class="mt-16" style="display:flex;gap:8px;flex-wrap:wrap;"><span class="badge-clay">📅 Mulai: @selectedBooking.StartDate.ToString("dd MMM yyyy")</span><span class="badge-clay">🏁 Selesai: @selectedBooking.EndDate.ToString("dd MMM yyyy")</span><span class="badge-clay">⏱️ @selectedBooking.DurationDays hari</span></div>
+            <div class="flex-between mt-20"><button class="btn-clay" @onclick="CloseDetail">✕ Tutup</button>
+            <div style="display:flex;gap:8px;">
+                @if(selectedBooking.PaymentStatus==PaymentStatus.Unpaid){<button class="btn-clay btn-clay-primary" @onclick="()=>GoToPayment(selectedBooking.Id)">💳 Bayar</button>}
+                else if(selectedBooking.PaymentStatus==PaymentStatus.Paid&&selectedBooking.Status==BookingStatus.Confirmed){<button class="btn-clay btn-clay-success" @onclick="()=>PickupVehicle(selectedBooking.Id)">🔑 Ambil</button>}
+                else if(selectedBooking.Status==BookingStatus.Active){<button class="btn-clay btn-clay-warning" @onclick="()=>ReturnVehicle(selectedBooking.Id)">🏁 Kembalikan</button>}
+                else if(selectedBooking.Status==BookingStatus.Completed){<button class="btn-clay btn-clay-accent" @onclick="()=>GoToReview(selectedBooking.Id)">⭐ Ulasan</button>}
+            </div></div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int BookingId { get; set; }
+    private bool isReady, dataLoaded; private List<Booking> allBookings = new(); private Booking? selectedBooking;
+    private BookingStatus? currentFilter; private string? actionMessage; private bool actionSuccess;
+    private int lastBookingId; private string userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        userId = authState.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var isAdmin = authState.User.IsInRole("Admin"); var isPartner = authState.User.IsInRole("Partner");
+        allBookings = isAdmin ? await BookingService.GetAllBookingsAsync() : isPartner ? await BookingService.GetPartnerBookingsAsync(userId) : await BookingService.GetCustomerBookingsAsync(userId);
+        await LoadSelectedBooking(); lastBookingId = BookingId; isReady = true; dataLoaded = true;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    { if (dataLoaded && BookingId != lastBookingId) { lastBookingId = BookingId; await LoadSelectedBooking(); StateHasChanged(); } }
+
+    private async Task LoadSelectedBooking() => selectedBooking = BookingId > 0 ? await BookingService.GetBookingByIdAsync(BookingId) : null;
+    private List<Booking> GetFilteredBookings() => currentFilter.HasValue ? allBookings.Where(b => b.Status == currentFilter.Value).ToList() : allBookings;
+    private void SetFilter(BookingStatus? s) => currentFilter = s;
+    private void ShowDetail(int id) => selectedBooking = allBookings.FirstOrDefault(b => b.Id == id);
+    private void CloseDetail() => selectedBooking = null;
+    private void GoToPayment(int id) => Navigation.NavigateTo($"/customer/bookings/{id}/payment");
+    private void GoToReview(int id) => Navigation.NavigateTo($"/customer/bookings/{id}/review");
+
+    private async Task PickupVehicle(int bId) { var ok = await BookingService.ActivateBookingAsync(bId); actionMessage = ok ? "✅ Kendaraan berhasil diambil!" : "❌ Gagal."; actionSuccess = ok; allBookings = await BookingService.GetCustomerBookingsAsync(userId); if (ok) selectedBooking = await BookingService.GetBookingByIdAsync(bId); }
+    private async Task ReturnVehicle(int bId) { var ok = await BookingService.CompleteBookingAsync(bId); actionMessage = ok ? "✅ Dikembalikan! ⭐" : "❌ Gagal."; actionSuccess = ok; allBookings = await BookingService.GetCustomerBookingsAsync(userId); if (ok) selectedBooking = await BookingService.GetBookingByIdAsync(bId); }
+
+    private string GetStatusBadge(BookingStatus s) => s switch { BookingStatus.Pending => "badge-clay-warning", BookingStatus.Confirmed => "badge-clay-info", BookingStatus.Active => "badge-clay-success", BookingStatus.Completed => "badge-clay-accent", _ => "badge-clay-danger" };
+    private string GetPaymentBadge(PaymentStatus s) => s switch { PaymentStatus.Paid => "badge-clay-success", PaymentStatus.Unpaid => "badge-clay-warning", PaymentStatus.Refunded => "badge-clay-info", _ => "badge-clay-danger" };
+}

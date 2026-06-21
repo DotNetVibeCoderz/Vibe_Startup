@@ -1,0 +1,168 @@
+@page "/reports"
+@attribute [Authorize(Roles = "Admin,Partner")]
+@inject BookingService BookingService
+@inject ExportService ExportService
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JSRuntime
+
+@if (isReady)
+{
+    <div class="page-header">
+        <div><h1 class="page-title">📊 Laporan Sewa</h1><p class="page-subtitle">@totalRecords data | @periodLabel</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn-clay" @onclick="ExportCsv">📥 CSV</button>
+            <button class="btn-clay" @onclick="ExportExcel">📊 Excel</button>
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <select class="form-clay" style="width:130px;" @bind="periodFilter">
+            <option value="all">Semua</option><option value="today">Hari Ini</option><option value="week">Minggu Ini</option><option value="month">Bulan Ini</option><option value="year">Tahun Ini</option>
+        </select>
+        <select class="form-clay" style="width:140px;" @bind="statusFilter">
+            <option value="">Semua Status</option><option value="Completed">Completed</option><option value="Active">Active</option><option value="Cancelled">Cancelled</option>
+        </select>
+        <input type="text" class="form-clay" style="width:180px;" placeholder="Cari..." @bind="searchFilter" @bind:event="oninput" />
+        <select class="form-clay" style="width:100px;" @bind="sortCol">
+            <option value="date">Tanggal</option><option value="amount">Jumlah</option>
+        </select>
+        <button class="btn-icon" @onclick="ToggleSortBtn"><i class="bi bi-arrow-@(sortAsc ? "up" : "down")"></i></button>
+        <button class="btn-clay btn-clay-primary" @onclick="LoadData">🔍 Cari</button>
+        <span class="text-muted" style="margin-left:auto;">@totalRecords records</span>
+    </div>
+
+    <div class="grid-4 mb-24">
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(108,92,231,0.15);color:var(--accent);">📦</div><div><div class="stat-value">@totalRecords</div><div class="stat-label">Total Sewa</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(0,184,148,0.15);color:var(--success);">💰</div><div><div class="stat-value">Rp @totalRevenue.ToString("N0")</div><div class="stat-label">Revenue</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(116,185,255,0.15);color:var(--info);">📊</div><div><div class="stat-value">Rp @avgRevenue.ToString("N0")</div><div class="stat-label">Rata-rata</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(253,203,110,0.15);color:var(--warning);">⏱️</div><div><div class="stat-value">@totalDays</div><div class="stat-label">Total Hari</div></div></div>
+    </div>
+
+    <div class="clay-card" style="padding:0;overflow-x:auto;">
+        <table class="table-clay" style="margin:0;">
+            <thead><tr>
+                <th style="cursor:pointer;" @onclick='() => { sortCol = "booking"; ToggleSort(); }'>No. Booking @SortIcon("booking")</th>
+                <th>Tanggal</th><th>Kendaraan</th>
+                @if (isAdmin) { <th>Customer</th><th>Partner</th> }
+                <th>Durasi</th><th style="cursor:pointer;" @onclick='() => { sortCol = "amount"; ToggleSort(); }'>Total @SortIcon("amount")</th>
+                <th>Status</th><th>Bayar</th>
+            </tr></thead>
+            <tbody>
+                @foreach (var b in pagedData)
+                {
+                    <tr>
+                        <td><strong>@b.BookingNumber</strong><br/><small>@b.CreatedAt.ToString("dd MMM yy")</small></td>
+                        <td>@b.StartDate.ToString("dd MMM")<br/><small>→ @b.EndDate.ToString("dd MMM")</small></td>
+                        <td>@(b.Vehicle?.Type == VehicleType.Car ? "🚗" : "🏍️") @b.Vehicle?.Name</td>
+                        @if (isAdmin) { <td>@b.Customer?.FullName</td><td>@b.Vehicle?.Owner?.FullName</td> }
+                        <td>@b.DurationDays hari</td><td><strong>Rp @b.TotalPrice.ToString("N0")</strong></td>
+                        <td><span class="badge-clay @GetStatusBadge(b.Status)">@b.Status</span></td>
+                        <td><span class="badge-clay @GetPaymentBadge(b.PaymentStatus)">@b.PaymentStatus</span></td>
+                    </tr>
+                }
+                @if (!pagedData.Any()) { <tr><td colspan="9" class="text-center" style="padding:40px;">📭 Tidak ada data</td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    @if (totalPages > 1)
+    {
+        <div class="pagination-clay">
+            <div class="page-item" @onclick="() => GoToPage(currentPage - 1)">◀</div>
+            @for (int i = 1; i <= Math.Min(totalPages, 10); i++) { var p = i; <div class="page-item @(i==currentPage?"active":"")" @onclick="() => GoToPage(p)">@i</div> }
+            @if (totalPages > 10) { <div class="page-item disabled">...</div> }
+            <div class="page-item" @onclick="() => GoToPage(currentPage + 1)">▶</div>
+        </div>
+    }
+}
+
+@code {
+    private bool isReady; private bool isAdmin;
+    private string userId = ""; private string partnerId = "";
+    private string periodFilter = "month"; private string? statusFilter;
+    private string searchFilter = ""; private string sortCol = "date";
+    private bool sortAsc = false; private int currentPage = 1; private int pageSize = 20;
+    private List<Booking> allData = new(); private List<Booking> pagedData = new();
+    private int totalRecords, totalDays, totalPages;
+    private decimal totalRevenue, avgRevenue;
+    private string periodLabel = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var u = (await AuthState.GetAuthenticationStateAsync()).User;
+        userId = u.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        isAdmin = u.IsInRole("Admin"); if (u.IsInRole("Partner")) partnerId = userId;
+        await LoadData(); isReady = true;
+    }
+
+    private async Task LoadData()
+    {
+        var all = isAdmin ? await BookingService.GetAllBookingsAsync() : await BookingService.GetPartnerBookingsAsync(partnerId);
+        var query = all.AsQueryable();
+        var (s, e) = GetPeriodRange(); query = query.Where(b => b.CreatedAt >= s && b.CreatedAt <= e);
+        periodLabel = $"{s:dd MMM} - {e:dd MMM}";
+        if (!string.IsNullOrWhiteSpace(statusFilter)) { var st = Enum.Parse<BookingStatus>(statusFilter); query = query.Where(b => b.Status == st); }
+        if (!string.IsNullOrWhiteSpace(searchFilter)) { var kw = searchFilter.ToLowerInvariant(); query = query.Where(b => b.BookingNumber.ToLower().Contains(kw) || (b.Vehicle != null && b.Vehicle.Name.ToLower().Contains(kw))); }
+        query = sortCol == "amount" ? (sortAsc ? query.OrderBy(b => b.TotalPrice) : query.OrderByDescending(b => b.TotalPrice)) : (sortAsc ? query.OrderBy(b => b.CreatedAt) : query.OrderByDescending(b => b.CreatedAt));
+        allData = query.ToList(); totalRecords = allData.Count;
+        totalRevenue = allData.Where(b => b.PaymentStatus == PaymentStatus.Paid).Sum(b => b.TotalPrice);
+        avgRevenue = totalRecords > 0 ? totalRevenue / totalRecords : 0;
+        totalDays = allData.Sum(b => b.DurationDays);
+        totalPages = (int)Math.Ceiling((double)totalRecords / pageSize);
+        pagedData = allData.Skip((currentPage - 1) * pageSize).Take(pageSize).ToList();
+    }
+
+    private (DateTime s, DateTime e) GetPeriodRange()
+    {
+        var n = DateTime.UtcNow.Date;
+        return periodFilter switch
+        { "today" => (n, n.AddDays(1).AddTicks(-1)), "week" => (n.AddDays(-(int)n.DayOfWeek), n.AddDays(7 - (int)n.DayOfWeek).AddDays(1).AddTicks(-1)), "month" => (new DateTime(n.Year, n.Month, 1), new DateTime(n.Year, n.Month, 1).AddMonths(1).AddTicks(-1)), "year" => (new DateTime(n.Year, 1, 1), new DateTime(n.Year + 1, 1, 1).AddTicks(-1)), _ => (DateTime.MinValue, DateTime.MaxValue) };
+    }
+
+    private void ToggleSortBtn() { sortAsc = !sortAsc; LoadData(); }
+    private void ToggleSort() { sortAsc = !sortAsc; }
+    private void GoToPage(int p) { currentPage = Math.Max(1, p); LoadData(); }
+    private string SortIcon(string col) => sortCol == col ? (sortAsc ? "↑" : "↓") : "";
+
+    // ═══════════════════════ EXPORT ═══════════════════════
+
+    /// <summary>
+    /// ★ Export CSV — generate bytes lalu trigger download via JavaScript.
+    /// </summary>
+    private async Task ExportCsv()
+    {
+        var data = allData.Select(b => new { b.BookingNumber, Tanggal = b.CreatedAt.ToString("dd MMM yyyy"), Kendaraan = b.Vehicle?.Name, Customer = b.Customer?.FullName, Partner = b.Vehicle?.Owner?.FullName, Durasi = b.DurationDays, Total = b.TotalPrice, Status = b.Status.ToString() });
+        var bytes = await ExportService.ExportToCsvAsync(data);
+        await DownloadFile(bytes, "laporan-sewa.csv", "text/csv");
+    }
+
+    /// <summary>
+    /// ★ Export Excel — generate bytes lalu trigger download via JavaScript.
+    /// </summary>
+    private async Task ExportExcel()
+    {
+        var data = allData.Select(b => new { b.BookingNumber, Tanggal = b.CreatedAt.ToString("dd MMM yyyy"), Kendaraan = b.Vehicle?.Name, Customer = b.Customer?.FullName, Partner = b.Vehicle?.Owner?.FullName, Durasi = b.DurationDays, Total = b.TotalPrice, Status = b.Status.ToString() });
+        var bytes = await Task.Run(() => ExportService.ExportToExcel(data, "Laporan Sewa"));
+        await DownloadFile(bytes, "laporan-sewa.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    /// <summary>
+    /// Trigger browser download via JS interop — convert byte array ke Base64, bikin blob, klik.
+    /// </summary>
+    private async Task DownloadFile(byte[] bytes, string fileName, string contentType)
+    {
+        var base64 = Convert.ToBase64String(bytes);
+        await JSRuntime.InvokeVoidAsync("eval", $@"
+            var link = document.createElement('a');
+            link.href = 'data:{contentType};base64,{base64}';
+            link.download = '{fileName}';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        ");
+    }
+
+    private string GetStatusBadge(BookingStatus s) => s switch { BookingStatus.Pending => "badge-clay-warning", BookingStatus.Confirmed => "badge-clay-info", BookingStatus.Active => "badge-clay-success", BookingStatus.Completed => "badge-clay-accent", _ => "badge-clay-danger" };
+    private string GetPaymentBadge(PaymentStatus s) => s switch { PaymentStatus.Paid => "badge-clay-success", PaymentStatus.Unpaid => "badge-clay-warning", PaymentStatus.Refunded => "badge-clay-info", _ => "badge-clay-danger" };
+}

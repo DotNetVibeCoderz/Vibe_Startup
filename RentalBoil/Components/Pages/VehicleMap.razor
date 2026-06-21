@@ -1,0 +1,91 @@
+@page "/vehicles/{VehicleId:int}/map"
+@attribute [Authorize]
+@inject IServiceScopeFactory ScopeFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+@if (isReady)
+{
+    <div class="page-header">
+        <div>
+            <a href="/vehicles" class="text-muted" style="font-size:0.85rem;">← Kembali</a>
+            <h1 class="page-title">🗺️ Peta Kendaraan</h1>
+            <p class="page-subtitle">@vehicle?.Name (@vehicle?.PlateNumber)</p>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <span class="badge-clay @(vehicle?.MotionStatus == VehicleMotionStatus.Moving ? "badge-clay-success" : "badge-clay-warning")">@(vehicle?.MotionStatus == VehicleMotionStatus.Moving ? "🏃 Bergerak" : "🛑 Berhenti")</span>
+            <span class="badge-clay @(vehicle?.EngineStatus == EngineStatus.On ? "badge-clay-success" : "badge-clay-danger")">⚡ @(vehicle?.EngineStatus == EngineStatus.On ? "Menyala" : "Mati")</span>
+            <span class="badge-clay @(vehicle?.LockStatus == LockStatus.Unlocked ? "badge-clay-success" : "badge-clay-danger")">@(vehicle?.LockStatus == LockStatus.Unlocked ? "🔓 Terbuka" : "🔒 Terkunci")</span>
+            <button class="btn-clay" @onclick="RefreshMap">🔄 Refresh</button>
+        </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 350px;gap:20px;">
+        <div class="clay-card" style="padding:0;overflow:hidden;min-height:500px;">
+            <div id="vehicleMap" style="width:100%;height:500px;"></div>
+            <div style="padding:8px 16px;font-size:0.8rem;color:var(--text-muted);text-align:center;">
+                📍 @(vehicle?.Latitude?.ToString("F6") ?? "N/A"), @(vehicle?.Longitude?.ToString("F6") ?? "N/A") |
+                🚀 @(vehicle?.CurrentSpeed ?? 0) km/h | 🧭 @(vehicle?.CurrentHeading ?? 0)° |
+                🕐 Update: @(vehicle?.UpdatedAt.ToLocalTime().ToString("HH:mm:ss") ?? "-")
+            </div>
+        </div>
+
+        <div>
+            <div class="clay-card mb-16" style="padding:20px;">
+                <h4 style="font-weight:700;">🚗 Info</h4>
+                <div style="font-size:3rem;text-align:center;">@(vehicle?.Type == VehicleType.Car ? "🚗" : "🏍️")</div>
+                <p><strong>@vehicle?.Name</strong> | @vehicle?.Brand @vehicle?.Model</p>
+                <p>Plat: @vehicle?.PlateNumber | @vehicle?.Color</p>
+            </div>
+            <div class="clay-card mb-16" style="padding:20px;">
+                <h4 style="font-weight:700;">📊 IoT</h4>
+                <div class="clay-card-inset mt-8" style="padding:12px;">
+                    <div class="flex-between"><span>Kunci</span><span class="badge-clay @(vehicle?.LockStatus==LockStatus.Unlocked?"badge-clay-success":"badge-clay-danger")">@vehicle?.LockStatus</span></div>
+                    <div class="flex-between"><span>Mesin</span><span class="badge-clay @(vehicle?.EngineStatus==EngineStatus.On?"badge-clay-success":"badge-clay-danger")">@vehicle?.EngineStatus</span></div>
+                    <div class="flex-between"><span>Gerak</span><span class="badge-clay @(vehicle?.MotionStatus==VehicleMotionStatus.Moving?"badge-clay-success":"badge-clay-warning")">@vehicle?.MotionStatus</span></div>
+                    <div class="flex-between"><span>Speed</span><strong>@vehicle?.CurrentSpeed km/h</strong></div>
+                    <div class="flex-between"><span>Heading</span><strong>@vehicle?.CurrentHeading°</strong></div>
+                </div>
+            </div>
+            @if (booking != null)
+            {
+                <div class="clay-card" style="padding:20px;">
+                    <h4 style="font-weight:700;">📋 Booking</h4>
+                    <p><strong>@booking.BookingNumber</strong></p>
+                    <p>@booking.Customer?.FullName</p>
+                    <p>📅 @booking.StartDate.ToString("dd MMM") → @booking.EndDate.ToString("dd MMM")</p>
+                </div>
+            }
+        </div>
+    </div>
+}
+else { <div class="text-center mt-24"><h3>Memuat peta...</h3></div> }
+
+@code {
+    [Parameter] public int VehicleId { get; set; }
+    private bool isReady;
+    private Vehicle? vehicle;
+    private Booking? booking;
+
+    protected override async Task OnInitializedAsync() { await LoadData(); isReady = true; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && vehicle?.Latitude != null)
+            await JSRuntime.InvokeVoidAsync("initVehicleMap", vehicle.Latitude.Value, vehicle.Longitude ?? 106.8456, vehicle.Name, vehicle.CurrentSpeed, vehicle.CurrentHeading);
+    }
+
+    private async Task LoadData()
+    {
+        using var scope = ScopeFactory.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(v => v.Id == VehicleId);
+        booking = await db.Bookings.Include(b => b.Customer).FirstOrDefaultAsync(b => b.VehicleId == VehicleId && b.Status == BookingStatus.Active);
+    }
+
+    private async Task RefreshMap()
+    {
+        await LoadData();
+        if (vehicle?.Latitude != null)
+            await JSRuntime.InvokeVoidAsync("updateVehiclePos", vehicle.Latitude.Value, vehicle.Longitude ?? 106.8456, vehicle.CurrentSpeed, vehicle.CurrentHeading);
+    }
+}

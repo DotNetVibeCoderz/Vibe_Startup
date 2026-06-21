@@ -1,0 +1,33 @@
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+            <NotAuthorized>
+                @if (context.User.Identity?.IsAuthenticated != true)
+                {
+                    <RedirectToLogin />
+                }
+                else
+                {
+                    <div class="clay-card text-center" style="padding:60px;max-width:500px;margin:100px auto;">
+                        <div style="font-size:4rem;">🚫</div>
+                        <h2>Access Denied</h2>
+                        <p>You don't have permission to access this page.</p>
+                        <a href="/" class="btn-clay btn-clay-primary mt-16">Go Home</a>
+                    </div>
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(MainLayout)">
+            <div class="clay-card text-center" style="padding:60px;max-width:500px;margin:100px auto;">
+                <div style="font-size:5rem;">🔍</div>
+                <h1>404</h1>
+                <h3>Page Not Found</h3>
+                <p class="text-muted">Halaman yang Anda cari tidak ditemukan.</p>
+                <a href="/" class="btn-clay btn-clay-primary mt-16">🏠 Kembali ke Beranda</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

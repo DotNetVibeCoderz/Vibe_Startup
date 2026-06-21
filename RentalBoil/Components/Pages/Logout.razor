@@ -1,0 +1,12 @@
+@page "/logout"
+@inject NavigationManager Navigation
+
+<p class="text-muted">Sedang keluar...</p>
+
+@code {
+    protected override void OnInitialized()
+    {
+        // Force reload agar proses sign-out terjadi via endpoint HTTP biasa.
+        Navigation.NavigateTo("/account/logout", forceLoad: true);
+    }
+}

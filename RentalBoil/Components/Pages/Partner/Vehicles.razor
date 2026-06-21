@@ -1,0 +1,211 @@
+@page "/partner/vehicles"
+@attribute [Authorize(Roles = "Partner")]
+@inject VehicleService VehicleService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+@if (isReady)
+{
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">🚘 Manajemen Kendaraan</h1>
+            <p class="page-subtitle">@vehicles.Count kendaraan terdaftar</p>
+        </div>
+        <button class="btn-clay btn-clay-primary" @onclick="OpenAddForm">➕ Tambah Kendaraan</button>
+    </div>
+
+    <!-- Search -->
+    <div class="filter-bar">
+        <input type="text" class="form-clay" style="width:250px;" placeholder="Cari nama/model/merek..." @bind="searchText" @bind:event="oninput" />
+        <select class="form-clay" style="width:130px;" @bind="filterType">
+            <option value="">Semua Tipe</option>
+            <option value="Car">🚗 Mobil</option>
+            <option value="Motorcycle">🏍️ Motor</option>
+        </select>
+        <select class="form-clay" style="width:140px;" @bind="filterAvail">
+            <option value="">Semua Status</option>
+            <option value="true">✅ Tersedia</option>
+            <option value="false">❌ Disewa</option>
+        </select>
+        <span class="text-muted">@filteredVehicles.Count dari @vehicles.Count</span>
+    </div>
+
+    <!-- Vehicles Table -->
+    <div class="clay-card" style="padding:0;overflow-x:auto;">
+        <table class="table-clay" style="margin:0;">
+            <thead><tr><th>Nama</th><th>Plat</th><th>Tipe</th><th>Harga/Hari</th><th>Rating</th><th>Verif</th><th>Status</th><th style="min-width:140px;">Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var v in filteredVehicles)
+                {
+                    <tr>
+                        <td><strong>@v.Name</strong><br/><small class="text-muted">@v.Brand @v.Model (@v.Year)</small></td>
+                        <td>@v.PlateNumber</td>
+                        <td>@(v.Type == VehicleType.Car ? "🚗 Mobil" : "🏍️ Motor")</td>
+                        <td>Rp @v.PricePerDay.ToString("N0")</td>
+                        <td>⭐ @v.AverageRating.ToString("F1")</td>
+                        <td><span class="badge-clay @(v.IsVerified ? "badge-clay-success" : "badge-clay-warning")">@(v.IsVerified ? "✅" : "⏳")</span></td>
+                        <td><span class="badge-clay @(v.IsAvailable ? "badge-clay-success" : "badge-clay-danger")">@(v.IsAvailable ? "Tersedia" : "Disewa")</span></td>
+                        <td>
+                            <button class="btn-clay" style="padding:3px 8px;font-size:0.7rem;" @onclick="() => OpenEditForm(v)">✏️</button>
+                            <button class="btn-clay" style="padding:3px 8px;font-size:0.7rem;" @onclick="() => ToggleAvail(v.Id)">@(v.IsAvailable ? "🔒" : "🔓")</button>
+                            <a href="/vehicles/@v.Id/map" class="btn-clay" style="padding:3px 8px;font-size:0.7rem;text-decoration:none;">🗺️</a>
+                            <button class="btn-clay btn-clay-danger" style="padding:3px 8px;font-size:0.7rem;" @onclick="() => DeleteVehicle(v)">🗑️</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else { <div class="text-center mt-24"><h3>Loading...</h3></div> }
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="badge-clay @(success ? "badge-clay-success" : "badge-clay-danger")" style="position:fixed;bottom:24px;right:24px;z-index:999;padding:12px 20px;box-shadow:0 4px 20px rgba(0,0,0,0.2);">@message</div>
+}
+
+@if (showForm)
+{
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;" @onclick="CloseForm"></div>
+    <div class="clay-card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;width:90%;max-width:650px;max-height:85vh;overflow-y:auto;padding:32px;">
+        <div class="flex-between mb-16">
+            <h3 style="font-weight:700;">@(isEditing ? "✏️ Edit Kendaraan" : "➕ Tambah Kendaraan")</h3>
+            <button class="btn-icon" @onclick="CloseForm" style="width:36px;height:36px;">✕</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><label class="form-label">Nama*</label><input type="text" class="form-clay" @bind="form.Name" placeholder="Toyota Avanza 2024" /></div>
+            <div><label class="form-label">Plat Nomor*</label><input type="text" class="form-clay" @bind="form.PlateNumber" placeholder="B 1234 AB" /></div>
+            <div><label class="form-label">Merek*</label><input type="text" class="form-clay" @bind="form.Brand" /></div>
+            <div><label class="form-label">Model*</label><input type="text" class="form-clay" @bind="form.Model" /></div>
+            <div><label class="form-label">Tipe</label>
+                <select class="form-clay" @bind="formTypeStr">
+                    <option value="Car">🚗 Mobil</option><option value="Motorcycle">🏍️ Motor</option>
+                </select>
+            </div>
+            <div><label class="form-label">Tahun</label><input type="number" class="form-clay" @bind="form.Year" /></div>
+            <div><label class="form-label">Warna</label><input type="text" class="form-clay" @bind="form.Color" /></div>
+            <div><label class="form-label">Transmisi</label>
+                <select class="form-clay" @bind="formTransmissionStr">
+                    <option value="Automatic">Automatic</option><option value="Manual">Manual</option>
+                </select>
+            </div>
+            <div><label class="form-label">Bahan Bakar</label>
+                <select class="form-clay" @bind="formFuelTypeStr">
+                    <option value="Petrol">Bensin</option><option value="Diesel">Diesel</option><option value="Electric">Listrik</option><option value="Hybrid">Hybrid</option>
+                </select>
+            </div>
+            <div><label class="form-label">Kapasitas (org)</label><input type="number" class="form-clay" @bind="form.Capacity" /></div>
+            <div><label class="form-label">Harga /Jam</label><input type="number" class="form-clay" @bind="form.PricePerHour" /></div>
+            <div><label class="form-label">Harga /Hari</label><input type="number" class="form-clay" @bind="form.PricePerDay" /></div>
+            <div><label class="form-label">Lokasi</label><input type="text" class="form-clay" @bind="form.Location" /></div>
+            <div style="grid-column:1/-1;"><label class="form-label">Deskripsi</label><textarea class="form-clay" @bind="form.Description" rows="3"></textarea></div>
+        </div>
+        <div class="flex-between mt-16">
+            <button class="btn-clay" @onclick="CloseForm">Batal</button>
+            <button class="btn-clay btn-clay-primary" @onclick="SaveVehicle" disabled="@isSaving">
+                @(isSaving ? "Menyimpan..." : (isEditing ? "✏️ Update" : "➕ Tambah"))
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isReady;
+    private List<Vehicle> vehicles = new();
+    private string userId = "";
+    private string searchText = "";
+    private string filterType = "";
+    private string filterAvail = "";
+    private string? message;
+    private bool success;
+
+    // Form
+    private bool showForm;
+    private bool isEditing;
+    private bool isSaving;
+    private Vehicle form = new();
+    private string formTypeStr = "Car";
+    private string formTransmissionStr = "Automatic";
+    private string formFuelTypeStr = "Petrol";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        userId = authState.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        await LoadData(); isReady = true;
+    }
+
+    private async Task LoadData() => vehicles = await VehicleService.GetPartnerVehiclesAsync(userId);
+
+    private List<Vehicle> filteredVehicles
+    {
+        get
+        {
+            var q = vehicles.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(searchText))
+            {
+                var kw = searchText.ToLowerInvariant();
+                q = q.Where(v => v.Name.ToLower().Contains(kw) || v.Brand.ToLower().Contains(kw) || v.Model.ToLower().Contains(kw) || v.PlateNumber.ToLower().Contains(kw));
+            }
+            if (filterType == "Car") q = q.Where(v => v.Type == VehicleType.Car);
+            if (filterType == "Motorcycle") q = q.Where(v => v.Type == VehicleType.Motorcycle);
+            if (filterAvail == "true") q = q.Where(v => v.IsAvailable);
+            if (filterAvail == "false") q = q.Where(v => !v.IsAvailable);
+            return q.ToList();
+        }
+    }
+
+    private void OpenAddForm()
+    {
+        isEditing = false; isSaving = false; showForm = true;
+        form = new Vehicle { Year = DateTime.Now.Year, Type = VehicleType.Car, Transmission = TransmissionType.Automatic, FuelType = FuelType.Petrol, Capacity = 4 };
+        formTypeStr = "Car"; formTransmissionStr = "Automatic"; formFuelTypeStr = "Petrol";
+    }
+
+    private void OpenEditForm(Vehicle v)
+    {
+        isEditing = true; isSaving = false; showForm = true;
+        form = new Vehicle { Id = v.Id, Name = v.Name, PlateNumber = v.PlateNumber, Brand = v.Brand, Model = v.Model, Year = v.Year, Color = v.Color, Type = v.Type, Transmission = v.Transmission, FuelType = v.FuelType, Capacity = v.Capacity, PricePerHour = v.PricePerHour, PricePerDay = v.PricePerDay, Location = v.Location, Description = v.Description };
+        formTypeStr = v.Type.ToString(); formTransmissionStr = v.Transmission.ToString(); formFuelTypeStr = v.FuelType.ToString();
+    }
+
+    private void CloseForm() => showForm = false;
+
+    private async Task SaveVehicle()
+    {
+        if (string.IsNullOrWhiteSpace(form.Name) || string.IsNullOrWhiteSpace(form.PlateNumber) || string.IsNullOrWhiteSpace(form.Brand)) { message = "❌ Nama, Plat, dan Merek wajib diisi."; success = false; return; }
+        isSaving = true;
+        form.Type = formTypeStr == "Motorcycle" ? VehicleType.Motorcycle : VehicleType.Car;
+        form.Transmission = formTransmissionStr == "Manual" ? TransmissionType.Manual : TransmissionType.Automatic;
+        form.FuelType = formFuelTypeStr switch { "Diesel" => FuelType.Diesel, "Electric" => FuelType.Electric, "Hybrid" => FuelType.Hybrid, _ => FuelType.Petrol };
+
+        try
+        {
+            if (isEditing)
+            {
+                await VehicleService.UpdateVehicleAsync(form);
+                message = "✅ Kendaraan berhasil diupdate!";
+            }
+            else
+            {
+                form.OwnerId = userId; form.CreatedAt = DateTime.UtcNow;
+                await VehicleService.CreateVehicleAsync(form);
+                message = "✅ Kendaraan berhasil ditambahkan!";
+            }
+            success = true; showForm = false;
+            await LoadData();
+        }
+        catch (Exception ex) { message = $"❌ Gagal: {ex.Message}"; success = false; }
+        isSaving = false;
+        // Auto-hide message
+        _ = Task.Delay(3000).ContinueWith(_ => { message = null; InvokeAsync(StateHasChanged); });
+    }
+
+    private async Task ToggleAvail(int id) { await VehicleService.ToggleAvailabilityAsync(id); await LoadData(); }
+    private async Task DeleteVehicle(Vehicle v)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Hapus {v.Name}?");
+        if (confirmed) { await VehicleService.DeleteVehicleAsync(v.Id); message = "🗑️ Kendaraan dihapus."; success = true; await LoadData(); }
+    }
+}

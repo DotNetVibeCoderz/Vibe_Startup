@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <SatelliteResourceLanguages>en;id</SatelliteResourceLanguages>
+    <NoWarn>SKEXP0010;SKEXP0001;SKEXP0050;NU1903;NU1904;NU1603</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- EF Core - SQLite default -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.4" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.3" />
+    <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0-preview.2" />
+
+    <!-- ASP.NET Core Identity -->
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.4" />
+    
+    <!-- Swagger / OpenAPI -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.4" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="7.2.0" />
+    
+    <!-- CSV/Excel Export -->
+    <PackageReference Include="CsvHelper" Version="33.0.1" />
+    <PackageReference Include="ClosedXML" Version="0.104.2" />
+    
+    <!-- QR Code -->
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+    
+    <!-- Markdown Rendering -->
+    <PackageReference Include="Markdig" Version="0.38.0" />
+    
+    <!-- Semantic Kernel for AI -->
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.33.0" />
+    
+    <!-- Storage -->
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.23.0" />
+    <PackageReference Include="AWSSDK.S3" Version="3.7.412.2" />
+    <PackageReference Include="Minio" Version="6.0.3" />
+  </ItemGroup>
+
+</Project>

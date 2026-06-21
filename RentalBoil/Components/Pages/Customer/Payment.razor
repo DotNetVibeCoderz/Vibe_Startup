@@ -1,0 +1,224 @@
+@page "/customer/bookings/{BookingId:int}/payment"
+@attribute [Authorize]
+@inject BookingService BookingService
+@inject PaymentService PaymentService
+@inject NavigationManager Navigation
+@inject IConfiguration Config
+
+@if (isReady)
+{
+    @if (booking == null)
+    {
+        <div class="clay-card text-center" style="padding:60px;">
+            <div style="font-size:4rem;">🔍</div>
+            <h3>Booking tidak ditemukan</h3>
+            <a href="/customer/bookings" class="btn-clay btn-clay-primary mt-16">← Kembali ke Pesanan</a>
+        </div>
+    }
+    else if (booking.PaymentStatus == PaymentStatus.Paid)
+    {
+        <div class="clay-card text-center" style="padding:60px;">
+            <div style="font-size:4rem;">✅</div>
+            <h3>Sudah Dibayar!</h3>
+            <p>Booking #@booking.BookingNumber sudah lunas.</p>
+            <p class="text-muted">Metode: @booking.PaymentMethod | Dibayar: @booking.PaidAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm")</p>
+            <a href="/customer/bookings" class="btn-clay btn-clay-primary mt-16">← Kembali ke Pesanan</a>
+        </div>
+    }
+    else
+    {
+        <div class="page-header">
+            <div>
+                <a href="/customer/bookings" class="text-muted" style="font-size:0.85rem;">← Kembali ke Pesanan</a>
+                <h1 class="page-title">💳 Pembayaran</h1>
+                <p class="page-subtitle">Booking #@booking.BookingNumber</p>
+            </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px;">
+            <!-- Ringkasan Booking -->
+            <div>
+                <div class="clay-card" style="padding:24px;">
+                    <h3 style="font-weight:700;">📋 Ringkasan</h3>
+                    <div class="clay-card-inset mt-16" style="padding:16px;">
+                        <p><strong>🚗 Kendaraan:</strong> @booking.Vehicle?.Name</p>
+                        <p><strong>📅 Sewa:</strong> @booking.StartDate.ToString("dd MMM yyyy") → @booking.EndDate.ToString("dd MMM yyyy")</p>
+                        <p><strong>⏱️ Durasi:</strong> @booking.DurationDays hari</p>
+                    </div>
+
+                    <h4 class="mt-16">💰 Rincian Biaya</h4>
+                    <div class="clay-card-inset" style="padding:16px;">
+                        <div class="flex-between" style="padding:2px 0;"><span>Harga Dasar</span><span>Rp @booking.BasePrice.ToString("N0")</span></div>
+                        <div class="flex-between" style="padding:2px 0;"><span>Asuransi</span><span>Rp @booking.InsuranceCost.ToString("N0")</span></div>
+                        @if (booking.Discount > 0)
+                        {
+                            <div class="flex-between" style="padding:2px 0;color:var(--success);"><span>Diskon</span><span>-Rp @booking.Discount.ToString("N0")</span></div>
+                        }
+                        <hr />
+                        <div class="flex-between" style="padding:2px 0;font-size:1.3rem;font-weight:700;"><span>Total</span><span style="color:var(--accent);">Rp @booking.TotalPrice.ToString("N0")</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Form Pembayaran -->
+            <div>
+                <div class="clay-card" style="padding:24px;">
+                    <h3 style="font-weight:700;">💳 Metode Pembayaran</h3>
+
+                    @if (!isPaid)
+                    {
+                        <!-- Pilih Metode -->
+                        <div class="mt-16">
+                            <label class="form-label">Pilih Metode</label>
+                            <select class="form-clay" @bind="selectedMethod">
+                                <option value="BankTransfer">🏦 Transfer Bank</option>
+                                <option value="EWallet">📱 E-Wallet (GoPay, OVO, Dana)</option>
+                                <option value="QRIS">📲 QRIS</option>
+                                <option value="CreditCard">💳 Kartu Kredit</option>
+                            </select>
+                        </div>
+
+                        <!-- Bank Transfer Info -->
+                        @if (selectedMethod == PaymentMethod.BankTransfer)
+                        {
+                            <div class="clay-card-inset mt-16" style="padding:16px;">
+                                <h4>🏦 Transfer ke Rekening</h4>
+                                @{
+                                    var banks = Config.GetSection("Payment:BankTransferBanks").Get<string[]>() ?? new[] { "BCA", "Mandiri", "BNI", "BRI" };
+                                    var vaNumber = $"8821{new Random().Next(10000000, 99999999)}";
+                                }
+                                @foreach (var bank in banks)
+                                {
+                                    <div class="flex-between" style="padding:4px 0;">
+                                        <span><strong>@bank</strong></span>
+                                        <span style="font-family:monospace;">@vaNumber</span>
+                                        <button class="btn-clay" style="font-size:0.7rem;padding:2px 8px;" @onclick="() => CopyToClipboard(vaNumber)">📋</button>
+                                    </div>
+                                }
+                                <hr />
+                                <p class="text-muted" style="font-size:0.8rem;">Total Transfer: <strong>Rp @booking.TotalPrice.ToString("N0")</strong></p>
+                                <p class="text-muted" style="font-size:0.75rem;">⏰ Bayar sebelum @DateTime.Now.AddHours(24).ToString("dd MMM HH:mm")</p>
+                            </div>
+                        }
+
+                        <!-- E-Wallet Info -->
+                        @if (selectedMethod == PaymentMethod.EWallet)
+                        {
+                            <div class="clay-card-inset mt-16" style="padding:16px;">
+                                <h4>📱 E-Wallet</h4>
+                                @{
+                                    var wallets = Config.GetSection("Payment:EWalletProviders").Get<string[]>() ?? new[] { "GoPay", "OVO", "Dana" };
+                                }
+                                @foreach (var w in wallets)
+                                {
+                                    <div class="flex-between" style="padding:4px 0;">
+                                        <span><strong>@w</strong></span>
+                                        <span style="font-family:monospace;">08@(new Random().Next(10000000, 99999999))</span>
+                                    </div>
+                                }
+                                <p class="text-muted mt-8" style="font-size:0.75rem;">Silakan transfer ke nomor di atas sesuai e-wallet Anda.</p>
+                            </div>
+                        }
+
+                        <!-- QRIS -->
+                        @if (selectedMethod == PaymentMethod.QRIS)
+                        {
+                            <div class="clay-card-inset mt-16 text-center" style="padding:24px;">
+                                <h4>📲 Scan QRIS</h4>
+                                <div style="width:200px;height:200px;background:var(--clay-bg);margin:16px auto;display:flex;align-items:center;justify-content:center;border-radius:12px;">
+                                    <span style="font-size:5rem;">📱</span>
+                                </div>
+                                <p class="text-muted" style="font-size:0.8rem;">Scan menggunakan aplikasi e-wallet atau mobile banking Anda</p>
+                                <p style="font-family:monospace;font-size:0.85rem;">Total: Rp @booking.TotalPrice.ToString("N0")</p>
+                            </div>
+                        }
+
+                        <!-- Credit Card -->
+                        @if (selectedMethod == PaymentMethod.CreditCard)
+                        {
+                            <div class="clay-card-inset mt-16" style="padding:16px;">
+                                <h4>💳 Kartu Kredit</h4>
+                                <div class="mt-8">
+                                    <label class="form-label">Nomor Kartu</label>
+                                    <input type="text" class="form-clay" placeholder="1234 5678 9012 3456" maxlength="19" />
+                                </div>
+                                <div style="display:flex;gap:12px;">
+                                    <div style="flex:1;"><label class="form-label">Expiry</label><input type="text" class="form-clay" placeholder="MM/YY" maxlength="5" /></div>
+                                    <div style="flex:1;"><label class="form-label">CVV</label><input type="text" class="form-clay" placeholder="123" maxlength="4" /></div>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- Konfirmasi Pembayaran -->
+                        <div class="mt-16">
+                            <label class="form-label">ID Transaksi / Bukti</label>
+                            <input type="text" class="form-clay" @bind="transactionId" placeholder="Masukkan ID transaksi dari bank/e-wallet Anda" />
+                        </div>
+
+                        <button class="btn-clay btn-clay-primary w-100 mt-16" style="font-size:1.1rem;padding:14px;" 
+                                @onclick="ConfirmPayment" disabled="@(isProcessing || string.IsNullOrWhiteSpace(transactionId))">
+                            @(isProcessing ? "Memproses..." : "✅ Konfirmasi Pembayaran")
+                        </button>
+
+                        <p class="text-muted mt-8" style="font-size:0.75rem;">
+                            ⚠️ Ini simulasi. Pembayaran akan langsung dikonfirmasi.
+                        </p>
+                    }
+
+                    @if (!string.IsNullOrEmpty(message))
+                    {
+                        <div class="badge-clay @(success ? "badge-clay-success" : "badge-clay-danger") mt-16" style="padding:12px;white-space:pre-wrap;">@message</div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int BookingId { get; set; }
+    private bool isReady;
+    private Booking? booking;
+    private bool isPaid;
+    private bool isProcessing;
+    private string? message;
+    private bool success;
+    private PaymentMethod selectedMethod = PaymentMethod.BankTransfer;
+    private string transactionId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        booking = await BookingService.GetBookingByIdAsync(BookingId);
+        isReady = true;
+    }
+
+    private async Task ConfirmPayment()
+    {
+        isProcessing = true; message = null;
+
+        // Create payment record lalu confirm
+        await PaymentService.CreatePaymentAsync(BookingId, selectedMethod, booking!.TotalPrice);
+        var ok = await PaymentService.ConfirmPaymentAsync(BookingId, transactionId);
+
+        if (ok)
+        {
+            message = "✅ Pembayaran berhasil!\n\nBooking Anda sekarang status Confirmed.\nSilakan ambil kendaraan di lokasi yang ditentukan.\n\nKembali ke halaman pesanan untuk pickup kendaraan.";
+            success = true;
+            isPaid = true;
+            // Refresh booking data
+            booking = await BookingService.GetBookingByIdAsync(BookingId);
+        }
+        else
+        {
+            message = "❌ Gagal memproses pembayaran. Silakan coba lagi.";
+            success = false;
+        }
+        isProcessing = false;
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        // Simulate copy — in production would use JS interop
+        message = $"📋 Disalin: {text}"; success = true;
+    }
+}

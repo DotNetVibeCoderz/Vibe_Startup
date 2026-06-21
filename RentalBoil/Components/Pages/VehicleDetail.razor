@@ -1,0 +1,234 @@
+@page "/vehicles/{Id:int}"
+@inject VehicleService VehicleService
+@inject ReviewService ReviewService
+@inject BookingService BookingService
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthState
+
+@if (vehicle == null)
+{
+    <div class="clay-card text-center" style="padding:60px;">
+        <div style="font-size:4rem;">🔍</div>
+        <h3>Memuat...</h3>
+    </div>
+}
+else
+{
+    var isOwner = userId == vehicle.OwnerId;
+    var canBook = isAuthenticated && !isAdmin && !isOwner;
+
+    <div class="page-header">
+        <div>
+            <a href="/vehicles" class="text-muted" style="font-size:0.85rem;">← Kembali ke pencarian</a>
+            <h1 class="page-title">@vehicle.Name</h1>
+            <p class="page-subtitle">
+                @vehicle.Brand @vehicle.Model (@vehicle.Year) | 
+                @(vehicle.Type == VehicleType.Car ? "🚗 Mobil" : "🏍️ Motor") | 
+                Plat: @vehicle.PlateNumber
+            </p>
+        </div>
+        <div>
+            @if (canBook && vehicle.IsAvailable)
+            {
+                <button class="btn-clay btn-clay-primary" style="font-size:1.1rem;padding:12px 32px;" 
+                        @onclick="OpenBookingForm">
+                    🚘 Sewa Sekarang
+                </button>
+            }
+        </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;">
+        <div>
+            <div class="clay-card mb-24" style="padding:0;overflow:hidden;">
+                <div style="min-height:350px;display:flex;align-items:center;justify-content:center;font-size:8rem;
+                    background:linear-gradient(135deg,@(vehicle.Type==VehicleType.Car?"#dfe6e9,#b2bec3":"#ffeaa7,#fdcb6e"));">
+                    @(vehicle.Type == VehicleType.Car ? "🚗" : "🏍️")
+                </div>
+            </div>
+
+            <div class="clay-card mb-24" style="padding:24px;">
+                <h3 style="font-weight:700;">📋 Deskripsi</h3>
+                <div class="mt-16">
+                    @if (!string.IsNullOrWhiteSpace(vehicle.Description))
+                    {
+                        @((MarkupString)vehicle.Description.Replace("\n", "<br/>"))
+                    }
+                    else
+                    {
+                        <p class="text-muted">Tidak ada deskripsi</p>
+                    }
+                </div>
+            </div>
+
+            <div class="clay-card mb-24" style="padding:24px;">
+                <h3 style="font-weight:700;">⭐ Ulasan (@reviews.Count)</h3>
+                @foreach (var review in reviews)
+                {
+                    <div class="clay-card-inset mt-16" style="padding:16px;">
+                        <div class="flex-between">
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <div class="user-avatar">@(review.User?.FullName?.FirstOrDefault() ?? '?')</div>
+                                <strong>@(review.User?.FullName ?? "Anonymous")</strong>
+                            </div>
+                            <div>
+                                @for (int i = 1; i <= 5; i++)
+                                {
+                                    <span style="color:@(i<=review.Rating?"#FDCB6E":"#B2BEC3")">★</span>
+                                }
+                            </div>
+                        </div>
+                        <p class="mt-8">@review.Comment</p>
+                        <small class="text-muted">@review.CreatedAt.ToString("dd MMM yyyy")</small>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div>
+            <div class="clay-card mb-24" style="padding:24px;position:sticky;top:100px;">
+                <h3 style="font-weight:700;">💰 Harga Sewa</h3>
+                <div class="stat-card mt-16"><div class="stat-icon" style="background:rgba(108,92,231,0.15);color:var(--accent);">🕐</div><div><div class="stat-value" style="font-size:1.3rem;">Rp @vehicle.PricePerHour.ToString("N0")</div><div class="stat-label">/ jam</div></div></div>
+                <div class="stat-card mt-8"><div class="stat-icon" style="background:rgba(0,184,148,0.15);color:var(--success);">📅</div><div><div class="stat-value" style="font-size:1.3rem;">Rp @vehicle.PricePerDay.ToString("N0")</div><div class="stat-label">/ hari</div></div></div>
+
+                <h4 class="mt-24" style="font-weight:700;">📊 Spesifikasi</h4>
+                <div class="clay-card-inset mt-8" style="padding:16px;">
+                    <div class="flex-between" style="padding:4px 0;"><span class="text-muted">Transmisi</span> <strong>@vehicle.Transmission</strong></div>
+                    <div class="flex-between" style="padding:4px 0;"><span class="text-muted">Bahan Bakar</span> <strong>@vehicle.FuelType</strong></div>
+                    <div class="flex-between" style="padding:4px 0;"><span class="text-muted">Kapasitas</span> <strong>@vehicle.Capacity orang</strong></div>
+                    <div class="flex-between" style="padding:4px 0;"><span class="text-muted">Tahun</span> <strong>@vehicle.Year</strong></div>
+                    <div class="flex-between" style="padding:4px 0;"><span class="text-muted">Warna</span> <strong>@vehicle.Color</strong></div>
+                </div>
+
+                <h4 class="mt-24" style="font-weight:700;">📍 Lokasi</h4>
+                <div class="clay-card-inset mt-8" style="padding:16px;">
+                    <p style="font-size:0.9rem;">@vehicle.Location</p>
+                </div>
+
+                <h4 class="mt-24" style="font-weight:700;">🔐 Status IoT</h4>
+                <div class="clay-card-inset mt-8" style="padding:16px;">
+                    <div class="flex-between" style="padding:4px 0;"><span>Kunci</span><span class="badge-clay @(vehicle.LockStatus==LockStatus.Locked?"badge-clay-danger":"badge-clay-success")">@(vehicle.LockStatus==LockStatus.Locked?"🔒 Terkunci":"🔓 Terbuka")</span></div>
+                    <div class="flex-between" style="padding:4px 0;"><span>Mesin</span><span class="badge-clay @(vehicle.EngineStatus==EngineStatus.Off?"badge-clay-danger":"badge-clay-success")">@(vehicle.EngineStatus==EngineStatus.On?"🟢 Menyala":"⚫ Mati")</span></div>
+                    <div class="flex-between" style="padding:4px 0;"><span>Status</span><span class="badge-clay @(vehicle.MotionStatus==VehicleMotionStatus.Stopped?"badge-clay-warning":"badge-clay-info")">@(vehicle.MotionStatus==VehicleMotionStatus.Moving?"🏃 Bergerak":"🛑 Berhenti")</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (showBookingForm && canBook)
+    {
+        <div class="modal-clay" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;width:90%;max-width:500px;padding:32px;">
+            <h3 style="font-weight:700;">📅 Booking Kendaraan</h3>
+            <p class="text-muted">@vehicle.Name</p>
+            <div class="mt-16"><label class="form-label">Tanggal Mulai</label><input type="date" class="form-clay" @bind="bookingStartDate" /></div>
+            <div class="mt-8"><label class="form-label">Tanggal Selesai</label><input type="date" class="form-clay" @bind="bookingEndDate" /></div>
+            <div class="mt-8"><label class="form-label">Kode Kupon</label><input type="text" class="form-clay" @bind="couponCode" placeholder="Opsional" /></div>
+            @if (bookingEndDate != null && bookingStartDate != null && bookingEndDate > bookingStartDate)
+            {
+                var days = (int)(bookingEndDate.Value - bookingStartDate.Value).TotalDays;
+                var total = vehicle.PricePerDay * days;
+                <div class="clay-card-inset mt-16" style="padding:16px;"><div class="flex-between" style="padding:4px 0;"><span>Durasi</span><strong>@days hari</strong></div><hr /><div class="flex-between" style="padding:4px 0;font-size:1.2rem;"><span><strong>Total</strong></span><strong style="color:var(--accent);">Rp @total.ToString("N0")</strong></div></div>
+            }
+            <div class="flex-between mt-24">
+                <button class="btn-clay" @onclick="CloseBookingForm" disabled="@isSubmitting">Batal</button>
+                <button class="btn-clay btn-clay-primary" @onclick="ConfirmBooking" disabled="@isSubmitting">
+                    @(isSubmitting ? "Menyimpan..." : "✅ Konfirmasi Booking")
+                </button>
+            </div>
+            @if (!string.IsNullOrEmpty(bookingMessage))
+            {
+                <div class="badge-clay @(bookingSuccess ? "badge-clay-success" : "badge-clay-danger") w-100 mt-16">@bookingMessage</div>
+            }
+        </div>
+        <div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;" @onclick="CloseBookingForm"></div>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private Vehicle? vehicle;
+    private List<Review> reviews = new();
+    private string? userId;
+    private bool isAuthenticated;
+    private bool isAdmin;
+    private bool showBookingForm;
+    private bool isSubmitting;
+    private DateTime? bookingStartDate = DateTime.Now.AddDays(1);
+    private DateTime? bookingEndDate = DateTime.Now.AddDays(3);
+    private string couponCode = "";
+    private string? bookingMessage;
+    private bool bookingSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        vehicle = await VehicleService.GetVehicleByIdAsync(Id);
+        if (vehicle != null) reviews = await ReviewService.GetVehicleReviewsAsync(Id);
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = authState.User;
+        userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        isAuthenticated = user.Identity?.IsAuthenticated ?? false;
+        isAdmin = user.IsInRole("Admin");
+    }
+
+    private void OpenBookingForm()
+    {
+        bookingStartDate = DateTime.Now.AddDays(1);
+        bookingEndDate = DateTime.Now.AddDays(3);
+        couponCode = "";
+        bookingMessage = null;
+        isSubmitting = false;
+        showBookingForm = true;
+    }
+
+    /// <summary>
+    /// ★ FIX: method terpisah + StateHasChanged() agar UI update saat modal ditutup.
+    /// </summary>
+    private void CloseBookingForm()
+    {
+        showBookingForm = false;
+        // StateHasChanged tidak diperlukan di sini karena setter property
+        // sudah trigger re-render otomatis di Blazor.
+    }
+
+    /// <summary>
+    /// ★ FIX: Task-based method dengan StateHasChanged agar UI update.
+    /// </summary>
+    private async Task ConfirmBooking()
+    {
+        if (userId == null) { Navigation.NavigateTo("/login"); return; }
+        if (bookingStartDate == null || bookingEndDate == null || bookingEndDate <= bookingStartDate) return;
+
+        isSubmitting = true; bookingMessage = null;
+
+        var days = (int)(bookingEndDate.Value - bookingStartDate.Value).TotalDays;
+        var hours = (bookingEndDate.Value - bookingStartDate.Value).TotalHours;
+
+        var booking = new Booking
+        {
+            VehicleId = Id,
+            CustomerId = userId,
+            StartDate = bookingStartDate.Value,
+            EndDate = bookingEndDate.Value,
+            DurationDays = days,
+            DurationHours = hours,
+            CouponCode = string.IsNullOrWhiteSpace(couponCode) ? null : couponCode
+        };
+
+        var result = await BookingService.CreateBookingAsync(booking);
+
+        if (result != null)
+        {
+            bookingMessage = "✅ Booking berhasil! Silakan lanjutkan ke pembayaran.";
+            bookingSuccess = true;
+            // Auto-navigate ke halaman booking setelah 1.5 detik
+            await Task.Delay(1500);
+            Navigation.NavigateTo($"/customer/bookings/{result.Id}");
+        }
+        else
+        {
+            bookingMessage = "❌ Gagal membuat booking. Kendaraan mungkin tidak tersedia.";
+            bookingSuccess = false;
+            isSubmitting = false;
+        }
+    }
+}

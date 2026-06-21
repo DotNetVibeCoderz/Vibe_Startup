@@ -1,0 +1,130 @@
+@page "/customer/bookings/{BookingId:int}/review"
+@attribute [Authorize]
+@inject BookingService BookingService
+@inject ReviewService ReviewService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+
+@if (isReady)
+{
+    @if (booking == null)
+    {
+        <div class="clay-card text-center" style="padding:60px;">
+            <div style="font-size:4rem;">🔍</div>
+            <h3>Booking tidak ditemukan</h3>
+            <a href="/customer/bookings" class="btn-clay btn-clay-primary mt-16">← Kembali</a>
+        </div>
+    }
+    else if (alreadyReviewed)
+    {
+        <div class="clay-card text-center" style="padding:60px;">
+            <div style="font-size:4rem;">✅</div>
+            <h3>Anda sudah memberikan ulasan!</h3>
+            <p class="text-muted">Terima kasih atas feedback Anda.</p>
+            <a href="/vehicles/@booking.VehicleId" class="btn-clay btn-clay-primary mt-16">🔍 Lihat Kendaraan</a>
+        </div>
+    }
+    else
+    {
+        <div class="page-header">
+            <div>
+                <a href="/customer/bookings" class="text-muted" style="font-size:0.85rem;">← Kembali ke Pesanan</a>
+                <h1 class="page-title">⭐ Beri Ulasan</h1>
+                <p class="page-subtitle">Booking #@booking.BookingNumber — @booking.Vehicle?.Name</p>
+            </div>
+        </div>
+
+        <div style="max-width:600px;">
+            <div class="clay-card mb-24" style="padding:20px;display:flex;align-items:center;gap:16px;">
+                <div style="font-size:3rem;">@(booking.Vehicle?.Type == VehicleType.Car ? "🚗" : "🏍️")</div>
+                <div>
+                    <strong style="font-size:1.1rem;">@booking.Vehicle?.Name</strong>
+                    <p class="text-muted" style="font-size:0.85rem;">@booking.Vehicle?.Brand @booking.Vehicle?.Model (@booking.Vehicle?.Year)</p>
+                    <p class="text-muted" style="font-size:0.8rem;">📅 @booking.StartDate.ToString("dd MMM") — @booking.EndDate.ToString("dd MMM yyyy")</p>
+                </div>
+            </div>
+
+            <div class="clay-card mb-24" style="padding:24px;text-align:center;">
+                <h3 style="font-weight:700;margin-bottom:16px;">Bagaimana pengalaman Anda?</h3>
+                <div style="font-size:2.5rem;cursor:pointer;user-select:none;">
+                    @for (int i = 1; i <= 5; i++)
+                    {
+                        var star = i;
+                        <span style="color:@(i <= (hoverRating > 0 ? hoverRating : selectedRating) ? "#FDCB6E" : "#B2BEC3");transition:0.2s;" 
+                              @onclick="() => selectedRating = star"
+                              @onmouseover="() => hoverRating = star"
+                              @onmouseout="() => hoverRating = 0">
+                            @(i <= (hoverRating > 0 ? hoverRating : selectedRating) ? "★" : "☆")
+                        </span>
+                    }
+                </div>
+                <p class="mt-8" style="font-size:1.1rem;">
+                    @(selectedRating switch { 5 => "😍 Luar Biasa!", 4 => "😊 Bagus!", 3 => "🙂 Cukup", 2 => "😐 Biasa saja", 1 => "😞 Mengecewakan", _ => "Pilih rating" })
+                </p>
+            </div>
+
+            <div class="clay-card mb-24" style="padding:24px;">
+                <h3 style="font-weight:700;">📝 Tulis Ulasan Anda</h3>
+                <textarea class="form-clay mt-16" @bind="reviewComment" rows="5" placeholder="Ceritakan pengalaman Anda menggunakan kendaraan ini... (opsional)"></textarea>
+                <p class="text-muted mt-8" style="font-size:0.8rem;">@reviewComment.Length / 2000 karakter</p>
+            </div>
+
+            <button class="btn-clay btn-clay-primary w-100" style="font-size:1.1rem;padding:16px;" 
+                    @onclick="SubmitReview" disabled="@(isSubmitting || selectedRating == 0)">
+                @(isSubmitting ? "Mengirim..." : "⭐ Kirim Ulasan")
+            </button>
+
+            @if (!string.IsNullOrEmpty(message))
+            {
+                <div class="badge-clay @(success ? "badge-clay-success" : "badge-clay-danger") mt-16" style="padding:12px;">@message</div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int BookingId { get; set; }
+    private bool isReady;
+    private Booking? booking;
+    private bool alreadyReviewed;
+    private bool isSubmitting;
+    private string? message;
+    private bool success;
+    private int selectedRating;
+    private int hoverRating;
+    private string reviewComment = "";
+    private string userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        booking = await BookingService.GetBookingByIdAsync(BookingId);
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        userId = authState.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        if (booking != null) alreadyReviewed = booking.Reviews.Any(r => r.UserId == userId);
+        isReady = true;
+    }
+
+    private async Task SubmitReview()
+    {
+        if (selectedRating == 0 || booking == null) return;
+        isSubmitting = true; message = null;
+        try
+        {
+            var r = new RentalBoil.Models.Review
+            {
+                VehicleId = booking.VehicleId,
+                BookingId = BookingId,
+                UserId = userId,
+                Rating = selectedRating,
+                Comment = string.IsNullOrWhiteSpace(reviewComment) ? null : reviewComment,
+                IsVerified = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            await ReviewService.CreateReviewAsync(r);
+            message = "✅ Ulasan berhasil dikirim! Terima kasih atas feedback Anda. ⭐";
+            success = true; alreadyReviewed = true;
+        }
+        catch (Exception ex) { message = $"❌ Gagal: {ex.Message}"; success = false; }
+        finally { isSubmitting = false; }
+    }
+}

@@ -1,0 +1,221 @@
+@page "/chat"
+@inject BotService BotService
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+@inject IConfiguration Config
+@inject IJSRuntime JSRuntime
+
+@if (isReady)
+{
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">🤖 Bang Tony Brewok</h1>
+            <p class="page-subtitle">Asisten virtual siap bantu Anda 24/7!</p>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <select class="form-clay" style="max-width:200px;" @bind="currentSessionId" @bind:after="LoadSession">
+                <option value="0">Sesi Baru</option>
+                @foreach (var s in sessions)
+                {
+                    <option value="@s.Id">@(s.Title ?? $"Sesi {s.Id}")</option>
+                }
+            </select>
+            <button class="btn-clay" @onclick="NewSession">➕ Baru</button>
+            <button class="btn-clay" @onclick="ResetSession">🔄 Reset</button>
+        </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 300px;gap:20px;">
+        <div class="chat-container">
+            <div class="chat-messages" id="chatMessages">
+                @if (!messages.Any())
+                {
+                    <div class="text-center" style="padding:40px;">
+                        <div style="font-size:4rem;">🤖</div>
+                        <h3>Bang Tony Brewok</h3>
+                        <p class="text-muted">Halo bro/sis! Ada yang bisa dibantu?</p>
+                        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px;">
+                            <button class="btn-clay" @onclick='() => SendQuickMessage("Cari mobil murah")'>🚗 Cari Mobil</button>
+                            <button class="btn-clay" @onclick='() => SendQuickMessage("Ada promo apa?")'>🎁 Cek Promo</button>
+                            <button class="btn-clay" @onclick='() => SendQuickMessage("Cara booking?")'>❓ Cara</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var msg in messages)
+                    {
+                        <div class="chat-bubble @(msg.Role == "user" ? "chat-bubble-user" : "chat-bubble-bot")">
+                            @if (msg.Role == "assistant")
+                            {
+                                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                                    <strong>🤖 Bang Tony Brewok</strong>
+                                </div>
+                            }
+                            <div>@((MarkupString)msg.Content.Replace("\n", "<br/>"))</div>
+                            <small style="opacity:0.7;font-size:0.7rem;">@msg.CreatedAt.ToLocalTime().ToString("HH:mm")</small>
+                        </div>
+                    }
+                    @if (isTyping)
+                    {
+                        <div class="chat-bubble chat-bubble-bot"><div class="loading-dots"><span></span><span></span><span></span></div></div>
+                    }
+                }
+            </div>
+            <div class="chat-input-area">
+                <input type="text" class="form-clay" style="flex:1;" placeholder="Ketik pesan..."
+                       @bind="chatInput" @bind:event="oninput" @onkeydown="HandleKeyDown" disabled="@isTyping" />
+                <button class="btn-clay btn-clay-primary" @onclick="SendMessage" disabled="@(string.IsNullOrWhiteSpace(chatInput) || isTyping)">➤</button>
+            </div>
+        </div>
+        <div>
+            <div class="clay-card" style="padding:20px;">
+                <h4 style="font-weight:700;">ℹ️ Info Bot</h4>
+                <p>Model: @(Config.GetValue<string>("AI:Provider") ?? "OpenAI")</p>
+                <p>Messages: @messages.Count</p>
+                @if (lastError != null)
+                {
+                    <div class="badge-clay badge-clay-danger mt-8" style="white-space:pre-wrap;font-size:0.75rem;">@lastError</div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isReady;
+    private int currentSessionId;
+    private string chatInput = "";
+    private bool isTyping;
+    private string? lastError;
+    private List<RentalBoil.Models.ChatSession> sessions = new();
+    private List<RentalBoil.Models.ChatHistory> messages = new();
+    private string userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (!user.Identity?.IsAuthenticated ?? true) { Navigation.NavigateTo("/login"); return; }
+        userId = user.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        sessions = await Db.ChatSessions
+            .Where(s => s.UserId == userId && s.IsActive)
+            .OrderByDescending(s => s.UpdatedAt)
+            .ToListAsync();
+        if (sessions.Any())
+        {
+            currentSessionId = sessions.First().Id;
+            messages = await Db.ChatHistories
+                .Where(h => h.SessionId == currentSessionId)
+                .OrderBy(h => h.CreatedAt)
+                .ToListAsync();
+        }
+        isReady = true;
+    }
+
+    private async Task LoadSession()
+    {
+        if (currentSessionId > 0)
+            messages = await Db.ChatHistories
+                .Where(h => h.SessionId == currentSessionId)
+                .OrderBy(h => h.CreatedAt)
+                .ToListAsync();
+        else
+            messages = new();
+    }
+
+    private async Task SendQuickMessage(string msg) { chatInput = msg; await SendMessage(); }
+
+    /// <summary>
+    /// Kirim pesan ke Bang Tony Brewok.
+    /// ★ FIX: StateHasChanged() setelah isTyping=false agar UI re-render.
+    /// ★ FIX: StateHasChanged() + Task.Delay(50) setelah isTyping=true agar loading indicator muncul.
+    /// </summary>
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(chatInput) || isTyping) return;
+        lastError = null;
+
+        if (currentSessionId == 0)
+        {
+            var session = new RentalBoil.Models.ChatSession
+            {
+                UserId = userId,
+                Title = chatInput.Length > 50 ? chatInput[..50] + "..." : chatInput,
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            };
+            Db.ChatSessions.Add(session);
+            await Db.SaveChangesAsync();
+            currentSessionId = session.Id;
+            sessions = await Db.ChatSessions.Where(s => s.UserId == userId && s.IsActive)
+                .OrderByDescending(s => s.UpdatedAt).ToListAsync();
+        }
+
+        var userMsg = new RentalBoil.Models.ChatHistory
+        {
+            SessionId = currentSessionId, Role = "user", Content = chatInput, CreatedAt = DateTime.UtcNow
+        };
+        Db.ChatHistories.Add(userMsg);
+        await Db.SaveChangesAsync();
+
+        var sent = chatInput;
+        chatInput = "";
+        isTyping = true;
+        StateHasChanged();
+        await Task.Delay(50); // beri waktu renderer flush loading indicator
+
+        try
+        {
+            var history = await Db.ChatHistories
+                .Where(h => h.SessionId == currentSessionId).OrderBy(h => h.CreatedAt).ToListAsync();
+            var resp = await BotService.ChatAsync(sent, history);
+
+            var botMsg = new RentalBoil.Models.ChatHistory
+            {
+                SessionId = currentSessionId, Role = "assistant", Content = resp, CreatedAt = DateTime.UtcNow
+            };
+            Db.ChatHistories.Add(botMsg);
+            await Db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            lastError = ex.Message;
+            var errorMsg = new RentalBoil.Models.ChatHistory
+            {
+                SessionId = currentSessionId, Role = "assistant",
+                Content = $"⚠️ Error: {ex.Message}", CreatedAt = DateTime.UtcNow
+            };
+            Db.ChatHistories.Add(errorMsg);
+            await Db.SaveChangesAsync();
+        }
+
+        // Reload messages dari DB
+        messages = await Db.ChatHistories
+            .Where(h => h.SessionId == currentSessionId).OrderBy(h => h.CreatedAt).ToListAsync();
+
+        // ★ FIX: StateHasChanged() wajib setelah isTyping=false
+        isTyping = false;
+        StateHasChanged();
+
+        try { await JSRuntime.InvokeVoidAsync("eval", "var el=document.getElementById('chatMessages');if(el)el.scrollTop=el.scrollHeight;"); }
+        catch { }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) await SendMessage();
+    }
+
+    private void NewSession() { currentSessionId = 0; messages = new(); lastError = null; }
+
+    private async Task ResetSession()
+    {
+        if (currentSessionId > 0)
+        {
+            var s = await Db.ChatSessions.FindAsync(currentSessionId);
+            if (s != null) { s.IsActive = false; await Db.SaveChangesAsync(); }
+        }
+        currentSessionId = 0; messages = new(); lastError = null;
+    }
+}

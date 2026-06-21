@@ -1,0 +1,171 @@
+@page "/partner/dashboard"
+@attribute [Authorize(Roles = "Partner")]
+@inject BookingService BookingService
+@inject VehicleService VehicleService
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+@inject ExportService ExportService
+
+@if (stats != null)
+{
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">📊 Dashboard Partner</h1>
+            <p class="page-subtitle">Ringkasan bisnis rental Anda</p>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn-clay" @onclick="ExportReport">📊 Export</button>
+            <a href="/reports" class="btn-clay">📋 Laporan</a>
+        </div>
+    </div>
+
+    <div class="grid-4 mb-24">
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(108,92,231,0.15);color:var(--accent);">📦</div><div><div class="stat-value">@totalBookings</div><div class="stat-label">Total Booking</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(0,184,148,0.15);color:var(--success);">💰</div><div><div class="stat-value">Rp @String.Format("{0:N0}", totalRevenue)</div><div class="stat-label">Total Pendapatan</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(253,203,110,0.15);color:var(--warning);">⏳</div><div><div class="stat-value">@pendingCount</div><div class="stat-label">Pending</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(116,185,255,0.15);color:var(--info);">🚗</div><div><div class="stat-value">@vehicles.Count</div><div class="stat-label">Kendaraan</div></div></div>
+    </div>
+
+    <div class="grid-4 mb-24">
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(225,112,85,0.15);color:var(--danger);">🚗</div><div><div class="stat-value">@activeCount</div><div class="stat-label">Sedang Disewa</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(0,184,148,0.15);color:var(--success);">🏁</div><div><div class="stat-value">@completedCount</div><div class="stat-label">Selesai</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(108,92,231,0.15);color:var(--accent);">💰</div><div><div class="stat-value">Rp @String.Format("{0:N0}", monthRevenue)</div><div class="stat-label">Bulan Ini</div></div></div>
+        <div class="stat-card"><div class="stat-icon" style="background:rgba(253,203,110,0.15);color:var(--warning);">⭐</div><div><div class="stat-value">@avgRating.ToString("F1")</div><div class="stat-label">Rating</div></div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <div class="clay-card" style="padding:24px;">
+            <h3 style="font-weight:700;">📈 Pendapatan 7 Hari</h3>
+            @if (dailyRevenue.Any())
+            {
+                var maxRev = dailyRevenue.Max(x => x.Amount);
+                if (maxRev == 0) maxRev = 1;
+                <div style="margin-top:16px;">
+                    @foreach (var d in dailyRevenue)
+                    {
+                        var pct = (int)(d.Amount / maxRev * 100);
+                        <div style="margin-bottom:8px;">
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:2px;">
+                                <span>@d.Date.ToString("dd MMM")</span><span class="text-muted">Rp @String.Format("{0:N0}", d.Amount)</span>
+                            </div>
+                            <div style="height:24px;background:var(--clay-bg);border-radius:12px;overflow:hidden;">
+                                <div style="height:100%;width:@pct%;background:linear-gradient(90deg,var(--accent),var(--accent-light));border-radius:12px;min-width:4px;"></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else { <p class="text-muted mt-16">Belum ada pendapatan.</p> }
+        </div>
+
+        <div class="clay-card" style="padding:24px;">
+            <h3 style="font-weight:700;">🚗 Performa Kendaraan</h3>
+            @if (vehiclePerformance.Any())
+            {
+                var maxR = vehiclePerformance.Max(x => x.Count);
+                if (maxR == 0) maxR = 1;
+                <div style="margin-top:16px;">
+                    @foreach (var vp in vehiclePerformance)
+                    {
+                        var pct = (int)((double)vp.Count / maxR * 100);
+                        <div style="margin-bottom:8px;">
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:2px;">
+                                <span>@vp.Name</span><span class="text-muted">@vp.Count x sewa | ⭐ @vp.Rating.ToString("F1")</span>
+                            </div>
+                            <div style="height:20px;background:var(--clay-bg);border-radius:10px;overflow:hidden;">
+                                <div style="height:100%;width:@pct%;background:linear-gradient(90deg,var(--success),#55EFC4);border-radius:10px;min-width:4px;"></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else { <p class="text-muted mt-16">Belum ada data.</p> }
+        </div>
+    </div>
+
+    <div class="clay-card mt-24" style="padding:24px;">
+        <h3 style="font-weight:700;">🚗 Booking Aktif</h3>
+        @if (activeBookings.Any())
+        {
+            <div style="overflow-x:auto;"><table class="table-clay">
+                <thead><tr><th>No. Booking</th><th>Kendaraan</th><th>Customer</th><th>Mulai</th><th>Selesai</th><th>Sisa</th><th>Total</th></tr></thead>
+                <tbody>
+                    @foreach (var b in activeBookings)
+                    {
+                        var sisa = (b.EndDate.Date - DateTime.Now.Date).Days;
+                        <tr><td><strong>@b.BookingNumber</strong></td><td>@b.Vehicle?.Name</td><td>@b.Customer?.FullName</td>
+                        <td>@b.StartDate.ToString("dd MMM")</td><td>@b.EndDate.ToString("dd MMM")</td>
+                        <td><span class="badge-clay @(sisa <= 1 ? "badge-clay-danger" : sisa <= 3 ? "badge-clay-warning" : "badge-clay-success")">@sisa hari</span></td>
+                        <td><strong>Rp @b.TotalPrice.ToString("N0")</strong></td></tr>
+                    }
+                </tbody>
+            </table></div>
+        }
+        else { <p class="text-muted mt-8">Tidak ada booking aktif.</p> }
+    </div>
+
+    <div class="clay-card mt-24" style="padding:24px;">
+        <div class="flex-between mb-16"><h3 style="font-weight:700;">📋 Pesanan Masuk (@pendingCount)</h3></div>
+        @if (pendingBookings.Any())
+        {
+            <div style="overflow-x:auto;"><table class="table-clay">
+                <thead><tr><th>No. Booking</th><th>Kendaraan</th><th>Customer</th><th>Tanggal</th><th>Total</th><th>Aksi</th></tr></thead>
+                <tbody>
+                    @foreach (var b in pendingBookings)
+                    {
+                        <tr><td><strong>@b.BookingNumber</strong></td><td>@b.Vehicle?.Name</td><td>@b.Customer?.FullName</td>
+                        <td>@b.StartDate.ToString("dd MMM") → @b.EndDate.ToString("dd MMM")</td>
+                        <td><strong>Rp @b.TotalPrice.ToString("N0")</strong></td>
+                        <td><button class="btn-clay btn-clay-success" style="padding:4px 10px;font-size:0.75rem;" @onclick="() => AcceptBooking(b.Id)">✅</button></td></tr>
+                    }
+                </tbody>
+            </table></div>
+        }
+        else { <p class="text-muted mt-8">Tidak ada pesanan masuk.</p> }
+    </div>
+}
+
+@code {
+    private object? stats;
+    private List<Vehicle> vehicles = new();
+    private List<Booking> activeBookings = new();
+    private List<Booking> pendingBookings = new();
+    private decimal totalRevenue, monthRevenue;
+    private int totalBookings, pendingCount, activeCount, completedCount;
+    private double avgRating;
+    private List<(DateTime Date, decimal Amount)> dailyRevenue = new();
+    private List<(string Name, int Count, double Rating)> vehiclePerformance = new();
+    private string userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        userId = authState.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        await LoadAll();
+    }
+
+    private async Task LoadAll()
+    {
+        stats = await BookingService.GetPartnerStatsAsync(userId);
+        vehicles = await VehicleService.GetPartnerVehiclesAsync(userId);
+        activeBookings = await BookingService.GetPartnerBookingsAsync(userId, BookingStatus.Active);
+        pendingBookings = await BookingService.GetPartnerBookingsAsync(userId, BookingStatus.Pending);
+        var all = await BookingService.GetPartnerBookingsAsync(userId);
+        totalBookings = all.Count; pendingCount = all.Count(b => b.Status == BookingStatus.Pending);
+        activeCount = all.Count(b => b.Status == BookingStatus.Active); completedCount = all.Count(b => b.Status == BookingStatus.Completed);
+        totalRevenue = all.Where(b => b.PaymentStatus == PaymentStatus.Paid).Sum(b => b.TotalPrice);
+        var now = DateTime.UtcNow; monthRevenue = all.Where(b => b.PaidAt.HasValue && b.PaidAt.Value >= new DateTime(now.Year, now.Month, 1)).Sum(b => b.TotalPrice);
+        avgRating = vehicles.Any() ? vehicles.Average(v => v.AverageRating) : 0;
+        dailyRevenue = Enumerable.Range(0, 7).Select(i => { var d = now.Date.AddDays(-i); return (d, all.Where(b => b.PaidAt.HasValue && b.PaidAt.Value.Date == d).Sum(b => b.TotalPrice)); }).Reverse().ToList();
+        vehiclePerformance = vehicles.Select(v => (v.Name, all.Count(b => b.VehicleId == v.Id), v.AverageRating)).OrderByDescending(x => x.Item2).ToList();
+    }
+
+    private async Task AcceptBooking(int id) { await BookingService.AcceptBookingAsync(id); await LoadAll(); }
+
+    private async Task ExportReport()
+    {
+        var bookings = await BookingService.GetPartnerBookingsAsync(userId);
+        var data = bookings.Select(b => new { b.BookingNumber, b.Vehicle?.Name, b.Customer?.FullName, Date = b.CreatedAt, Durasi = b.DurationDays, Total = b.TotalPrice, b.Status });
+        ExportService.ExportToExcel(data, "PartnerReport");
+    }
+}

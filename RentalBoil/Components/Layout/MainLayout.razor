@@ -1,0 +1,131 @@
+@inherits LayoutComponentBase
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthState
+@inject NotificationService NotificationService
+
+@if (isReady)
+{
+    <div class="app-shell">
+        <!-- Sidebar Overlay (mobile) -->
+        @if (sidebarOpen) { <div class="sidebar-overlay" @onclick="ToggleSidebar"></div> }
+
+        <aside class="sidebar clay-card @(sidebarOpen ? "sidebar-open" : "")">
+            <div class="sidebar-close-btn" @onclick="ToggleSidebar"><i class="bi bi-x-lg"></i></div>
+            <div class="sidebar-brand">
+                <a href="/" class="text-decoration-none">
+                    <div class="brand-icon">🚗</div>
+                    <div class="brand-text">
+                        <span class="brand-name">Rental<span class="text-accent">Boil</span></span>
+                        <small class="brand-tagline">Rental Anti Ngambek</small>
+                    </div>
+                </a>
+            </div>
+            <nav class="sidebar-nav" @onclick="() => { if (sidebarOpen) sidebarOpen = false; }">
+                <a href="/" class="nav-item"><i class="bi bi-house-heart"></i> <span>Beranda</span></a>
+                <a href="/vehicles" class="nav-item"><i class="bi bi-car-front"></i> <span>Cari Kendaraan</span></a>
+                @if (isAuthenticated)
+                {
+                    <a href="/customer/bookings" class="nav-item"><i class="bi bi-journal-check"></i> <span>Pesanan Saya</span></a>
+                    <a href="/gps" class="nav-item"><i class="bi bi-geo-alt"></i> <span>GPS Tracking</span></a>
+                    <a href="/chat" class="nav-item"><i class="bi bi-robot"></i> <span>Bang Tony Brewok</span></a>
+                    @if (isPartner || isAdmin)
+                    {
+                        <div class="nav-divider"></div>
+                        <div class="nav-section-title">@(isAdmin ? "Admin" : "Partner") Panel</div>
+                        @if (isPartner)
+                        {
+                            <a href="/partner/dashboard" class="nav-item"><i class="bi bi-speedometer2"></i> <span>Dashboard</span></a>
+                            <a href="/partner/vehicles" class="nav-item"><i class="bi bi-gear"></i> <span>Kendaraan Saya</span></a>
+                        }
+                        @if (isAdmin)
+                        {
+                            <a href="/admin/dashboard" class="nav-item"><i class="bi bi-speedometer2"></i> <span>Admin Dashboard</span></a>
+                            <a href="/admin/map" class="nav-item"><i class="bi bi-map"></i> <span>Peta Kendaraan</span></a>
+                        }
+                        <a href="/reports" class="nav-item"><i class="bi bi-file-earmark-bar-graph"></i> <span>Laporan</span></a>
+                    }
+                }
+                else
+                {
+                    <div class="nav-divider"></div>
+                    <a href="/login" class="nav-item"><i class="bi bi-box-arrow-in-right"></i> <span>Masuk</span></a>
+                    <a href="/register" class="nav-item"><i class="bi bi-person-plus"></i> <span>Daftar</span></a>
+                }
+                <div class="nav-divider"></div>
+                <a href="/faq" class="nav-item"><i class="bi bi-question-circle"></i> <span>FAQ</span></a>
+                <a href="/about" class="nav-item"><i class="bi bi-info-circle"></i> <span>Tentang</span></a>
+            </nav>
+            <div class="sidebar-footer">
+                @if (isAuthenticated)
+                {
+                    <div class="user-mini">
+                        <div class="user-avatar">@(currentUserName?.FirstOrDefault() ?? 'U')</div>
+                        <div class="user-info">
+                            <span class="user-name">@(currentUserName ?? currentUserEmail)</span>
+                            <span class="user-role">@(isAdmin ? "Admin" : isPartner ? "Partner" : "Customer")</span>
+                        </div>
+                    </div>
+                    <a href="/profile" class="nav-item"><i class="bi bi-person"></i> Profil</a>
+                    <a href="/logout" class="nav-item"><i class="bi bi-box-arrow-right"></i> Keluar</a>
+                }
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="topbar clay-card">
+                <!-- Hamburger (mobile only) -->
+                <button class="btn-icon hamburger-btn" @onclick="ToggleSidebar">
+                    <i class="bi bi-list"></i>
+                </button>
+                <div class="topbar-right" style="margin-left:auto;">
+                    <button class="btn btn-sm btn-ghost @(currentLang == "id" ? "fw-bold" : "")" @onclick="SwitchToId">🇮🇩 ID</button>
+                    <button class="btn btn-sm btn-ghost @(currentLang == "en" ? "fw-bold" : "")" @onclick="SwitchToEn">🇬🇧 EN</button>
+                    <button class="btn-icon" @onclick="SwitchTheme" title="Toggle theme"><i class="bi bi-@(currentTheme == "dark" ? "sun" : "moon")"></i></button>
+                    @if (isAuthenticated)
+                    {
+                        <button class="btn-icon position-relative" @onclick="GoNotifications">
+                            <i class="bi bi-bell"></i>
+                            @if (unreadCount > 0)
+                            {
+                                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size:0.65rem;">
+                                    @(unreadCount > 99 ? "99+" : unreadCount.ToString())
+                                </span>
+                            }
+                        </button>
+                    }
+                </div>
+            </header>
+            <div class="page-content">@Body</div>
+            <footer class="app-footer">
+                <div class="footer-content"><span>&copy; @DateTime.Now.Year RentalBoil - Gravicode Studios</span><span>Made with ❤️ by Kang Fadhil &amp; Jacky The Code Bender</span></div>
+            </footer>
+        </main>
+    </div>
+}
+
+@code {
+    private bool isReady; private string currentTheme = "light"; private string currentLang = "id";
+    private bool isAuthenticated, isAdmin, isPartner; private string? currentUserName, currentUserEmail;
+    private int unreadCount; private bool sidebarOpen;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { currentTheme = await JSRuntime.InvokeAsync<string>("eval", "document.cookie.split('; ').find(r=>r.startsWith('theme='))?.split('=')[1] || 'light'"); } catch { currentTheme = "light"; }
+        try { currentLang = await JSRuntime.InvokeAsync<string>("eval", "document.cookie.split('; ').find(r=>r.startsWith('lang='))?.split('=')[1] || 'id'"); } catch { currentLang = "id"; }
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = authState.User; isAuthenticated = user.Identity?.IsAuthenticated ?? false;
+        isAdmin = user.IsInRole("Admin"); isPartner = user.IsInRole("Partner");
+        currentUserName = user.FindFirstValue("FullName"); currentUserEmail = user.Identity?.Name;
+        if (isAuthenticated) unreadCount = await NotificationService.GetUnreadCountAsync(user.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        isReady = true;
+    }
+
+    private void ToggleSidebar() => sidebarOpen = !sidebarOpen;
+
+    private async Task SwitchTheme()
+    { var t = currentTheme == "dark" ? "light" : "dark"; await JSRuntime.InvokeVoidAsync("eval", $"document.cookie='theme={t};path=/;max-age=31536000';document.documentElement.setAttribute('data-bs-theme','{t}');document.body.className='{t}-theme';"); currentTheme = t; }
+    private async Task SwitchToId() { await JSRuntime.InvokeVoidAsync("eval", "document.cookie='lang=id;path=/;max-age=31536000';"); Navigation.Refresh(true); }
+    private async Task SwitchToEn() { await JSRuntime.InvokeVoidAsync("eval", "document.cookie='lang=en;path=/;max-age=31536000';"); Navigation.Refresh(true); }
+    private void GoNotifications() => Navigation.NavigateTo("/notifications");
+}

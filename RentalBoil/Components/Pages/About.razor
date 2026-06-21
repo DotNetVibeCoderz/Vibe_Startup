@@ -1,0 +1,45 @@
+@page "/about"
+@inject LanguageService LanguageService
+
+@{
+    var lang = LanguageService.GetCurrentLanguage();
+}
+
+<div class="clay-card text-center" style="padding:60px;max-width:700px;margin:0 auto;">
+    <div style="font-size:5rem;">🚗</div>
+    <h1 class="page-title">Rental<span class="text-accent">Boil</span></h1>
+    <p class="page-subtitle" style="font-size:1.1rem;">
+        @(lang == "id" ? "Rental Kendaraan Anti Ngambek!" : "No Fuss Vehicle Rental!")
+    </p>
+    
+    <div class="mt-24">
+        <p>
+            @(lang == "id" 
+                ? "RentalBoil adalah platform rental kendaraan modern yang menghubungkan pemilik kendaraan dengan pelanggan. Kami menyediakan mobil dan motor untuk disewa dengan proses yang mudah, aman, dan transparan."
+                : "RentalBoil is a modern vehicle rental platform connecting vehicle owners with customers. We provide cars and motorcycles for rent with an easy, secure, and transparent process.")
+        </p>
+    </div>
+
+    <div class="grid-3 mt-24">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(108,92,231,0.15);color:var(--accent);">🎯</div>
+            <div><div class="stat-value" style="font-size:1rem;">@(lang == "id" ? "Misi" : "Mission")</div>
+            <div class="stat-label">@(lang == "id" ? "Membuat rental kendaraan semudah klik tombol" : "Make vehicle rental as easy as clicking a button")</div></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(0,184,148,0.15);color:var(--success);">👁️</div>
+            <div><div class="stat-value" style="font-size:1rem;">@(lang == "id" ? "Visi" : "Vision")</div>
+            <div class="stat-label">@(lang == "id" ? "Menjadi platform rental #1 di Indonesia" : "Become the #1 rental platform in Indonesia")</div></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(253,203,110,0.15);color:var(--warning);">❤️</div>
+            <div><div class="stat-value" style="font-size:1rem;">@(lang == "id" ? "Nilai" : "Values")</div>
+            <div class="stat-label">@(lang == "id" ? "Kepercayaan, Inovasi, Kepuasan" : "Trust, Innovation, Satisfaction")</div></div>
+        </div>
+    </div>
+
+    <div class="mt-24">
+        <p class="text-muted">Made with ❤️ by <strong>Gravicode Studios</strong> | <strong>Kang Fadhil</strong> & <strong>Jacky The Code Bender</strong></p>
+        <small class="text-muted">v1.0.0 - Built with Blazor Server .NET 10</small>
+    </div>
+</div>
