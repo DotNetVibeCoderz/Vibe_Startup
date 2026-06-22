@@ -1,0 +1,51 @@
+@page "/dashboard"
+@page "/"
+@attribute [Authorize]
+@inject KostService KostSvc
+@inject AppDbContext Db
+
+@if (_kosts.Count == 1)
+{
+    <DashboardContent @key="@_kosts[0].Id" KostId="@_kosts[0].Id" />
+}
+else if (_kosts.Count > 1)
+{
+    <h3 class="mb-4">Pilih Kost</h3>
+    <div class="stat-grid mb-2">
+        @foreach (var k in _kosts)
+        {
+            var isActive = k.Id == _selectedKostId;
+            <div class="stat-card" @onclick="() => _selectedKostId = k.Id"
+                 style="cursor:pointer;border-color:@(isActive ? "var(--primary)" : "var(--border)")">
+                <div class="stat-icon">🏠</div>
+                <div class="stat-value" style="font-size:1.1rem">@k.Nama</div>
+                <div class="stat-label">@k.Alamat</div>
+            </div>
+        }
+    </div>
+    @if (_selectedKostId > 0)
+    {
+        @* @key forces Blazor to destroy & recreate DashboardContent when KostId changes *@
+        <DashboardContent @key="@_selectedKostId" KostId="@_selectedKostId" />
+    }
+}
+else
+{
+    <div class="text-center p-4">
+        <h1 style="font-size:4rem">🏠</h1>
+        <h2>Selamat Datang di JuraganKost!</h2>
+        <p class="text-muted">Belum ada kost yang terdaftar.</p>
+        <a href="/kost/tambah" class="btn btn-primary btn-lg mt-4">➕ Tambah Kost Baru</a>
+    </div>
+}
+
+@code {
+    private List<Kost> _kosts = new();
+    private int _selectedKostId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _kosts = await Db.Kost.ToListAsync();
+        if (_kosts.Count == 1) _selectedKostId = _kosts[0].Id;
+    }
+}

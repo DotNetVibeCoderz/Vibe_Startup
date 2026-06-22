@@ -1,0 +1,13 @@
+@page "/pembayaran"
+@attribute [Authorize]
+@inject PembayaranService PembayaranSvc
+
+<div class="card-header"><h2 class="card-title">💵 Manajemen Pembayaran</h2></div>
+<div class="card"><div class="table-container"><table class="table"><thead><tr><th>No Pembayaran</th><th>Penghuni</th><th>Jumlah</th><th>Metode</th><th>Tanggal</th><th>Status</th><th>Aksi</th></tr></thead>
+<tbody>@foreach (var p in _pembayaran.Take(50)) { <tr><td class="font-bold">@p.NomorPembayaran</td><td>@p.Penghuni?.NamaLengkap</td><td>@p.Jumlah.ToRupiah()</td><td>@p.Metode</td><td>@p.TanggalBayar.ToString("dd MMM yyyy")</td><td><span class="badge @(p.Status == StatusPembayaran.Diverifikasi ? "badge-success" : p.Status == StatusPembayaran.Ditolak ? "badge-danger" : "badge-warning")">@p.Status</span></td><td>@if (p.Status == StatusPembayaran.Pending) { <div class="flex gap-2"><button class="btn btn-sm btn-success" @onclick="() => Verifikasi(p.Id, true)">✅</button><button class="btn btn-sm btn-danger" @onclick="() => Verifikasi(p.Id, false)">❌</button></div> }</td></tr> }</tbody></table></div></div>
+
+@code {
+    private List<Pembayaran> _pembayaran = new();
+    protected override async Task OnInitializedAsync() => _pembayaran = await PembayaranSvc.GetAllAsync();
+    private async Task Verifikasi(int id, bool d) { await PembayaranSvc.VerifikasiAsync(id, d); _pembayaran = await PembayaranSvc.GetAllAsync(); }
+}

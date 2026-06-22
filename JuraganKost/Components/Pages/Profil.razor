@@ -1,0 +1,70 @@
+@page "/profil"
+@attribute [Authorize]
+@inject AuthenticationStateProvider AuthState
+@inject UserManager<ApplicationUser> UserManager
+
+<div class="card-header"><h2 class="card-title">👤 Profil Pengguna</h2></div>
+
+@if (_user != null)
+{
+    <div class="card">
+        <div class="form-row">
+            <div class="form-group"><label class="form-label">Nama Lengkap</label><input class="form-control" @bind="_user.NamaLengkap" /></div>
+            <div class="form-group"><label class="form-label">Email</label><input class="form-control" value="@_user.Email" readonly /></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label class="form-label">Role</label><input class="form-control" value="@_user.RoleExt" readonly /></div>
+            <div class="form-group"><label class="form-label">No HP</label><input class="form-control" @bind="_user.PhoneNumber" /></div>
+        </div>
+        <div class="form-group"><label class="form-label">Alamat</label><textarea class="form-control" @bind="_user.Alamat" rows="2"></textarea></div>
+        <button class="btn btn-primary" @onclick="UpdateProfile">💾 Simpan Perubahan</button>
+        @if (!string.IsNullOrEmpty(_message)) { <div class="alert alert-success mt-2">@_message</div> }
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-title">🔑 Ganti Password</div>
+        <div class="form-row">
+            <div class="form-group"><label class="form-label">Password Lama</label><input type="password" class="form-control" @bind="_oldPassword" /></div>
+            <div class="form-group"><label class="form-label">Password Baru</label><input type="password" class="form-control" @bind="_newPassword" /></div>
+        </div>
+        <button class="btn btn-accent" @onclick="ChangePassword">🔐 Ganti Password</button>
+        @if (!string.IsNullOrEmpty(_passMessage)) { <div class="alert @(_passError ? "alert-danger" : "alert-success") mt-2">@_passMessage</div> }
+    </div>
+}
+else { <p>Memuat...</p> }
+
+@code {
+    private ApplicationUser? _user;
+    private string _oldPassword = "", _newPassword = "";
+    private string? _message, _passMessage;
+    private bool _passError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        _user = await UserManager.GetUserAsync(authState.User);
+    }
+
+    private async Task UpdateProfile()
+    {
+        if (_user == null) return;
+        await UserManager.UpdateAsync(_user);
+        _message = "Profil berhasil diperbarui!";
+    }
+
+    private async Task ChangePassword()
+    {
+        if (_user == null || string.IsNullOrEmpty(_oldPassword)) return;
+        var result = await UserManager.ChangePasswordAsync(_user, _oldPassword, _newPassword);
+        if (result.Succeeded)
+        {
+            _passMessage = "Password berhasil diganti!";
+            _passError = false;
+        }
+        else
+        {
+            _passMessage = string.Join(", ", result.Errors.Select(e => e.Description));
+            _passError = true;
+        }
+    }
+}

@@ -1,0 +1,57 @@
+@page "/laporan"
+@attribute [Authorize]
+@inject AppDbContext Db
+@inject KostService KostSvc
+
+<div class="card-header"><h2 class="card-title">📊 Laporan Keuangan</h2></div>
+
+@if (_kosts.Count == 0) { <p class="text-muted">Belum ada data.</p> }
+else
+{
+    <div class="stat-grid mb-4">
+        <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-value">@_pemasukan.ToRupiah()</div><div class="stat-label">Pemasukan Bulan Ini</div></div>
+        <div class="stat-card"><div class="stat-icon">📈</div><div class="stat-value">@_profit.ToRupiah()</div><div class="stat-label">Estimasi Profit</div></div>
+        <div class="stat-card"><div class="stat-icon">⚠️</div><div class="stat-value text-danger">@_piutang.ToRupiah()</div><div class="stat-label">Piutang</div></div>
+        <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value">@_totalPenghuni</div><div class="stat-label">Total Penghuni Aktif</div></div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">📋 Detail Pemasukan Per Kost</div>
+        <div class="table-container">
+            <table class="table">
+                <thead><tr><th>Kost</th><th>Total Kamar</th><th>Terisi</th><th>Okupansi</th><th>Potensi Pemasukan</th><th>Pemasukan Bulan Ini</th></tr></thead>
+                <tbody>
+                    @foreach (var k in _kosts)
+                    {
+                        var summary = _dashboards.GetValueOrDefault(k.Id);
+                        <tr>
+                            <td class="font-bold">@k.Nama</td>
+                            <td>@(summary?.TotalKamar ?? 0)</td>
+                            <td>@(summary?.KamarTerisi ?? 0)</td>
+                            <td>@(summary?.Okupansi ?? 0)%</td>
+                            <td>@(k.Kamar.Sum(x => x.HargaSewa).ToRupiah())</td>
+                            <td>@((summary?.PemasukanBulanIni ?? 0).ToRupiah())</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Kost> _kosts = new(); private Dictionary<int, DashboardSummary> _dashboards = new();
+    private decimal _pemasukan, _profit, _piutang; private int _totalPenghuni;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _kosts = await Db.Kost.Include(k => k.Kamar).ToListAsync();
+        foreach (var k in _kosts)
+        {
+            var dash = await KostSvc.GetDashboardAsync(k.Id);
+            _dashboards[k.Id] = dash;
+            _pemasukan += dash.PemasukanBulanIni; _piutang += dash.Piutang; _totalPenghuni += dash.TotalPenghuni;
+        }
+        _profit = _pemasukan * 0.7m;
+    }
+}

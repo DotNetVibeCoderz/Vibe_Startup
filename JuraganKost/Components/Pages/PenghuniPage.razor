@@ -1,0 +1,161 @@
+@page "/penghuni"
+@attribute [Authorize]
+@inject PenghuniService PenghuniSvc
+@inject KamarService KamarSvc
+
+<div class="card-header">
+    <h2 class="card-title">👥 Pengelolaan Penghuni</h2>
+    <div class="flex gap-2">
+        <button class="btn btn-primary" @onclick="ShowAddModal">➕ Tambah Penghuni</button>
+        <a href="/api/v1/export/penghuni/csv" class="btn btn-sm" target="_blank">📥 CSV</a>
+        <a href="/api/v1/export/penghuni/excel" class="btn btn-sm" target="_blank">📊 Excel</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Nama</th>
+                    <th>NIK</th>
+                    <th>No HP</th>
+                    <th>Kamar</th>
+                    <th>Pekerjaan</th>
+                    <th>Status</th>
+                    <th>Masuk</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                @{
+                    var paged = _allPenghuni.Skip((_page - 1) * _pageSize).Take(_pageSize);
+                }
+                @foreach (var p in paged)
+                {
+                    <tr>
+                        <td class="font-bold">@p.NamaLengkap</td>
+                        <td>@p.NIK</td>
+                        <td>@p.NoHP</td>
+                        <td>@p.Kamar?.NomorKamar</td>
+                        <td>@p.Pekerjaan</td>
+                        <td>
+                            <span class="badge @(p.Status == StatusPenghuni.Aktif ? "badge-success" : "badge-danger")">@p.Status</span>
+                        </td>
+                        <td>@p.TanggalMasuk.ToString("dd MMM yyyy")</td>
+                        <td>
+                            <div class="flex gap-2">
+                                <button class="btn btn-sm" @onclick="() => ShowDetail(p)">👁️</button>
+                                <button class="btn btn-sm" @onclick="() => ShowEditModal(p)">✏️</button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeletePenghuni(p.Id)">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="pagination">
+        @for (int i = 1; i <= _totalPages; i++)
+        { <button class="@(i == _page ? "active" : "")" @onclick="() => _page = i">@i</button> }
+    </div>
+</div>
+
+@if (_detailPenghuni != null)
+{
+    <div class="modal-overlay" @onclick="() => _detailPenghuni = null">
+        <div class="modal-content" @onclick:stopPropagation="true" style="max-width:700px">
+            <div class="modal-header">
+                <h3>👤 Detail Penghuni: @_detailPenghuni.NamaLengkap</h3>
+                <button class="btn btn-sm btn-danger" @onclick="() => _detailPenghuni = null">✕</button>
+            </div>
+            <div class="form-row">
+                <div><strong>NIK:</strong> @_detailPenghuni.NIK</div>
+                <div><strong>No HP:</strong> @_detailPenghuni.NoHP</div>
+                <div><strong>Email:</strong> @_detailPenghuni.Email</div>
+                <div><strong>Pekerjaan:</strong> @_detailPenghuni.Pekerjaan</div>
+                <div><strong>Kamar:</strong> @_detailPenghuni.Kamar?.NomorKamar</div>
+                <div><strong>Tanggal Masuk:</strong> @_detailPenghuni.TanggalMasuk.ToString("dd MMM yyyy")</div>
+                <div><strong>Kontak Darurat:</strong> @_detailPenghuni.KontakDarurat (@_detailPenghuni.HubunganKontakDarurat)</div>
+                <div><strong>Alamat Asal:</strong> @_detailPenghuni.AlamatAsal</div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showModal)
+{
+    <div class="modal-overlay" @onclick="() => _showModal = false">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>@(_editingPenghuni == null ? "Tambah Penghuni" : "Edit Penghuni")</h3>
+                <button class="btn btn-sm btn-danger" @onclick="() => _showModal = false">✕</button>
+            </div>
+            <form @onsubmit="SavePenghuni">
+                <div class="form-group"><label class="form-label">Nama Lengkap</label><input class="form-control" @bind="_form.NamaLengkap" required /></div>
+                <div class="form-row">
+                    <div class="form-group"><label class="form-label">NIK</label><input class="form-control" @bind="_form.NIK" /></div>
+                    <div class="form-group"><label class="form-label">No HP</label><input class="form-control" @bind="_form.NoHP" /></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-control" @bind="_form.Email" /></div>
+                    <div class="form-group"><label class="form-label">Pekerjaan</label><input class="form-control" @bind="_form.Pekerjaan" /></div>
+                </div>
+                <div class="form-group"><label class="form-label">Kamar</label>
+                    <select class="form-control" @bind="_form.KamarId">
+                        <option value="">Pilih Kamar</option>
+                        @foreach (var k in _kamarList) { <option value="@k.Id">@k.NomorKamar - @k.Kost?.Nama</option> }
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label class="form-label">Kontak Darurat</label><input class="form-control" @bind="_form.KontakDarurat" /></div>
+                    <div class="form-group"><label class="form-label">Hubungan</label><input class="form-control" @bind="_form.HubunganKontakDarurat" /></div>
+                </div>
+                <div class="form-group"><label class="form-label">Alamat Asal</label><textarea class="form-control" @bind="_form.AlamatAsal" rows="2"></textarea></div>
+                <button type="submit" class="btn btn-primary w-full">💾 Simpan</button>
+            </form>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Penghuni> _allPenghuni = new();
+    private List<Kamar> _kamarList = new();
+    private Penghuni? _detailPenghuni, _editingPenghuni;
+    private Penghuni _form = new();
+    private bool _showModal;
+    private int _page = 1, _pageSize = 10;
+    private int _totalPages => Math.Max(1, (int)Math.Ceiling(_allPenghuni.Count / (double)_pageSize));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _kamarList = await KamarSvc.GetAllAsync();
+        _allPenghuni = await PenghuniSvc.GetAllAsync();
+    }
+
+    private void ShowDetail(Penghuni p) => _detailPenghuni = p;
+    private void ShowAddModal() { _editingPenghuni = null; _form = new(); _showModal = true; }
+
+    private void ShowEditModal(Penghuni p)
+    {
+        _editingPenghuni = p;
+        _form = new Penghuni { Id = p.Id, NamaLengkap = p.NamaLengkap, NIK = p.NIK, NoHP = p.NoHP,
+            Email = p.Email, Pekerjaan = p.Pekerjaan, KontakDarurat = p.KontakDarurat,
+            HubunganKontakDarurat = p.HubunganKontakDarurat, AlamatAsal = p.AlamatAsal, KamarId = p.KamarId };
+        _showModal = true;
+    }
+
+    private async Task SavePenghuni()
+    {
+        if (_editingPenghuni == null) await PenghuniSvc.CreateAsync(_form);
+        else await PenghuniSvc.UpdateAsync(_form);
+        _showModal = false;
+        _allPenghuni = await PenghuniSvc.GetAllAsync();
+    }
+
+    private async Task DeletePenghuni(int id)
+    {
+        await PenghuniSvc.DeleteAsync(id);
+        _allPenghuni = await PenghuniSvc.GetAllAsync();
+    }
+}

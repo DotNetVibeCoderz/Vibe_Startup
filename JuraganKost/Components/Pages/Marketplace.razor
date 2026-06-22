@@ -1,0 +1,79 @@
+@page "/marketplace"
+@inject AppDbContext Db
+@inject ReviewService ReviewSvc
+@inject AuthenticationStateProvider AuthState
+
+<div class="card-header"><h2 class="card-title">🏪 Marketplace Kost</h2><p class="text-muted">Cari kost impianmu di sini!</p></div>
+
+@if(_listings.Count==0){<p class="text-muted">Belum ada listing kost.</p>}
+else{
+    <div class="stat-grid">
+        @foreach(var listing in _listings){
+            var kost=listing.Kost;if(kost==null)continue;
+            var avgRating=_ratings.GetValueOrDefault(kost.Id,0);
+            var kamarTersedia=kost.Kamar?.Count(k=>k.Status==StatusKamar.Kosong)??0;
+            var firstImg=_kostImages.GetValueOrDefault(kost.Id);
+            <div class="card" style="cursor:pointer">
+                @if(!string.IsNullOrEmpty(firstImg)){<img src="@firstImg" style="width:100%;height:160px;object-fit:cover;border-radius:8px;margin-bottom:8px;border:1px solid var(--border)"/>}
+                <h3>🏠 @kost.Nama</h3><p class="text-muted">📍 @kost.Alamat, @kost.Kota</p><p>@kost.Deskripsi</p>
+                <div class="flex justify-between items-center mt-2"><span class="badge badge-primary">@kamarTersedia kamar tersedia</span><span class="badge badge-accent">⭐ @avgRating.ToString("F1")</span></div>
+                @if(!string.IsNullOrEmpty(listing.HighlightFitur)){<p class="mt-2"><strong>Fitur:</strong> @listing.HighlightFitur</p>}
+                <div class="mt-4 flex gap-2"><button class="btn btn-primary" @onclick="()=>_selectedKost=kost">👁️ Detail</button><a href="/auth/login" class="btn btn-accent">📝 Booking</a></div>
+            </div>
+        }
+    </div>
+}
+
+@if(_selectedKost!=null){
+<div class="modal-overlay" @onclick="()=>_selectedKost=null"><div class="modal-content" @onclick:stopPropagation="true" style="max-width:750px;max-height:85vh;overflow-y:auto">
+<div class="modal-header"><h3>🏠 @_selectedKost.Nama</h3><button class="btn btn-sm btn-danger" @onclick="()=>_selectedKost=null">✕</button></div>
+
+@* ── Kost Images ── *@
+@if(_selectedKostImages.Any()){<div style="display:flex;gap:8px;overflow-x:auto;margin-bottom:12px">@foreach(var img in _selectedKostImages){<img src="@img.Url" style="height:160px;border-radius:8px;border:2px solid var(--border);flex-shrink:0"/>}</div>}
+
+<p><strong>Alamat:</strong> @_selectedKost.Alamat, @_selectedKost.Kota | <strong>Kontak:</strong> @_selectedKost.Telepon | <strong>Jenis:</strong> @_selectedKost.Jenis</p>
+<p>@_selectedKost.Deskripsi</p>
+
+<h4 class="mt-4">📋 Kamar Tersedia</h4>
+<div class="table-container"><table class="table"><thead><tr><th>No</th><th>Tipe</th><th>Harga/Bulan</th><th>Fasilitas</th></tr></thead>
+<tbody>@foreach(var k in _selectedKost.Kamar.Where(k=>k.Status==StatusKamar.Kosong)){<tr><td>@k.NomorKamar</td><td><span class="badge badge-secondary">@k.Jenis</span></td><td class="font-bold">@k.HargaSewa.ToRupiah()</td><td style="font-size:.85rem">@k.Fasilitas</td></tr>}</tbody></table></div>
+
+<h4 class="mt-4">⭐ Review (@_reviews.Count)</h4>
+@if(_reviews.Any()){@foreach(var r in _reviews){<div class="card" style="box-shadow:var(--shadow-sm);margin-bottom:8px"><strong>@r.Emoji @r.Penghuni?.NamaLengkap</strong> - ⭐ @r.Rating/5<p>@r.Komentar</p><div class="text-muted" style="font-size:.7rem">@r.CreatedAt.ToString("dd MMM yyyy")</div></div>}}
+else{<p class="text-muted">Belum ada review.</p>}
+
+@if(_isLoggedIn&&_isPenghuni&&!_hasReviewed){
+<div class="card mt-4" style="background:var(--bg-secondary)"><div class="card-title">✍️ Tulis Review</div>
+@if(!string.IsNullOrEmpty(_reviewMsg)){<div class="alert @(_reviewError?"alert-danger":"alert-success")">@_reviewMsg</div>}
+<div class="form-group"><label class="form-label">Rating</label><div class="flex gap-2" style="font-size:1.8rem">@for(int i=1;i<=5;i++){<span style="cursor:pointer;@(i<=_rating?"":"opacity:0.3")" @onclick="()=>_rating=i">⭐</span>}</div></div>
+<div class="form-group"><label class="form-label">Emoji</label><select class="form-control" @bind="_emoji" style="width:120px"><option value="😍">😍</option><option value="👍">👍</option><option value="😊">😊</option><option value="🙂">🙂</option><option value="😕">😕</option></select></div>
+<div class="form-group"><label class="form-label">Komentar</label><textarea class="form-control" @bind="_komentar" rows="3"></textarea></div>
+<button class="btn btn-primary" @onclick="SubmitReview" disabled="@_reviewLoading">@(_reviewLoading?"Mengirim...":"📤 Kirim Review")</button></div>
+}else if(_hasReviewed){<div class="alert alert-success mt-4">✅ Kamu sudah memberikan review.</div>}
+</div></div>}
+
+@code {
+    private List<MarketplaceListing> _listings=new(); private Dictionary<int,double> _ratings=new(); private Dictionary<int,string?> _kostImages=new();
+    private Kost? _selectedKost; private List<Review> _reviews=new(); private List<GambarKost> _selectedKostImages=new();
+    private bool _isLoggedIn,_isPenghuni,_hasReviewed; private int _rating=5;
+    private string _emoji="😍",_komentar="",_reviewMsg=""; private bool _reviewError,_reviewLoading; private int? _currentPenghuniId;
+
+    protected override async Task OnInitializedAsync(){
+        _listings=await Db.MarketplaceListing.Include(m=>m.Kost).ThenInclude(k=>k.Kamar).Where(m=>m.IsPublic).ToListAsync();
+        foreach(var l in _listings){var avg=await Db.Review.Where(r=>r.KostId==l.KostId).AverageAsync(r=>(double?)r.Rating)??0;_ratings[l.KostId]=Math.Round(avg,1);_kostImages[l.KostId]=(await Db.GambarKost.OrderBy(g=>g.Urutan).FirstOrDefaultAsync(g=>g.KostId==l.KostId))?.Url;}
+        var authState=await AuthState.GetAuthenticationStateAsync();var user=authState.User;
+        _isLoggedIn=user.Identity?.IsAuthenticated??false;_isPenghuni=user.IsInRole("Penghuni")||user.IsInRole("SuperAdmin");
+        if(_isLoggedIn){var uid=user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;if(!string.IsNullOrEmpty(uid)){var p=await Db.Penghuni.FirstOrDefaultAsync(p=>p.UserId==uid);_currentPenghuniId=p?.Id;}}
+    }
+    protected override async Task OnParametersSetAsync(){
+        if(_selectedKost!=null){_reviews=await Db.Review.Include(r=>r.Penghuni).Where(r=>r.KostId==_selectedKost.Id).ToListAsync();_selectedKostImages=await Db.GambarKost.OrderBy(g=>g.Urutan).Where(g=>g.KostId==_selectedKost.Id).ToListAsync();_hasReviewed=_currentPenghuniId.HasValue&&_reviews.Any(r=>r.PenghuniId==_currentPenghuniId.Value);_rating=5;_emoji="😍";_komentar="";_reviewMsg="";}
+    }
+    private async Task SubmitReview(){
+        if(_selectedKost==null||_currentPenghuniId==null)return;
+        if(string.IsNullOrWhiteSpace(_komentar)){_reviewMsg="Komentar tidak boleh kosong.";_reviewError=true;return;}
+        _reviewLoading=true;
+        try{await ReviewSvc.CreateAsync(new Review{KostId=_selectedKost.Id,PenghuniId=_currentPenghuniId.Value,Rating=_rating,Komentar=_komentar,Emoji=_emoji});_reviewMsg="✅ Review berhasil!";_reviewError=false;_hasReviewed=true;_reviews=await Db.Review.Include(r=>r.Penghuni).Where(r=>r.KostId==_selectedKost.Id).ToListAsync();var avg=_reviews.Any()?_reviews.Average(r=>r.Rating):0;_ratings[_selectedKost.Id]=Math.Round(avg,1);}
+        catch(Exception ex){_reviewMsg=$"❌ {ex.Message}";_reviewError=true;}
+        finally{_reviewLoading=false;}
+    }
+}

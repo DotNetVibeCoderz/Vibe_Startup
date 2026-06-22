@@ -1,0 +1,50 @@
+@page "/notifikasi"
+@attribute [Authorize]
+@inject NotifikasiService NotifSvc
+@inject AuthenticationStateProvider AuthState
+
+<div class="card-header"><h2 class="card-title">🔔 Notifikasi</h2></div>
+
+<div class="card">
+    @if (_notifikasi.Count == 0) { <p class="text-muted">Belum ada notifikasi.</p> }
+    else
+    {
+        @foreach (var n in _notifikasi)
+        {
+            <div class="card" style="box-shadow:var(--shadow-sm);margin-bottom:8px;@(n.IsDibaca ? "opacity:0.6" : "")">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <span class="badge @(n.Tipe == TipeNotifikasi.Tagihan ? "badge-warning" : n.Tipe == TipeNotifikasi.Komplain ? "badge-danger" : "badge-primary")">
+                            @n.Tipe
+                        </span>
+                        <strong class="ml-2">@n.Judul</strong>
+                    </div>
+                    <span class="text-muted" style="font-size:0.8rem">@n.CreatedAt.ToString("dd MMM HH:mm")</span>
+                </div>
+                <p class="mt-2">@n.Pesan</p>
+                <div class="flex gap-2 mt-2">
+                    @if (!string.IsNullOrEmpty(n.LinkUrl)) { <a href="@n.LinkUrl" class="btn btn-sm">👁️ Lihat</a> }
+                    @if (!n.IsDibaca) { <button class="btn btn-sm" @onclick="() => MarkRead(n.Id)">✅ Tandai Dibaca</button> }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<Notifikasi> _notifikasi = new();
+    private string? _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (_userId != null) _notifikasi = await NotifSvc.GetByUserAsync(_userId);
+    }
+
+    private async Task MarkRead(int id)
+    {
+        await NotifSvc.MarkReadAsync(id);
+        if (_userId != null) _notifikasi = await NotifSvc.GetByUserAsync(_userId);
+    }
+}

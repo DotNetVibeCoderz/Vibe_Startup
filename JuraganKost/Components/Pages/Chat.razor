@@ -1,0 +1,194 @@
+@page "/chat"
+@attribute [Authorize]
+@inject IConfiguration Config
+@inject ChatService ChatSvc
+@inject JuraganKost.Services.Storage.IStorageProvider Storage
+@inject IJSRuntime JsRuntime
+@inject AuthenticationStateProvider AuthState
+
+<div class="card-header">
+    <h2 class="card-title">🤖 Mpok Inem - Chat Bot JuraganKost</h2>
+    <div class="flex gap-2">
+        <select class="form-control" @bind="_selectedProvider" style="width:130px" @bind:after="OnProviderChanged">
+            <option value="OpenAI">🧠 OpenAI</option><option value="Anthropic">🔮 Anthropic</option>
+            <option value="Gemini">🌟 Gemini</option><option value="Ollama">🦙 Ollama</option>
+        </select>
+        <button class="btn btn-primary btn-sm" @onclick="CreateNewSession">➕ Sesi Baru</button>
+        <button class="btn btn-accent btn-sm" @onclick="ResetCurrentSession">🔄 Reset Sesi</button>
+    </div>
+</div>
+@if (!string.IsNullOrEmpty(_statusMessage))
+{ <div class="alert @(_statusError ? "alert-danger" : "alert-info") mt-2 mb-2">@_statusMessage <button class="btn btn-sm" @onclick="() => _statusMessage = null" style="float:right">✕</button></div> }
+
+@if (_confirmDeleteId != null)
+{
+    <div class="alert alert-warning mt-2 mb-2">
+        ⚠️ Yakin hapus sesi ini? Semua riwayat chat akan hilang permanen dari database.
+        <div class="flex gap-2 mt-2">
+            <button class="btn btn-sm btn-danger" @onclick="ConfirmDeleteSession">🗑️ Ya, Hapus</button>
+            <button class="btn btn-sm" @onclick="() => _confirmDeleteId = null">Batal</button>
+        </div>
+    </div>
+}
+
+<div style="display:flex;gap:16px;height:calc(100vh - 220px);min-height:480px">
+    <!-- Session List Sidebar -->
+    <div class="card" style="width:220px;flex-shrink:0;overflow-y:auto;padding:12px">
+        <div class="card-title" style="font-size:.9rem">💬 Daftar Sesi</div>
+        @if (_sessions.Count == 0)
+        { <p class="text-muted" style="font-size:.8rem">Belum ada sesi.</p> }
+        else
+        {
+            @foreach (var ses in _sessions)
+            {
+                var isActive = ses.SessionId == _sessionId;
+                <div class="session-item @(isActive ? "active" : "")" @onclick="() => SwitchSession(ses.SessionId)"
+                style="padding:8px 10px;margin-bottom:4px;border:2px solid @(isActive ? "var(--primary)" : "var(--border)");border-radius:var(--radius);cursor:pointer;background:@(isActive ? "var(--primary-light)" : "var(--bg)");transition:all .15s">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                        <div style="flex:1;min-width:0">
+                            <div style="font-weight:700;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@ses.Title</div>
+                            <div style="font-size:.7rem;color:var(--text-muted)">@ses.MessageCount pesan · @ses.LastActivity.ToString("HH:mm")</div>
+                        </div>
+                        <button class="btn btn-sm btn-danger" style="padding:2px 6px;font-size:.65rem;flex-shrink:0"
+                                @onclick="() => RequestDeleteSession(ses.SessionId)" title="Hapus sesi permanen dari database">✕</button>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <!-- Chat Area -->
+    <div class="card" style="flex:1;padding:0;overflow:hidden;display:flex;flex-direction:column">
+        <div class="chat-messages" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;background:var(--bg-secondary)">
+            @foreach (var msg in _messages)
+            {
+                <div class="chat-bubble @(msg.Role == "user" ? "user" : "bot")">
+                    @if (msg.Role == "assistant") { <div class="font-bold mb-2">🤖 Mpok Inem</div> }
+                    <div class="chat-markdown">@((MarkupString)RenderMarkdown(msg.Content))</div>
+                    @if (!string.IsNullOrEmpty(msg.ImageUrl)) { <img src="@msg.ImageUrl" style="max-width:250px;border-radius:8px;margin-top:8px;border:2px solid var(--border)" /> }
+                    @if (!string.IsNullOrEmpty(msg.DocumentUrl)) { <div class="mt-2"><a href="@msg.DocumentUrl" target="_blank" class="btn btn-sm">📎 @GetFileName(msg.DocumentUrl)</a></div> }
+                    <div class="text-muted" style="font-size:0.7rem;margin-top:4px">@msg.Timestamp.ToString("HH:mm")</div>
+                </div>
+            }
+            @if (_isLoading) { <div class="chat-bubble bot"><div class="typing-indicator"><span></span><span></span><span></span></div></div> }
+        </div>
+        @if (_pendingFile != null) { <div style="padding:8px 16px;background:var(--bg-secondary);border-top:2px solid var(--border);display:flex;align-items:center;gap:8px"><span>📎 @_pendingFileName</span><button class="btn btn-sm btn-danger" @onclick="ClearPendingFile">✕</button></div> }
+        <div class="chat-input-area" style="border-top:2px solid var(--border);padding:12px;display:flex;gap:8px;background:var(--bg)">
+            <InputFile OnChange="HandleFileUpload" accept="image/*,.pdf,.doc,.docx,.txt,.csv" style="display:none" id="fileInput" />
+            <button class="btn btn-sm" @onclick="ClickFileInput" title="Lampirkan file" disabled="@_isLoading">📎</button>
+            <textarea class="form-control" @bind="_userInput" @bind:event="oninput" placeholder="Ketik pesan ke Mpok Inem..." rows="1"
+                      @onkeydown="HandleKeyDown" disabled="@_isLoading" style="flex:1;resize:none;min-height:44px;max-height:120px"></textarea>
+            <button class="btn btn-primary" @onclick="SendMessage" disabled="@(_isLoading || string.IsNullOrWhiteSpace(_userInput))">@(_isLoading ? "⏳" : "➤")</button>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div class="card"><div class="card-title">💡 Coba Tanyakan</div>
+        <div class="flex flex-wrap gap-2 mb-2"><strong style="font-size:.8rem">🏠 Kost:</strong>
+            <button class="btn btn-sm" @onclick="AskKamarKosong">🔍 Kamar kosong</button>
+            <button class="btn btn-sm" @onclick="AskInfoKost">🏠 Info kost</button>
+            <button class="btn btn-sm" @onclick="AskBooking">📝 Booking</button>
+            <button class="btn btn-sm" @onclick="AskTagihan">💰 Tagihan</button>
+        </div>
+        <div class="flex flex-wrap gap-2"><strong style="font-size:.8rem">🧮 Utility:</strong>
+            <button class="btn btn-sm btn-secondary" @onclick="AskKalkulator">➕ Hitung</button>
+            <button class="btn btn-sm btn-secondary" @onclick="AskKonversi">📏 Konversi</button>
+            <button class="btn btn-sm btn-secondary" @onclick="AskRandom">🎲 Random</button>
+            <button class="btn btn-sm btn-accent" @onclick="AskTanggal">📅 Hari ini</button>
+        </div>
+    </div>
+    <div class="card"><div class="card-title">🔧 Info Sesi</div><div style="font-size:.78rem;line-height:1.5">
+        <p>➕ <strong>Sesi Baru</strong> — buat percakapan baru</p>
+        <p>🔄 <strong>Reset Sesi</strong> — hapus pesan, mulai ulang sesi ini</p>
+        <p>✕ <strong>Hapus Sesi</strong> — hapus permanen dari database (akan konfirmasi)</p>
+        <p>📎 <strong>Upload</strong> — lampirkan gambar/dokumen</p>
+    </div><div class="mt-2"><span class="badge badge-secondary">@_selectedProvider</span><span class="badge badge-primary ml-2">@_sessionId</span></div></div>
+</div>
+
+@code {
+    private List<ChatSession> _sessions = new(); private List<ChatSessionMessage> _messages = new();
+    private string _userInput = "", _selectedProvider = "OpenAI"; private bool _isLoading; private string _sessionId = "";
+    private string? _statusMessage, _pendingFile, _pendingFileName, _pendingFileUrl, _userId, _confirmDeleteId;
+    private bool _statusError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _selectedProvider = Config.GetSection("ChatBot")["ModelProvider"] ?? "OpenAI";
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        _userId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!string.IsNullOrEmpty(_userId)) { var loaded = await ChatSvc.LoadUserSessionsAsync(_userId); if (loaded.Any()) { _sessions = loaded; _sessionId = _sessions.First().SessionId; LoadMessagesFromSession(); return; } }
+        CreateNewSession();
+    }
+
+    private void CreateNewSession()
+    {
+        _sessionId = Guid.NewGuid().ToString("N")[..8]; var session = ChatSvc.GetSession(_sessionId); session.Provider = _selectedProvider; session.UserId = _userId;
+        session.Messages.Add(new ChatSessionMessage { Role = "assistant", Content = "👋 Halo! Aku **Mpok Inem**, asisten JuraganKost.\n\n🔍 Cari kamar | 📅 Tanggal/jam | 🧮 Kalkulator | 📏 Konversi satuan | 🎲 Random | 💵 Diskon\n\nAda yang bisa Mpok bantu? 😊", Timestamp = DateTime.Now });
+        RefreshSessions(); LoadMessagesFromSession();
+    }
+
+    private void ResetCurrentSession()
+    {
+        var s = ChatSvc.GetSession(_sessionId); s.Messages.Clear();
+        s.Messages.Add(new ChatSessionMessage { Role = "assistant", Content = "🔄 Sesi di-reset! Ada yang bisa Mpok Inem bantu? 😊", Timestamp = DateTime.Now });
+        ChatSvc.DeleteSession(_sessionId); ChatSvc.GetSession(_sessionId);
+        var fresh = ChatSvc.GetSession(_sessionId); fresh.Provider = _selectedProvider; fresh.UserId = _userId; fresh.Messages = s.Messages;
+        LoadMessagesFromSession();
+    }
+
+    private void SwitchSession(string sid) { _sessionId = sid; LoadMessagesFromSession(); }
+
+    private void RequestDeleteSession(string sid) => _confirmDeleteId = sid;
+
+    private void ConfirmDeleteSession()
+    {
+        if (_confirmDeleteId == null) return;
+        var sid = _confirmDeleteId; _confirmDeleteId = null;
+        ChatSvc.DeleteSession(sid);
+        if (_sessionId == sid) { var rem = ChatSvc.GetAllSessions(); if (rem.Any()) { _sessionId = rem.First().SessionId; LoadMessagesFromSession(); } else { CreateNewSession(); return; } }
+        RefreshSessions();
+    }
+
+    private void RefreshSessions() => _sessions = ChatSvc.GetAllSessions();
+    private void LoadMessagesFromSession() { var s = ChatSvc.GetSession(_sessionId); _messages = s.Messages.ToList(); _selectedProvider = s.Provider; RefreshSessions(); }
+
+    private async Task AskKamarKosong() => await SendToBot("Cari kamar kosong di Jakarta");
+    private async Task AskInfoKost() => await SendToBot("Info tentang Kost Melati Indah");
+    private async Task AskBooking() => await SendToBot("Bagaimana cara booking kamar?");
+    private async Task AskTagihan() => await SendToBot("Cek tagihan saya");
+    private async Task AskTanggal() => await SendToBot("Tanggal sekarang");
+    private async Task AskJam() => await SendToBot("Jam sekarang WIB");
+    private async Task AskKalkulator() => await SendToBot("Kalkulator tambah 150 275");
+    private async Task AskKonversi() => await SendToBot("Konversi satuan 5 km ke m");
+    private async Task AskRandom() => await SendToBot("Angka acak 1 100");
+    private async Task SendMessage() { var t = _userInput; if (string.IsNullOrWhiteSpace(t) || _isLoading) return; _userInput = ""; await SendToBot(t); }
+
+    private async Task SendToBot(string message)
+    {
+        _messages.Add(new ChatSessionMessage { Role = "user", Content = message, Timestamp = DateTime.Now }); _isLoading = true; _statusMessage = null;
+        try { var resp = await ChatSvc.SendMessageAsync(_sessionId, message, _pendingFileUrl, _pendingFileUrl); _messages.Add(new ChatSessionMessage { Role = "assistant", Content = resp, Timestamp = DateTime.Now }); }
+        catch (Exception ex) { _statusMessage = $"⚠️ Gagal: {ex.Message}"; _statusError = true; _messages.Add(new ChatSessionMessage { Role = "assistant", Content = ChatService.GetLocalFallback(message), Timestamp = DateTime.Now }); }
+        finally { _isLoading = false; ClearPendingFile(); RefreshSessions(); }
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e) { var f = e.File; if (f == null) return; _pendingFileName = f.Name; _pendingFile = f.ContentType; try { await using var s = f.OpenReadStream(10 * 1024 * 1024); _pendingFileUrl = await Storage.UploadAsync(f.Name, s, f.ContentType); _userInput = $"[{f.Name}] {_userInput}"; _statusMessage = "✅ Upload!"; } catch (Exception ex) { _statusMessage = $"❌ {ex.Message}"; _statusError = true; ClearPendingFile(); } }
+    private void ClearPendingFile() { _pendingFile = _pendingFileName = _pendingFileUrl = null; }
+    private async Task ClickFileInput() => await JsRuntime.InvokeVoidAsync("eval", "document.getElementById('fileInput').click()");
+    private async Task HandleKeyDown(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey) await SendMessage(); }
+    private void OnProviderChanged() { ChatSvc.GetSession(_sessionId).Provider = _selectedProvider; }
+    private string RenderMarkdown(string t) { if (string.IsNullOrEmpty(t)) return ""; try { return Markdig.Markdown.ToHtml(t, new Markdig.MarkdownPipelineBuilder().Build()); } catch { t = System.Text.RegularExpressions.Regex.Replace(t, @"\*\*(.*?)\*\*", "<strong>$1</strong>"); t = System.Text.RegularExpressions.Regex.Replace(t, @"\*(.*?)\*", "<em>$1</em>"); t = System.Text.RegularExpressions.Regex.Replace(t, @"`([^`]+)`", "<code>$1</code>"); return t.Replace("\n", "<br/>"); } }
+    private string GetFileName(string? url) { if (string.IsNullOrEmpty(url)) return "file"; try { return Path.GetFileName(new Uri(url).AbsolutePath) ?? "file"; } catch { return url.Split('/').LastOrDefault() ?? "file"; } }
+}
+
+<style>
+.typing-indicator{display:flex;gap:4px;padding:4px 0}.typing-indicator span{width:8px;height:8px;background:var(--text-muted);border-radius:50%;animation:typing 1.4s infinite}.typing-indicator span:nth-child(2){animation-delay:.2s}.typing-indicator span:nth-child(3){animation-delay:.4s}
+@@keyframes typing{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-4px);opacity:1}}
+.chat-markdown pre{background:var(--bg-secondary);border:2px solid var(--border);border-radius:var(--radius);padding:12px;overflow-x:auto;font-size:.85rem}
+.chat-markdown code{background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-size:.9em}.chat-markdown pre code{background:none;padding:0}
+.chat-markdown table{border-collapse:collapse;margin:8px 0;width:100%}.chat-markdown td,.chat-markdown th{border:1px solid var(--border-light);padding:6px 10px;text-align:left}.chat-markdown th{background:var(--bg-secondary);font-weight:700}
+.chat-markdown img{max-width:100%;border-radius:var(--radius)}.chat-markdown blockquote{border-left:4px solid var(--primary);margin:8px 0;padding:4px 12px;color:var(--text-muted)}
+.session-item:hover{transform:translate(-1px,-1px);box-shadow:var(--shadow-sm)}
+.image-zoom-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:9999;cursor:pointer}
+.image-zoom-overlay img{max-width:95vw;max-height:95vh;border-radius:8px;box-shadow:0 0 40px rgba(0,0,0,.5)}
+</style>

@@ -1,0 +1,22 @@
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <div class="p-4 text-center">
+                    <h3>🔒 Akses Ditolak</h3>
+                    <p>Silakan <a href="/auth/login">login</a> terlebih dahulu.</p>
+                </div>
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(Layout.MainLayout)">
+            <div class="p-4 text-center">
+                <h1>😕 404</h1>
+                <p>Halaman tidak ditemukan.</p>
+                <a href="/" class="btn btn-primary">Kembali ke Beranda</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

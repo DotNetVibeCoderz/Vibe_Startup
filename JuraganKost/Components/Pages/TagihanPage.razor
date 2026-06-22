@@ -1,0 +1,16 @@
+@page "/tagihan"
+@attribute [Authorize]
+@inject TagihanService TagihanSvc
+
+<div class="card-header"><h2 class="card-title">📋 Manajemen Tagihan</h2><div class="flex gap-2"><button class="btn btn-accent" @onclick="GenerateBilling">🔄 Generate Tagihan Bulanan</button><a href="/api/v1/export/tagihan/csv" class="btn btn-sm" target="_blank">📥 CSV</a></div></div>
+
+<div class="card">
+    <div class="table-container"><table class="table"><thead><tr><th>No Tagihan</th><th>Penghuni</th><th>Kamar</th><th>Jenis</th><th>Jumlah</th><th>Jatuh Tempo</th><th>Status</th></tr></thead>
+    <tbody>@foreach (var t in _tagihan.Take(50)) { <tr><td class="font-bold">@t.NomorTagihan</td><td>@t.Penghuni?.NamaLengkap</td><td>@t.Kamar?.NomorKamar</td><td><span class="badge badge-secondary">@t.Jenis</span></td><td class="font-bold">@t.Total.ToRupiah()</td><td>@t.JatuhTempo.ToString("dd MMM yyyy")</td><td><span class="badge @(t.Status == StatusTagihan.Dibayar ? "badge-success" : t.Status == StatusTagihan.Terlambat ? "badge-danger" : "badge-warning")">@t.Status</span></td></tr> }</tbody></table></div>
+</div>
+
+@code {
+    private List<Tagihan> _tagihan = new();
+    protected override async Task OnInitializedAsync() => _tagihan = await TagihanSvc.GetAllAsync();
+    private async Task GenerateBilling() { await TagihanSvc.GenerateMonthlyBillingsAsync(); _tagihan = await TagihanSvc.GetAllAsync(); }
+}

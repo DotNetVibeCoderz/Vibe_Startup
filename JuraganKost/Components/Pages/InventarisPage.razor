@@ -1,0 +1,90 @@
+@page "/inventaris"
+@attribute [Authorize]
+@inject InventarisService InventarisSvc
+
+<div class="card-header">
+    <h2 class="card-title">📦 Manajemen Inventaris</h2>
+    <button class="btn btn-primary" @onclick="ShowAddModal">➕ Tambah Item</button>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table class="table">
+            <thead><tr><th>Kode</th><th>Nama</th><th>Kategori</th><th>Jumlah</th><th>Status</th><th>Harga Beli</th><th>Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var item in _items)
+                {
+                    <tr>
+                        <td class="font-bold">@item.Kode</td><td>@item.Nama</td>
+                        <td><span class="badge badge-secondary">@item.Kategori</span></td><td>@item.Jumlah</td>
+                        <td>
+                            <span class="badge @(item.Status == StatusInventaris.Baik ? "badge-success" : item.Status == StatusInventaris.RusakBerat ? "badge-danger" : "badge-warning")">
+                                @item.Status
+                            </span>
+                        </td>
+                        <td>@(item.HargaBeli?.ToString("C0") ?? "-")</td>
+                        <td>
+                            <div class="flex gap-2">
+                                <button class="btn btn-sm" @onclick="() => ShowEditModal(item)">✏️</button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteItem(item.Id)">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (_showModal)
+{
+    <div class="modal-overlay" @onclick="() => _showModal = false">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header"><h3>@(_editing == null ? "Tambah Item" : "Edit Item")</h3><button class="btn btn-sm btn-danger" @onclick="() => _showModal = false">✕</button></div>
+            <form @onsubmit="SaveItem">
+                <div class="form-row">
+                    <div class="form-group"><label class="form-label">Nama</label><input class="form-control" @bind="_form.Nama" required /></div>
+                    <div class="form-group"><label class="form-label">Kode</label><input class="form-control" @bind="_form.Kode" /></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label class="form-label">Kategori</label>
+                        <select class="form-control" @bind="_form.Kategori">
+                            @foreach (var c in Enum.GetValues<KategoriInventaris>()) { <option value="@c">@c</option> }
+                        </select>
+                    </div>
+                    <div class="form-group"><label class="form-label">Jumlah</label><input type="number" class="form-control" @bind="_form.Jumlah" /></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label class="form-label">Status</label>
+                        <select class="form-control" @bind="_form.Status">
+                            @foreach (var s in Enum.GetValues<StatusInventaris>()) { <option value="@s">@s</option> }
+                        </select>
+                    </div>
+                    <div class="form-group"><label class="form-label">Harga Beli</label><input type="number" class="form-control" @bind="_form.HargaBeli" /></div>
+                </div>
+                <button type="submit" class="btn btn-primary w-full">💾 Simpan</button>
+            </form>
+        </div>
+    </div>
+}
+
+@code {
+    private List<InventarisItem> _items = new();
+    private InventarisItem? _editing;
+    private InventarisItem _form = new();
+    private bool _showModal;
+
+    protected override async Task OnInitializedAsync() => _items = await InventarisSvc.GetAllAsync();
+
+    private void ShowAddModal() { _editing = null; _form = new(); _showModal = true; }
+    private void ShowEditModal(InventarisItem item) { _editing = item; _form = new InventarisItem { Id = item.Id, Nama = item.Nama, Kode = item.Kode, Kategori = item.Kategori, Jumlah = item.Jumlah, Status = item.Status, HargaBeli = item.HargaBeli, TanggalBeli = item.TanggalBeli, KostId = item.KostId }; _showModal = true; }
+
+    private async Task SaveItem()
+    {
+        if (_editing == null) await InventarisSvc.CreateAsync(_form);
+        else await InventarisSvc.UpdateAsync(_form);
+        _showModal = false; _items = await InventarisSvc.GetAllAsync();
+    }
+
+    private async Task DeleteItem(int id) { await InventarisSvc.DeleteAsync(id); _items = await InventarisSvc.GetAllAsync(); }
+}

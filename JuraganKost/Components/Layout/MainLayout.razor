@@ -1,0 +1,64 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+@inject NotifikasiService NotifSvc
+@inject AuthenticationStateProvider AuthState
+
+<div class="app-layout @(_darkMode ? "dark" : "")">
+    <aside class="sidebar @(_sidebarCollapsed ? "collapsed" : "")">
+        <div class="sidebar-header"><a href="/" class="sidebar-brand"><span class="brand-icon">🏠</span>@if(!_sidebarCollapsed){<span class="brand-text">JuraganKost</span>}</a></div>
+        <nav class="sidebar-nav">
+            @if(_isLoggedIn){
+                <NavLink href="/" class="nav-item" Match="NavLinkMatch.All"><i class="bi bi-speedometer2"></i>@if(!_sidebarCollapsed){<span>Dashboard</span>}</NavLink>
+                @if(_isPemilikOrAdmin){
+                    <NavLink href="/kost" class="nav-item"><i class="bi bi-building"></i>@if(!_sidebarCollapsed){<span>Kost</span>}</NavLink>
+                    <NavLink href="/kamar" class="nav-item"><i class="bi bi-door-open"></i>@if(!_sidebarCollapsed){<span>Kamar</span>}</NavLink>
+                    <NavLink href="/penghuni" class="nav-item"><i class="bi bi-people"></i>@if(!_sidebarCollapsed){<span>Penghuni</span>}</NavLink>
+                    <NavLink href="/kontrak" class="nav-item"><i class="bi bi-file-earmark-text"></i>@if(!_sidebarCollapsed){<span>Kontrak</span>}</NavLink>
+                    <NavLink href="/tagihan" class="nav-item"><i class="bi bi-receipt"></i>@if(!_sidebarCollapsed){<span>Tagihan</span>}</NavLink>
+                    <NavLink href="/pembayaran" class="nav-item"><i class="bi bi-cash-coin"></i>@if(!_sidebarCollapsed){<span>Pembayaran</span>}</NavLink>
+                    <NavLink href="/komplain" class="nav-item"><i class="bi bi-exclamation-triangle"></i>@if(!_sidebarCollapsed){<span>Komplain</span>}</NavLink>
+                    <NavLink href="/inventaris" class="nav-item"><i class="bi bi-box-seam"></i>@if(!_sidebarCollapsed){<span>Inventaris</span>}</NavLink>
+                    <NavLink href="/staff" class="nav-item"><i class="bi bi-person-badge"></i>@if(!_sidebarCollapsed){<span>Staff</span>}</NavLink>
+                    <NavLink href="/iot" class="nav-item"><i class="bi bi-cpu"></i>@if(!_sidebarCollapsed){<span>IoT Monitor</span>}</NavLink>
+                    <NavLink href="/laporan" class="nav-item"><i class="bi bi-graph-up"></i>@if(!_sidebarCollapsed){<span>Laporan</span>}</NavLink>
+                }
+                @if(_isPenghuni){
+                    <NavLink href="/kamar-lihat" class="nav-item"><i class="bi bi-door-open"></i>@if(!_sidebarCollapsed){<span>Lihat Kamar</span>}</NavLink>
+                    <NavLink href="/tagihan" class="nav-item"><i class="bi bi-receipt"></i>@if(!_sidebarCollapsed){<span>Tagihan Saya</span>}</NavLink>
+                    <NavLink href="/komplain" class="nav-item"><i class="bi bi-exclamation-triangle"></i>@if(!_sidebarCollapsed){<span>Komplain</span>}</NavLink>
+                }
+                <NavLink href="/marketplace" class="nav-item"><i class="bi bi-shop"></i>@if(!_sidebarCollapsed){<span>Marketplace</span>}</NavLink>
+                <NavLink href="/chat" class="nav-item"><i class="bi bi-robot"></i>@if(!_sidebarCollapsed){<span>Mpok Inem</span>}</NavLink>
+            }else{
+                <NavLink href="/" class="nav-item"><i class="bi bi-house"></i>@if(!_sidebarCollapsed){<span>Beranda</span>}</NavLink>
+                <NavLink href="/marketplace" class="nav-item"><i class="bi bi-shop"></i>@if(!_sidebarCollapsed){<span>Cari Kost</span>}</NavLink>
+                <NavLink href="/auth/login" class="nav-item"><i class="bi bi-box-arrow-in-right"></i>@if(!_sidebarCollapsed){<span>Masuk</span>}</NavLink>
+            }
+        </nav>
+        <div class="sidebar-footer">
+            @if(_isLoggedIn){<NavLink href="/profil" class="nav-item"><i class="bi bi-person-circle"></i>@if(!_sidebarCollapsed){<span>Profil</span>}</NavLink><NavLink href="/notifikasi" class="nav-item"><i class="bi bi-bell"></i>@if(!_sidebarCollapsed){<span>Notifikasi</span>}@if(_unreadNotif>0){<span class="badge-notif">@_unreadNotif</span>}</NavLink><NavLink href="/auth/logout" class="nav-item text-danger"><i class="bi bi-box-arrow-right"></i>@if(!_sidebarCollapsed){<span>Keluar</span>}</NavLink>}else{<NavLink href="/auth/login" class="nav-item"><i class="bi bi-box-arrow-in-right"></i>@if(!_sidebarCollapsed){<span>Masuk</span>}</NavLink>}
+            <button class="btn-toggle-theme nav-item" @onclick="ToggleDarkMode"><i class="bi @(_darkMode?"bi-sun":"bi-moon")"></i>@if(!_sidebarCollapsed){<span>@(_darkMode?"Light":"Dark")</span>}</button>
+        </div>
+    </aside>
+    <main class="main-content">
+        <header class="topbar"><button class="btn-toggle-sidebar" @onclick="()=>_sidebarCollapsed=!_sidebarCollapsed"><i class="bi bi-list"></i></button><div class="topbar-title">JuraganKost 🏠</div><div class="topbar-actions">@if(_isLoggedIn){<span class="badge @(_roleBadge)" style="font-size:.75rem">@_roleLabel</span>}</div></header>
+        <div class="page-content">@Body</div>
+    </main>
+</div>
+
+@code {
+    private bool _sidebarCollapsed,_darkMode,_isLoggedIn,_isPemilikOrAdmin,_isPenghuni;
+    private string _roleLabel="",_roleBadge="badge-primary"; private int _unreadNotif;
+
+    protected override async Task OnInitializedAsync(){
+        var authState=await AuthState.GetAuthenticationStateAsync();var user=authState.User;
+        _isLoggedIn=user.Identity?.IsAuthenticated??false;
+        if(_isLoggedIn){
+            _isPemilikOrAdmin=user.IsInRole("SuperAdmin")||user.IsInRole("Pemilik")||user.IsInRole("Admin");
+            _isPenghuni=user.IsInRole("Penghuni");
+            if(user.IsInRole("SuperAdmin")){_roleLabel="Super Admin";_roleBadge="badge-danger";}else if(user.IsInRole("Pemilik")){_roleLabel="Pemilik";_roleBadge="badge-primary";}else if(user.IsInRole("Admin")){_roleLabel="Admin";_roleBadge="badge-success";}else if(user.IsInRole("Penghuni")){_roleLabel="Penghuni";_roleBadge="badge-secondary";}else if(user.IsInRole("Staff")){_roleLabel="Staff";_roleBadge="badge-warning";}
+            var uid=user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value??"";_unreadNotif=await NotifSvc.GetUnreadCountAsync(uid);
+        }
+    }
+    private void ToggleDarkMode()=>_darkMode=!_darkMode;
+}

@@ -1,0 +1,73 @@
+@page "/kamar"
+@attribute [Authorize]
+@inject KamarService KamarSvc
+@inject KostService KostSvc
+@inject AppDbContext Db
+@inject JuraganKost.Services.Storage.IStorageProvider Storage
+
+<div class="card-header">
+    <h2 class="card-title">🚪 Manajemen Kamar</h2><div class="flex gap-2"><button class="btn btn-primary" @onclick="ShowAddModal">➕ Tambah Kamar</button><a href="/api/v1/export/kamar/csv" class="btn btn-sm" target="_blank">📥 CSV</a><a href="/api/v1/export/kamar/excel" class="btn btn-sm" target="_blank">📊 Excel</a></div>
+</div>
+
+<div class="card mb-4"><div class="form-row">
+<div class="form-group"><label class="form-label">Kost</label><select class="form-control" @bind="_filterKostId" @bind:after="LoadData"><option value="">Semua</option>@foreach(var k in _kosts){<option value="@k.Id">@k.Nama</option>}</select></div>
+<div class="form-group"><label class="form-label">Status</label><select class="form-control" @bind="_filterStatus" @bind:after="LoadData"><option value="">Semua</option>@foreach(var s in Enum.GetValues<StatusKamar>()){<option value="@s">@s</option>}</select></div>
+<div class="form-group"><label class="form-label">Cari</label><input class="form-control" @bind="_search" @bind:after="LoadData" placeholder="Nomor kamar..."/></div>
+</div></div>
+
+<div class="card"><div class="table-container"><table class="table">
+<thead><tr><th @onclick="()=>SortBy(nameof(Kamar.NomorKamar))">No Kamar @SortIcon(nameof(Kamar.NomorKamar))</th><th>Kost</th><th>Jenis</th><th @onclick="()=>SortBy(nameof(Kamar.HargaSewa))">Harga @SortIcon(nameof(Kamar.HargaSewa))</th><th>Status</th><th>Foto</th><th>Penghuni</th><th>Aksi</th></tr></thead>
+<tbody>
+@{var paged=_allKamar.Skip((_page-1)*_pageSize).Take(_pageSize);}
+@foreach(var k in paged){var firstImg=_firstImages.GetValueOrDefault(k.Id);
+<tr><td class="font-bold">@k.NomorKamar</td><td>@k.Kost?.Nama</td><td><span class="badge badge-secondary">@k.Jenis</span></td><td>@k.HargaSewa.ToRupiah()</td><td><span class="badge @(k.Status==StatusKamar.Terisi?"badge-success":k.Status==StatusKamar.Kosong?"badge-primary":k.Status==StatusKamar.Booking?"badge-warning":"badge-danger")">@k.Status</span></td>
+<td>@if(!string.IsNullOrEmpty(firstImg)){<img src="@firstImg" style="width:50px;height:35px;object-fit:cover;border-radius:4px;border:1px solid var(--border)"/>}else{<span class="text-muted">-</span>}</td>
+<td>@(k.Penghuni?.FirstOrDefault()?.NamaLengkap??"-")</td>
+<td><div class="flex gap-2"><button class="btn btn-sm" @onclick="()=>ShowEditModal(k)">✏️</button><button class="btn btn-sm btn-danger" @onclick="()=>_=DeleteKamar(k.Id)">🗑️</button></div></td></tr>}</tbody></table></div>
+<div class="pagination">@for(int i=1;i<=_totalPages;i++){<button class="@(i==_page?"active":"")" @onclick="()=>_page=i">@i</button>}</div></div>
+
+@if(_showModal){<div class="modal-overlay" @onclick="()=>_showModal=false"><div class="modal-content" @onclick:stopPropagation="true" style="max-width:650px;max-height:85vh;overflow-y:auto"><div class="modal-header"><h3>@(_editingKamar==null?"Tambah Kamar":"Edit Kamar")</h3><button class="btn btn-sm btn-danger" @onclick="()=>_showModal=false">✕</button></div>
+<form @onsubmit="SaveKamar">
+<div class="form-group"><label class="form-label">Nomor Kamar</label><input class="form-control" @bind="_form.NomorKamar" required/></div>
+<div class="form-row"><div class="form-group"><label class="form-label">Kost</label><select class="form-control" @bind="_form.KostId" required>@foreach(var k in _kosts){<option value="@k.Id">@k.Nama</option>}</select></div><div class="form-group"><label class="form-label">Jenis</label><select class="form-control" @bind="_form.Jenis">@foreach(var j in Enum.GetValues<JenisKamar>()){<option value="@j">@j</option>}</select></div></div>
+<div class="form-row"><div class="form-group"><label class="form-label">Harga Sewa (Rp)</label><input type="number" class="form-control" @bind="_form.HargaSewa" required/></div><div class="form-group"><label class="form-label">Deposit (Rp)</label><input type="number" class="form-control" @bind="_form.Deposit"/></div></div>
+<div class="form-row"><div class="form-group"><label class="form-label">Status</label><select class="form-control" @bind="_form.Status">@foreach(var s in Enum.GetValues<StatusKamar>()){<option value="@s">@s</option>}</select></div><div class="form-group"><label class="form-label">Luas (m²)</label><input type="number" class="form-control" @bind="_form.Luas"/></div></div>
+<div class="form-group"><label class="form-label">Deskripsi</label><textarea class="form-control" @bind="_form.Deskripsi" rows="2"></textarea></div>
+<div class="form-group"><label class="form-label">Foto Kamar</label><InputFile OnChange="HandleUploadImage" accept="image/*" style="display:block;margin-bottom:8px"/>@if(_uploadMsg!=null){<div class="text-muted" style="font-size:.8rem">@_uploadMsg</div>}</div>
+@if(_pendingImages.Any()){<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">@foreach(var img in _pendingImages){<div style="position:relative"><img src="@img.Url" style="width:80px;height:60px;object-fit:cover;border-radius:4px;border:2px solid var(--border)"/><button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 4px;font-size:.6rem" @onclick="()=>_pendingImages.Remove(img)">✕</button></div>}</div>}
+@if(_existingImages.Any()){<label class="form-label">Foto Tersimpan</label><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">@foreach(var img in _existingImages){<div style="position:relative"><img src="@img.Url" style="width:80px;height:60px;object-fit:cover;border-radius:4px;border:2px solid var(--border)"/><button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 4px;font-size:.6rem" @onclick="()=>_removedImageIds.Add(img)">✕</button></div>}</div>}
+<button type="submit" class="btn btn-primary w-full">💾 Simpan</button></form></div></div>}
+
+@code {
+    private List<Kamar> _allKamar=new(); private List<Kost> _kosts=new();
+    private int _filterKostId,_page=1,_pageSize=8; private string? _filterStatus,_search,_sortCol,_uploadMsg; private bool _sortAsc=true,_showModal;
+    private Kamar? _editingKamar; private Kamar _form=new();
+    private Dictionary<int,int> _imageCounts=new(); private Dictionary<int,string?> _firstImages=new();
+    private List<GambarKamar> _existingImages=new(),_pendingImages=new(),_removedImageIds=new();
+    private int _totalPages=>Math.Max(1,(int)Math.Ceiling(_allKamar.Count/(double)_pageSize));
+
+    protected override async Task OnInitializedAsync(){_kosts=await KostSvc.GetAllAsync();await LoadData();}
+    private async Task LoadData(){
+        StatusKamar? status=Enum.TryParse<StatusKamar>(_filterStatus,out var s)?s:null;
+        _allKamar=await KamarSvc.FilterAsync(_filterKostId>0?_filterKostId:null,status,null,null,null,_search);
+        foreach(var k in _allKamar){_firstImages[k.Id]=(await Db.GambarKamar.OrderBy(g=>g.Urutan).FirstOrDefaultAsync(g=>g.KamarId==k.Id))?.Url;}
+    }
+    private async Task LoadDataAsync()=>await LoadData();
+    private void SortBy(string col){if(_sortCol==col)_sortAsc=!_sortAsc;else{_sortCol=col;_sortAsc=true;}_=LoadDataAsync();}
+    private string SortIcon(string col)=>_sortCol!=col?"":_sortAsc?" ▲":" ▼";
+
+    private void ShowAddModal(){_editingKamar=null;_form=new();_existingImages.Clear();_pendingImages.Clear();_removedImageIds.Clear();_showModal=true;}
+    private void ShowEditModal(Kamar k){_editingKamar=k;_form=new Kamar{Id=k.Id,NomorKamar=k.NomorKamar,KostId=k.KostId,HargaSewa=k.HargaSewa,Deposit=k.Deposit,Luas=k.Luas,Status=k.Status,Jenis=k.Jenis,Deskripsi=k.Deskripsi};_existingImages=Db.GambarKamar.Where(g=>g.KamarId==k.Id).OrderBy(g=>g.Urutan).ToList();_pendingImages.Clear();_removedImageIds.Clear();_showModal=true;}
+
+    private async Task SaveKamar(){
+        Kamar kamar;
+        if(_editingKamar==null){_form.CreatedAt=DateTime.UtcNow;Db.Kamar.Add(_form);await Db.SaveChangesAsync();kamar=_form;}
+        else{kamar=(await Db.Kamar.FindAsync(_form.Id))!;kamar.NomorKamar=_form.NomorKamar;kamar.HargaSewa=_form.HargaSewa;kamar.Deposit=_form.Deposit;kamar.Luas=_form.Luas;kamar.Status=_form.Status;kamar.Jenis=_form.Jenis;kamar.Deskripsi=_form.Deskripsi;kamar.UpdatedAt=DateTime.UtcNow;await Db.SaveChangesAsync();}
+        int urut=_existingImages.Count;
+        foreach(var img in _pendingImages){Db.GambarKamar.Add(new GambarKamar{KamarId=kamar.Id,Url=img.Url,Urutan=urut++});}
+        foreach(var img in _removedImageIds){Db.GambarKamar.Remove(img);}
+        await Db.SaveChangesAsync();_showModal=false;await LoadData();
+    }
+    private async Task DeleteKamar(int id){await KamarSvc.DeleteAsync(id);await LoadData();}
+    private async Task HandleUploadImage(InputFileChangeEventArgs e){var f=e.File;if(f==null)return;try{await using var s=f.OpenReadStream(5*1024*1024);var url=await Storage.UploadAsync(f.Name,s,f.ContentType);_pendingImages.Add(new GambarKamar{Url=url});_uploadMsg=$"✅ {f.Name}";}catch(Exception ex){_uploadMsg=$"❌ {ex.Message}";}}
+}

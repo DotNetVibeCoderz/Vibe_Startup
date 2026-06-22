@@ -1,0 +1,36 @@
+@inject KostService KostSvc
+
+@if (_summary == null)
+{ <p>Memuat data dashboard...</p> }
+else
+{
+    <div class="stat-grid mb-4">
+        <div class="stat-card"><div class="stat-icon">🚪</div><div class="stat-value">@_summary.TotalKamar</div><div class="stat-label">Total Kamar</div></div>
+        <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-value">@_summary.KamarTerisi</div><div class="stat-label">Terisi</div></div>
+        <div class="stat-card"><div class="stat-icon">🏖️</div><div class="stat-value">@_summary.KamarKosong</div><div class="stat-label">Kosong</div></div>
+        <div class="stat-card"><div class="stat-icon">📊</div><div class="stat-value">@_summary.Okupansi%</div><div class="stat-label">Okupansi</div></div>
+        <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-value">@_summary.PemasukanBulanIni.ToRupiah()</div><div class="stat-label">Pemasukan Bulan Ini</div></div>
+        <div class="stat-card"><div class="stat-icon">⚠️</div><div class="stat-value">@_summary.KomplainPending</div><div class="stat-label">Komplain Pending</div></div>
+    </div>
+    <div class="card mb-4">
+        <div class="card-title">📈 Okupansi Kost</div>
+        <div style="background:var(--bg-secondary);border-radius:20px;height:24px;border:2px solid var(--border);overflow:hidden">
+            <div style="background:var(--primary);height:100%;width:@(_summary.Okupansi)%;border-radius:20px;transition:width 0.5s"></div>
+        </div>
+        <p class="text-muted mt-2">@_summary.KamarTerisi dari @_summary.TotalKamar kamar terisi (@_summary.Okupansi%)</p>
+    </div>
+    <div class="card">
+        <div class="card-title">⚡ Aksi Cepat</div>
+        <div class="flex flex-wrap gap-2">
+            <a href="/kamar" class="btn btn-primary">🚪 Kelola Kamar</a><a href="/penghuni" class="btn btn-secondary">👥 Penghuni</a>
+            <a href="/tagihan" class="btn btn-accent">📋 Tagihan</a><a href="/iot" class="btn btn-primary">📡 IoT Monitor</a>
+            <a href="/komplain" class="btn btn-danger">🔧 Komplain (@_summary.KomplainPending)</a>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int KostId { get; set; }
+    private DashboardSummary? _summary;
+    protected override async Task OnInitializedAsync() { _summary = await KostSvc.GetDashboardAsync(KostId); }
+}

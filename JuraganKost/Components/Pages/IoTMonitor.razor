@@ -1,0 +1,101 @@
+@page "/iot"
+@attribute [Authorize]
+@inject IoTService IoTService
+@inject AppDbContext Db
+
+<div class="card-header">
+    <h2 class="card-title">📡 IoT Sensor Monitor</h2>
+    <div class="flex gap-2">
+        <select class="form-control" @bind="_selectedKostId" @bind:after="LoadData" style="width:200px">
+            <option value="0">Pilih Kost</option>
+            @foreach (var k in _kosts) { <option value="@k.Id">@k.Nama</option> }
+        </select>
+        <button class="btn btn-accent" @onclick="SimulateData">🔄 Simulasi Sensor</button>
+        <button class="btn btn-primary" @onclick="LoadData">🔍 Refresh</button>
+    </div>
+</div>
+
+@if (_selectedKostId > 0)
+{
+    <div class="iot-grid">
+        @foreach (var sensor in _sensors)
+        {
+            <div class="iot-card">
+                <div class="sensor-icon">
+                    @(sensor.Jenis switch
+                    {
+                        JenisSensor.Listrik_kWh => "⚡",
+                        JenisSensor.Air_Liter => "💧",
+                        JenisSensor.Suhu_C => "🌡️",
+                        JenisSensor.Kelembaban_Persen => "💨",
+                        JenisSensor.SmartLock => "🔐",
+                        JenisSensor.Gerakan => "🏃",
+                        _ => "📡"
+                    })
+                </div>
+                <div class="sensor-value" style="color:@GetColor(sensor)">
+                    @sensor.Nilai @sensor.Satuan
+                </div>
+                <div class="stat-label">@sensor.Jenis.ToString().Replace("_", " ")</div>
+                <div class="text-muted" style="font-size:0.8rem">Kamar @sensor.Kamar?.NomorKamar | @sensor.Timestamp.ToString("HH:mm:ss")</div>
+            </div>
+        }
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-title">📊 Penggunaan Listrik & Air (Simulasi)</div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+                <h4>⚡ Listrik (kWh)</h4>
+                @foreach (var s in _sensors.Where(s => s.Jenis == JenisSensor.Listrik_kWh))
+                {
+                    <div style="display:flex;justify-content:space-between;padding:8px;border-bottom:1px solid var(--border-light)">
+                        <span>@s.Kamar?.NomorKamar</span>
+                        <span class="font-bold">@s.Nilai kWh</span>
+                    </div>
+                }
+            </div>
+            <div style="flex:1;min-width:200px">
+                <h4>💧 Air (Liter)</h4>
+                @foreach (var s in _sensors.Where(s => s.Jenis == JenisSensor.Air_Liter))
+                {
+                    <div style="display:flex;justify-content:space-between;padding:8px;border-bottom:1px solid var(--border-light)">
+                        <span>@s.Kamar?.NomorKamar</span>
+                        <span class="font-bold">@s.Nilai L</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="text-center p-4"><p class="text-muted">Pilih kost untuk melihat data sensor IoT.</p></div>
+}
+
+@code {
+    private List<Kost> _kosts = new();
+    private List<IoTSensorData> _sensors = new();
+    private int _selectedKostId;
+
+    protected override async Task OnInitializedAsync() => _kosts = await Db.Kost.ToListAsync();
+
+    private async Task LoadData()
+    {
+        if (_selectedKostId > 0)
+            _sensors = await IoTService.GetLatestAsync();
+    }
+
+    private async Task SimulateData()
+    {
+        if (_selectedKostId > 0)
+            _sensors = await IoTService.SimulateAsync(_selectedKostId);
+    }
+
+    private string GetColor(IoTSensorData s) => s.Jenis switch
+    {
+        JenisSensor.Listrik_kWh => s.Nilai > 3 ? "var(--danger)" : "var(--success)",
+        JenisSensor.Suhu_C => s.Nilai > 30 ? "var(--danger)" : "var(--primary)",
+        _ => "var(--text)"
+    };
+}

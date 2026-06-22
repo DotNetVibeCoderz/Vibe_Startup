@@ -1,0 +1,113 @@
+@page "/komplain"
+@attribute [Authorize]
+@inject KomplainService KomplainSvc
+@inject AuthenticationStateProvider AuthState
+
+<div class="card-header">
+    <h2 class="card-title">🔧 Layanan Komplain</h2>
+    <button class="btn btn-primary" @onclick="ShowAddModal">➕ Buat Komplain</button>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table class="table">
+            <thead>
+                <tr><th>No</th><th>Penghuni</th><th>Kategori</th><th>Judul</th><th>Status</th><th>Tanggal</th><th>Aksi</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var k in _komplain.Take(50))
+                {
+                    <tr>
+                        <td class="font-bold">@k.NomorKomplain</td>
+                        <td>@k.Penghuni?.NamaLengkap</td>
+                        <td><span class="badge badge-secondary">@k.Kategori</span></td>
+                        <td>@k.Judul</td>
+                        <td>
+                            <span class="badge @(k.Status == StatusKomplain.Selesai ? "badge-success" : k.Status == StatusKomplain.Diproses ? "badge-primary" : "badge-warning")">
+                                @k.Status
+                            </span>
+                        </td>
+                        <td>@k.CreatedAt.ToString("dd MMM yyyy")</td>
+                        <td>
+                            <button class="btn btn-sm" @onclick="() => ShowDetail(k)">👁️</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (_detail != null)
+{
+    <div class="modal-overlay" @onclick="() => _detail = null">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header"><h3>Detail Komplain: @_detail.Judul</h3><button class="btn btn-sm btn-danger" @onclick="() => _detail = null">✕</button></div>
+            <p><strong>Penghuni:</strong> @_detail.Penghuni?.NamaLengkap</p>
+            <p><strong>Kategori:</strong> @_detail.Kategori | <strong>Status:</strong> @_detail.Status</p>
+            <p><strong>Deskripsi:</strong> @_detail.Deskripsi</p>
+            @if (!string.IsNullOrEmpty(_detail.Respon)) { <div class="alert alert-info"><strong>Respon:</strong> @_detail.Respon</div> }
+            @if (_detail.Status != StatusKomplain.Selesai)
+            {
+                <div class="form-group mt-4">
+                    <label class="form-label">Update Status</label>
+                    <select class="form-control" @bind="_updateStatus">
+                        <option value="Menunggu">Menunggu</option>
+                        <option value="Diproses">Diproses</option>
+                        <option value="Selesai">Selesai</option>
+                    </select>
+                </div>
+                <div class="form-group"><label class="form-label">Respon</label><textarea class="form-control" @bind="_updateRespon" rows="2"></textarea></div>
+                <button class="btn btn-primary" @onclick="UpdateKomplain">Update</button>
+            }
+        </div>
+    </div>
+}
+
+@if (_showModal)
+{
+    <div class="modal-overlay" @onclick="() => _showModal = false">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header"><h3>Buat Komplain Baru</h3><button class="btn btn-sm btn-danger" @onclick="() => _showModal = false">✕</button></div>
+            <form @onsubmit="SaveKomplain">
+                <div class="form-group"><label class="form-label">Judul</label><input class="form-control" @bind="_form.Judul" required /></div>
+                <div class="form-group"><label class="form-label">Kategori</label>
+                    <select class="form-control" @bind="_form.Kategori">
+                        @foreach (var c in Enum.GetValues<KategoriKomplain>()) { <option value="@c">@c</option> }
+                    </select>
+                </div>
+                <div class="form-group"><label class="form-label">Deskripsi</label><textarea class="form-control" @bind="_form.Deskripsi" rows="3" required></textarea></div>
+                <button type="submit" class="btn btn-primary w-full">Kirim Komplain</button>
+            </form>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Komplain> _komplain = new();
+    private Komplain? _detail;
+    private Komplain _form = new();
+    private bool _showModal;
+    private string _updateStatus = "Diproses", _updateRespon = "";
+
+    protected override async Task OnInitializedAsync() => _komplain = await KomplainSvc.GetAllAsync();
+
+    private void ShowDetail(Komplain k) { _detail = k; _updateRespon = k.Respon ?? ""; }
+    private void ShowAddModal() => _showModal = true;
+
+    private async Task SaveKomplain()
+    {
+        await KomplainSvc.CreateAsync(_form);
+        _showModal = false; _form = new();
+        _komplain = await KomplainSvc.GetAllAsync();
+    }
+
+    private async Task UpdateKomplain()
+    {
+        if (_detail == null) return;
+        var status = Enum.Parse<StatusKomplain>(_updateStatus);
+        await KomplainSvc.UpdateStatusAsync(_detail.Id, status, _updateRespon);
+        _detail = null;
+        _komplain = await KomplainSvc.GetAllAsync();
+    }
+}

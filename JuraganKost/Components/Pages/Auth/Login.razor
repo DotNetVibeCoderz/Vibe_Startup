@@ -1,0 +1,68 @@
+@page "/auth/login"
+@layout MinimalLayout
+
+<div class="auth-page">
+    <div class="auth-card">
+        <div class="text-center mb-4">
+            <h1 style="font-size:3rem">🏠</h1>
+            <h2>Masuk ke JuraganKost</h2>
+            <p class="text-muted">Silakan login untuk melanjutkan</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        <!--
+            NOTE:
+            Login diproses lewat endpoint HTTP biasa agar cookie bisa ditulis.
+            Jika diproses lewat Blazor event (SignalR), header response sudah terkunci.
+        -->
+        <form method="post" action="/auth/login/submit">
+            <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input type="email" class="form-control" name="email" required placeholder="email@example.com" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" class="form-control" name="password" required placeholder="••••••" />
+            </div>
+            <button type="submit" class="btn btn-primary w-full">
+                🔑 Masuk
+            </button>
+        </form>
+
+        <p class="text-center mt-4">
+            Belum punya akun? <a href="/auth/register" style="color:var(--primary);font-weight:700">Daftar di sini</a>
+        </p>
+        <p class="text-center mt-2">
+            <a href="/auth/forgot-password" class="text-muted">Lupa password?</a>
+        </p>
+
+        <div class="mt-4 p-4" style="background:var(--bg-secondary);border:2px solid var(--border);border-radius:var(--radius)">
+            <p class="font-bold mb-2">🔑 Akun Demo:</p>
+            <p class="text-muted" style="font-size:0.85rem">
+                Super Admin: superadmin@juragankost.com / Admin123!<br/>
+                Pemilik: pemilik@juragankost.com / Pemilik123!<br/>
+                Admin: admin@juragankost.com / Admin123!<br/>
+                Penghuni: penghuni1@juragankost.com / Penghuni123!
+            </p>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrlQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+
+    private string? _error;
+    private string ReturnUrl { get; set; } = "/dashboard";
+
+    protected override void OnParametersSet()
+    {
+        _error = string.IsNullOrWhiteSpace(Error) ? null : Error;
+        ReturnUrl = string.IsNullOrWhiteSpace(ReturnUrlQuery) ? "/dashboard" : ReturnUrlQuery;
+    }
+}

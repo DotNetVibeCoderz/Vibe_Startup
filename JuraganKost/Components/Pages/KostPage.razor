@@ -1,0 +1,73 @@
+@page "/kost"
+@attribute [Authorize]
+@inject AppDbContext Db
+@inject JuraganKost.Services.Storage.IStorageProvider Storage
+
+<div class="card-header"><h2 class="card-title">🏢 Master Data Kost</h2><div class="flex gap-2"><button class="btn btn-primary" @onclick="ShowAddModal">➕ Tambah Kost</button><a href="/api/v1/export/kost/csv" class="btn btn-sm" target="_blank">📥 CSV</a><a href="/api/v1/export/kost/excel" class="btn btn-sm" target="_blank">📊 Excel</a></div></div>
+
+<div class="card mb-4"><div class="form-row">
+<div class="form-group"><label class="form-label">Cari</label><input class="form-control" @bind="_search" @bind:after="()=>_=LoadDataAsync()" placeholder="Nama / Kota..."/></div>
+<div class="form-group"><label class="form-label">Status</label><select class="form-control" @bind="_filterStatus" @bind:after="()=>_=LoadDataAsync()"><option value="">Semua</option>@foreach(var s in Enum.GetValues<KostStatus>()){<option value="@s">@s</option>}</select></div>
+<div class="form-group"><label class="form-label">Jenis</label><select class="form-control" @bind="_filterJenis" @bind:after="()=>_=LoadDataAsync()"><option value="">Semua</option>@foreach(var j in Enum.GetValues<JenisKost>()){<option value="@j">@j</option>}</select></div>
+</div></div>
+
+<div class="card"><div class="table-container"><table class="table">
+<thead><tr><th @onclick="()=>SortBy(nameof(Kost.Nama))">Nama @SortIcon(nameof(Kost.Nama))</th><th @onclick="()=>SortBy(nameof(Kost.Kota))">Kota @SortIcon(nameof(Kost.Kota))</th><th>Jenis</th><th>Status</th><th>Kamar</th><th>Foto</th><th>Aksi</th></tr></thead>
+<tbody>
+@{var paged=_allData.Skip((_page-1)*_pageSize).Take(_pageSize);}
+@foreach(var k in paged){var firstImg=_firstImages.GetValueOrDefault(k.Id);
+<tr><td class="font-bold">@k.Nama</td><td>@k.Kota</td><td><span class="badge badge-secondary">@k.Jenis</span></td><td><span class="badge @(k.Status==KostStatus.Aktif?"badge-success":"badge-warning")">@k.Status</span></td><td>@k.Kamar?.Count.ToString()</td>
+<td>@if(!string.IsNullOrEmpty(firstImg)){<img src="@firstImg" style="width:50px;height:35px;object-fit:cover;border-radius:4px;border:1px solid var(--border)"/>}else{<span class="text-muted">-</span>}</td>
+<td><div class="flex gap-2"><button class="btn btn-sm" @onclick="()=>ShowEditModal(k)">✏️</button><button class="btn btn-sm btn-danger" @onclick="()=>_=DeleteKost(k.Id)">🗑️</button></div></td></tr>}</tbody></table></div>
+<div class="pagination">@for(int i=1;i<=_totalPages;i++){<button class="@(i==_page?"active":"")" @onclick="()=>_page=i">@i</button>}</div></div>
+
+@if(_showModal){<div class="modal-overlay" @onclick="()=>_showModal=false"><div class="modal-content" @onclick:stopPropagation="true" style="max-width:650px;max-height:85vh;overflow-y:auto"><div class="modal-header"><h3>@(_editing==null?"Tambah Kost Baru":"Edit Kost")</h3><button class="btn btn-sm btn-danger" @onclick="()=>_showModal=false">✕</button></div>
+<form @onsubmit="SaveKost">
+<div class="form-group"><label class="form-label">Nama Kost</label><input class="form-control" @bind="_form.Nama" required/></div>
+<div class="form-group"><label class="form-label">Alamat</label><textarea class="form-control" @bind="_form.Alamat" rows="2" required></textarea></div>
+<div class="form-row"><div class="form-group"><label class="form-label">Kota</label><input class="form-control" @bind="_form.Kota"/></div><div class="form-group"><label class="form-label">Provinsi</label><input class="form-control" @bind="_form.Provinsi"/></div></div>
+<div class="form-row"><div class="form-group"><label class="form-label">Kode Pos</label><input class="form-control" @bind="_form.KodePos"/></div><div class="form-group"><label class="form-label">Telepon</label><input class="form-control" @bind="_form.Telepon"/></div></div>
+<div class="form-group"><label class="form-label">Email</label><input type="email" class="form-control" @bind="_form.Email"/></div>
+<div class="form-row"><div class="form-group"><label class="form-label">Jenis</label><select class="form-control" @bind="_form.Jenis">@foreach(var j in Enum.GetValues<JenisKost>()){<option value="@j">@j</option>}</select></div><div class="form-group"><label class="form-label">Status</label><select class="form-control" @bind="_form.Status">@foreach(var s in Enum.GetValues<KostStatus>()){<option value="@s">@s</option>}</select></div></div>
+<div class="form-group"><label class="form-label">Deskripsi</label><textarea class="form-control" @bind="_form.Deskripsi" rows="3"></textarea></div>
+<div class="form-group"><label class="form-label">Foto Kost</label><InputFile OnChange="HandleUploadKostImage" accept="image/*" style="display:block;margin-bottom:8px"/>@if(_uploadMessage!=null){<div class="text-muted" style="font-size:.8rem">@_uploadMessage</div>}</div>
+@if(_pendingImages.Any()){<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">@foreach(var img in _pendingImages){<div style="position:relative"><img src="@img.Url" style="width:80px;height:60px;object-fit:cover;border-radius:4px;border:2px solid var(--border)"/><button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 4px;font-size:.6rem" @onclick="()=>_pendingImages.Remove(img)">✕</button></div>}</div>}
+@if(_existingImages.Any()){<label class="form-label">Foto Tersimpan</label><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">@foreach(var img in _existingImages){<div style="position:relative"><img src="@img.Url" style="width:80px;height:60px;object-fit:cover;border-radius:4px;border:2px solid var(--border)"/><button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:-6px;right:-6px;padding:0 4px;font-size:.6rem" @onclick="()=>_removedImageIds.Add(img)">✕</button></div>}</div>}
+<button type="submit" class="btn btn-primary w-full">💾 Simpan</button></form></div></div>}
+
+@code {
+    private List<Kost> _allData=new(); private string? _search,_filterStatus,_filterJenis; private int _page=1,_pageSize=8;
+    private string _sortCol=""; private bool _sortAsc=true;
+    private int _totalPages=>Math.Max(1,(int)Math.Ceiling(_allData.Count/(double)_pageSize));
+    private bool _showModal; private Kost? _editing; private Kost _form=new();
+    private Dictionary<int,string?> _firstImages=new();
+    private List<GambarKost> _existingImages=new(),_pendingImages=new(),_removedImageIds=new(); private string? _uploadMessage;
+
+    protected override async Task OnInitializedAsync()=>await LoadData();
+    private async Task LoadData(){
+        var q=Db.Kost.Include(k=>k.Kamar).AsQueryable();
+        if(!string.IsNullOrEmpty(_search))q=q.Where(k=>k.Nama.Contains(_search)||(k.Kota!=null&&k.Kota.Contains(_search))||k.Alamat.Contains(_search));
+        if(!string.IsNullOrEmpty(_filterStatus)&&Enum.TryParse<KostStatus>(_filterStatus,out var st))q=q.Where(k=>k.Status==st);
+        if(!string.IsNullOrEmpty(_filterJenis)&&Enum.TryParse<JenisKost>(_filterJenis,out var jn))q=q.Where(k=>k.Jenis==jn);
+        _allData=string.IsNullOrEmpty(_sortCol)?await q.OrderByDescending(k=>k.CreatedAt).ToListAsync():(_sortAsc?await q.OrderBy(k=>EF.Property<object>(k,_sortCol)).ToListAsync():await q.OrderByDescending(k=>EF.Property<object>(k,_sortCol)).ToListAsync());
+        foreach(var k in _allData){_firstImages[k.Id]=(await Db.GambarKost.OrderBy(g=>g.Urutan).FirstOrDefaultAsync(g=>g.KostId==k.Id))?.Url;}
+    }
+    private async Task LoadDataAsync()=>await LoadData();
+    private void SortBy(string col){if(_sortCol==col)_sortAsc=!_sortAsc;else{_sortCol=col;_sortAsc=true;}_=LoadDataAsync();}
+    private string SortIcon(string col)=>_sortCol!=col?"":_sortAsc?" ▲":" ▼";
+
+    private void ShowAddModal(){_editing=null;_form=new();_existingImages.Clear();_pendingImages.Clear();_removedImageIds.Clear();_showModal=true;}
+    private void ShowEditModal(Kost k){_editing=k;_form=new Kost{Id=k.Id,Nama=k.Nama,Alamat=k.Alamat,Kota=k.Kota,Provinsi=k.Provinsi,KodePos=k.KodePos,Telepon=k.Telepon,Email=k.Email,Jenis=k.Jenis,Status=k.Status,Deskripsi=k.Deskripsi};_existingImages=Db.GambarKost.Where(g=>g.KostId==k.Id).OrderBy(g=>g.Urutan).ToList();_pendingImages.Clear();_removedImageIds.Clear();_showModal=true;}
+
+    private async Task SaveKost(){
+        Kost kost;
+        if(_editing==null){_form.CreatedAt=DateTime.UtcNow;Db.Kost.Add(_form);await Db.SaveChangesAsync();kost=_form;}
+        else{kost=(await Db.Kost.FindAsync(_form.Id))!;kost.Nama=_form.Nama;kost.Alamat=_form.Alamat;kost.Kota=_form.Kota;kost.Provinsi=_form.Provinsi;kost.KodePos=_form.KodePos;kost.Telepon=_form.Telepon;kost.Email=_form.Email;kost.Jenis=_form.Jenis;kost.Status=_form.Status;kost.Deskripsi=_form.Deskripsi;kost.UpdatedAt=DateTime.UtcNow;await Db.SaveChangesAsync();}
+        int urut=_existingImages.Count;
+        foreach(var img in _pendingImages){Db.GambarKost.Add(new GambarKost{KostId=kost.Id,Url=img.Url,Urutan=urut++});}
+        foreach(var img in _removedImageIds){Db.GambarKost.Remove(img);}
+        await Db.SaveChangesAsync();_showModal=false;await LoadData();
+    }
+    private async Task DeleteKost(int id){var k=await Db.Kost.FindAsync(id);if(k!=null){Db.Kost.Remove(k);await Db.SaveChangesAsync();await LoadData();}}
+    private async Task HandleUploadKostImage(InputFileChangeEventArgs e){var f=e.File;if(f==null)return;try{await using var s=f.OpenReadStream(5*1024*1024);var url=await Storage.UploadAsync(f.Name,s,f.ContentType);_pendingImages.Add(new GambarKost{Url=url});_uploadMessage=$"✅ {f.Name}";}catch(Exception ex){_uploadMessage=$"❌ {ex.Message}";}}
+}

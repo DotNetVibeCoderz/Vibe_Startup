@@ -1,0 +1,68 @@
+@page "/kamar-lihat"
+@attribute [Authorize]
+@inject AppDbContext Db
+@inject KostService KostSvc
+
+<div class="card-header"><h2 class="card-title">🚪 Lihat Kamar</h2><p class="text-muted">Browse kamar yang tersedia — read only</p></div>
+
+<div class="card mb-4"><div class="form-row">
+<div class="form-group"><label class="form-label">Kost</label><select class="form-control" @bind="_filterKostId" @bind:after="LoadData"><option value="">Semua</option>@foreach(var k in _kosts){<option value="@k.Id">@k.Nama</option>}</select></div>
+<div class="form-group"><label class="form-label">Status</label><select class="form-control" @bind="_filterStatus" @bind:after="LoadData"><option value="">Semua</option>@foreach(var s in Enum.GetValues<StatusKamar>()){<option value="@s">@s</option>}</select></div>
+<div class="form-group"><label class="form-label">Cari</label><input class="form-control" @bind="_search" @bind:after="LoadData" placeholder="Nomor kamar..."/></div>
+</div></div>
+
+@* ── Image Zoom Overlay ── *@
+@if (_zoomedImage != null)
+{
+    <div class="image-zoom-overlay" @onclick="() => _zoomedImage = null">
+        <img src="@_zoomedImage" alt="Zoom" @onclick:stopPropagation="true" />
+        <button class="btn btn-danger" style="position:absolute;top:16px;right:16px;z-index:10000" @onclick="() => _zoomedImage = null">✕ Tutup</button>
+    </div>
+}
+
+<div class="card">
+    <div class="table-container"><table class="table">
+    <thead><tr><th>No Kamar</th><th>Kost</th><th>Jenis</th><th>Harga/Bulan</th><th>Status</th><th>Luas</th><th>Foto</th><th>Fasilitas</th></tr></thead>
+    <tbody>
+    @{var paged=_allKamar.Skip((_page-1)*_pageSize).Take(_pageSize);}
+    @foreach(var k in paged){
+        var images=_kamarImages.GetValueOrDefault(k.Id)??new();
+        <tr>
+            <td class="font-bold">@k.NomorKamar</td><td>@k.Kost?.Nama</td><td><span class="badge badge-secondary">@k.Jenis</span></td>
+            <td class="font-bold">@k.HargaSewa.ToRupiah()</td>
+            <td><span class="badge @(k.Status==StatusKamar.Terisi?"badge-success":k.Status==StatusKamar.Kosong?"badge-primary":"badge-warning")">@k.Status</span></td>
+            <td>@(k.Luas.HasValue?$"{k.Luas} m²":"-")</td>
+            <td>
+                @if(images.Any()){
+                    <div style="display:flex;gap:4px;flex-wrap:wrap">
+                    @foreach(var img in images.Take(3)){
+                        <img src="@img" style="width:50px;height:35px;object-fit:cover;border-radius:4px;border:1px solid var(--border);cursor:pointer"
+                             @onclick="() => _zoomedImage = img" title="Klik untuk zoom" />
+                    }
+                    @if(images.Count>3){<span style="font-size:.75rem;align-self:center">+@(images.Count-3)</span>}
+                    </div>
+                }else{<span class="text-muted">-</span>}
+            </td>
+            <td style="font-size:.82rem;max-width:200px">@k.Fasilitas</td>
+        </tr>
+    }</tbody></table></div>
+    <div class="pagination">@for(int i=1;i<=_totalPages;i++){<button class="@(i==_page?"active":"")" @onclick="()=>_page=i">@i</button>}</div>
+</div>
+
+@code {
+    private List<Kost> _kosts=new(); private List<Kamar> _allKamar=new();
+    private int _filterKostId,_page=1,_pageSize=10; private string? _filterStatus,_search,_zoomedImage;
+    private Dictionary<int,List<string>> _kamarImages=new();
+    private int _totalPages=>Math.Max(1,(int)Math.Ceiling(_allKamar.Count/(double)_pageSize));
+
+    protected override async Task OnInitializedAsync(){_kosts=await KostSvc.GetAllAsync();await LoadData();}
+    private async Task LoadData(){
+        StatusKamar? status=Enum.TryParse<StatusKamar>(_filterStatus,out var s)?s:null;
+        var q=Db.Kamar.Include(k=>k.Kost).AsQueryable();
+        if(_filterKostId>0)q=q.Where(k=>k.KostId==_filterKostId);
+        if(status.HasValue)q=q.Where(k=>k.Status==status.Value);
+        if(!string.IsNullOrEmpty(_search))q=q.Where(k=>k.NomorKamar.Contains(_search));
+        _allKamar=await q.OrderBy(k=>k.NomorKamar).ToListAsync();
+        foreach(var k in _allKamar)_kamarImages[k.Id]=await Db.GambarKamar.Where(g=>g.KamarId==k.Id).OrderBy(g=>g.Urutan).Select(g=>g.Url).ToListAsync();
+    }
+}

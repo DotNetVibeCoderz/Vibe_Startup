@@ -1,0 +1,15 @@
+@page "/staff"
+@attribute [Authorize]
+@inject StaffService StaffSvc
+
+<div class="card-header"><h2 class="card-title">👷 Manajemen Staff</h2><button class="btn btn-primary" @onclick="ShowAddModal">➕ Tambah Staff</button></div>
+<div class="card"><div class="table-container"><table class="table"><thead><tr><th>Nama</th><th>Posisi</th><th>No HP</th><th>Gaji</th><th>Status</th><th>Masuk</th><th>Aksi</th></tr></thead>
+<tbody>@foreach (var s in _staff) { <tr><td class="font-bold">@s.Nama</td><td><span class="badge badge-secondary">@s.Posisi</span></td><td>@s.NoHP</td><td>@s.Gaji.ToRupiah()</td><td><span class="badge @(s.Status == StatusStaff.Aktif ? "badge-success" : "badge-warning")">@s.Status</span></td><td>@s.TanggalMasuk.ToString("dd MMM yyyy")</td><td><div class="flex gap-2"><button class="btn btn-sm" @onclick="() => ShowEditModal(s)">✏️</button><button class="btn btn-sm btn-danger" @onclick="() => DeleteStaff(s.Id)">🗑️</button></div></td></tr> }</tbody></table></div></div>
+
+@if (_showModal) { <div class="modal-overlay" @onclick="() => _showModal = false"><div class="modal-content" @onclick:stopPropagation="true"><div class="modal-header"><h3>@(_editing == null ? "Tambah Staff" : "Edit Staff")</h3><button class="btn btn-sm btn-danger" @onclick="() => _showModal = false">✕</button></div>
+<form @onsubmit="SaveStaff"><div class="form-group"><label class="form-label">Nama</label><input class="form-control" @bind="_form.Nama" required /></div>
+<div class="form-row"><div class="form-group"><label class="form-label">Posisi</label><select class="form-control" @bind="_form.Posisi">@foreach (var p in Enum.GetValues<PosisiStaff>()) { <option value="@p">@p</option> }</select></div><div class="form-group"><label class="form-label">No HP</label><input class="form-control" @bind="_form.NoHP" /></div></div>
+<div class="form-row"><div class="form-group"><label class="form-label">Gaji</label><input type="number" class="form-control" @bind="_form.Gaji" /></div><div class="form-group"><label class="form-label">Status</label><select class="form-control" @bind="_form.Status">@foreach (var s in Enum.GetValues<StatusStaff>()) { <option value="@s">@s</option> }</select></div></div>
+<button type="submit" class="btn btn-primary w-full">💾 Simpan</button></form></div></div> }
+
+@code { private List<Staff> _staff = new(); private Staff? _editing; private Staff _form = new(); private bool _showModal; protected override async Task OnInitializedAsync() => _staff = await StaffSvc.GetAllAsync(); private void ShowAddModal() { _editing = null; _form = new(); _showModal = true; } private void ShowEditModal(Staff s) { _editing = s; _form = new Staff { Id = s.Id, Nama = s.Nama, Posisi = s.Posisi, NoHP = s.NoHP, Email = s.Email, Gaji = s.Gaji, Status = s.Status, KostId = s.KostId }; _showModal = true; } private async Task SaveStaff() { if (_editing == null) await StaffSvc.CreateAsync(_form); else await StaffSvc.UpdateAsync(_form); _showModal = false; _staff = await StaffSvc.GetAllAsync(); } private async Task DeleteStaff(int id) { await StaffSvc.DeleteAsync(id); _staff = await StaffSvc.GetAllAsync(); } }
