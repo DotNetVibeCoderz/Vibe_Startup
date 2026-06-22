@@ -3,22 +3,13 @@
 @inject AppDbContext Db
 @inject KostService KostSvc
 
-<div class="card-header"><h2 class="card-title">🚪 Lihat Kamar</h2><p class="text-muted">Browse kamar yang tersedia — read only</p></div>
+<div class="card-header"><h2 class="card-title">🚪 Lihat Kamar</h2><p class="text-muted">Browse kamar yang tersedia — klik foto untuk zoom</p></div>
 
 <div class="card mb-4"><div class="form-row">
-<div class="form-group"><label class="form-label">Kost</label><select class="form-control" @bind="_filterKostId" @bind:after="LoadData"><option value="">Semua</option>@foreach(var k in _kosts){<option value="@k.Id">@k.Nama</option>}</select></div>
-<div class="form-group"><label class="form-label">Status</label><select class="form-control" @bind="_filterStatus" @bind:after="LoadData"><option value="">Semua</option>@foreach(var s in Enum.GetValues<StatusKamar>()){<option value="@s">@s</option>}</select></div>
-<div class="form-group"><label class="form-label">Cari</label><input class="form-control" @bind="_search" @bind:after="LoadData" placeholder="Nomor kamar..."/></div>
+<div class="form-group"><label class="form-label">Kost</label><select class="form-control" @bind="_filterKostId" @bind:after="()=>_=LoadDataAsync()"><option value="">Semua</option>@foreach(var k in _kosts){<option value="@k.Id">@k.Nama</option>}</select></div>
+<div class="form-group"><label class="form-label">Status</label><select class="form-control" @bind="_filterStatus" @bind:after="()=>_=LoadDataAsync()"><option value="">Semua</option>@foreach(var s in Enum.GetValues<StatusKamar>()){<option value="@s">@s</option>}</select></div>
+<div class="form-group"><label class="form-label">Cari</label><input class="form-control" @bind="_search" @bind:after="()=>_=LoadDataAsync()" placeholder="Nomor kamar..."/></div>
 </div></div>
-
-@* ── Image Zoom Overlay ── *@
-@if (_zoomedImage != null)
-{
-    <div class="image-zoom-overlay" @onclick="() => _zoomedImage = null">
-        <img src="@_zoomedImage" alt="Zoom" @onclick:stopPropagation="true" />
-        <button class="btn btn-danger" style="position:absolute;top:16px;right:16px;z-index:10000" @onclick="() => _zoomedImage = null">✕ Tutup</button>
-    </div>
-}
 
 <div class="card">
     <div class="table-container"><table class="table">
@@ -37,7 +28,7 @@
                     <div style="display:flex;gap:4px;flex-wrap:wrap">
                     @foreach(var img in images.Take(3)){
                         <img src="@img" style="width:50px;height:35px;object-fit:cover;border-radius:4px;border:1px solid var(--border);cursor:pointer"
-                             @onclick="() => _zoomedImage = img" title="Klik untuk zoom" />
+                             @onclick="()=>OpenZoom(img)" title="Klik untuk zoom" />
                     }
                     @if(images.Count>3){<span style="font-size:.75rem;align-self:center">+@(images.Count-3)</span>}
                     </div>
@@ -49,6 +40,17 @@
     <div class="pagination">@for(int i=1;i<=_totalPages;i++){<button class="@(i==_page?"active":"")" @onclick="()=>_page=i">@i</button>}</div>
 </div>
 
+@* ── ZOOM OVERLAY (fullscreen popup, rendered AFTER all content) ── *@
+@if (_zoomedImage != null)
+{
+    <div class="zoom-backdrop" @onclick="CloseZoom">
+        <div class="zoom-container" @onclick:stopPropagation="true">
+            <img src="@_zoomedImage" alt="Zoom" />
+            <button class="btn btn-danger" style="position:absolute;top:16px;right:16px" @onclick="CloseZoom">✕ Tutup</button>
+        </div>
+    </div>
+}
+
 @code {
     private List<Kost> _kosts=new(); private List<Kamar> _allKamar=new();
     private int _filterKostId,_page=1,_pageSize=10; private string? _filterStatus,_search,_zoomedImage;
@@ -56,6 +58,7 @@
     private int _totalPages=>Math.Max(1,(int)Math.Ceiling(_allKamar.Count/(double)_pageSize));
 
     protected override async Task OnInitializedAsync(){_kosts=await KostSvc.GetAllAsync();await LoadData();}
+    private async Task LoadDataAsync()=>await LoadData();
     private async Task LoadData(){
         StatusKamar? status=Enum.TryParse<StatusKamar>(_filterStatus,out var s)?s:null;
         var q=Db.Kamar.Include(k=>k.Kost).AsQueryable();
@@ -65,4 +68,24 @@
         _allKamar=await q.OrderBy(k=>k.NomorKamar).ToListAsync();
         foreach(var k in _allKamar)_kamarImages[k.Id]=await Db.GambarKamar.Where(g=>g.KamarId==k.Id).OrderBy(g=>g.Urutan).Select(g=>g.Url).ToListAsync();
     }
+    private void OpenZoom(string url)=>_zoomedImage=url;
+    private void CloseZoom()=>_zoomedImage=null;
 }
+
+<style>
+.zoom-backdrop {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,.85); z-index: 99999;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+}
+.zoom-container {
+    position: relative; max-width: 95vw; max-height: 95vh;
+    display: flex; align-items: center; justify-content: center;
+}
+.zoom-container img {
+    max-width: 95vw; max-height: 95vh;
+    border-radius: var(--radius-lg); box-shadow: 0 8px 40px rgba(0,0,0,.6);
+    object-fit: contain;
+}
+</style>
