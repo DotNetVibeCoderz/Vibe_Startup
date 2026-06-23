@@ -1,0 +1,20 @@
+@page "/logout"
+@layout MinimalLayout
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+@code {
+    private bool hasLoggedOut;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || hasLoggedOut)
+            return;
+
+        hasLoggedOut = true;
+
+        // 🔑 Sign out via HTTP endpoint agar cookie bisa dihapus
+        await JS.InvokeVoidAsync("auth.logout");
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+}

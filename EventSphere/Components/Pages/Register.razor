@@ -1,0 +1,138 @@
+@page "/register"
+@layout MinimalLayout
+@using Microsoft.AspNetCore.Identity
+@using EventSphere.Data.Models
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager Navigation
+
+<PageTitle>Register - EventSphere</PageTitle>
+
+<div style="display:flex; align-items:center; justify-content:center; min-height:100vh; background:var(--bg);">
+    <div class="neo-card" style="width:100%; max-width:480px; padding:2.5rem;">
+
+        @if (registrationSuccess)
+        {
+            <div class="text-center">
+                <div style="font-size:4rem;">🎉</div>
+                <h2>Selamat Bergabung!</h2>
+                <p class="text-muted mt-2">Akun Anda berhasil dibuat. Silakan login.</p>
+                <a href="/login?registered=true" class="neo-btn neo-btn-primary neo-btn-lg mt-3">🔐 Login Sekarang</a>
+            </div>
+        }
+        else
+        {
+            <div class="text-center mb-3">
+                <h1 style="font-size:3rem;">🎉</h1>
+                <h2>Buat Akun EventSphere</h2>
+                <p class="text-muted">Daftar sekarang dan mulai rencanakan event impian Anda!</p>
+            </div>
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="neo-card-inset mb-2" style="background:#FADBD8; color:#C0392B; padding:0.75rem;">
+                    ⚠️ @((MarkupString)errorMessage)
+                </div>
+            }
+
+            <EditForm Model="model" OnValidSubmit="HandleRegister" FormName="registerForm">
+                <DataAnnotationsValidator />
+                <div class="flex flex-col gap-2">
+                    <div>
+                        <label class="text-light" style="font-size:0.85rem;">Nama Lengkap *</label>
+                        <InputText @bind-Value="model.FullName" class="neo-input" placeholder="Nama Anda" />
+                    </div>
+                    <div>
+                        <label class="text-light" style="font-size:0.85rem;">Email *</label>
+                        <InputText @bind-Value="model.Email" class="neo-input" placeholder="you@email.com" />
+                    </div>
+                    <div>
+                        <label class="text-light" style="font-size:0.85rem;">Password *</label>
+                        <InputText @bind-Value="model.Password" type="password" class="neo-input" placeholder="Minimal 8 karakter" />
+                        <small class="text-muted">Min. 8 karakter: huruf besar, kecil, angka, simbol</small>
+                    </div>
+                    <div>
+                        <label class="text-light" style="font-size:0.85rem;">Konfirmasi Password *</label>
+                        <InputText @bind-Value="model.ConfirmPassword" type="password" class="neo-input" placeholder="Ulangi password" />
+                    </div>
+
+                    <div>
+                        <label class="text-light" style="font-size:0.85rem;">Role</label>
+                        <select @bind="model.Role" class="neo-select w-full">
+                            <option value="Client">👤 Client — Saya ingin merencanakan event</option>
+                            <option value="Vendor">🏢 Vendor — Saya menyediakan jasa event</option>
+                            <option value="Guest">👥 Guest — Saya diundang ke event</option>
+                        </select>
+                    </div>
+
+                    <div class="flex items-start gap-2 mt-1">
+                        <InputCheckbox @bind-Value="model.AgreeTerms" />
+                        <small class="text-muted" style="font-size:0.8rem;">
+                            Saya setuju dengan Syarat & Ketentuan dan Kebijakan Privasi EventSphere.
+                        </small>
+                    </div>
+
+                    <button type="submit" class="neo-btn neo-btn-primary neo-btn-lg w-full mt-2"
+                            disabled="@(!model.AgreeTerms)">
+                        🎉 Daftar Sekarang
+                    </button>
+                </div>
+            </EditForm>
+
+            <div class="text-center mt-3" style="border-top:1px solid rgba(0,0,0,0.05); padding-top:1rem;">
+                <p class="text-muted" style="font-size:0.9rem;">
+                    Sudah punya akun?
+                    <a href="/login" class="text-primary" style="font-weight:600;">Login di sini →</a>
+                </p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private RegisterModel model = new();
+    private string? errorMessage;
+    private bool registrationSuccess;
+
+    private async Task HandleRegister()
+    {
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(model.FullName)) { errorMessage = "Nama lengkap harus diisi."; return; }
+        if (model.Password != model.ConfirmPassword) { errorMessage = "Password dan konfirmasi tidak cocok."; return; }
+        if (model.Password.Length < 8) { errorMessage = "Password minimal 8 karakter."; return; }
+        if (!model.AgreeTerms) { errorMessage = "Anda harus menyetujui Syarat & Ketentuan."; return; }
+
+        var user = new ApplicationUser
+        {
+            UserName = model.Email,
+            Email = model.Email,
+            FullName = model.FullName,
+            CreatedAt = DateTime.UtcNow,
+            IsActive = true,
+            EmailConfirmed = true
+        };
+
+        var result = await UserManager.CreateAsync(user, model.Password);
+
+        if (result.Succeeded)
+        {
+            await UserManager.AddToRoleAsync(user, model.Role);
+            registrationSuccess = true;
+        }
+        else
+        {
+            errorMessage = string.Join("<br>", result.Errors.Select(e => e.Description));
+        }
+    }
+
+    private class RegisterModel
+    {
+        public string FullName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+        public string Role { get; set; } = "Client";
+        public bool AgreeTerms { get; set; } = false;
+    }
+}

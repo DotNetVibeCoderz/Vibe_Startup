@@ -1,0 +1,97 @@
+@page "/gallery"
+@page "/gallery/{EventId:guid}"
+@attribute [Authorize]
+@inject MediaService MediaService
+@inject EventService EventService
+@inject StorageService StorageService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Gallery - EventSphere</PageTitle>
+
+@if (EventId == null)
+{
+    <div class="page-header"><div><h1>🖼️ Media Gallery</h1><p class="text-muted">Pilih event</p></div></div>
+    @if (myEvents.Any())
+    { <div class="grid-3">@foreach (var e in myEvents) { <div class="neo-card" style="cursor:pointer;" @onclick="() => GoToEvent(e.Id)"><h3>@e.Name</h3><p class="text-muted mt-1">@e.EventDate.ToString("dd MMM")</p><span class="neo-badge badge-info">@e.EventType</span></div> }</div> }
+    else { <div class="neo-card text-center p-3 text-muted">Belum ada event.</div> }
+}
+else
+{
+    <div class="page-header">
+        <div><button class="neo-btn" @onclick="GoToList">← Pilih Event Lain</button><h1>🖼️ @eventName - Gallery</h1></div>
+        <div class="flex gap-2"><select @bind="categoryFilter" class="neo-select"><option value="">All</option><option value="Ceremony">Ceremony</option><option value="Reception">Reception</option><option value="Candid">Candid</option></select><label class="neo-btn neo-btn-primary" style="cursor:pointer;">📤 Upload <InputFile OnChange="HandleUpload" accept="image/*,video/*" hidden /></label></div>
+    </div>
+    @if (filteredItems.Any())
+    {
+        <div class="grid-4">
+            @foreach (var m in filteredItems)
+            {
+                <div class="neo-card" style="padding:0;overflow:hidden;position:relative;">
+                    @if (m.MediaType == "Video")
+                    { <video src="@m.Url" controls style="width:100%;height:180px;object-fit:cover;"></video> }
+                    else
+                    { <img src="@m.Url" style="width:100%;height:180px;object-fit:cover;cursor:pointer;" @onclick="() => OpenPreview(m.Url, m.Caption)" alt="@m.Caption" /> }
+                    <div style="padding:0.5rem;"><small class="text-muted">@m.Caption?.Truncate(30)</small><br><small class="text-muted">@m.CreatedAt.ToString("dd MMM")</small></div>
+                    <button class="neo-btn neo-btn-sm neo-btn-error" style="position:absolute;top:5px;right:5px;" @onclick="() => HandleDelete(m.Id)">🗑️</button>
+                </div>
+            }
+        </div>
+    }
+    else { <div class="neo-card text-center p-3"><div style="font-size:4rem;">📸</div><p class="text-muted">Belum ada media.</p></div> }
+
+    @* 🔍 IMAGE PREVIEW POPUP *@
+    @if (!string.IsNullOrEmpty(previewUrl))
+    {
+        <div class="modal-overlay" @onclick="ClosePreview" style="z-index:2000; background:rgba(0,0,0,0.85);">
+            <div style="position:relative; max-width:90vw; max-height:90vh;" @onclick:stopPropagation="true">
+                <button class="neo-btn neo-btn-sm neo-btn-error" style="position:absolute;top:-15px;right:-15px;z-index:10;" @onclick="ClosePreview">✕</button>
+                <img src="@previewUrl" style="max-width:90vw;max-height:85vh;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.5);" alt="@previewCaption" />
+                @if (!string.IsNullOrEmpty(previewCaption)) { <div style="text-align:center;color:white;margin-top:0.5rem;">@previewCaption</div> }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Guid? EventId { get; set; }
+    private List<MediaItem> mediaItems = new(); private List<Event> myEvents = new();
+    private string categoryFilter = "", eventName = "", currentUserId = "";
+    private Guid? lastEventId;
+    private string? previewUrl, previewCaption;
+
+    private List<MediaItem> filteredItems => mediaItems.Where(m => string.IsNullOrEmpty(categoryFilter) || m.Category == categoryFilter).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        currentUserId = (await UserManager.GetUserAsync(authState.User))?.Id ?? "";
+        if (EventId == null) myEvents = await EventService.GetAllAsync();
+        else { lastEventId = EventId; await Load(); }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (EventId == null) { myEvents = await EventService.GetAllAsync(); return; }
+        if (EventId != lastEventId) { lastEventId = EventId; await Load(); }
+    }
+
+    private async Task Load() { if (EventId == null) return; mediaItems = await MediaService.GetMediaForEventAsync(EventId.Value); var evt = await EventService.GetByIdAsync(EventId.Value); eventName = evt?.Name ?? ""; }
+
+    private void GoToEvent(Guid id) => Navigation.NavigateTo($"/gallery/{id}");
+    private void GoToList() => Navigation.NavigateTo("/gallery");
+
+    private void OpenPreview(string? url, string? caption) { previewUrl = url; previewCaption = caption; }
+    private void ClosePreview() => previewUrl = null;
+
+    private async Task HandleUpload(InputFileChangeEventArgs e)
+    {
+        if (EventId == null || string.IsNullOrEmpty(currentUserId)) return;
+        var file = e.File; using var stream = file.OpenReadStream(20*1024*1024);
+        var url = await StorageService.UploadAsync(stream, file.Name, file.ContentType, $"events/{EventId}");
+        await MediaService.AddAsync(new MediaItem { EventId = EventId.Value, Url = url, MediaType = file.ContentType.StartsWith("video/") ? "Video" : "Image", Caption = file.Name, UploadedById = currentUserId });
+        await Load();
+    }
+    private async Task HandleDelete(Guid id) { await MediaService.DeleteAsync(id); await Load(); }
+}

@@ -1,0 +1,84 @@
+@page "/chat"
+@page "/chat/{EventId:guid}"
+@attribute [Authorize]
+@inject ChatService ChatService
+@inject EventService EventService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthProvider
+@inject IJSRuntime JS
+
+<PageTitle>Chat & Messaging - EventSphere</PageTitle>
+
+<div class="page-header">
+    <div><h1>💬 Chat</h1><p class="text-muted">Komunikasi real-time dengan tim, vendor, dan klien</p></div>
+    @if (EventId != null) { <button class="neo-btn neo-btn-primary" @onclick="CreateSession">➕ New Chat</button> }
+</div>
+
+<div style="display:flex; gap:1.25rem; height:calc(100vh - 200px);">
+    <div class="neo-card" style="width:260px; overflow-y:auto; flex-shrink:0;">
+        <h3>💬 Conversations</h3>
+        <div class="flex flex-col gap-1 mt-1">
+            @if (sessions.Any())
+            {
+                @foreach (var s in sessions)
+                {
+                    <div class="neo-card-inset" style="padding:0.5rem 0.75rem; cursor:pointer; @(s.Id == activeSessionId ? "border-left:4px solid var(--primary);" : "")" @onclick="() => LoadSession(s.Id)">
+                        <small style="font-weight:600;">@s.Name</small><br><small class="text-muted">@s.Messages?.LastOrDefault()?.Content?.Truncate(30) ?? "No messages"</small>
+                    </div>
+                }
+            }
+            else { <small class="text-muted p-2">No conversations yet.</small> }
+        </div>
+    </div>
+
+    <div class="chat-container" style="flex:1;">
+        <div class="chat-messages" id="chat-scroll">
+            @if (activeSession != null)
+            {
+                @foreach (var msg in messages)
+                {
+                    <div class="chat-bubble @(msg.SenderId == currentUserId ? "user" : "assistant")">
+                        <small style="opacity:0.7;">👤 @msg.Sender?.FullName</small>
+                        <div class="message-content mt-1">
+                            @if (msg.MessageType == "Image" && !string.IsNullOrEmpty(msg.AttachmentUrl)) { <img src="@msg.AttachmentUrl" style="max-width:200px; border-radius:8px;" alt="attachment" /> }
+                            else if (msg.MessageType == "File" && !string.IsNullOrEmpty(msg.AttachmentUrl)) { <a href="@msg.AttachmentUrl" target="_blank" class="neo-btn neo-btn-sm">📎 @msg.AttachmentName</a> }
+                            else { <span>@msg.Content</span> }
+                        </div>
+                        <small style="opacity:0.5; font-size:0.7rem;">@msg.SentAt.ToLocalTime().ToString("HH:mm")</small>
+                    </div>
+                }
+            }
+            else { <div class="text-center" style="margin:auto;"><h3>💬</h3><p class="text-muted">Pilih conversation atau buat chat baru</p></div> }
+        </div>
+        @if (activeSession != null)
+        {
+            <div class="chat-input-area">
+                <textarea @bind="newMessage" @bind:event="oninput" class="chat-input" placeholder="Ketik pesan..." @onkeydown="HandleKeyDown" rows="1"></textarea>
+                <button class="neo-btn neo-btn-primary" @onclick="SendMessage" disabled="@string.IsNullOrWhiteSpace(newMessage)">➤</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public Guid? EventId { get; set; }
+    private List<ChatSession> sessions = new();
+    private List<ChatMessage> messages = new();
+    private ChatSession? activeSession;
+    private Guid? activeSessionId;
+    private string newMessage = "";
+    private string? currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        currentUserId = (await UserManager.GetUserAsync(authState.User))?.Id;
+        if (currentUserId != null) { sessions = await ChatService.GetSessionsForUserAsync(currentUserId); if (sessions.Any()) await LoadSession(sessions.First().Id); }
+    }
+
+    private async Task LoadSession(Guid id) { activeSessionId = id; activeSession = await ChatService.GetSessionAsync(id); messages = await ChatService.GetMessagesForSessionAsync(id); await ScrollToBottom(); }
+    private async Task CreateSession() { if (EventId == null || currentUserId == null) return; var evt = await EventService.GetByIdAsync(EventId.Value); var session = new ChatSession { EventId = EventId, Name = $"💬 {evt?.Name ?? "Chat"}", SessionType = "Event" }; await ChatService.CreateSessionAsync(session); await ChatService.AddMemberAsync(session.Id, currentUserId); sessions = await ChatService.GetSessionsForUserAsync(currentUserId); await LoadSession(session.Id); }
+    private async Task SendMessage() { if (string.IsNullOrWhiteSpace(newMessage) || activeSessionId == null) return; await ChatService.SendMessageAsync(new ChatMessage { ChatSessionId = activeSessionId, SenderId = currentUserId!, Content = newMessage, MessageType = "Text" }); newMessage = ""; messages = await ChatService.GetMessagesForSessionAsync(activeSessionId.Value); await ScrollToBottom(); }
+    private async Task HandleKeyDown(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey) await SendMessage(); }
+    private async Task ScrollToBottom() { await Task.Delay(100); await JS.InvokeVoidAsync("eval", "const el=document.getElementById('chat-scroll');if(el)el.scrollTop=el.scrollHeight;"); }
+}

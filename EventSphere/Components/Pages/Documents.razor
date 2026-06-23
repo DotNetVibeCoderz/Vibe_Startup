@@ -1,0 +1,62 @@
+@page "/documents"
+@page "/documents/{EventId:guid}"
+@attribute [Authorize]
+@inject MediaService MediaService
+@inject EventService EventService
+@inject StorageService StorageService
+@inject ExportService ExportService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Documents - EventSphere</PageTitle>
+
+@if (EventId == null)
+{
+    <div class="page-header"><div><h1>📁 Documents</h1><p class="text-muted">Pilih event</p></div></div>
+    @if (myEvents.Any()) { <div class="grid-3">@foreach (var e in myEvents) { <div class="neo-card" style="cursor:pointer;" @onclick="() => GoToEvent(e.Id)"><h3>@e.Name</h3><p class="text-muted mt-1">@e.EventDate.ToString("dd MMM")</p><span class="neo-badge badge-info">@e.EventType</span></div> }</div> }
+    else { <div class="neo-card text-center p-3 text-muted">Belum ada event.</div> }
+}
+else
+{
+    <div class="page-header">
+        <div><button class="neo-btn" @onclick="GoToList">← Pilih Event Lain</button><h1>📁 @eventName - Documents</h1></div>
+        <div class="flex gap-2"><button class="neo-btn" @onclick="ExportReport">📊 Export</button><label class="neo-btn neo-btn-primary" style="cursor:pointer;">📤 Upload <InputFile OnChange="HandleUpload" accept=".pdf,.doc,.docx,.xlsx,.pptx,.txt" hidden /></label></div>
+    </div>
+    @if (documents.Any())
+    {
+        <div class="neo-card" style="padding:0.5rem;"><table class="neo-table"><thead><tr><th>File</th><th>Type</th><th>Size</th><th>Uploaded</th><th>Actions</th></tr></thead><tbody>
+        @foreach (var d in documents) { <tr><td><strong>@d.FileName</strong><br><small class="text-muted">by @d.UploadedBy?.FullName</small></td><td><span class="neo-badge badge-info">@d.FileType</span></td><td>@FormatSize(d.FileSize)</td><td>@d.CreatedAt.ToString("dd MMM")</td><td><div class="flex gap-1"><a href="@d.FileUrl" target="_blank" class="neo-btn neo-btn-sm">📥</a><button class="neo-btn neo-btn-sm neo-btn-error" @onclick="()=>HandleDelete(d.Id)">🗑️</button></div></td></tr> }</tbody></table></div>
+    }
+    else { <div class="neo-card text-center p-3 text-muted">📭 Belum ada dokumen.</div> }
+}
+
+@code {
+    [Parameter] public Guid? EventId { get; set; }
+    private List<Document> documents = new(); private List<Event> myEvents = new();
+    private string eventName = "", currentUserId = ""; private Guid? lastEventId;
+
+    protected override async Task OnInitializedAsync() {
+        var u = await UserManager.GetUserAsync((await AuthProvider.GetAuthenticationStateAsync()).User); currentUserId = u?.Id ?? "";
+        if (EventId == null) myEvents = await EventService.GetAllAsync(); else { lastEventId = EventId; await Load(); }
+    }
+    protected override async Task OnParametersSetAsync() {
+        if (EventId == null) { myEvents = await EventService.GetAllAsync(); return; }
+        if (EventId != lastEventId) { lastEventId = EventId; await Load(); }
+    }
+    private async Task Load() { if (EventId == null) return; documents = await MediaService.GetDocumentsForEventAsync(EventId.Value); var evt = await EventService.GetByIdAsync(EventId.Value); eventName = evt?.Name ?? ""; }
+
+    private void GoToEvent(Guid id) => Navigation.NavigateTo($"/documents/{id}");
+    private void GoToList() => Navigation.NavigateTo("/documents");
+
+    private async Task HandleUpload(InputFileChangeEventArgs e) {
+        if (EventId == null || string.IsNullOrEmpty(currentUserId)) return;
+        var file = e.File; using var stream = file.OpenReadStream(50*1024*1024);
+        var url = await StorageService.UploadAsync(stream, file.Name, file.ContentType, $"docs/{EventId}");
+        await MediaService.UploadDocumentAsync(new Document { EventId = EventId, FileName = file.Name, FileUrl = url, FileType = Path.GetExtension(file.Name), FileSize = file.Size, Category = "Document", UploadedById = currentUserId });
+        await Load();
+    }
+    private async Task HandleDelete(Guid id) { await MediaService.DeleteDocumentAsync(id); await Load(); }
+    private async Task ExportReport() { if (EventId != null) await ExportService.GenerateEventReportAsync(EventId.Value); }
+    private string FormatSize(long b) => b < 1024 ? $"{b} B" : b < 1024*1024 ? $"{b/1024:N0} KB" : $"{b/(1024*1024):N1} MB";
+}

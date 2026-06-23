@@ -1,0 +1,125 @@
+@page "/login"
+@layout MinimalLayout
+@using System.Text.Json
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Login - EventSphere</PageTitle>
+
+<div style="display:flex; align-items:center; justify-content:center; min-height:100vh; background:var(--bg);">
+    <div class="neo-card" style="width:100%; max-width:420px; padding:2.5rem;">
+        <div class="text-center mb-3">
+            <h1 style="font-size:3rem;">🎉</h1>
+            <h2>EventSphere</h2>
+            <p class="text-muted">Sign in to your account</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="neo-card-inset mb-2" style="background:#FADBD8; color:#C0392B; padding:0.75rem;">
+                ⚠️ @errorMessage
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="neo-card-inset mb-2" style="background:#D5F5E3; color:#1E8449; padding:0.75rem;">
+                ✅ @successMessage
+            </div>
+        }
+
+        <EditForm Model="loginModel" OnValidSubmit="HandleLogin" FormName="loginForm">
+            <div class="flex flex-col gap-2">
+                <div>
+                    <label class="text-light" style="font-size:0.85rem;">Email</label>
+                    <InputText @bind-Value="loginModel.Email" class="neo-input" placeholder="you@email.com" />
+                </div>
+                <div>
+                    <label class="text-light" style="font-size:0.85rem;">Password</label>
+                    <InputText @bind-Value="loginModel.Password" type="password" class="neo-input" placeholder="••••••••" />
+                </div>
+                <div class="flex justify-between items-center" style="font-size:0.85rem;">
+                    <label class="flex items-center gap-1">
+                        <InputCheckbox @bind-Value="loginModel.RememberMe" />
+                        <span class="text-light">Remember me</span>
+                    </label>
+                    <a href="/reset-password" class="text-primary">Lupa password?</a>
+                </div>
+                <button type="submit" class="neo-btn neo-btn-primary neo-btn-lg w-full mt-2">
+                    🔐 Sign In
+                </button>
+            </div>
+        </EditForm>
+
+        <div class="text-center mt-3" style="border-top:1px solid rgba(0,0,0,0.05); padding-top:1rem;">
+            <p class="text-muted" style="font-size:0.9rem;">
+                Belum punya akun?
+                <a href="/register" class="text-primary" style="font-weight:600;">Daftar di sini →</a>
+            </p>
+        </div>
+
+        <div class="text-center mt-3">
+            <p class="text-muted" style="font-size:0.8rem;">
+                Demo: <strong>admin@eventsphere.com</strong> / <strong>Admin123!</strong>
+            </p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private LoginModel loginModel = new();
+    private string? errorMessage;
+    private string? successMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var uri = new Uri(Navigation.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        if (query["registered"] == "true")
+        {
+            successMessage = "✅ Registrasi berhasil! Silakan login dengan akun baru Anda.";
+        }
+    }
+
+    private async Task HandleLogin()
+    {
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var response = await JS.InvokeAsync<AuthResponse>("auth.login", loginModel);
+
+            if (response.Ok)
+            {
+                Navigation.NavigateTo("/", forceLoad: true);
+                return;
+            }
+
+            errorMessage = response.Status switch
+            {
+                401 => "Email atau password salah. Silakan coba lagi.",
+                412 => "Verifikasi 2FA diperlukan.",
+                423 => "Akun terkunci. Silakan coba lagi nanti.",
+                _ => "Login gagal. Silakan coba beberapa saat lagi."
+            };
+        }
+        catch
+        {
+            errorMessage = "Login gagal. Pastikan koneksi Anda stabil.";
+        }
+    }
+
+    private class LoginModel
+    {
+        public string Email { get; set; } = "admin@eventsphere.com";
+        public string Password { get; set; } = "Admin123!";
+        public bool RememberMe { get; set; } = true;
+    }
+
+    private class AuthResponse
+    {
+        public bool Ok { get; set; }
+        public int Status { get; set; }
+        public JsonElement Data { get; set; }
+    }
+}

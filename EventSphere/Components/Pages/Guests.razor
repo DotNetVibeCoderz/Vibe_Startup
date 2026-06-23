@@ -1,0 +1,166 @@
+@page "/guests"
+@page "/guests/{EventId:guid}"
+@attribute [Authorize(Roles = "Admin,Organizer,Client")]
+@inject GuestService GuestService
+@inject EventService EventService
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager Navigation
+
+<PageTitle>Guest Management - EventSphere</PageTitle>
+
+@if (EventId == null)
+{
+    <div class="page-header"><div><h1>👥 Guest Management</h1><p class="text-muted">Pilih event untuk mengelola tamu</p></div></div>
+    @if (myEvents.Any())
+    {
+        <div class="grid-3">
+            @foreach (var e in myEvents)
+            { <div class="neo-card" style="cursor:pointer;" @onclick="() => GoToEvent(e.Id)"><h3>@e.Name</h3><p class="text-muted mt-1">@e.EventDate.ToString("dd MMM yyyy")</p><div class="flex justify-between mt-2"><small>👥 @e.ConfirmedGuests / @e.ExpectedGuests</small><span class="neo-badge @(e.Status==EventStatus.Confirmed?"badge-success":"badge-warning")">@e.Status</span></div></div> }
+        </div>
+    }
+    else { <div class="neo-card text-center" style="padding:3rem;"><p class="text-muted">Belum ada event.</p></div> }
+}
+else
+{
+    <div class="page-header">
+        <div><button class="neo-btn" @onclick="GoToList">← Pilih Event Lain</button><h1>👥 @eventName Guests</h1></div>
+        <button class="neo-btn neo-btn-primary" @onclick="() => showInviteModal = true">➕ Invite Guest</button>
+    </div>
+    <div class="grid-4 mb-3">
+        <div class="neo-card text-center"><div class="stat-value text-primary">@attendees.Count</div><div class="stat-label">Total</div></div>
+        <div class="neo-card text-center"><div class="stat-value text-success">@confirmedCount</div><div class="stat-label">Confirmed</div></div>
+        <div class="neo-card text-center"><div class="stat-value text-warning">@pendingCount</div><div class="stat-label">Pending</div></div>
+        <div class="neo-card text-center"><div class="stat-value text-error">@declinedCount</div><div class="stat-label">Declined</div></div>
+    </div>
+    <div class="neo-card" style="padding:0.5rem;">
+        <div class="flex justify-between items-center mb-2 p-2">
+            <input @bind="searchTerm" @bind:event="oninput" class="neo-input" placeholder="🔍 Cari tamu..." style="width:250px;" />
+            <select @bind="filterStatus" class="neo-select"><option value="">All RSVP</option><option value="Accepted">✅ Accepted</option><option value="Pending">⏳ Pending</option><option value="Declined">❌ Declined</option><option value="Maybe">🤔 Maybe</option></select>
+        </div>
+        @if (filteredAttendees.Any())
+        {
+            <table class="neo-table">
+                <thead><tr><th>Guest</th><th>Role</th><th>RSVP</th><th>Table</th><th>Dietary</th><th>Actions</th></tr></thead>
+                <tbody>
+                    @foreach (var a in filteredAttendees)
+                    {
+                        <tr>
+                            <td><strong>@a.User?.FullName</strong><br><small class="text-muted">@a.User?.Email</small>@if (a.HasPlusOne) { <br><small class="text-primary">+ @a.PlusOneName</small> }</td>
+                            <td><span class="neo-badge badge-info">@a.Role</span></td>
+                            <td><select class="neo-select" style="padding:0.25rem 0.5rem;font-size:0.8rem;" @onchange="(e) => ChangeRsvp(a, e)">
+                            @if (a.RsvpStatus == RsvpStatus.Pending) { <option value="Pending" selected>⏳ Pending</option> } else { <option value="Pending">⏳ Pending</option> }
+                            @if (a.RsvpStatus == RsvpStatus.Accepted) { <option value="Accepted" selected>✅ Accepted</option> } else { <option value="Accepted">✅ Accepted</option> }
+                            @if (a.RsvpStatus == RsvpStatus.Declined) { <option value="Declined" selected>❌ Declined</option> } else { <option value="Declined">❌ Declined</option> }
+                            @if (a.RsvpStatus == RsvpStatus.Maybe) { <option value="Maybe" selected>🤔 Maybe</option> } else { <option value="Maybe">🤔 Maybe</option> }
+                            </select></td>
+                            <td>@(a.Table != null ? a.Table.TableName : "Unassigned")</td>
+                            <td class="text-muted">@a.DietaryRestrictions</td>
+                            <td><div class="flex gap-1"><button class="neo-btn neo-btn-sm" @onclick="() => AssignSeat(a)">🪑</button><button class="neo-btn neo-btn-sm neo-btn-error" @onclick="() => RemoveAttendee(a.Id)">🗑️</button></div></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else { <div class="text-center p-3 text-muted">Belum ada tamu.</div> }
+    </div>
+
+    @if (showInviteModal)
+    {
+        <div class="modal-overlay" @onclick="() => showInviteModal = false">
+            <div class="modal-content" @onclick:stopPropagation="true" style="max-width:500px;">
+                <h2>➕ Invite Guest</h2>
+                <EditForm Model="newAttendee" OnValidSubmit="HandleInvite">
+                    <div class="flex flex-col gap-2 mt-2">
+                        <div><label class="text-light">Guest Email *</label><InputText @bind-Value="inviteEmail" class="neo-input" placeholder="guest@email.com" /></div>
+                        <div><label class="text-light">Role</label><select @bind="newAttendee.Role" class="neo-select w-full"><option value="Guest">Guest</option><option value="Vip">VIP</option><option value="Family">Family</option><option value="BridalParty">Bridal Party</option></select></div>
+                        <InputText @bind-Value="newAttendee.DietaryRestrictions" class="neo-input" placeholder="Dietary restrictions..." />
+                        <div class="flex items-center gap-2"><InputCheckbox @bind-Value="newAttendee.HasPlusOne" /><span class="text-light">Plus One?</span>@if (newAttendee.HasPlusOne) { <InputText @bind-Value="newAttendee.PlusOneName" class="neo-input" placeholder="Nama" style="width:180px;" /> }</div>
+                        <div class="flex gap-2 mt-2"><button type="submit" class="neo-btn neo-btn-primary">📩 Invite</button><button type="button" class="neo-btn" @onclick="() => showInviteModal = false">Cancel</button></div>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+
+    @if (showSeatModal && selectedAttendee != null)
+    {
+        <div class="modal-overlay" @onclick="() => showSeatModal = false">
+            <div class="modal-content" @onclick:stopPropagation="true" style="max-width:400px;">
+                <h2>🪑 Assign Seat - @selectedAttendee.User?.FullName</h2>
+                <div class="flex flex-col gap-2 mt-2">
+                    <select @bind="selectedTableId" class="neo-select w-full"><option value="">-- Pilih Meja --</option>@foreach (var t in tables) { <option value="@t.Id">@t.TableName (@t.FilledSeats/@t.Capacity)</option> }</select>
+                    <InputNumber @bind-Value="selectedSeatNumber" class="neo-input" placeholder="Nomor kursi" />
+                    <button class="neo-btn neo-btn-primary mt-2" @onclick="ConfirmSeatAssignment">💾 Simpan</button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Guid? EventId { get; set; }
+    private List<EventAttendee> attendees = new();
+    private List<Event> myEvents = new();
+    private List<TableArrangement> tables = new();
+    private string searchTerm = "", filterStatus = "", inviteEmail = "", eventName = "";
+    private bool showInviteModal, showSeatModal;
+    private EventAttendee? selectedAttendee;
+    private Guid? selectedTableId;
+    private int selectedSeatNumber = 1;
+    private EventAttendee newAttendee = new() { Role = AttendeeRole.Guest };
+    private Guid? lastEventId;
+    private int confirmedCount => attendees.Count(a => a.RsvpStatus == RsvpStatus.Accepted);
+    private int pendingCount => attendees.Count(a => a.RsvpStatus == RsvpStatus.Pending);
+    private int declinedCount => attendees.Count(a => a.RsvpStatus == RsvpStatus.Declined);
+    private List<EventAttendee> filteredAttendees => attendees.Where(a => string.IsNullOrEmpty(searchTerm) || (a.User?.FullName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)).Where(a => string.IsNullOrEmpty(filterStatus) || a.RsvpStatus.ToString() == filterStatus).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (EventId == null) { myEvents = await EventService.GetAllAsync(); }
+        else { lastEventId = EventId; await LoadGuestData(); }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (EventId == null) { myEvents = await EventService.GetAllAsync(); return; }
+        if (EventId != lastEventId) { lastEventId = EventId; await LoadGuestData(); }
+    }
+
+    private async Task LoadGuestData()
+    {
+        if (EventId == null) return;
+        attendees = await GuestService.GetAttendeesForEventAsync(EventId.Value);
+        var evt = await EventService.GetByIdAsync(EventId.Value);
+        if (evt != null) { tables = evt.TableArrangements.ToList(); eventName = evt.Name; }
+    }
+
+    private void GoToEvent(Guid id) => Navigation.NavigateTo($"/guests/{id}");
+    private void GoToList() => Navigation.NavigateTo("/guests");
+
+    private async Task HandleInvite()
+    {
+        // 🔑 Cari user berdasarkan email agar UserId valid (FK constraint)
+        var user = await UserManager.FindByEmailAsync(inviteEmail);
+        if (user == null)
+        {
+            // User belum ada — buat placeholder message. Di production, kirim invitation email.
+            // Untuk demo, skip invite jika user tidak ditemukan
+            return;
+        }
+
+        newAttendee.EventId = EventId!.Value;
+        newAttendee.UserId = user.Id; // ✅ Pakai GUID user yang valid
+        newAttendee.InvitedAt = DateTime.UtcNow;
+        await GuestService.InviteAsync(newAttendee);
+
+        newAttendee = new() { Role = AttendeeRole.Guest };
+        showInviteModal = false;
+        inviteEmail = "";
+        await LoadGuestData();
+    }
+
+    private async Task ChangeRsvp(EventAttendee a, ChangeEventArgs e) { if (Enum.TryParse<RsvpStatus>(e.Value?.ToString(), out var s)) { a.RsvpStatus = s; await GuestService.UpdateRsvpAsync(a.Id, s); } }
+    private void AssignSeat(EventAttendee a) { selectedAttendee = a; showSeatModal = true; }
+    private async Task ConfirmSeatAssignment() { if (selectedAttendee != null && selectedTableId.HasValue) { await GuestService.AssignSeatAsync(selectedAttendee.Id, selectedTableId.Value, selectedSeatNumber); showSeatModal = false; await LoadGuestData(); } }
+    private async Task RemoveAttendee(Guid id) { await GuestService.RemoveAttendeeAsync(id); await LoadGuestData(); }
+}

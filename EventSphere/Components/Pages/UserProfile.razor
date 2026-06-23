@@ -1,0 +1,285 @@
+@page "/profile"
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using EventSphere.Data.Models
+@using EventSphere.Services
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthProvider
+@inject StorageService StorageService
+@inject NavigationManager Navigation
+
+<PageTitle>My Profile - EventSphere</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>👤 My Profile</h1>
+        <p class="text-muted">Kelola informasi profil dan keamanan akun Anda</p>
+    </div>
+</div>
+
+@if (currentUser != null)
+{
+    <div class="grid-2">
+        <!-- ═══ Profile Info ═══ -->
+        <div class="neo-card">
+            <h3>📋 Informasi Profil</h3>
+
+            @if (!string.IsNullOrEmpty(successMessage))
+            {
+                <div class="neo-card-inset mt-1" style="background:#D5F5E3; color:#1E8449; padding:0.75rem;">
+                    ✅ @successMessage
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="neo-card-inset mt-1" style="background:#FADBD8; color:#C0392B; padding:0.75rem;">
+                    ⚠️ @errorMessage
+                </div>
+            }
+
+            <EditForm Model="profileModel" OnValidSubmit="UpdateProfile" FormName="profileForm">
+                <div class="flex flex-col gap-2 mt-2">
+                    <!-- Avatar -->
+                    <div class="text-center mb-2">
+                        <div class="avatar-preview" style="width:100px; height:100px; border-radius:50%; margin:0 auto; 
+                                    background: var(--primary-light); display:flex; align-items:center; justify-content:center;
+                                    font-size:2.5rem; box-shadow: var(--shadow-md); overflow:hidden;">
+                            @if (!string.IsNullOrEmpty(currentUser.AvatarUrl))
+                            {
+                                <img src="@currentUser.AvatarUrl" style="width:100%; height:100%; object-fit:cover;" alt="Avatar" />
+                            }
+                            else
+                            {
+                                <span>👤</span>
+                            }
+                        </div>
+                        <div class="mt-1">
+                            <label class="neo-btn neo-btn-sm" style="cursor:pointer;">
+                                📷 Ganti Foto
+                                <InputFile OnChange="UploadAvatar" accept="image/*" hidden />
+                            </label>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-light" style="font-size:0.85rem;">Nama Lengkap</label>
+                        <InputText @bind-Value="profileModel.FullName" class="neo-input" />
+                    </div>
+                    <div>
+                        <label class="text-light" style="font-size:0.85rem;">Email</label>
+                        <InputText @bind-Value="profileModel.Email" class="neo-input" disabled />
+                        <small class="text-muted">Email tidak dapat diubah</small>
+                    </div>
+                    <div>
+                        <label class="text-light" style="font-size:0.85rem;">Perusahaan</label>
+                        <InputText @bind-Value="profileModel.Company" class="neo-input" placeholder="Nama perusahaan (opsional)" />
+                    </div>
+                    <div>
+                        <label class="text-light" style="font-size:0.85rem;">Bio</label>
+                        <InputTextArea @bind-Value="profileModel.Bio" class="neo-input" rows="3" placeholder="Ceritakan tentang diri Anda..." />
+                    </div>
+                    <div>
+                        <label class="text-light" style="font-size:0.85rem;">Timezone</label>
+                        <select @bind="profileModel.TimeZone" class="neo-select w-full">
+                            <option value="Asia/Jakarta">Asia/Jakarta (WIB)</option>
+                            <option value="Asia/Makassar">Asia/Makassar (WITA)</option>
+                            <option value="Asia/Jayapura">Asia/Jayapura (WIT)</option>
+                            <option value="Asia/Singapore">Asia/Singapore</option>
+                            <option value="UTC">UTC</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="neo-btn neo-btn-primary mt-2">
+                        💾 Simpan Perubahan
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+
+        <!-- ═══ Security & Account ═══ -->
+        <div class="flex flex-col gap-2">
+            <!-- Change Password -->
+            <div class="neo-card">
+                <h3>🔒 Ganti Password</h3>
+                <EditForm Model="passwordModel" OnValidSubmit="ChangePassword" FormName="passwordForm">
+                    <div class="flex flex-col gap-2 mt-2">
+                        <div>
+                            <label class="text-light" style="font-size:0.85rem;">Password Saat Ini</label>
+                            <InputText @bind-Value="passwordModel.CurrentPassword" type="password" class="neo-input" />
+                        </div>
+                        <div>
+                            <label class="text-light" style="font-size:0.85rem;">Password Baru</label>
+                            <InputText @bind-Value="passwordModel.NewPassword" type="password" class="neo-input" />
+                        </div>
+                        <div>
+                            <label class="text-light" style="font-size:0.85rem;">Konfirmasi Password Baru</label>
+                            <InputText @bind-Value="passwordModel.ConfirmPassword" type="password" class="neo-input" />
+                        </div>
+                        <button type="submit" class="neo-btn neo-btn-primary mt-1">
+                            🔐 Update Password
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+
+            <!-- Account Info -->
+            <div class="neo-card">
+                <h3>ℹ️ Informasi Akun</h3>
+                <div class="mt-2 flex flex-col gap-1">
+                    <div class="flex justify-between">
+                        <span class="text-light">Username</span>
+                        <strong>@currentUser.UserName</strong>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-light">Email Verified</span>
+                        <span class="neo-badge @(currentUser.EmailConfirmed ? "badge-success" : "badge-warning")">
+                            @(currentUser.EmailConfirmed ? "✅ Verified" : "⏳ Pending")
+                        </span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-light">Status</span>
+                        <span class="neo-badge @(currentUser.IsActive ? "badge-success" : "badge-error")">
+                            @(currentUser.IsActive ? "Active" : "Inactive")
+                        </span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-light">Bergabung</span>
+                        <strong>@currentUser.CreatedAt.ToString("dd MMMM yyyy")</strong>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-light">Role</span>
+                        <strong>@string.Join(", ", currentRoles)</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loyalty Points -->
+            <div class="neo-card">
+                <h3>🏆 Loyalty Points</h3>
+                <div class="text-center mt-2">
+                    <div style="font-size:2.5rem; font-weight:700; color: var(--primary);">@totalPoints</div>
+                    <p class="text-muted">Points earned</p>
+                </div>
+                <div class="mt-2">
+                    <a href="/logout" class="neo-btn neo-btn-error w-full text-center" style="display:block;">
+                        🚪 Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="neo-card text-center" style="padding:3rem;">
+        <h2>Loading profile...</h2>
+    </div>
+}
+
+@code {
+    private ApplicationUser? currentUser;
+    private ProfileModel profileModel = new();
+    private PasswordModel passwordModel = new();
+    private string? successMessage;
+    private string? errorMessage;
+    private IList<string> currentRoles = new List<string>();
+    private int totalPoints;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        currentUser = await UserManager.GetUserAsync(authState.User);
+        if (currentUser != null)
+        {
+            profileModel = new ProfileModel
+            {
+                FullName = currentUser.FullName,
+                Email = currentUser.Email ?? "",
+                Company = currentUser.Company,
+                Bio = currentUser.Bio,
+                TimeZone = currentUser.TimeZone ?? "Asia/Jakarta"
+            };
+            currentRoles = await UserManager.GetRolesAsync(currentUser);
+        }
+    }
+
+    private async Task UpdateProfile()
+    {
+        errorMessage = null;
+        successMessage = null;
+
+        if (currentUser == null) return;
+
+        currentUser.FullName = profileModel.FullName;
+        currentUser.Company = profileModel.Company;
+        currentUser.Bio = profileModel.Bio;
+        currentUser.TimeZone = profileModel.TimeZone;
+
+        var result = await UserManager.UpdateAsync(currentUser);
+        if (result.Succeeded)
+            successMessage = "Profil berhasil diperbarui! ✅";
+        else
+            errorMessage = string.Join(", ", result.Errors.Select(e => e.Description));
+    }
+
+    private async Task ChangePassword()
+    {
+        errorMessage = null;
+        successMessage = null;
+
+        if (passwordModel.NewPassword != passwordModel.ConfirmPassword)
+        {
+            errorMessage = "Password baru dan konfirmasi tidak cocok.";
+            return;
+        }
+
+        if (currentUser == null) return;
+
+        var result = await UserManager.ChangePasswordAsync(
+            currentUser, passwordModel.CurrentPassword, passwordModel.NewPassword);
+
+        if (result.Succeeded)
+        {
+            successMessage = "Password berhasil diubah! 🔐";
+            passwordModel = new PasswordModel();
+        }
+        else
+            errorMessage = string.Join(", ", result.Errors.Select(e => e.Description));
+    }
+
+    private async Task UploadAvatar(InputFileChangeEventArgs e)
+    {
+        if (currentUser == null) return;
+        try
+        {
+            var file = e.File;
+            var stream = file.OpenReadStream(5 * 1024 * 1024); // Max 5MB
+            var url = await StorageService.UploadAsync(stream, file.Name, file.ContentType, "avatars");
+
+            currentUser.AvatarUrl = url;
+            await UserManager.UpdateAsync(currentUser);
+            successMessage = "Foto profil berhasil diupload! 📷";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Gagal upload: {ex.Message}";
+        }
+    }
+
+    private class ProfileModel
+    {
+        public string FullName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string? Company { get; set; }
+        public string? Bio { get; set; }
+        public string? TimeZone { get; set; } = "Asia/Jakarta";
+    }
+
+    private class PasswordModel
+    {
+        public string CurrentPassword { get; set; } = "";
+        public string NewPassword { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

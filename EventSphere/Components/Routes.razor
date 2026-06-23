@@ -1,0 +1,26 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using EventSphere.Components.Shared
+
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                @if (context.User.Identity?.IsAuthenticated != true)
+                {
+                    <RedirectToLogin />
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>Not Found</PageTitle>
+        <LayoutView Layout="typeof(Layout.MainLayout)">
+            <div class="neo-card text-center" style="padding:3rem; margin:2rem;">
+                <h1>🔍 Page Not Found</h1>
+                <p class="text-muted mt-2">Halaman yang Anda cari tidak ditemukan.</p>
+                <a href="/" class="neo-btn neo-btn-primary mt-3">← Back to Dashboard</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

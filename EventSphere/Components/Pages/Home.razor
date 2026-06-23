@@ -1,0 +1,135 @@
+@page "/"
+@attribute [Authorize]
+@inject DashboardService DashboardService
+@inject NavigationManager Navigation
+
+<PageTitle>Dashboard - EventSphere</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>🎉 Dashboard</h1>
+        <p class="text-muted">Selamat datang di EventSphere! Berikut ringkasan event Anda.</p>
+    </div>
+    <div class="flex gap-2">
+        <a href="/events/create" class="neo-btn neo-btn-primary">
+            <span>➕</span> New Event
+        </a>
+    </div>
+</div>
+
+@if (stats != null)
+{
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:#D5F5E3; color:#1E8449;">📅</div>
+            <div>
+                <div class="stat-value">@stats.TotalEvents</div>
+                <div class="stat-label">Total Events</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background:#D6EAF8; color:#2471A3;">⏰</div>
+            <div>
+                <div class="stat-value">@stats.UpcomingEvents</div>
+                <div class="stat-label">Upcoming Events</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background:#FCF3CF; color:#B7950B;">🏢</div>
+            <div>
+                <div class="stat-value">@stats.TotalVendors</div>
+                <div class="stat-label">Vendors</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background:#FADBD8; color:#C0392B;">💰</div>
+            <div>
+                <div class="stat-value">Rp @stats.TotalRevenue.ToString("N0")</div>
+                <div class="stat-label">Total Revenue</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background:#D5F5E3; color:#1E8449;">✅</div>
+            <div>
+                <div class="stat-value">@stats.TasksDone / @(stats.TasksDone + stats.TasksPending)</div>
+                <div class="stat-label">Tasks Completed</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background:#E8DAEF; color:#7D3C98;">⭐</div>
+            <div>
+                <div class="stat-value">@stats.AvgGuestSatisfaction.ToString("F1")</div>
+                <div class="stat-label">Avg Satisfaction</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="grid-3 mb-3">
+        <div class="neo-card" style="cursor:pointer;" @onclick="GoToEvents">
+            <h3>📅 My Events</h3>
+            <p class="text-muted mt-1">Kelola event yang sedang berlangsung</p>
+            <small class="text-primary">@stats.ActiveEvents active events →</small>
+        </div>
+        <div class="neo-card" style="cursor:pointer;" @onclick="GoToVendors">
+            <h3>🏢 Vendor Directory</h3>
+            <p class="text-muted mt-1">Cari vendor terbaik untuk event Anda</p>
+            <small class="text-primary">@stats.TotalVendors vendors available →</small>
+        </div>
+        <div class="neo-card" style="cursor:pointer;" @onclick="GoToChatBot">
+            <h3>🤖 Tante Sherly AI</h3>
+            <p class="text-muted mt-1">Konsultasi event planning dengan AI</p>
+            <small class="text-primary">Chat now →</small>
+        </div>
+    </div>
+
+    <!-- Monthly Overview -->
+    <div class="neo-card">
+        <h3>📈 Monthly Overview</h3>
+        <div class="mt-2">
+            <table class="neo-table">
+                <thead>
+                    <tr>
+                        <th>Month</th>
+                        <th>Events</th>
+                        <th>Revenue</th>
+                        <th>New Users</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var m in monthlyStats)
+                    {
+                        <tr>
+                            <td><strong>@m.Month</strong></td>
+                            <td>@m.EventsCreated</td>
+                            <td>Rp @m.Revenue.ToString("N0")</td>
+                            <td>@m.NewUsers</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else
+{
+    <div class="neo-card text-center" style="padding:3rem;">
+        <h2>Loading...</h2>
+    </div>
+}
+
+@code {
+    private DashboardStats? stats;
+    private List<MonthlyStats> monthlyStats = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        stats = await DashboardService.GetStatsAsync();
+        monthlyStats = await DashboardService.GetMonthlyStatsAsync();
+    }
+
+    private void GoToEvents() => Navigation.NavigateTo("/events");
+    private void GoToVendors() => Navigation.NavigateTo("/vendors");
+    private void GoToChatBot() => Navigation.NavigateTo("/chatbot");
+}

@@ -1,0 +1,134 @@
+@page "/admin/users"
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using EventSphere.Data.Models
+@inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
+@inject ExportService ExportService
+@inject IJSRuntime JS
+
+<PageTitle>User Management - EventSphere Admin</PageTitle>
+
+<div class="page-header">
+    <div><h1>⚙️ User Management</h1><p class="text-muted">CRUD • Filter • Sort • Paging • Export CSV/Excel</p></div>
+    <div class="flex gap-2">
+        <button class="neo-btn" @onclick="ExportCsv">📥 CSV</button>
+        <button class="neo-btn" @onclick="ExportExcel">📊 Excel</button>
+        <button class="neo-btn neo-btn-primary" @onclick="() => ShowModal(null)">➕ Add User</button>
+    </div>
+</div>
+
+<div class="grid-4 mb-3">
+    <div class="neo-card text-center"><div class="stat-value text-primary">@allUsers.Count</div><div class="stat-label">Total</div></div>
+    <div class="neo-card text-center"><div class="stat-value text-success">@allUsers.Count(u => u.IsActive)</div><div class="stat-label">Active</div></div>
+    <div class="neo-card text-center"><div class="stat-value text-error">@allUsers.Count(u => !u.IsActive)</div><div class="stat-label">Inactive</div></div>
+    <div class="neo-card text-center"><div class="stat-value text-warning">@allRoles.Count</div><div class="stat-label">Roles</div></div>
+</div>
+
+<div class="neo-card mb-2" style="padding:0.75rem 1rem;">
+    <div class="flex items-center gap-2" style="flex-wrap:wrap;">
+        <input @bind="searchTerm" @bind:event="oninput" class="neo-input" placeholder="🔍 Name or email..." style="width:260px;" />
+        <select @bind="roleFilter" class="neo-select"><option value="">All Roles</option>@foreach(var r in allRoles){<option value="@r.Name">@r.Name</option>}</select>
+        <select @bind="statusFilter" class="neo-select"><option value="">All</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+        <span class="text-muted" style="margin-left:auto;">@paginatedUsers.Count() of @filteredUsers.Count() users</span>
+    </div>
+</div>
+
+<div class="neo-card" style="padding:0.5rem;">
+    @if (paginatedUsers.Any())
+    {
+        <table class="neo-table">
+            <thead><tr>
+                <th style="cursor:pointer;" @onclick="SortByName">👤 @SortLabel("Name")</th>
+                <th style="cursor:pointer;" @onclick="SortByEmail">📧 @SortLabel("Email")</th>
+                <th>Roles</th><th>Status</th>
+                <th style="cursor:pointer;" @onclick="SortByDate">📅 @SortLabel("Date")</th>
+                <th>Actions</th>
+            </tr></thead>
+            <tbody>
+                @foreach(var item in paginatedUsers)
+                {
+                    var (user, roles) = item;
+                    <tr>
+                        <td><div class="flex items-center gap-2"><div style="width:32px;height:32px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--primary-dark);">@FirstChar(user.FullName)</div><strong>@user.FullName</strong></div></td>
+                        <td><small>@user.Email</small></td>
+                        <td>@foreach(var r in roles){<span class="neo-badge @RoleBadge(r)" style="margin-right:2px;">@r</span>}</td>
+                        <td><span class="neo-badge @(user.IsActive?"badge-success":"badge-error")" style="cursor:pointer;" @onclick="()=>ToggleActive(user)">@(user.IsActive?"✅ Active":"🚫 Inactive")</span></td>
+                        <td><small class="text-muted">@user.CreatedAt.ToString("dd MMM yyyy")</small></td>
+                        <td><div class="flex gap-1"><button class="neo-btn neo-btn-sm" @onclick="()=>ShowModal(user)">✏️</button><button class="neo-btn neo-btn-sm" @onclick="()=>ManageRoles(user)">🔑</button><button class="neo-btn neo-btn-sm" style="background:var(--error);color:white;" @onclick="()=>ConfirmDelete(user)">🗑️</button></div></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="flex items-center justify-between mt-2 p-2">
+            <div class="flex items-center gap-2"><span class="text-muted">Rows:</span><select @bind="pageSize" @bind:after="()=>currentPage=1" class="neo-select" style="padding:0.25rem 0.5rem;"><option value="5">5</option><option value="10">10</option><option value="20">20</option><option value="50">50</option></select></div>
+            <div class="flex items-center gap-1"><button class="neo-btn neo-btn-sm" disabled="@(currentPage<=1)" @onclick="()=>currentPage=1">⏮</button><button class="neo-btn neo-btn-sm" disabled="@(currentPage<=1)" @onclick="()=>currentPage--">◀</button><span class="text-muted" style="padding:0 0.5rem;">@currentPage/@totalPages</span><button class="neo-btn neo-btn-sm" disabled="@(currentPage>=totalPages)" @onclick="()=>currentPage++">▶</button><button class="neo-btn neo-btn-sm" disabled="@(currentPage>=totalPages)" @onclick="()=>currentPage=totalPages">⏭</button></div>
+        </div>
+    }
+    else { <div class="text-center p-3 text-muted">📭 No users found.</div> }
+</div>
+
+@if(showUserModal){<div class="modal-overlay" @onclick="()=>showUserModal=false"><div class="modal-content" @onclick:stopPropagation="true" style="max-width:520px;"><h2>@(editingUser!=null?"✏️ Edit":"➕ Add") User</h2><EditForm Model="formModel" OnValidSubmit="SaveUser"><div class="flex flex-col gap-2 mt-2"><div><label class="text-light">Full Name *</label><InputText @bind-Value="formModel.FullName" class="neo-input" /></div><div><label class="text-light">Email *</label><InputText @bind-Value="formModel.Email" class="neo-input" disabled="@(editingUser!=null)" /></div><div><label class="text-light">@(editingUser!=null?"New Password (blank to keep)":"Password *")</label><InputText @bind-Value="formModel.Password" type="password" class="neo-input" /></div><div><label class="text-light">Role</label><select @bind="formModel.Role" class="neo-select w-full"><option value="">-- Select --</option>@foreach(var r in allRoles){<option value="@r.Name">@r.Name</option>}</select></div><div class="grid-2"><div><label class="text-light">Company</label><InputText @bind-Value="formModel.Company" class="neo-input" /></div><div><label class="text-light">Phone</label><InputText @bind-Value="formModel.Phone" class="neo-input" /></div></div><div class="flex items-center gap-2"><InputCheckbox @bind-Value="formModel.IsActive" /><span class="text-light">Active</span></div>@if(!string.IsNullOrEmpty(formError)){<div class="neo-card-inset" style="background:#FADBD8;color:#C0392B;padding:0.5rem;">⚠️ @formError</div>}<div class="flex gap-2 mt-2"><button type="submit" class="neo-btn neo-btn-primary">💾 @(editingUser!=null?"Update":"Create")</button><button type="button" class="neo-btn" @onclick="()=>showUserModal=false">Cancel</button></div></div></EditForm></div></div>}
+
+@if(showRoleModal && roleUser != null){<div class="modal-overlay" @onclick="()=>showRoleModal=false"><div class="modal-content" @onclick:stopPropagation="true" style="max-width:420px;"><h2>🔑 Roles — @roleUser.FullName</h2><p class="text-muted">@roleUser.Email</p><div class="flex flex-col gap-2 mt-2">@foreach(var role in allRoles){var has=currentUserRoles.Contains(role.Name??"");<label class="flex items-center gap-2 neo-card-inset" style="padding:0.5rem 0.75rem;cursor:pointer;"><input type="checkbox" checked="@has" @onchange="(e)=>ToggleRole(role.Name!,(bool)(e.Value??false))"/><span>@role.Name</span></label>}<button class="neo-btn mt-2" @onclick="()=>showRoleModal=false">✅ Done</button></div></div></div>}
+
+@if(showDeleteConfirm && deleteUser != null){<div class="modal-overlay" @onclick="()=>showDeleteConfirm=false"><div class="modal-content" @onclick:stopPropagation="true" style="max-width:400px;text-align:center;"><div style="font-size:3rem;">⚠️</div><h2>Delete User?</h2><p class="text-muted mt-2"><strong>@deleteUser.FullName</strong> (@deleteUser.Email)</p><div class="flex gap-2 mt-3 justify-center"><button class="neo-btn neo-btn-error neo-btn-lg" @onclick="DeleteUser">🗑️ Delete</button><button class="neo-btn neo-btn-lg" @onclick="()=>showDeleteConfirm=false">Cancel</button></div></div></div>}
+
+@code {
+    private List<ApplicationUser> allUsers = new();
+    private Dictionary<string, IList<string>> userRolesMap = new();
+    private List<IdentityRole> allRoles = new();
+
+    private string searchTerm = "", roleFilter = "", statusFilter = "";
+    private string sortColumn = "Date";
+    private bool sortDescending = true;
+    private int currentPage = 1, pageSize = 10;
+    private int totalPages => Math.Max(1, (int)Math.Ceiling((double)filteredUsers.Count() / pageSize));
+
+    private bool showUserModal, showRoleModal, showDeleteConfirm;
+    private ApplicationUser? editingUser, roleUser, deleteUser;
+    private UserFormModel formModel = new();
+    private string? formError;
+    private List<string> currentUserRoles = new();
+
+    private IEnumerable<ApplicationUser> filteredUsers
+    {
+        get
+        {
+            var q = allUsers.AsEnumerable();
+            if (!string.IsNullOrEmpty(searchTerm)) { var s = searchTerm.ToLowerInvariant(); q = q.Where(u => (u.FullName?.ToLowerInvariant().Contains(s) ?? false) || (u.Email?.ToLowerInvariant().Contains(s) ?? false)); }
+            if (!string.IsNullOrEmpty(roleFilter)) q = q.Where(u => userRolesMap.TryGetValue(u.Id, out var r) && r.Contains(roleFilter));
+            if (statusFilter == "active") q = q.Where(u => u.IsActive); else if (statusFilter == "inactive") q = q.Where(u => !u.IsActive);
+            q = sortColumn switch { "Name" => sortDescending ? q.OrderByDescending(u => u.FullName) : q.OrderBy(u => u.FullName), "Email" => sortDescending ? q.OrderByDescending(u => u.Email) : q.OrderBy(u => u.Email), _ => sortDescending ? q.OrderByDescending(u => u.CreatedAt) : q.OrderBy(u => u.CreatedAt) };
+            return q;
+        }
+    }
+    private IEnumerable<(ApplicationUser, IList<string>)> paginatedUsers => filteredUsers.Skip((currentPage-1)*pageSize).Take(pageSize).Select(u => (u, userRolesMap.TryGetValue(u.Id, out var r) ? r : (IList<string>)new List<string>()));
+
+    protected override async Task OnInitializedAsync() => await LoadAll();
+    private async Task LoadAll() { allUsers = await UserManager.Users.OrderByDescending(u => u.CreatedAt).ToListAsync(); userRolesMap.Clear(); foreach(var u in allUsers) userRolesMap[u.Id] = await UserManager.GetRolesAsync(u); allRoles = await RoleManager.Roles.OrderBy(r => r.Name).ToListAsync(); }
+
+    private static string FirstChar(string? s) => !string.IsNullOrEmpty(s) ? s[0].ToString().ToUpper() : "?";
+
+    private void SortByName() { if(sortColumn=="Name") sortDescending=!sortDescending; else{sortColumn="Name";sortDescending=true;} }
+    private void SortByEmail() { if(sortColumn=="Email") sortDescending=!sortDescending; else{sortColumn="Email";sortDescending=true;} }
+    private void SortByDate() { if(sortColumn=="Date") sortDescending=!sortDescending; else{sortColumn="Date";sortDescending=true;} }
+    private string SortLabel(string col) => sortColumn!=col?"":sortDescending?" 🔽":" 🔼";
+
+    private async Task ExportCsv() { var data = filteredUsers.Select(u => new { u.FullName, u.Email, Roles = string.Join(",", userRolesMap.GetValueOrDefault(u.Id, new List<string>())), Status = u.IsActive?"Active":"Inactive", Joined = u.CreatedAt }); var bytes = await ExportService.ExportToCsvAsync(data.ToList()); await JS.InvokeVoidAsync("downloadFile", $"users_{DateTime.Now:yyyyMMdd}.csv", "text/csv", Convert.ToBase64String(bytes)); }
+    private async Task ExportExcel() { var data = filteredUsers.Select(u => new { u.FullName, u.Email, Roles = string.Join(",", userRolesMap.GetValueOrDefault(u.Id, new List<string>())), Status = u.IsActive?"Active":"Inactive", Joined = u.CreatedAt }); var bytes = await ExportService.ExportToExcelAsync(data.ToList(), "Users"); await JS.InvokeVoidAsync("downloadFile", $"users_{DateTime.Now:yyyyMMdd}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Convert.ToBase64String(bytes)); }
+
+    private void ShowModal(ApplicationUser? user) { editingUser = user; formError = null; formModel = user != null ? new UserFormModel { FullName = user.FullName??"", Email = user.Email??"", Password = "", Role = userRolesMap.TryGetValue(user.Id, out var r) ? r.FirstOrDefault()??"" : "", Company = user.Company, Phone = user.PhoneNumber, IsActive = user.IsActive } : new UserFormModel { IsActive = true, Role = "Client" }; showUserModal = true; }
+    private async Task SaveUser() { formError = null; if(string.IsNullOrWhiteSpace(formModel.FullName)){formError="Nama harus diisi.";return;} if(string.IsNullOrWhiteSpace(formModel.Email)){formError="Email harus diisi.";return;} if(editingUser!=null){ editingUser.FullName=formModel.FullName; editingUser.Company=formModel.Company; editingUser.PhoneNumber=formModel.Phone; editingUser.IsActive=formModel.IsActive; var up=await UserManager.UpdateAsync(editingUser); if(!up.Succeeded){formError=string.Join(", ",up.Errors.Select(e=>e.Description));return;} var cr=await UserManager.GetRolesAsync(editingUser); if(!string.IsNullOrEmpty(formModel.Role)&&!cr.Contains(formModel.Role)){await UserManager.RemoveFromRolesAsync(editingUser,cr);await UserManager.AddToRoleAsync(editingUser,formModel.Role);} if(!string.IsNullOrEmpty(formModel.Password)){var tok=await UserManager.GeneratePasswordResetTokenAsync(editingUser);await UserManager.ResetPasswordAsync(editingUser,tok,formModel.Password);} }else{ if(string.IsNullOrWhiteSpace(formModel.Password)){formError="Password harus diisi.";return;} var nu=new ApplicationUser{UserName=formModel.Email,Email=formModel.Email,FullName=formModel.FullName,Company=formModel.Company,PhoneNumber=formModel.Phone,CreatedAt=DateTime.UtcNow,IsActive=formModel.IsActive,EmailConfirmed=true}; var cr2=await UserManager.CreateAsync(nu,formModel.Password); if(!cr2.Succeeded){formError=string.Join(", ",cr2.Errors.Select(e=>e.Description));return;} if(!string.IsNullOrEmpty(formModel.Role))await UserManager.AddToRoleAsync(nu,formModel.Role); } showUserModal=false; await LoadAll(); }
+
+    private async Task ToggleActive(ApplicationUser u){u.IsActive=!u.IsActive;await UserManager.UpdateAsync(u);await LoadAll();}
+    private async Task ManageRoles(ApplicationUser u){roleUser=u;var r=await UserManager.GetRolesAsync(u);currentUserRoles=r.ToList();showRoleModal=true;}
+    private async Task ToggleRole(string roleName,bool add){if(roleUser==null)return;if(add){if(!currentUserRoles.Contains(roleName)){await UserManager.AddToRoleAsync(roleUser,roleName);currentUserRoles.Add(roleName);}}else{if(currentUserRoles.Contains(roleName)){await UserManager.RemoveFromRoleAsync(roleUser,roleName);currentUserRoles.Remove(roleName);}}}
+    private void ConfirmDelete(ApplicationUser u){deleteUser=u;showDeleteConfirm=true;}
+    private async Task DeleteUser(){if(deleteUser!=null){await UserManager.DeleteAsync(deleteUser);showDeleteConfirm=false;deleteUser=null;await LoadAll();}}
+
+    private static string RoleBadge(string r) => r switch {"Admin"=>"badge-error","Organizer"=>"badge-primary","Client"=>"badge-success","Vendor"=>"badge-warning",_=>"badge-info"};
+    private class UserFormModel{public string FullName{get;set;}="";public string Email{get;set;}="";public string Password{get;set;}="";public string Role{get;set;}="Client";public string? Company{get;set;}public string? Phone{get;set;}public bool IsActive{get;set;}=true;}
+}

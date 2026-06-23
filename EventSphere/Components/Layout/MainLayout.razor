@@ -1,0 +1,197 @@
+@inherits LayoutComponentBase
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@using EventSphere.Data.Models
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NotificationService NotificationService
+
+<div class="app-layout">
+    <aside class="sidebar" style="overflow-y:auto;">
+        <div class="sidebar-brand">
+            <span style="font-size:1.8rem;">🎉</span>
+            <span>EventSphere</span>
+        </div>
+
+        <nav>
+            @* Dashboard — semua role *@
+            <div class="nav-section">
+                <a href="/" class="nav-item @(IsActive("/") ? "active" : "")"><span>📊</span> Dashboard</a>
+            </div>
+
+            @* Core — Admin, Organizer, Client *@
+            @if (currentRoles.Any(r => r is "Admin" or "Organizer" or "Client"))
+            {
+                <div class="nav-section-title">Core</div>
+                <div class="nav-section">
+                    <a href="/events" class="nav-item @(IsActive("/events") ? "active" : "")"><span>📅</span> Events</a>
+                    <a href="/guests" class="nav-item @(IsActive("/guests") ? "active" : "")"><span>👥</span> Guests</a>
+                    <a href="/budget" class="nav-item @(IsActive("/budget") ? "active" : "")"><span>💰</span> Budget</a>
+                </div>
+            }
+
+            @* Tasks — Admin, Organizer, Client, Vendor *@
+            @if (currentRoles.Any(r => r is "Admin" or "Organizer" or "Client" or "Vendor"))
+            {
+                <div class="nav-section">
+                    <a href="/tasks" class="nav-item @(IsActive("/tasks") ? "active" : "")"><span>✅</span> Tasks</a>
+                </div>
+            }
+
+            @* Vendors — Admin, Organizer, Client *@
+            @if (currentRoles.Any(r => r is "Admin" or "Organizer" or "Client"))
+            {
+                <div class="nav-section">
+                    <a href="/vendors" class="nav-item @(IsActive("/vendors") ? "active" : "")"><span>🏢</span> Vendors</a>
+                </div>
+            }
+
+            @* Communication — Admin, Organizer, Client, Vendor *@
+            @if (currentRoles.Any(r => r is "Admin" or "Organizer" or "Client" or "Vendor"))
+            {
+                <div class="nav-section-title">Communication</div>
+                <div class="nav-section">
+                    <a href="/chat" class="nav-item @(IsActive("/chat") ? "active" : "")"><span>💬</span> Chat</a>
+                    <a href="/notifications" class="nav-item @(IsActive("/notifications") ? "active" : "")">
+                        <span>🔔</span> Notifications
+                        @if (notifCount > 0) { <span class="neo-badge badge-error" style="font-size:0.65rem; margin-left:auto;">@notifCount</span> }
+                    </a>
+                </div>
+            }
+
+            @* Documents — Admin, Organizer, Client, Vendor *@
+            @if (currentRoles.Any(r => r is "Admin" or "Organizer" or "Client" or "Vendor"))
+            {
+                <div class="nav-section">
+                    <a href="/documents" class="nav-item @(IsActive("/documents") ? "active" : "")"><span>📁</span> Documents</a>
+                </div>
+            }
+
+            @* Design — Admin, Organizer *@
+            @if (currentRoles.Any(r => r is "Admin" or "Organizer"))
+            {
+                <div class="nav-section-title">Design</div>
+                <div class="nav-section">
+                    <a href="/seating" class="nav-item @(IsActive("/seating") ? "active" : "")"><span>🪑</span> Seating Plan</a>
+                </div>
+            }
+
+            @* Gallery — Admin, Organizer, Client, Guest *@
+            @if (currentRoles.Any(r => r is "Admin" or "Organizer" or "Client" or "Guest"))
+            {
+                <div class="nav-section">
+                    <a href="/gallery" class="nav-item @(IsActive("/gallery") ? "active" : "")"><span>🖼️</span> Gallery</a>
+                </div>
+            }
+
+            @* AI & Community — semua role *@
+            <div class="nav-section-title">AI & Community</div>
+            <div class="nav-section">
+                <a href="/chatbot" class="nav-item @(IsActive("/chatbot") ? "active" : "")"><span>🤖</span> Tante Sherly AI</a>
+                @if (currentRoles.Any(r => r is "Admin" or "Organizer" or "Client" or "Vendor" or "Moderator"))
+                {
+                    <a href="/forum" class="nav-item @(IsActive("/forum") ? "active" : "")"><span>💡</span> Forum</a>
+                }
+            </div>
+
+            @* Admin — hanya Admin *@
+            @if (currentRoles.Contains("Admin"))
+            {
+                <div class="nav-section-title">Admin</div>
+                <div class="nav-section">
+                    <a href="/admin/users" class="nav-item @(IsActive("/admin") ? "active" : "")"><span>⚙️</span> User Management</a>
+                </div>
+            }
+
+            @* Account — semua role *@
+            <div class="nav-section-title">Account</div>
+            <div class="nav-section">
+                <a href="/profile" class="nav-item @(IsActive("/profile") ? "active" : "")"><span>👤</span> My Profile</a>
+            </div>
+        </nav>
+
+        <div style="margin-top:auto; padding-top:1rem;">
+            <div class="neo-card-inset" style="padding:0.75rem; text-align:center;">
+                <small class="text-muted">💝 EventSphere v1.0</small><br>
+                <small class="text-muted">by GraviCode Studios</small>
+                <br>
+                <span class="neo-badge @RoleBadgeColor(currentRoles.FirstOrDefault() ?? "")" style="font-size:0.65rem; margin-top:4px;">
+                    @(currentRoles.FirstOrDefault() ?? "User")
+                </span>
+            </div>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="top-bar">
+            <div class="flex items-center gap-2">
+                <span class="text-muted">👋 Welcome,</span>
+                <strong>@currentUser?.FullName</strong>
+                <span class="neo-badge @RoleBadgeColor(currentRoles.FirstOrDefault() ?? "")" style="font-size:0.65rem;">
+                    @(currentRoles.FirstOrDefault() ?? "User")
+                </span>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="/chatbot" class="neo-btn neo-btn-sm">🤖 Tante Sherly</a>
+                @if (currentRoles.Any(r => r is "Admin" or "Organizer" or "Client" or "Vendor"))
+                {
+                    <a href="/notifications" class="neo-btn neo-btn-sm" title="Notifications">
+                        🔔 @if (notifCount > 0) { <span class="neo-badge badge-error" style="font-size:0.6rem; padding:0.1rem 0.35rem;">@notifCount</span> }
+                    </a>
+                }
+                <a href="/profile" class="neo-btn neo-btn-sm" title="My Profile">
+                    @if (!string.IsNullOrEmpty(currentUser?.AvatarUrl))
+                    { <img src="@currentUser.AvatarUrl" style="width:24px;height:24px;border-radius:50%;object-fit:cover;" alt="Avatar" /> }
+                    else { <span>👤</span> }
+                    Profile
+                </a>
+                @* 🔑 Logout via button POST — lebih aman & tidak error redirect *@
+                <button class="neo-btn neo-btn-sm" @onclick="HandleLogout">🚪 Logout</button>
+            </div>
+        </div>
+        @Body
+    </main>
+</div>
+
+@code {
+    private ApplicationUser? currentUser;
+    private List<string> currentRoles = new();
+    private int notifCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = await UserManager.GetUserAsync(authState.User);
+
+        if (currentUser != null)
+        {
+            var roles = await UserManager.GetRolesAsync(currentUser);
+            currentRoles = roles.ToList();
+            notifCount = await NotificationService.GetUnreadCountAsync(currentUser.Id);
+        }
+    }
+
+    // 🔑 Logout via Navigation → halaman /logout yang akan SignOutAsync + redirect
+    private void HandleLogout()
+    {
+        Navigation.NavigateTo("/logout", forceLoad: true);
+    }
+
+    private bool IsActive(string path)
+    {
+        if (path == "/") return Navigation.Uri == Navigation.BaseUri || Navigation.Uri.EndsWith("/");
+        return Navigation.Uri.Contains(path, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string RoleBadgeColor(string role) => role switch
+    {
+        "Admin" => "badge-error",
+        "Organizer" => "badge-primary",
+        "Client" => "badge-success",
+        "Vendor" => "badge-warning",
+        "Guest" => "badge-info",
+        "Moderator" => "badge-info",
+        _ => "badge-info"
+    };
+}

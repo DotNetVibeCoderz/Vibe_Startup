@@ -1,0 +1,59 @@
+@page "/seating"
+@page "/seating/{EventId:guid}"
+@attribute [Authorize(Roles = "Admin,Organizer")]
+@inject GuestService GuestService
+@inject EventService EventService
+@inject NavigationManager Navigation
+
+<PageTitle>Seating Planner - EventSphere</PageTitle>
+
+@if (EventId == null)
+{
+    <div class="page-header"><div><h1>🪑 Seating Planner</h1><p class="text-muted">Pilih event</p></div></div>
+    @if (myEvents.Any()) { <div class="grid-3">@foreach (var e in myEvents) { <div class="neo-card" style="cursor:pointer;" @onclick="() => GoToEvent(e.Id)"><h3>@e.Name</h3><p class="text-muted mt-1">@e.EventDate.ToString("dd MMM")</p><div class="flex justify-between mt-2"><small>👥 @e.ExpectedGuests guests</small><span class="neo-badge badge-info">@e.EventType</span></div></div> }</div> }
+    else { <div class="neo-card text-center p-3 text-muted">Belum ada event.</div> }
+}
+else
+{
+    <div class="page-header">
+        <div><button class="neo-btn" @onclick="GoToList">← Pilih Event Lain</button><h1>🪑 @eventName - Seating</h1></div>
+        <div class="flex gap-2"><button class="neo-btn" @onclick="AddTable">➕ Add Table</button><button class="neo-btn neo-btn-primary" @onclick="SaveArrangement">💾 Save</button></div>
+    </div>
+    <div class="grid-2">
+        <div style="min-height:500px;position:relative;background:var(--bg-light);border-radius:var(--radius-lg);box-shadow:var(--shadow-md);">
+            @foreach (var t in tables)
+            {
+                <div style="position:absolute;left:@(t.PositionX)px;top:@(t.PositionY)px;width:@(t.Shape=="Rectangle"?140:80)px;height:@(t.Shape=="Rectangle"?80:80)px;border-radius:@(t.Shape=="Round"?"50%":"8px");background:@t.Color;box-shadow:var(--shadow-md);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:0.75rem;font-weight:600;" @onclick="()=>SelectTable(t)"><div style="text-align:center;">@t.TableName<br><small>@t.FilledSeats/@t.Capacity</small></div></div>
+            }
+            @if (!tables.Any()) { <div class="text-center" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);"><div style="font-size:4rem;">🪑</div><p class="text-muted">➕ Add Table</p></div> }
+        </div>
+        <div class="flex flex-col gap-2">
+            @if (selectedTable != null)
+            {
+                <div class="neo-card"><h3>🪑 @selectedTable.TableName</h3><EditForm Model="selectedTable" OnValidSubmit="UpdateTable"><div class="flex flex-col gap-2 mt-2"><InputText @bind-Value="selectedTable.TableName" class="neo-input" /><select @bind="selectedTable.Shape" class="neo-select w-full"><option value="Round">Round</option><option value="Rectangle">Rectangle</option><option value="Square">Square</option></select><InputNumber @bind-Value="selectedTable.Capacity" class="neo-input" /><InputText @bind-Value="selectedTable.Color" type="color" class="neo-input" style="height:40px;" /><button type="submit" class="neo-btn neo-btn-primary">💾</button><button type="button" class="neo-btn neo-btn-error" @onclick="DeleteTable">🗑️ Delete</button></div></EditForm></div>
+                <div class="neo-card"><h3>👥 Guests</h3>@foreach (var g in tableGuests) { <div class="flex justify-between mt-1"><span>@g.User?.FullName</span><span class="neo-badge @(g.RsvpStatus==RsvpStatus.Accepted?"badge-success":"badge-warning")">@g.RsvpStatus</span></div> }</div>
+            }
+            else { <div class="neo-card text-center p-3 text-muted">Klik meja.</div> }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid? EventId { get; set; }
+    private List<TableArrangement> tables = new(); private List<EventAttendee> allAttendees = new(); private List<Event> myEvents = new();
+    private TableArrangement? selectedTable; private int tableCounter; private string eventName = ""; private Guid? lastEventId;
+    private List<EventAttendee> tableGuests => selectedTable != null ? allAttendees.Where(a => a.TableId == selectedTable.Id).ToList() : new();
+
+    protected override async Task OnInitializedAsync() { if (EventId == null) myEvents = await EventService.GetAllAsync(); else { lastEventId = EventId; await Load(); } }
+    protected override async Task OnParametersSetAsync() { if (EventId == null) { myEvents = await EventService.GetAllAsync(); return; } if (EventId != lastEventId) { lastEventId = EventId; await Load(); } }
+    private async Task Load() { if (EventId == null) return; var evt = await EventService.GetByIdAsync(EventId.Value); if (evt != null) { tables = evt.TableArrangements.OrderBy(t => t.SortOrder).ToList(); eventName = evt.Name; tableCounter = tables.Count; } allAttendees = await GuestService.GetAttendeesForEventAsync(EventId.Value); }
+
+    private void GoToEvent(Guid id) => Navigation.NavigateTo($"/seating/{id}");
+    private void GoToList() => Navigation.NavigateTo("/seating");
+
+    private async Task AddTable() { tableCounter++; tables.Add(new TableArrangement { EventId = EventId!.Value, TableName = $"Meja {tableCounter}", Shape = "Round", Capacity = 8, PositionX = 50 + (tableCounter * 70 % 550), PositionY = 50 + (tableCounter * 50 % 400), Color = "#DFE6E9", SortOrder = tableCounter }); }
+    private void SelectTable(TableArrangement t) => selectedTable = t;
+    private async Task UpdateTable() { selectedTable = null; }
+    private async Task DeleteTable() { if (selectedTable != null) { tables.Remove(selectedTable); selectedTable = null; } }
+    private async Task SaveArrangement() {  }
+}

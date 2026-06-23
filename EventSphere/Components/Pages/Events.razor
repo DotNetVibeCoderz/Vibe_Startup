@@ -1,0 +1,136 @@
+@page "/events"
+@page "/events/create"
+@page "/events/{EventId:guid}"
+@attribute [Authorize]
+@inject EventService EventService
+@inject NavigationManager Navigation
+
+<PageTitle>Events - EventSphere</PageTitle>
+
+@* ═══ CREATE MODE ═══ *@
+@if (pageMode == PageMode.Create)
+{
+    <div class="page-header">
+        <div><button class="neo-btn" @onclick="GoToList">← Back to Events</button><h1>➕ Create New Event</h1></div>
+    </div>
+    <div class="neo-card" style="max-width:700px;">
+        <EditForm Model="newEvent" OnValidSubmit="HandleCreate"><DataAnnotationsValidator />
+            <div class="flex flex-col gap-2">
+                <div><label class="text-light">Event Name *</label><InputText @bind-Value="newEvent.Name" class="neo-input" placeholder="Wedding Rini & Raka" /></div>
+                <div class="grid-2"><div><label class="text-light">Event Date *</label><InputDate @bind-Value="newEvent.EventDate" class="neo-input" /></div><div><label class="text-light">End Date</label><InputDate @bind-Value="newEvent.EndDate" class="neo-input" /></div></div>
+                <div><label class="text-light">Location</label><InputText @bind-Value="newEvent.Location" class="neo-input" placeholder="Grand Ballroom Jakarta" /></div>
+                <div class="grid-2"><div><label class="text-light">Theme</label><InputText @bind-Value="newEvent.Theme" class="neo-input" /></div><div><label class="text-light">Event Type</label><select @bind="newEvent.EventType" class="neo-select w-full"><option value="Wedding">Wedding</option><option value="Birthday">Birthday</option><option value="Corporate">Corporate</option><option value="Concert">Concert</option><option value="Other">Other</option></select></div></div>
+                <div class="grid-2"><div><label class="text-light">Budget</label><InputNumber @bind-Value="newEvent.BudgetTotal" class="neo-input" /></div><div><label class="text-light">Expected Guests</label><InputNumber @bind-Value="newEvent.ExpectedGuests" class="neo-input" /></div></div>
+                <div><label class="text-light">Description</label><InputTextArea @bind-Value="newEvent.Description" class="neo-input" rows="3" /></div>
+                <button type="submit" class="neo-btn neo-btn-primary neo-btn-lg mt-2">🎉 Create Event</button>
+            </div>
+        </EditForm>
+    </div>
+}
+@* ═══ DETAIL MODE ═══ *@
+else if (pageMode == PageMode.Detail && currentEvent != null)
+{
+    <div class="page-header">
+        <div><button class="neo-btn" @onclick="GoToList">← Back to Events</button><h1>@currentEvent.Name</h1><p class="text-muted">@currentEvent.EventDate.ToString("dddd, dd MMMM yyyy") • @currentEvent.Location • <span class="neo-badge @SBadge(currentEvent.Status)">@currentEvent.Status</span></p></div>
+        <div class="flex gap-2">
+            <a href="/guests/@currentEvent.Id" class="neo-btn">👥 Guests</a><a href="/budget/@currentEvent.Id" class="neo-btn">💰 Budget</a>
+            <a href="/tasks/@currentEvent.Id" class="neo-btn">✅ Tasks</a><a href="/chat/@currentEvent.Id" class="neo-btn">💬 Chat</a>
+            <a href="/gallery/@currentEvent.Id" class="neo-btn">🖼️ Gallery</a><a href="/documents/@currentEvent.Id" class="neo-btn">📁 Docs</a>
+            <a href="/seating/@currentEvent.Id" class="neo-btn">🪑 Seating</a>
+        </div>
+    </div>
+    <div class="grid-3 mb-3">
+        <div class="neo-card text-center"><div class="stat-value text-primary">Rp @currentEvent.BudgetTotal.ToString("N0")</div><div class="stat-label">Total Budget</div><div class="text-success mt-1">Rp @currentEvent.BudgetSpent.ToString("N0") spent</div></div>
+        <div class="neo-card text-center"><div class="stat-value text-primary">@currentEvent.ConfirmedGuests / @currentEvent.ExpectedGuests</div><div class="stat-label">Guests</div><progress value="@currentEvent.ConfirmedGuests" max="@currentEvent.ExpectedGuests" style="width:100%;height:8px;border-radius:4px;"></progress></div>
+        <div class="neo-card text-center"><div class="stat-value text-primary">@(currentEvent.VendorContracts?.Count ?? 0)</div><div class="stat-label">Vendors</div></div>
+    </div>
+    @if (currentEvent.TaskItems?.Any() == true) { <div class="neo-card"><h3>✅ Recent Tasks</h3><table class="neo-table mt-1"><tbody>@foreach (var t in currentEvent.TaskItems.Take(5)) { <tr><td>@(t.Status == TaskItemStatus.Done ? "✅" : t.Status == TaskItemStatus.InProgress ? "🔄" : "⏳") @t.Title</td><td><span class="neo-badge @TBadge(t.Status)">@t.Status</span></td><td class="text-muted">@t.DueDate?.ToString("dd MMM")</td></tr> }</tbody></table></div> }
+    @if (currentEvent.BudgetItems?.Any() == true) { <div class="neo-card mt-2"><h3>💰 Budget</h3><table class="neo-table mt-1"><tbody>@foreach (var b in currentEvent.BudgetItems.OrderBy(x => x.SortOrder).Take(5)) { <tr><td>@(b.IsPaid ? "✅" : "⏳") @b.Name</td><td><span class="neo-badge badge-info">@b.Category</span></td><td>Rp @b.EstimatedCost.ToString("N0") / Rp @b.ActualCost.ToString("N0")</td></tr> }</tbody></table></div> }
+}
+@* ═══ LIST MODE ═══ *@
+else
+{
+    <div class="page-header">
+        <div><h1>📅 Events</h1><p class="text-muted">Kelola semua event Anda</p></div>
+        <div class="flex gap-2">
+            <input @bind="searchTerm" @bind:event="oninput" class="neo-input" placeholder="🔍 Search..." style="width:250px;" />
+            <select @bind="statusFilter" class="neo-select"><option value="">All Status</option><option value="Draft">Draft</option><option value="Planned">Planned</option><option value="Confirmed">Confirmed</option><option value="InProgress">In Progress</option><option value="Completed">Completed</option></select>
+            <button class="neo-btn neo-btn-primary" @onclick="GoToCreate">➕ New Event</button>
+        </div>
+    </div>
+    @if (events != null && events.Any())
+    {
+        <div class="neo-card" style="padding:0.5rem;">
+            <table class="neo-table">
+                <thead><tr><th>Event</th><th>Date</th><th>Type</th><th>Status</th><th>Budget</th><th>Guests</th><th>Actions</th></tr></thead>
+                <tbody>
+                    @foreach (var e in filteredEvents)
+                    {
+                        <tr><td><strong>@e.Name</strong><br><small class="text-muted">@e.Location?.Truncate(40)</small></td><td>@e.EventDate.ToString("dd MMM yyyy")</td><td><span class="neo-badge badge-info">@e.EventType</span></td><td><span class="neo-badge @SBadge(e.Status)">@e.Status</span></td><td>Rp @e.BudgetTotal.ToString("N0")</td><td>@e.ConfirmedGuests / @e.ExpectedGuests</td><td><div class="flex gap-1"><button class="neo-btn neo-btn-sm" @onclick="() => GoToDetail(e.Id)">📋 Detail</button><button class="neo-btn neo-btn-sm neo-btn-error" @onclick="() => HandleDelete(e.Id)">🗑️</button></div></td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else { <div class="neo-card text-center" style="padding:3rem;"><h2>🎉 No events yet!</h2><button class="neo-btn neo-btn-primary mt-2" @onclick="GoToCreate">➕ Create First Event</button></div> }
+}
+
+@code {
+    [Parameter] public Guid? EventId { get; set; }
+
+    enum PageMode { List, Create, Detail }
+
+    private List<Event> events = new();
+    private Event? currentEvent;
+    private Event newEvent = new() { EventDate = DateTime.UtcNow.AddMonths(3), BudgetTotal = 100_000_000, ExpectedGuests = 200, EventType = "Wedding", Status = EventStatus.Draft };
+    private string searchTerm = "", statusFilter = "";
+    private PageMode pageMode;
+    private Guid? lastEventId;
+
+    private List<Event> filteredEvents => events
+        .Where(e => string.IsNullOrEmpty(searchTerm) || e.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || (e.Location?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Where(e => string.IsNullOrEmpty(statusFilter) || e.Status.ToString() == statusFilter).ToList();
+
+    // 🔑 Navigasi method - gunakan NavigationManager bukan <a href>
+    private void GoToCreate() => Navigation.NavigateTo("/events/create",true);
+    private void GoToList() => Navigation.NavigateTo("/events",true);
+    private void GoToDetail(Guid id) => Navigation.NavigateTo($"/events/{id}");
+
+    protected override void OnInitialized()
+    {
+        DetectMode();
+        if (pageMode != PageMode.List) lastEventId = EventId;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        DetectMode();
+        if (pageMode == PageMode.Detail && EventId != lastEventId)
+        {
+            lastEventId = EventId;
+            currentEvent = null;
+            StateHasChanged();
+            currentEvent = await EventService.GetByIdAsync(EventId!.Value);
+        }
+        else if (pageMode == PageMode.List)
+        {
+            events = await EventService.GetAllAsync();
+        }
+    }
+
+    private void DetectMode()
+    {
+        var uri = Navigation.Uri.ToLowerInvariant();
+        if (uri.EndsWith("/create") || uri.EndsWith("/create/"))
+            pageMode = PageMode.Create;
+        else if (EventId.HasValue)
+            pageMode = PageMode.Detail;
+        else
+            pageMode = PageMode.List;
+    }
+
+    private async Task HandleCreate() { await EventService.CreateAsync(newEvent); Navigation.NavigateTo("/events"); }
+    private async Task HandleDelete(Guid id) { await EventService.DeleteAsync(id); events = await EventService.GetAllAsync(); }
+    private string SBadge(EventStatus s) => s switch { EventStatus.Draft => "badge-info", EventStatus.Planned => "badge-warning", EventStatus.Confirmed => "badge-primary", EventStatus.InProgress => "badge-success", EventStatus.Completed => "badge-success", EventStatus.Cancelled => "badge-error", _ => "" };
+    private string TBadge(TaskItemStatus s) => s switch { TaskItemStatus.Todo => "badge-info", TaskItemStatus.InProgress => "badge-warning", TaskItemStatus.Done => "badge-success", _ => "" };
+}

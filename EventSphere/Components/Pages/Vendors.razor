@@ -1,0 +1,107 @@
+@page "/vendors"
+@attribute [Authorize]
+@inject VendorService VendorService
+@inject NavigationManager Navigation
+
+<PageTitle>Vendors - EventSphere</PageTitle>
+
+<div class="page-header">
+    <div><h1>🏢 Vendor Directory</h1><p class="text-muted">Database vendor untuk event Anda</p></div>
+    <div class="flex gap-2">
+        <input @bind="searchTerm" @bind:event="oninput" class="neo-input" placeholder="🔍 Cari vendor..." style="width:250px;" />
+        <select @bind="categoryFilter" class="neo-select">
+            <option value="">All Categories</option><option value="Catering">Catering</option><option value="Dekorasi">Dekorasi</option><option value="Fotografi">Fotografi</option><option value="Musik">Musik</option><option value="Venue">Venue</option><option value="Kue & Dessert">Kue</option><option value="Kecantikan">Kecantikan</option><option value="Hiburan">Hiburan</option>
+        </select>
+        <button class="neo-btn neo-btn-primary" @onclick="ShowAdd">➕ Add Vendor</button>
+    </div>
+</div>
+
+@if (vendors != null)
+{
+    <div class="grid-3">
+        @foreach (var v in filteredVendors)
+        {
+            <div class="neo-card">
+                <div class="flex justify-between items-center mb-1"><h3>@v.Name</h3><span class="neo-badge badge-primary">@v.Category</span></div>
+                <p class="text-muted" style="font-size:0.85rem;">@v.Description?.Truncate(100)</p>
+                <div class="flex justify-between items-center mt-2"><div><span>⭐ @v.Rating.ToString("F1")</span><small class="text-muted">(@v.ReviewCount)</small></div><span class="neo-badge @PriceBadge(v.PriceRange)">@v.PriceRange</span></div>
+                <div class="mt-1 text-muted" style="font-size:0.8rem;">📍 @v.City • 📞 @v.Phone</div>
+                <div class="flex gap-1 mt-2">
+                    @if (v.IsVerified) { <span class="neo-badge badge-success">✓ Verified</span> }
+                    @if (v.IsActive) { <span class="neo-badge badge-info">Active</span> }
+                    else { <span class="neo-badge badge-error">Inactive</span> }
+                </div>
+                <div class="flex gap-1 mt-2">
+                    <button class="neo-btn neo-btn-sm" @onclick="() => ShowEdit(v)">✏️ Edit</button>
+                    <button class="neo-btn neo-btn-sm neo-btn-error" @onclick="() => HandleDelete(v.Id)">🗑️ Delete</button>
+                </div>
+            </div>
+        }
+    </div>
+}
+else { <div class="neo-card text-center" style="padding:3rem;"><h2>Loading...</h2></div> }
+
+@if (showModal)
+{
+    <div class="modal-overlay" @onclick="CloseModal">
+        <div class="modal-content" @onclick:stopPropagation="true" style="max-width:550px;">
+            <h2>@(editingVendor != null ? "✏️ Edit" : "➕ Add") Vendor</h2>
+            <EditForm Model="formVendor" OnValidSubmit="HandleSave">
+                <div class="flex flex-col gap-2 mt-2">
+                    <div class="grid-2">
+                        <div><label class="text-light">Nama *</label><InputText @bind-Value="formVendor.Name" class="neo-input" /></div>
+                        <div><label class="text-light">Kategori</label><select @bind="formVendor.Category" class="neo-select w-full"><option value="Catering">Catering</option><option value="Dekorasi">Dekorasi</option><option value="Fotografi">Fotografi</option><option value="Musik">Musik</option><option value="Venue">Venue</option><option value="Kue & Dessert">Kue</option><option value="Kecantikan">Kecantikan</option><option value="Hiburan">Hiburan</option></select></div>
+                    </div>
+                    <div><label class="text-light">Deskripsi</label><InputTextArea @bind-Value="formVendor.Description" class="neo-input" rows="2" /></div>
+                    <div class="grid-2">
+                        <div><label class="text-light">Kota</label><InputText @bind-Value="formVendor.City" class="neo-input" /></div>
+                        <div><label class="text-light">Telepon</label><InputText @bind-Value="formVendor.Phone" class="neo-input" /></div>
+                    </div>
+                    <div class="grid-2">
+                        <div><label class="text-light">Email</label><InputText @bind-Value="formVendor.Email" class="neo-input" /></div>
+                        <div><label class="text-light">Website</label><InputText @bind-Value="formVendor.Website" class="neo-input" /></div>
+                    </div>
+                    <div class="grid-3">
+                        <div><label class="text-light">Rating</label><InputNumber @bind-Value="formVendor.Rating" class="neo-input" /></div>
+                        <div><label class="text-light">Price Range</label><select @bind="formVendor.PriceRange" class="neo-select w-full"><option value="Budget">Budget</option><option value="Standard">Standard</option><option value="Premium">Premium</option><option value="Luxury">Luxury</option></select></div>
+                        <div class="flex items-end gap-2 pb-1"><InputCheckbox @bind-Value="formVendor.IsVerified" /><span class="text-light">Verified</span></div>
+                    </div>
+                    <div class="flex gap-2 mt-2"><button type="submit" class="neo-btn neo-btn-primary">💾 Simpan</button><button type="button" class="neo-btn" @onclick="CloseModal">Cancel</button></div>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Vendor> vendors = new();
+    private string searchTerm = "", categoryFilter = "";
+    private bool showModal;
+    private Vendor? editingVendor;
+    private Vendor formVendor = new();
+
+    private List<Vendor> filteredVendors => vendors
+        .Where(v => string.IsNullOrEmpty(searchTerm) || v.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || (v.City?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Where(v => string.IsNullOrEmpty(categoryFilter) || v.Category == categoryFilter)
+        .ToList();
+
+    protected override async Task OnInitializedAsync() => await LoadVendors();
+
+    private async Task LoadVendors() => vendors = await VendorService.GetAllAsync();
+
+    private void ShowAdd() { editingVendor = null; formVendor = new Vendor { IsActive = true, Rating = 4.0m, PriceRange = "Standard", Category = "Catering" }; showModal = true; }
+    private void ShowEdit(Vendor v) { editingVendor = v; formVendor = new Vendor { Id = v.Id, Name = v.Name, Description = v.Description, Category = v.Category ?? "", City = v.City, Phone = v.Phone, Email = v.Email, Website = v.Website, Rating = v.Rating, PriceRange = v.PriceRange, IsVerified = v.IsVerified, IsActive = v.IsActive }; showModal = true; }
+    private void CloseModal() => showModal = false;
+
+    private async Task HandleSave()
+    {
+        if (editingVendor != null) await VendorService.UpdateAsync(formVendor);
+        else await VendorService.CreateAsync(formVendor);
+        showModal = false;
+        await LoadVendors();
+    }
+
+    private async Task HandleDelete(Guid id) { await VendorService.DeleteAsync(id); await LoadVendors(); }
+
+    private string PriceBadge(string? p) => p switch { "Budget" => "badge-info", "Standard" => "badge-success", "Premium" => "badge-warning", "Luxury" => "badge-error", _ => "badge-info" };
+}

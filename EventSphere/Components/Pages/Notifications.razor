@@ -1,0 +1,53 @@
+@page "/notifications"
+@attribute [Authorize]
+@inject NotificationService NotificationService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Notifications - EventSphere</PageTitle>
+
+<div class="page-header">
+    <div><h1>🔔 Notifications</h1><p class="text-muted">Pengingat, update, dan informasi penting</p></div>
+    <button class="neo-btn" @onclick="MarkAllRead">✅ Mark All Read</button>
+</div>
+
+@if (notifications.Any())
+{
+    <div class="flex flex-col gap-2">
+        @foreach (var n in notifications)
+        {
+            <div class="neo-card @(n.IsRead ? "" : "unread")" style="padding:1rem; @(n.IsRead ? "" : "border-left:4px solid var(--primary);") cursor:pointer;" @onclick="() => OpenNotification(n)">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center gap-2">
+                        <span>@GetIcon(n.Type)</span>
+                        <div><strong>@n.Message</strong><br><small class="text-muted">@n.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</small></div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        @if (!n.IsRead) { <span class="neo-badge badge-primary">New</span> }
+                        <span class="neo-badge @GetTypeBadge(n.Type)">@n.Type</span>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+else { <div class="neo-card text-center" style="padding:3rem;"><div style="font-size:4rem;">🔔</div><h2>No notifications</h2></div> }
+
+@code {
+    private List<Notification> notifications = new();
+    private string? userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        userId = user?.Id;
+        if (userId != null) notifications = await NotificationService.GetNotificationsForUserAsync(userId);
+    }
+
+    private async Task OpenNotification(Notification n) { if (!n.IsRead) { await NotificationService.MarkAsReadAsync(n.Id); n.IsRead = true; } if (!string.IsNullOrEmpty(n.ActionUrl)) Navigation.NavigateTo(n.ActionUrl); }
+    private async Task MarkAllRead() { if (userId != null) { await NotificationService.MarkAllAsReadAsync(userId); notifications = await NotificationService.GetNotificationsForUserAsync(userId); } }
+    private string GetIcon(string? type) => type switch { "Reminder" => "⏰", "Warning" => "⚠️", "Success" => "✅", "Error" => "❌", _ => "ℹ️" };
+    private string GetTypeBadge(string? type) => type switch { "Reminder" => "badge-warning", "Warning" => "badge-error", "Success" => "badge-success", _ => "badge-info" };
+}

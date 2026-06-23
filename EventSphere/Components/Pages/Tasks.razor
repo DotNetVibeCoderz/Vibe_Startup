@@ -1,0 +1,67 @@
+@page "/tasks"
+@page "/tasks/{EventId:guid}"
+@attribute [Authorize]
+@inject TaskService TaskService
+@inject EventService EventService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Tasks - EventSphere</PageTitle>
+
+@if (EventId == null)
+{
+    <h3 class="mb-2">📋 My Tasks</h3>
+    @if (allTasks.Any())
+    { <div class="flex flex-col gap-2">
+        @foreach (var t in allTasks) { <div class="neo-card" style="padding:1rem;"><div class="flex justify-between"><div><strong>@t.Title</strong>@if(t.Event!=null){<span class="text-muted"> — @t.Event.Name</span>}</div><span class="neo-badge @TBadge(t.Status)">@t.Status</span></div><div class="flex justify-between mt-2"><small class="text-muted">📅 @t.DueDate?.ToString("dd MMM") | @t.Progress%</small>@if(t.Status!=TaskItemStatus.Done){<button class="neo-btn neo-btn-sm neo-btn-success" @onclick="()=>MarkDone(t.Id)">✅ Done</button>}</div><progress value="@t.Progress" max="100" style="width:100%;height:6px;border-radius:3px;"></progress></div> }
+    </div> }
+    else { <div class="neo-card text-center p-3 text-muted">Semua bersih! 🎉</div> }
+}
+else
+{
+    <div class="page-header">
+        <div><button class="neo-btn" @onclick="GoToList">← Pilih Event Lain</button><h1>✅ @eventName - Tasks</h1></div>
+        <div class="flex gap-2"><select @bind="filterStatus" class="neo-select"><option value="">All</option><option value="Todo">⏳ Todo</option><option value="InProgress">🔄 In Progress</option><option value="Done">✅ Done</option></select><button class="neo-btn neo-btn-primary" @onclick="ShowAdd">➕ Add Task</button></div>
+    </div>
+    <div class="grid-3 mb-3">
+        <div class="neo-card text-center"><div class="stat-value text-primary">@tasks.Count</div><div class="stat-label">Total</div></div>
+        <div class="neo-card text-center"><div class="stat-value text-success">@tasks.Count(t=>t.Status==TaskItemStatus.Done)</div><div class="stat-label">Done</div></div>
+        <div class="neo-card text-center"><div class="stat-value text-warning">@tasks.Count(t=>t.Status!=TaskItemStatus.Done)</div><div class="stat-label">Pending</div></div>
+    </div>
+    <div class="neo-card" style="padding:0.5rem;">
+        @if (filteredTasks.Any())
+        {
+            <table class="neo-table"><thead><tr><th>Task</th><th>Priority</th><th>Status</th><th>Due</th><th>Progress</th><th>Actions</th></tr></thead>
+            <tbody>@foreach(var t in filteredTasks){<tr><td><strong>@t.Title</strong></td><td><span class="neo-badge @PBadge(t.Priority)">@t.Priority</span></td><td><span class="neo-badge @TBadge(t.Status)">@t.Status</span></td><td>@t.DueDate?.ToString("dd MMM")</td><td><progress value="@t.Progress" max="100" style="width:60px;height:6px;"></progress> <small>@t.Progress%</small></td><td><div class="flex gap-1">@if(t.Status!=TaskItemStatus.Done){<button class="neo-btn neo-btn-sm neo-btn-success" @onclick="()=>MarkDone(t.Id)">✅</button>}<button class="neo-btn neo-btn-sm" @onclick="()=>EditTask(t)">✏️</button><button class="neo-btn neo-btn-sm neo-btn-error" @onclick="()=>DeleteTask(t.Id)">🗑️</button></div></td></tr>}</tbody></table>
+        }
+        else { <div class="text-center p-3 text-muted">Belum ada task.</div> }
+    </div>
+    @if(showModal){<div class="modal-overlay" @onclick="()=>showModal=false"><div class="modal-content" @onclick:stopPropagation="true" style="max-width:500px;"><h2>@(editingTask!=null?"✏️ Edit":"➕ Add") Task</h2><EditForm Model="formTask" OnValidSubmit="SaveTask"><div class="flex flex-col gap-2 mt-2"><InputText @bind-Value="formTask.Title" class="neo-input" placeholder="Judul..." /><InputTextArea @bind-Value="formTask.Description" class="neo-input" rows="2" placeholder="Deskripsi..." /><div class="grid-2"><select @bind="formTask.Priority" class="neo-select"><option value="Low">🟢 Low</option><option value="Medium">🟡 Medium</option><option value="High">🟠 High</option><option value="Urgent">🔴 Urgent</option></select><select @bind="formTask.Category" class="neo-select"><option value="Venue">Venue</option><option value="Catering">Catering</option><option value="Guest">Guest</option><option value="Other">Other</option></select></div><InputDate @bind-Value="formTask.DueDate" class="neo-input" /><InputNumber @bind-Value="formTask.Progress" class="neo-input" /><div class="flex gap-2 mt-2"><button type="submit" class="neo-btn neo-btn-primary">💾 Simpan</button><button type="button" class="neo-btn" @onclick="()=>showModal=false">Cancel</button></div></div></EditForm></div></div>}
+}
+
+@code {
+    [Parameter] public Guid? EventId { get; set; }
+    private List<TaskItem> tasks=new(),allTasks=new(); private string filterStatus="",eventName="",currentUserId="";
+    private bool showModal; private TaskItem? editingTask; private TaskItem formTask=new(); private Guid? lastEventId;
+    private List<TaskItem> filteredTasks=>tasks.Where(t=>string.IsNullOrEmpty(filterStatus)||t.Status.ToString()==filterStatus).ToList();
+
+    protected override async Task OnInitializedAsync() {
+        var u=await UserManager.GetUserAsync((await AuthProvider.GetAuthenticationStateAsync()).User); currentUserId=u?.Id??"";
+        if(EventId==null)allTasks=await TaskService.GetTasksForUserAsync(currentUserId);
+        else{lastEventId=EventId;await Load();}
+    }
+    protected override async Task OnParametersSetAsync(){
+        if(EventId==null){allTasks=await TaskService.GetTasksForUserAsync(currentUserId);return;}
+        if(EventId!=lastEventId){lastEventId=EventId;await Load();}
+    }
+    private async Task Load(){if(EventId==null)return;tasks=await TaskService.GetTasksForEventAsync(EventId.Value);var e=await EventService.GetByIdAsync(EventId.Value);eventName=e?.Name??"";}
+    private void GoToList() => Navigation.NavigateTo("/tasks");
+    private void ShowAdd(){editingTask=null;formTask=new(){EventId=EventId??Guid.Empty,Priority=TaskPriority.Medium,Progress=0,AssignedToId=currentUserId};showModal=true;}
+    private void EditTask(TaskItem t){editingTask=t;formTask=new(){Id=t.Id,EventId=t.EventId,Title=t.Title,Description=t.Description,Category=t.Category,Priority=t.Priority,DueDate=t.DueDate,Progress=t.Progress,AssignedToId=t.AssignedToId};showModal=true;}
+    private async Task SaveTask(){if(editingTask!=null)await TaskService.UpdateAsync(formTask);else await TaskService.CreateAsync(formTask);showModal=false;await Load();}
+    private async Task MarkDone(Guid id){await TaskService.MarkCompleteAsync(id,currentUserId);if(EventId!=null)await Load();else allTasks=await TaskService.GetTasksForUserAsync(currentUserId);}
+    private async Task DeleteTask(Guid id){await TaskService.DeleteAsync(id);await Load();}
+    private string TBadge(TaskItemStatus s)=>s switch{TaskItemStatus.Todo=>"badge-info",TaskItemStatus.InProgress=>"badge-warning",TaskItemStatus.Done=>"badge-success",_=>""};
+    private string PBadge(TaskPriority p)=>p switch{TaskPriority.Low=>"badge-info",TaskPriority.Medium=>"badge-warning",_=>"badge-error"};
+}

@@ -1,0 +1,67 @@
+@page "/budget"
+@page "/budget/{EventId:guid}"
+@attribute [Authorize(Roles = "Admin,Organizer,Client")]
+@inject BudgetService BudgetService
+@inject EventService EventService
+@inject NavigationManager Navigation
+
+<PageTitle>Budget - EventSphere</PageTitle>
+
+@if (EventId == null)
+{
+    <div class="page-header"><div><h1>💰 Budget Tracking</h1><p class="text-muted">Pilih event</p></div></div>
+    @if (myEvents.Any())
+    {
+        <div class="grid-3">@foreach (var e in myEvents) { <div class="neo-card" style="cursor:pointer;" @onclick="() => GoToEvent(e.Id)"><h3>@e.Name</h3><p class="text-muted mt-1">@e.EventDate.ToString("dd MMM")</p><div class="flex justify-between mt-2"><div><small>💰 Rp @e.BudgetTotal.ToString("N0")</small><br><small class="text-success">Spent: Rp @e.BudgetSpent.ToString("N0")</small></div><span class="neo-badge badge-info">@e.Status</span></div><progress value="@((double)e.BudgetSpent)" max="@((double)e.BudgetTotal)" style="width:100%;height:6px;border-radius:3px;margin-top:0.5rem;"></progress></div> }</div>
+    }
+    else { <div class="neo-card text-center p-3 text-muted">Belum ada event.</div> }
+}
+else
+{
+    <div class="page-header">
+        <div><button class="neo-btn" @onclick="GoToList">← Pilih Event Lain</button><h1>💰 @eventName - Budget</h1></div>
+        <button class="neo-btn neo-btn-primary" @onclick="ShowAddModal">➕ Add Item</button>
+    </div>
+    @if (evt != null)
+    {
+        <div class="grid-3 mb-3">
+            <div class="neo-card text-center"><div class="stat-value text-primary">Rp @evt.BudgetTotal.ToString("N0")</div><div class="stat-label">Total Budget</div></div>
+            <div class="neo-card text-center"><div class="stat-value text-warning">Rp @totalActual.ToString("N0")</div><div class="stat-label">Terpakai</div></div>
+            <div class="neo-card text-center"><div class="stat-value @(remaining>=0?"text-success":"text-error")">Rp @remaining.ToString("N0")</div><div class="stat-label">Sisa</div><progress value="@((double)totalActual)" max="@((double)evt.BudgetTotal)" style="width:100%;height:8px;border-radius:4px;margin-top:0.5rem;"></progress></div>
+        </div>
+    }
+    <div class="neo-card" style="padding:0.5rem;">
+        @if (items.Any())
+        {
+            <table class="neo-table">
+                <thead><tr><th>Item</th><th>Category</th><th>Estimated</th><th>Actual</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>@foreach (var i in items) { <tr><td><strong>@i.Name</strong></td><td><span class="neo-badge badge-info">@i.Category</span></td><td>Rp @i.EstimatedCost.ToString("N0")</td><td>Rp @i.ActualCost.ToString("N0")</td><td><span class="neo-badge @(i.IsPaid?"badge-success":"badge-warning")">@(i.IsPaid?"Paid":"Pending")</span></td><td><div class="flex gap-1"><button class="neo-btn neo-btn-sm" @onclick="() => EditItem(i)">✏️</button><button class="neo-btn neo-btn-sm neo-btn-error" @onclick="() => DeleteItem(i.Id)">🗑️</button></div></td></tr> }</tbody>
+            </table>
+        }
+        else { <div class="text-center p-3 text-muted">Belum ada item budget.</div> }
+    </div>
+    @if (showModal)
+    {
+        <div class="modal-overlay" @onclick="() => showModal = false"><div class="modal-content" @onclick:stopPropagation="true" style="max-width:450px;"><h2>@(editingItem!=null?"✏️ Edit":"➕ Add") Item</h2><EditForm Model="formItem" OnValidSubmit="SaveItem"><div class="flex flex-col gap-2 mt-2"><InputText @bind-Value="formItem.Name" class="neo-input" placeholder="Nama item..." /><select @bind="formItem.Category" class="neo-select w-full"><option value="Venue">Venue</option><option value="Catering">Catering</option><option value="Dekorasi">Dekorasi</option><option value="Dokumentasi">Dokumentasi</option><option value="Hiburan">Hiburan</option><option value="Lainnya">Lainnya</option></select><div class="grid-2"><div><label class="text-light">Estimasi</label><InputNumber @bind-Value="formItem.EstimatedCost" class="neo-input" /></div><div><label class="text-light">Aktual</label><InputNumber @bind-Value="formItem.ActualCost" class="neo-input" /></div></div><div class="flex items-center gap-2"><InputCheckbox @bind-Value="formItem.IsPaid" /><span class="text-light">Sudah dibayar?</span></div><div class="flex gap-2 mt-2"><button type="submit" class="neo-btn neo-btn-primary">💾 Simpan</button><button type="button" class="neo-btn" @onclick="() => showModal = false">Cancel</button></div></div></EditForm></div></div>
+    }
+}
+
+@code {
+    [Parameter] public Guid? EventId { get; set; }
+    private Event? evt; private List<BudgetItem> items = new(); private List<Event> myEvents = new();
+    private bool showModal; private BudgetItem? editingItem; private BudgetItem formItem = new();
+    private string eventName = ""; private Guid? lastEventId;
+    private decimal totalActual => items.Sum(i => i.ActualCost);
+    private decimal remaining => (evt?.BudgetTotal ?? 0) - totalActual;
+
+    protected override async Task OnInitializedAsync() { if (EventId == null) myEvents = await EventService.GetAllAsync(); else { lastEventId = EventId; await Load(); } }
+    protected override async Task OnParametersSetAsync() { if (EventId == null) { myEvents = await EventService.GetAllAsync(); return; } if (EventId != lastEventId) { lastEventId = EventId; await Load(); } }
+    private async Task Load() { if (EventId == null) return; evt = await EventService.GetByIdAsync(EventId.Value); eventName = evt?.Name ?? ""; items = await BudgetService.GetItemsForEventAsync(EventId.Value); }
+
+    private void GoToEvent(Guid id) => Navigation.NavigateTo($"/budget/{id}");
+    private void GoToList() => Navigation.NavigateTo("/budget");
+    private void ShowAddModal() { editingItem = null; formItem = new() { EventId = EventId!.Value, Category = "Venue" }; showModal = true; }
+    private void EditItem(BudgetItem i) { editingItem = i; formItem = new() { Id = i.Id, EventId = i.EventId, Name = i.Name, Category = i.Category, EstimatedCost = i.EstimatedCost, ActualCost = i.ActualCost, IsPaid = i.IsPaid, Notes = i.Notes, SortOrder = i.SortOrder }; showModal = true; }
+    private async Task SaveItem() { if (editingItem != null) await BudgetService.UpdateItemAsync(formItem); else await BudgetService.AddItemAsync(formItem); showModal = false; await Load(); if (EventId != null) await EventService.UpdateBudgetAsync(EventId.Value); evt = await EventService.GetByIdAsync(EventId!.Value); }
+    private async Task DeleteItem(Guid id) { await BudgetService.DeleteItemAsync(id); await Load(); if (EventId != null) await EventService.UpdateBudgetAsync(EventId.Value); evt = await EventService.GetByIdAsync(EventId!.Value); }
+}
