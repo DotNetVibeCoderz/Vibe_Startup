@@ -1,0 +1,51 @@
+@page "/agen/jamaah"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+
+<div class="card">
+    <div class="card-header"><h3>👥 Jamaah Saya</h3></div>
+    <div class="card-body">
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Nama</th><th>Paket</th><th>Dokumen</th><th>Pembayaran</th><th>Status</th></tr></thead>
+                <tbody>
+                    @foreach (var row in _rows)
+                    {
+                        <tr>
+                            <td><strong>@row.Jamaah.NamaLengkap</strong></td>
+                            <td>@row.Jamaah.Paket?.NamaPaket</td>
+                            <td><span class="badge badge-@(row.Jamaah.StatusDokumen == Models.DocumentStatus.Verified ? "success" : "warning")">@row.Jamaah.StatusDokumen</span></td>
+                            <td>@(row.Pembayaran?.Status.ToString() ?? "-")</td>
+                            <td>@row.Jamaah.StatusKeberangkatan</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<JamaahRow> _rows = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _rows = await Task.Run(() =>
+        {
+            var jamaah = Db.Jamaah.Include(j => j.Paket)
+                .OrderByDescending(j => j.CreatedAt).Take(50).ToList();
+            var pembayaran = Db.Pembayaran.ToList();
+            return jamaah.Select(j => new JamaahRow
+            {
+                Jamaah = j,
+                Pembayaran = pembayaran.FirstOrDefault(p => p.JamaahId == j.Id)
+            }).ToList();
+        });
+    }
+
+    private class JamaahRow
+    {
+        public Models.Jamaah Jamaah { get; set; } = null!;
+        public Models.Pembayaran? Pembayaran { get; set; }
+    }
+}

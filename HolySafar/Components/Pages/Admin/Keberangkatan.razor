@@ -1,0 +1,235 @@
+@page "/admin/keberangkatan"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+@inject Services.ExportService Export
+@inject IJSRuntime JS
+
+<div class="card">
+    <div class="card-header">
+        <h3>✈️ Master Data Keberangkatan</h3>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline btn-sm" @onclick="ExportCsv">📥 CSV</button>
+            <button class="btn btn-outline btn-sm" @onclick="ExportExcel">📊 Excel</button>
+            <button class="btn btn-primary btn-sm" @onclick="(() => ShowForm(null))">+ Tambah</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <input class="form-control" style="max-width:250px;" placeholder="🔍 Cari..." @bind="_search" @bind:event="oninput" />
+            <select class="form-control" style="max-width:180px;" @bind="_filterStatus">
+                <option value="">Semua Status</option>
+                <option value="Scheduled">Scheduled</option>
+                <option value="CheckIn">CheckIn</option>
+                <option value="InTransit">InTransit</option>
+                <option value="Arrived">Arrived</option>
+                <option value="Completed">Completed</option>
+            </select>
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Kode</th><th>Paket</th><th>Maskapai</th><th>Flight</th>
+                        <th>Rute</th><th>Tgl</th><th>Status</th><th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var k in _paged)
+                    {
+                        <tr>
+                            <td><strong>@k.KodeKeberangkatan</strong></td>
+                            <td>@k.Paket?.NamaPaket</td>
+                            <td>@k.Maskapai</td>
+                            <td>@k.NoPenerbangan</td>
+                            <td>@k.BandaraAsal → @k.BandaraTujuan</td>
+                            <td>@k.TanggalBerangkat?.ToString("dd/MM HH:mm")</td>
+                            <td>
+                                <span class="badge @(k.Status == Models.DepartureStatus.Completed ? "badge-success" : k.Status == Models.DepartureStatus.Cancelled ? "badge-danger" : "badge-info")">
+                                    @k.Status
+                                </span>
+                            </td>
+                            <td>
+                                <button class="btn btn-outline btn-sm" @onclick="(() => ShowForm(k))">✏️</button>
+                                <button class="btn btn-danger btn-sm" @onclick="(() => Delete(k.Id))">🗑️</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="pagination">
+            <button disabled="@(_page <= 1)" @onclick="(() => _page--)">Prev</button>
+            @for (int i = 1; i <= _totalPages; i++)
+            {
+                <button class="@(i == _page ? "active" : "")" @onclick="(() => _page = i)">@i</button>
+            }
+            <button disabled="@(_page >= _totalPages)" @onclick="(() => _page++)">Next</button>
+        </div>
+    </div>
+</div>
+
+@if (_showForm)
+{
+    <div class="modal-backdrop" @onclick="(() => _showForm = false)">
+        <div class="modal" @onclick:stopPropagation="true" style="max-width:700px;">
+            <div class="modal-header">
+                <h3>@(_edit == null ? "Tambah" : "Edit") Keberangkatan</h3>
+                <button class="btn-icon" @onclick="(() => _showForm = false)">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label>Kode *</label>
+                        <input class="form-control" @bind="_ef.KodeKeberangkatan" />
+                    </div>
+                    <div class="form-group">
+                        <label>Maskapai</label>
+                        <input class="form-control" @bind="_ef.Maskapai" />
+                    </div>
+                    <div class="form-group">
+                        <label>No Penerbangan</label>
+                        <input class="form-control" @bind="_ef.NoPenerbangan" />
+                    </div>
+                    <div class="form-group">
+                        <label>Bandara Asal</label>
+                        <input class="form-control" @bind="_ef.BandaraAsal" />
+                    </div>
+                    <div class="form-group">
+                        <label>Bandara Tujuan</label>
+                        <input class="form-control" @bind="_ef.BandaraTujuan" />
+                    </div>
+                    <div class="form-group">
+                        <label>Tgl Berangkat</label>
+                        <InputDate class="form-control" @bind-Value="_tglBerangkat" />
+                    </div>
+                    <div class="form-group">
+                        <label>Tgl Tiba</label>
+                        <InputDate class="form-control" @bind-Value="_tglTiba" />
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select class="form-control" @bind="_statusStr">
+                            <option>Scheduled</option>
+                            <option>CheckIn</option>
+                            <option>InTransit</option>
+                            <option>Arrived</option>
+                            <option>InHotel</option>
+                            <option>Returning</option>
+                            <option>Completed</option>
+                            <option>Cancelled</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Catatan</label>
+                    <textarea class="form-control" rows="2" @bind="_ef.Catatan"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="(() => _showForm = false)">Batal</button>
+                <button class="btn btn-primary" @onclick="Save">Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Models.Keberangkatan> _all = new(), _paged = new();
+    private string _search = "", _filterStatus = "", _statusStr = "Scheduled";
+    private int _page = 1, _pageSize = 15, _totalPages = 1;
+    private bool _showForm;
+    private Models.Keberangkatan? _edit;
+    private Models.Keberangkatan _ef = new();
+    private DateTime? _tglBerangkat, _tglTiba;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _all = await Task.Run(() => Db.Keberangkatan.Include(k => k.Paket).OrderByDescending(k => k.CreatedAt).ToList());
+        Apply();
+    }
+
+    private void Apply()
+    {
+        var q = _all.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var s = _search.ToLower();
+            q = q.Where(k => (k.KodeKeberangkatan != null && k.KodeKeberangkatan.ToLower().Contains(s)) || (k.Maskapai != null && k.Maskapai.ToLower().Contains(s)));
+        }
+        if (!string.IsNullOrEmpty(_filterStatus) && Enum.TryParse<Models.DepartureStatus>(_filterStatus, out var st))
+            q = q.Where(k => k.Status == st);
+        _all = q.ToList();
+        _totalPages = Math.Max(1, (int)Math.Ceiling(_all.Count / (double)_pageSize));
+        if (_page > _totalPages) _page = _totalPages;
+        _paged = _all.Skip((_page - 1) * _pageSize).Take(_pageSize).ToList();
+    }
+
+    private void ShowForm(Models.Keberangkatan? k)
+    {
+        _edit = k;
+        _ef = k == null
+            ? new Models.Keberangkatan { Status = Models.DepartureStatus.Scheduled }
+            : new Models.Keberangkatan
+            {
+                Id = k.Id, KodeKeberangkatan = k.KodeKeberangkatan, PaketId = k.PaketId,
+                Maskapai = k.Maskapai, NoPenerbangan = k.NoPenerbangan,
+                BandaraAsal = k.BandaraAsal, BandaraTujuan = k.BandaraTujuan,
+                Status = k.Status, Catatan = k.Catatan
+            };
+        _tglBerangkat = k?.TanggalBerangkat;
+        _tglTiba = k?.TanggalTiba;
+        _statusStr = _ef.Status.ToString();
+        _showForm = true;
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_ef.KodeKeberangkatan)) return;
+        _ef.TanggalBerangkat = _tglBerangkat;
+        _ef.TanggalTiba = _tglTiba;
+        if (Enum.TryParse<Models.DepartureStatus>(_statusStr, out var s)) _ef.Status = s;
+
+        if (_edit == null)
+        {
+            _ef.CreatedAt = DateTime.UtcNow;
+            Db.Keberangkatan.Add(_ef);
+        }
+        else
+        {
+            var existing = await Db.Keberangkatan.FindAsync(_edit.Id);
+            if (existing != null)
+            {
+                existing.KodeKeberangkatan = _ef.KodeKeberangkatan;
+                existing.PaketId = _ef.PaketId;
+                existing.Maskapai = _ef.Maskapai;
+                existing.NoPenerbangan = _ef.NoPenerbangan;
+                existing.BandaraAsal = _ef.BandaraAsal;
+                existing.BandaraTujuan = _ef.BandaraTujuan;
+                existing.TanggalBerangkat = _ef.TanggalBerangkat;
+                existing.TanggalTiba = _ef.TanggalTiba;
+                existing.Status = _ef.Status;
+                existing.Catatan = _ef.Catatan;
+            }
+        }
+        await Db.SaveChangesAsync();
+        _showForm = false;
+        await Load();
+    }
+
+    private async Task Delete(int id)
+    {
+        var k = await Db.Keberangkatan.FindAsync(id);
+        if (k != null) { Db.Keberangkatan.Remove(k); await Db.SaveChangesAsync(); await Load(); }
+    }
+
+    private async Task DownloadFile(byte[] bytes, string fileName)
+    {
+        var b64 = Convert.ToBase64String(bytes);
+        await JS.InvokeVoidAsync("eval", $"var a=document.createElement('a');a.href='data:application/octet-stream;base64,{b64}';a.download='{fileName}';a.click();");
+    }
+
+    private async Task ExportCsv() => await DownloadFile(Export.ExportToCsv(_all.Select(k => new { k.KodeKeberangkatan, k.Maskapai, k.NoPenerbangan, Rute = $"{k.BandaraAsal} → {k.BandaraTujuan}", Status = k.Status.ToString() })), "keberangkatan.csv");
+    private async Task ExportExcel() => await DownloadFile(Export.ExportToExcel(_all.Select(k => new { k.KodeKeberangkatan, k.Maskapai, k.NoPenerbangan, Rute = $"{k.BandaraAsal} → {k.BandaraTujuan}", Status = k.Status.ToString() }), "Keberangkatan"), "keberangkatan.xlsx");
+}

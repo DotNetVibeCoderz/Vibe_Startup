@@ -1,0 +1,173 @@
+@page "/sos"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+@inject Services.AuthService AuthService
+@inject Services.NotifikasiService NotifService
+
+<div class="grid grid-2">
+    <div class="card">
+        <div class="card-header"><h3>🆘 Tombol Darurat SOS</h3></div>
+        <div class="card-body text-center" style="padding:40px;">
+            @if (_role == "Jamaah" || _role == "")
+            {
+                <button class="sos-button-big" @onclick="TriggerSOS" disabled="@_sosSent">
+                    @if (_sosSent) { <span>✅ Terkirim!</span> }
+                    else { <span>SOS<br>DARURAT</span> }
+                </button>
+
+                @if (_sosSent)
+                { <p class="mt-2 text-success">Sinyal darurat telah dikirim. Tim kami akan segera merespons.</p> }
+
+                <div class="form-group mt-3" style="max-width:300px;margin:16px auto;">
+                    <label>Pesan tambahan (opsional)</label>
+                    <textarea class="form-control" @bind="_sosMessage" rows="2" placeholder="Tulis pesan darurat..."></textarea>
+                </div>
+            }
+            else
+            { <p class="text-muted">Tombol SOS hanya tersedia untuk akun Jamaah.</p> }
+        </div>
+    </div>
+
+    @if (_role == "Admin" || _role == "Agen")
+    {
+        <div class="card">
+            <div class="card-header">
+                <h3>🚨 Panel Notifikasi SOS</h3>
+                <span class="badge @(_activeSOS.Any(s => !s.IsResolved) ? "badge-danger" : "badge-success")">
+                    @_activeSOS.Count(s => !s.IsResolved) Aktif
+                </span>
+            </div>
+            <div class="card-body" style="max-height:500px;overflow-y:auto;">
+                @if (_activeSOS.Any())
+                {
+                    <table>
+                        <thead><tr><th>Waktu</th><th>Jamaah</th><th>Pesan</th><th>Lokasi</th><th>Status</th><th>Aksi</th></tr></thead>
+                        <tbody>
+                            @foreach (var sos in _activeSOS)
+                            {
+                                <tr style="@(sos.IsResolved ? "" : "background:var(--danger-light);")">
+                                    <td>@sos.TriggeredAt.ToString("dd/MM HH:mm")</td>
+                                    <td><strong>@sos.Jamaah?.NamaLengkap</strong></td>
+                                    <td>@(sos.Pesan.Length > 50 ? sos.Pesan[..50] + "..." : sos.Pesan)</td>
+                                    <td><a href="https://google.com/maps?q=@sos.Latitude,@sos.Longitude" target="_blank" class="btn btn-outline btn-sm">📍 @sos.Latitude.ToString("F4")</a></td>
+                                    <td><span class="badge @(sos.IsResolved ? "badge-success" : "badge-danger")">@(sos.IsResolved ? "Done" : "Active")</span></td>
+                                    <td>@if (!sos.IsResolved) { <button class="btn btn-success btn-sm" @onclick="() => ResolveSOS(sos)">✅</button> }</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                { <div class="empty-state"><div class="empty-state-icon">✅</div><p>Tidak ada sinyal SOS aktif.</p></div> }
+            </div>
+        </div>
+    }
+</div>
+
+<div class="card mt-3">
+    <div class="card-header"><h3>📞 Kontak Darurat</h3></div>
+    <div class="card-body">
+        <div class="grid grid-3">
+            @foreach (var k in _kontakDarurat)
+            {
+                <div class="card" style="padding:16px;"><strong>@k.Peran</strong><h4>@k.Nama</h4><p>📞 @k.Telepon</p><p class="text-muted">@k.Catatan</p></div>
+            }
+        </div>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header"><h3>🛡️ Informasi Asuransi Perjalanan</h3></div>
+    <div class="card-body">
+        <p>Semua jamaah HolySafar dilindungi oleh asuransi perjalanan yang mencakup:</p>
+        <ul>
+            <li>✅ Asuransi kesehatan selama di Tanah Suci</li>
+            <li>✅ Asuransi kecelakaan diri</li>
+            <li>✅ Asuransi bagasi & keterlambatan penerbangan</li>
+            <li>✅ Evakuasi medis darurat</li>
+            <li>✅ Repatriasi jenazah (naudzubillah)</li>
+        </ul>
+        <p class="text-muted mt-2">Klaim asuransi: <strong>claim@holysafar.com</strong></p>
+    </div>
+</div>
+
+@code {
+    private List<Models.SOSTrigger> _activeSOS = new();
+    private List<Models.KontakDarurat> _kontakDarurat = new();
+    private bool _sosSent;
+    private string _sosMessage = "";
+    private string _role = "";
+    private Timer? _refreshTimer;
+    private volatile bool _disposed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _role = AuthService.CurrentUserRole;
+        await LoadData();
+        _refreshTimer = new Timer(async _ =>
+        {
+            if (_disposed) return;
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (_disposed) return;
+                    await LoadData();
+                    StateHasChanged();
+                });
+            }
+            catch (ObjectDisposedException) { /* timer callback after dispose — safe to ignore */ }
+        }, null, 5000, 5000);
+    }
+
+    private async Task LoadData()
+    {
+        if (_disposed) return;
+        _activeSOS = Db.SOSTriggers
+            .Include(s => s.Jamaah)
+            .OrderByDescending(s => s.TriggeredAt)
+            .Take(50).ToList();
+        _kontakDarurat = Db.KontakDarurat.Where(k => k.IsActive).ToList();
+        await Task.CompletedTask;
+    }
+
+    private async Task TriggerSOS()
+    {
+        var userId = AuthService.CurrentUserId;
+        if (userId == null) return;
+
+        var jamaah = Db.Jamaah.FirstOrDefault(j => j.UserId == userId.Value);
+        if (jamaah == null) return;
+
+        var sos = new Models.SOSTrigger
+        {
+            JamaahId = jamaah.Id,
+            Latitude = jamaah.Latitude ?? 0,
+            Longitude = jamaah.Longitude ?? 0,
+            Pesan = string.IsNullOrWhiteSpace(_sosMessage) ? "SOS! Saya membutuhkan bantuan segera!" : _sosMessage,
+            TriggeredAt = DateTime.UtcNow
+        };
+
+        Db.SOSTriggers.Add(sos);
+        await Db.SaveChangesAsync();
+        _sosSent = true;
+
+        await NotifService.SendAsync(null, $"SOS dari {jamaah.NamaLengkap}!", sos.Pesan, "danger");
+    }
+
+    private async Task ResolveSOS(Models.SOSTrigger sos)
+    {
+        sos.IsResolved = true;
+        sos.ResolvedAt = DateTime.UtcNow;
+        sos.CatatanResolusi = "Ditangani oleh tim HolySafar";
+        await Db.SaveChangesAsync();
+        await LoadData();
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _refreshTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _refreshTimer?.Dispose();
+    }
+}

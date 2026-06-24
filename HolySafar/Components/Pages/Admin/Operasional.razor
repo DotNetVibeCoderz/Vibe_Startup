@@ -1,0 +1,55 @@
+@page "/admin/operasional"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+
+<div class="card">
+    <div class="card-header">
+        <h3>✈️ Dashboard Operasional</h3>
+    </div>
+    <div class="card-body">
+        <div class="stats-grid mb-3">
+            <div class="stat-card">
+                <div class="stat-icon blue">✈️</div>
+                <div><div class="stat-value">@_keberangkatan.Count</div><div class="stat-label">Total Keberangkatan</div></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon green">✅</div>
+                <div><div class="stat-value">@_keberangkatan.Count(k => k.Status == Models.DepartureStatus.Scheduled)</div><div class="stat-label">Scheduled</div></div>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>Kode</th><th>Paket</th><th>Maskapai</th><th>No Flight</th><th>Rute</th><th>Berangkat</th><th>Tiba</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var k in _keberangkatan)
+                    {
+                        <tr>
+                            <td><strong>@k.KodeKeberangkatan</strong></td>
+                            <td>@k.Paket?.NamaPaket</td>
+                            <td>@k.Maskapai</td>
+                            <td>@k.NoPenerbangan</td>
+                            <td>@k.BandaraAsal → @k.BandaraTujuan</td>
+                            <td>@k.TanggalBerangkat?.ToString("dd/MM HH:mm")</td>
+                            <td>@k.TanggalTiba?.ToString("dd/MM HH:mm")</td>
+                            <td><span class="badge badge-info">@k.Status</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Models.Keberangkatan> _keberangkatan = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _keberangkatan = await Task.Run(() =>
+            Db.Keberangkatan.Include(k => k.Paket).OrderByDescending(k => k.TanggalBerangkat).ToList()
+        );
+    }
+}

@@ -1,0 +1,194 @@
+@page "/admin/pembayaran"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+@inject Services.ExportService Export
+@inject Services.NotifikasiService Notif
+@inject IJSRuntime JS
+
+<div class="card">
+    <div class="card-header">
+        <h3>💰 Manajemen Pembayaran Jamaah</h3>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline btn-sm" @onclick="ExportCsv"><i class="bi bi-filetype-csv"></i> CSV</button>
+            <button class="btn btn-outline btn-sm" @onclick="ExportExcel"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <!-- Filter -->
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <input class="form-control" style="max-width:250px;" placeholder="🔍 Cari nama jamaah..." @bind="_search" @bind:event="oninput" />
+            <select class="form-control" style="max-width:180px;" @bind="_filterStatus">
+                <option value="">Semua Status</option><option value="Pending">Pending</option><option value="Partial">Partial</option><option value="Paid">Lunas</option><option value="Overdue">Overdue</option><option value="Cancelled">Cancelled</option>
+            </select>
+            <select class="form-control" style="max-width:180px;" @bind="_filterPaket">
+                <option value="">Semua Paket</option>
+                @foreach (var p in _pakets) { <option value="@p.Id">@p.NamaPaket</option> }
+            </select>
+        </div>
+
+        <!-- Summary -->
+        <div class="stats-grid mb-3">
+            <div class="stat-card"><div class="stat-icon gold">💰</div><div><div class="stat-value">@_all.Sum(p => p.TotalBiaya).ToString("C0")</div><div class="stat-label">Total Tagihan</div></div></div>
+            <div class="stat-card"><div class="stat-icon green">✅</div><div><div class="stat-value">@_all.Sum(p => p.TotalDibayar).ToString("C0")</div><div class="stat-label">Total Dibayar</div></div></div>
+            <div class="stat-card"><div class="stat-icon red">⏳</div><div><div class="stat-value">@_all.Sum(p => p.TotalBiaya - p.TotalDibayar).ToString("C0")</div><div class="stat-label">Outstanding</div></div></div>
+            <div class="stat-card"><div class="stat-icon blue">👥</div><div><div class="stat-value">@_all.Count</div><div class="stat-label">Total Jamaah</div></div></div>
+        </div>
+
+        <!-- Table -->
+        <div class="table-container"><table>
+            <thead><tr><th>Jamaah</th><th>Paket</th><th>Total</th><th>Dibayar</th><th>Sisa</th><th>Status</th><th>Jatuh Tempo</th><th>Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var pm in _paged)
+                {
+                    var sisa = pm.TotalBiaya - pm.TotalDibayar;
+                    <tr>
+                        <td><strong>@pm.Jamaah?.NamaLengkap</strong></td>
+                        <td>@pm.Paket?.NamaPaket</td>
+                        <td>@pm.TotalBiaya.ToString("C0")</td>
+                        <td>@pm.TotalDibayar.ToString("C0")</td>
+                        <td><strong style="color:@(sisa > 0 ? "var(--danger)" : "var(--success)")">@sisa.ToString("C0")</strong></td>
+                        <td><span class="badge badge-@GetStatusBadge(pm.Status)">@GetStatusLabel(pm.Status)</span></td>
+                        <td>@(pm.TanggalJatuhTempo?.ToString("dd/MM/yyyy") ?? "-")</td>
+                        <td>
+                            <button class="btn btn-outline btn-sm" @onclick="(() => ShowDetail(pm))"><i class="bi bi-eye"></i> Detail</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+        <div class="pagination">
+            <button disabled="@(_page <= 1)" @onclick="() => _page--">Prev</button>
+            @for (int i = 1; i <= _totalPages; i++) { <button class="@(i==_page?"active":"")" @onclick="()=>_page=i">@i</button> }
+            <button disabled="@(_page >= _totalPages)" @onclick="() => _page++">Next</button>
+            <span class="text-muted" style="margin-left:12px;">@_all.Count data</span>
+        </div>
+    </div>
+</div>
+
+@if (_detail != null)
+{
+    <div class="modal-backdrop" @onclick="(()=>_detail=null)">
+        <div class="modal" @onclick:stopPropagation="true" style="max-width:750px;">
+            <div class="modal-header">
+                <h3>💰 Detail Pembayaran: @_detail.Jamaah?.NamaLengkap</h3>
+                <button class="btn-icon" @onclick="(()=>_detail=null)">✕</button>
+            </div>
+            <div class="modal-body">
+                <!-- Info Pembayaran -->
+                <div class="grid grid-2 mb-3">
+                    <div><strong>Paket:</strong> @_detail.Paket?.NamaPaket</div>
+                    <div><strong>Status:</strong> <span class="badge badge-@GetStatusBadge(_detail.Status)">@GetStatusLabel(_detail.Status)</span></div>
+                    <div><strong>Total Biaya:</strong> @_detail.TotalBiaya.ToString("C0")</div>
+                    <div><strong>Total Dibayar:</strong> @_detail.TotalDibayar.ToString("C0")</div>
+                    <div><strong>Sisa:</strong> <span style="color:var(--danger)">@((_detail.TotalBiaya - _detail.TotalDibayar).ToString("C0"))</span></div>
+                    <div><strong>Jatuh Tempo:</strong> @(_detail.TanggalJatuhTempo?.ToString("dd MMM yyyy") ?? "-")</div>
+                    <div><strong>Metode:</strong> @_detail.MetodePembayaran</div>
+                </div>
+
+                <!-- Update Status -->
+                <h4>Update Status Pembayaran</h4>
+                <div class="d-flex gap-2 mb-3 flex-wrap">
+                    <button class="btn @(_detail.Status == Models.PaymentStatus.Pending ? "btn-warning" : "btn-outline") btn-sm" @onclick="(() => UpdateStatus(Models.PaymentStatus.Pending))">Pending</button>
+                    <button class="btn @(_detail.Status == Models.PaymentStatus.Partial ? "btn-info" : "btn-outline") btn-sm" @onclick="(() => UpdateStatus(Models.PaymentStatus.Partial))">Partial</button>
+                    <button class="btn @(_detail.Status == Models.PaymentStatus.Paid ? "btn-success" : "btn-outline") btn-sm" @onclick="(() => UpdateStatus(Models.PaymentStatus.Paid))">Lunas</button>
+                    <button class="btn @(_detail.Status == Models.PaymentStatus.Overdue ? "btn-danger" : "btn-outline") btn-sm" @onclick="(() => UpdateStatus(Models.PaymentStatus.Overdue))">Overdue</button>
+                    <button class="btn @(_detail.Status == Models.PaymentStatus.Cancelled ? "btn-dark" : "btn-outline") btn-sm" @onclick="(() => UpdateStatus(Models.PaymentStatus.Cancelled))">Cancelled</button>
+                </div>
+
+                <!-- Tambah Cicilan -->
+                <h4>Tambah Cicilan</h4>
+                <div class="d-flex gap-2 align-end">
+                    <div class="form-group" style="flex:1;"><label>Jumlah (Rp)</label><input type="number" class="form-control" @bind="_cicilanJumlah" /></div>
+                    <div class="form-group" style="flex:1;"><label>Metode</label><select class="form-control" @bind="_cicilanMetode"><option>Transfer Bank</option><option>Cash</option><option>QRIS</option><option>Virtual Account</option></select></div>
+                    <div class="form-group" style="flex:1;"><label>Catatan</label><input class="form-control" @bind="_cicilanCatatan" /></div>
+                    <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" @onclick="AddCicilan"><i class="bi bi-plus-lg"></i> Tambah</button></div>
+                </div>
+                @if (!string.IsNullOrEmpty(_cicilanMsg)) { <div class="alert @(_cicilanOk ? "alert-success" : "alert-danger") mt-2">@_cicilanMsg</div> }
+
+                <!-- Riwayat Cicilan -->
+                <h4 class="mt-3">Riwayat Cicilan</h4>
+                @if (_cicilanList.Any())
+                {
+                    <div class="table-container"><table>
+                        <thead><tr><th>#</th><th>Tanggal</th><th>Jumlah</th><th>Metode</th><th>Catatan</th><th>Status</th></tr></thead>
+                        <tbody>
+                            @{ int idx = 1; }
+                            @foreach (var c in _cicilanList.OrderByDescending(c => c.TanggalBayar))
+                            {
+                                <tr><td>@idx</td><td>@c.TanggalBayar.ToString("dd/MM/yyyy")</td><td>@c.Jumlah.ToString("C0")</td><td>@c.MetodePembayaran</td>
+                                <td>@c.Catatan</td>
+                                <td><span class="badge @(c.Dikonfirmasi ? "badge-success" : "badge-warning")">@(c.Dikonfirmasi ? "✅" : "⏳")</span></td></tr>
+                                idx++;
+                            }
+                        </tbody>
+                    </table></div>
+                }
+                else { <p class="text-muted">Belum ada cicilan.</p> }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Models.Pembayaran> _all = new(), _paged = new();
+    private List<Models.Paket> _pakets = new();
+    private string _search = "", _filterStatus = ""; private int _filterPaket;
+    private int _page = 1, _pageSize = 15, _totalPages = 1;
+
+    private Models.Pembayaran? _detail;
+    private List<Models.Cicilan> _cicilanList = new();
+    private decimal _cicilanJumlah; private string _cicilanMetode = "Transfer Bank", _cicilanCatatan = "", _cicilanMsg = ""; private bool _cicilanOk;
+
+    protected override async Task OnInitializedAsync() { _pakets = await Task.Run(() => Db.Paket.Where(p => p.IsActive).ToList()); await Load(); }
+    private async Task Load()
+    {
+        _all = await Task.Run(() => Db.Pembayaran.Include(p => p.Jamaah).Include(p => p.Paket).OrderByDescending(p => p.CreatedAt).ToList());
+        Apply();
+    }
+    private void Apply()
+    {
+        var q = _all.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(_search)) { var s = _search.ToLower(); q = q.Where(p => (p.Jamaah?.NamaLengkap?.ToLower().Contains(s) == true)); }
+        if (!string.IsNullOrEmpty(_filterStatus) && Enum.TryParse<Models.PaymentStatus>(_filterStatus, out var st)) q = q.Where(p => p.Status == st);
+        if (_filterPaket > 0) q = q.Where(p => p.PaketId == _filterPaket);
+        _all = q.ToList(); _totalPages = Math.Max(1, (int)Math.Ceiling(_all.Count / (double)_pageSize)); if (_page > _totalPages) _page = _totalPages;
+        _paged = _all.Skip((_page - 1) * _pageSize).Take(_pageSize).ToList();
+    }
+
+    private async Task ShowDetail(Models.Pembayaran pm)
+    {
+        _detail = pm; _cicilanList = await Task.Run(() => Db.Cicilan.Where(c => c.PembayaranId == pm.Id).ToList());
+        _cicilanJumlah = 0; _cicilanCatatan = ""; _cicilanMsg = "";
+    }
+
+    private async Task UpdateStatus(Models.PaymentStatus status)
+    {
+        if (_detail == null) return;
+        var pm = await Db.Pembayaran.FindAsync(_detail.Id);
+        if (pm != null) { pm.Status = status; await Db.SaveChangesAsync(); _detail.Status = status; await Load(); }
+    }
+
+    private async Task AddCicilan()
+    {
+        if (_detail == null || _cicilanJumlah <= 0) { _cicilanMsg = "Jumlah harus > 0"; _cicilanOk = false; return; }
+        var c = new Models.Cicilan { PembayaranId = _detail.Id, Jumlah = _cicilanJumlah, TanggalBayar = DateTime.UtcNow, MetodePembayaran = _cicilanMetode, Catatan = _cicilanCatatan, Dikonfirmasi = true };
+        Db.Cicilan.Add(c);
+
+        var pm = await Db.Pembayaran.FindAsync(_detail.Id);
+        if (pm != null) { pm.TotalDibayar += _cicilanJumlah; if (pm.TotalDibayar >= pm.TotalBiaya) { pm.Status = Models.PaymentStatus.Paid; pm.TotalDibayar = pm.TotalBiaya; } else { pm.Status = Models.PaymentStatus.Partial; } }
+        await Db.SaveChangesAsync();
+
+        _detail = await Task.Run(() => Db.Pembayaran.Include(p => p.Jamaah).Include(p => p.Paket).FirstOrDefaultAsync(p => p.Id == _detail.Id));
+        _cicilanList = await Task.Run(() => Db.Cicilan.Where(c => c.PembayaranId == _detail!.Id).ToList());
+        _cicilanMsg = $"Cicilan Rp{_cicilanJumlah:N0} berhasil ditambahkan!"; _cicilanOk = true;
+        _cicilanJumlah = 0; _cicilanCatatan = "";
+        await Load();
+    }
+
+    private string GetStatusBadge(Models.PaymentStatus s) => s switch { Models.PaymentStatus.Paid => "badge-success", Models.PaymentStatus.Partial => "badge-info", Models.PaymentStatus.Pending => "badge-warning", Models.PaymentStatus.Overdue => "badge-danger", _ => "badge-dark" };
+    private string GetStatusLabel(Models.PaymentStatus s) => s switch { Models.PaymentStatus.Paid => "Lunas", Models.PaymentStatus.Partial => "Partial", Models.PaymentStatus.Pending => "Pending", Models.PaymentStatus.Overdue => "Overdue", Models.PaymentStatus.Cancelled => "Batal", _ => s.ToString() };
+
+    private async Task Dnl(byte[] b, string fn) { var b64 = Convert.ToBase64String(b); await JS.InvokeVoidAsync("eval", $"var a=document.createElement('a');a.href='data:application/octet-stream;base64,{b64}';a.download='{fn}';a.click();"); }
+    private async Task ExportCsv() => await Dnl(Export.ExportToCsv(_all.Select(p => new { Jamaah = p.Jamaah?.NamaLengkap, Paket = p.Paket?.NamaPaket, p.TotalBiaya, p.TotalDibayar, Sisa = p.TotalBiaya - p.TotalDibayar, Status = GetStatusLabel(p.Status) })), "pembayaran.csv");
+    private async Task ExportExcel() => await Dnl(Export.ExportToExcel(_all.Select(p => new { Jamaah = p.Jamaah?.NamaLengkap, Paket = p.Paket?.NamaPaket, p.TotalBiaya, p.TotalDibayar, Sisa = p.TotalBiaya - p.TotalDibayar, Status = GetStatusLabel(p.Status) }), "Pembayaran"), "pembayaran.xlsx");
+}

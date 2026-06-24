@@ -1,0 +1,121 @@
+@inherits LayoutComponentBase
+@inject Services.AuthService AuthService
+@inject Services.NotifikasiService NotifService
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@implements IDisposable
+
+<div class="holysafar-app @_themeClass">
+    <!-- Mobile overlay -->
+    <div class="sidebar-mobile-overlay @(_mobileOpen ? "show" : "")" @onclick="CloseMobileSidebar"></div>
+
+    <aside class="sidebar @(_sidebarCollapsed ? "collapsed" : "") @(_mobileOpen ? "mobile-open" : "")">
+        <div class="sidebar-header">
+            <a href="/" class="brand"><span class="brand-icon">🕌</span>@if (!_sidebarCollapsed || _mobileOpen) { <span class="brand-text">HolySafar</span> }</a>
+            <button class="btn-toggle-sidebar" @onclick="ToggleSidebar"><i class="bi bi-list"></i></button>
+        </div>
+        <nav class="sidebar-nav" @onclick="() => { if (_mobileOpen) CloseMobileSidebar(); }">
+            <NavLink href="/" Match="NavLinkMatch.All"><i class="bi bi-house-door"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Beranda</span> }</NavLink>
+            @if (_isAuth)
+            {
+                @if (_role == "Admin")
+                {
+                    <div class="nav-section">Admin Master Data</div>
+                    <NavLink href="/admin/users"><i class="bi bi-people"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>User</span> }</NavLink>
+                    <NavLink href="/admin/jamaah"><i class="bi bi-person-vcard"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Jamaah</span> }</NavLink>
+                    <NavLink href="/admin/paket"><i class="bi bi-box"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Paket</span> }</NavLink>
+                    <NavLink href="/admin/produk"><i class="bi bi-bag"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Produk</span> }</NavLink>
+                    <NavLink href="/admin/pembayaran"><i class="bi bi-cash-coin"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Pembayaran</span> }</NavLink>
+                    <NavLink href="/admin/keberangkatan"><i class="bi bi-airplane"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Keberangkatan</span> }</NavLink>
+                    <NavLink href="/admin/materi-manasik"><i class="bi bi-journal-text"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Materi Manasik</span> }</NavLink>
+                    <NavLink href="/admin/kuis"><i class="bi bi-patch-question"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Kuis</span> }</NavLink>
+                    <NavLink href="/admin/pengumuman"><i class="bi bi-megaphone"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Pengumuman</span> }</NavLink>
+                    <div class="nav-section">Admin Monitoring</div>
+                    <NavLink href="/admin/operasional"><i class="bi bi-speedometer2"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Operasional</span> }</NavLink>
+                    <NavLink href="/admin/laporan"><i class="bi bi-graph-up"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Laporan</span> }</NavLink>
+                    <NavLink href="/admin/sos"><i class="bi bi-exclamation-triangle"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>SOS Panel</span> }</NavLink>
+                    <NavLink href="/admin/orders"><i class="bi bi-cart-check"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Orders</span> }</NavLink>
+                }
+                @if (_role == "Agen" || _role == "Admin")
+                {
+                    <div class="nav-section">Agen</div>
+                    <NavLink href="/agen/paket"><i class="bi bi-box"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Kelola Paket</span> }</NavLink>
+                    <NavLink href="/agen/jamaah"><i class="bi bi-people"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Jamaah Saya</span> }</NavLink>
+                }
+                <div class="nav-section">Menu</div>
+                <NavLink href="/paket"><i class="bi bi-tag"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Paket</span> }</NavLink>
+                <NavLink href="/marketplace"><i class="bi bi-shop"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Marketplace</span> }</NavLink>
+                <NavLink href="/edukasi"><i class="bi bi-book"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Edukasi</span> }</NavLink>
+                <NavLink href="/chatbot"><i class="bi bi-robot"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Syeikh Jenggot</span> }</NavLink>
+                <NavLink href="/tracker"><i class="bi bi-crosshair"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>GPS Tracker</span> }</NavLink>
+                <NavLink href="/gps"><i class="bi bi-geo-alt"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>GPS Admin</span> }</NavLink>
+                <NavLink href="/sos"><i class="bi bi-exclamation-circle"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>SOS</span> }</NavLink>
+                <NavLink href="/pengumuman"><i class="bi bi-megaphone"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Pengumuman</span> }</NavLink>
+                <NavLink href="/chat"><i class="bi bi-chat-dots"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Pesan</span> }</NavLink>
+            }
+        </nav>
+    </aside>
+
+    <main class="main-content">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="mobile-menu-btn" @onclick="ToggleMobileSidebar" aria-label="Menu">
+                    <i class="bi bi-list"></i>
+                </button>
+                <h2 class="page-title">@_pageTitle</h2>
+            </div>
+            <div class="topbar-right">
+                <button class="btn-icon" @onclick="ToggleTheme"><i class="bi bi-@(_isDark ? "sun" : "moon")"></i></button>
+                @if (_isAuth)
+                {
+                    <button class="btn-icon position-relative" @onclick="GoNotif"><i class="bi bi-bell"></i>
+                        @if (_unreadNotif > 0) { <span class="badge-notif">@_unreadNotif</span> }
+                    </button>
+                    <div class="user-dropdown" style="position:relative;">
+                        <button class="btn-user" @onclick="ToggleUserMenu">
+                            <span class="user-avatar">@(_cUser?.FullName?.FirstOrDefault() ?? '?')</span>
+                            <span class="user-name">@_cUser?.FullName</span>
+                            <i class="bi bi-chevron-down" style="font-size:0.7rem;"></i>
+                        </button>
+                        @if (_showUserMenu)
+                        {
+                            <div class="dropdown-menu show" style="position:absolute;top:100%;right:0;z-index:9999;pointer-events:auto;">
+                                <div style="padding:8px 12px;"><strong>@_cUser?.FullName</strong><br><small class="text-muted">@_cUser?.Role</small></div>
+                                <hr>
+                                <a href="/profile" class="dropdown-item" @onclick="() => _showUserMenu = false"><i class="bi bi-person"></i> Profil Saya</a>
+                                <button class="dropdown-item" @onclick="Logout"><i class="bi bi-box-arrow-right"></i> Logout</button>
+                            </div>
+                        }
+                    </div>
+                }
+                else { <a href="/login" class="btn btn-primary btn-sm">Login</a> }
+            </div>
+        </header>
+        <div class="page-content">@Body</div>
+    </main>
+</div>
+
+@code {
+    private bool _sidebarCollapsed, _isDark, _showUserMenu, _isAuth, _mobileOpen;
+    private int _unreadNotif; private string _pageTitle = "Dashboard", _themeClass = "theme-light", _role = "";
+    private HolySafar.Models.ApplicationUser? _cUser;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthService.SetJsRuntime(JS);
+        await AuthService.InitializeFromCookieAsync();
+        _cUser = await AuthService.GetCurrentUserAsync(); _isAuth = _cUser != null; _role = AuthService.CurrentUserRole;
+        await LoadNotif(); Nav.LocationChanged += OnLocChanged;
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) { await LoadNotif(); StateHasChanged(); } }
+    private async Task LoadNotif() { try { if (AuthService.CurrentUserId is int uid) _unreadNotif = await NotifService.GetUnreadCountAsync(uid); } catch { } }
+    private void OnLocChanged(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) { _showUserMenu = false; _mobileOpen = false; _cUser = null; StateHasChanged(); }
+    private void ToggleSidebar() => _sidebarCollapsed = !_sidebarCollapsed;
+    private void ToggleUserMenu() => _showUserMenu = !_showUserMenu;
+    private void ToggleTheme() { _isDark = !_isDark; _themeClass = _isDark ? "theme-dark" : "theme-light"; }
+    private void GoNotif() => Nav.NavigateTo("/notifikasi");
+    private void ToggleMobileSidebar() => _mobileOpen = !_mobileOpen;
+    private void CloseMobileSidebar() => _mobileOpen = false;
+    private async Task Logout() { await AuthService.LogoutAsync(); _showUserMenu = false; Nav.NavigateTo("/login", forceLoad: true); }
+    public void Dispose() => Nav.LocationChanged -= OnLocChanged;
+}

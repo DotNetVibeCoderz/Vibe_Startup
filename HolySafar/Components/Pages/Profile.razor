@@ -1,0 +1,173 @@
+@page "/profile"
+@rendermode InteractiveServer
+@inject Services.AuthService AuthService
+@inject Services.StorageService StorageService
+@inject Data.AppDbContext Db
+@inject NavigationManager Nav
+
+<div class="mb-3"><h2>👤 Profil Saya</h2><p class="text-muted">Kelola informasi akun dan keamanan Anda</p></div>
+
+@if (_currentUser == null)
+{
+    <div class="card"><div class="card-body text-center" style="padding:40px;"><div class="empty-state-icon">🔒</div><h3>Anda belum login</h3><a href="/login" class="btn btn-primary btn-lg mt-3">Login</a></div></div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(_notif)) { <div class="alert @(_notifOk?"alert-success":"alert-danger")">@_notif</div> }
+
+    <div class="grid grid-2">
+        <!-- PROFILE CARD -->
+        <div class="card">
+            <div class="card-header"><h3>Informasi Akun</h3>@if(!_editing){<button class="btn btn-primary btn-sm" @onclick="StartEdit">Edit</button>}</div>
+            <div class="card-body">
+                @if (_editing)
+                {
+                    <!-- PHOTO UPLOAD -->
+                    <div class="form-group">
+                        <label>Foto Profil</label>
+                        <div class="d-flex gap-3 align-center">
+                            <div class="profile-avatar" style="width:90px;height:90px;font-size:2.2rem;">
+                                @if (!string.IsNullOrEmpty(_editPhotoUrl)) { <img src="@_editPhotoUrl" style="width:100%;height:100%;border-radius:50%;object-fit:cover;"/> }
+                                else { @_currentUser.FullName[0] }
+                            </div>
+                            <div>
+                                <InputFile OnChange="OnPhotoUpload" accept="image/*" class="form-control" />
+                                @if (_uploading) { <small class="text-muted">Mengupload...</small> }
+                                @if (!string.IsNullOrEmpty(_editPhotoUrl)) { <button class="btn btn-danger btn-sm mt-1" @onclick="RemovePhoto">🗑️ Hapus</button> }
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group"><label>Nama</label><input class="form-control" @bind="_editName"/></div>
+                    <div class="form-group"><label>Email</label><input type="email" class="form-control" @bind="_editEmail"/></div>
+                    <div class="form-group"><label>Telepon</label><input class="form-control" @bind="_editPhone" placeholder="0812xxxx"/></div>
+                    <div class="d-flex gap-2 mt-3"><button class="btn btn-outline" @onclick="CancelEdit">Batal</button><button class="btn btn-primary" @onclick="SaveProfile" disabled="@_saving">@(_saving?"Menyimpan...":"Simpan")</button></div>
+                }
+                else
+                {
+                    <div class="profile-avatar-section">
+                        <div class="profile-avatar" style="width:90px;height:90px;font-size:2.2rem;">
+                            @if (!string.IsNullOrEmpty(_currentUser.ProfilePhotoUrl)) { <img src="@_currentUser.ProfilePhotoUrl" style="width:100%;height:100%;border-radius:50%;object-fit:cover;"/> }
+                            else { @_currentUser.FullName[0] }
+                        </div>
+                        <div><h3 style="margin:0;">@_currentUser.FullName</h3><span class="badge @GetBadge(_currentUser.Role)">@_currentUser.Role</span></div>
+                    </div>
+                    <hr style="margin:20px 0;">
+                    <div class="profile-info-grid">
+                        <div class="profile-info-item"><span class="profile-info-label">Username</span><span class="profile-info-value">@_currentUser.Username</span></div>
+                        <div class="profile-info-item"><span class="profile-info-label">Email</span><span class="profile-info-value">@_currentUser.Email</span></div>
+                        <div class="profile-info-item"><span class="profile-info-label">Telepon</span><span class="profile-info-value">@(_currentUser.Phone ?? "-")</span></div>
+                        <div class="profile-info-item"><span class="profile-info-label">Terdaftar</span><span class="profile-info-value">@_currentUser.CreatedAt.ToString("dd MMM yyyy")</span></div>
+                        <div class="profile-info-item"><span class="profile-info-label">Login Terakhir</span><span class="profile-info-value">@(_currentUser.LastLoginAt?.ToString("dd MMM yyyy HH:mm") ?? "-")</span></div>
+                        <div class="profile-info-item"><span class="profile-info-label">Status</span><span class="profile-info-value"><span class="badge @(_currentUser.IsActive?"badge-success":"badge-danger")">@(_currentUser.IsActive?"Aktif":"Nonaktif")</span></span></div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- PASSWORD CARD -->
+        <div class="card">
+            <div class="card-header"><h3>Keamanan</h3></div>
+            <div class="card-body">
+                <h4 style="margin-bottom:16px;">Ganti Password</h4>
+                <div class="form-group"><label>Password Lama</label><input type="password" class="form-control" @bind="_oldPass"/></div>
+                <div class="form-group"><label>Password Baru</label><input type="password" class="form-control" @bind="_newPass" placeholder="Min 6 karakter"/>
+                    @if (!string.IsNullOrEmpty(_newPass)) { <div class="password-strength-bar mt-1"><div class="password-strength-fill @GetStrengthClass()" style="width:@GetStrengthPercent()%;"></div></div><small class="text-muted">@GetStrengthLabel()</small> }
+                </div>
+                <div class="form-group"><label>Konfirmasi</label><input type="password" class="form-control" @bind="_confirmPass"/>
+                    @if (!string.IsNullOrEmpty(_confirmPass) && _newPass != _confirmPass) { <small style="color:var(--danger);">Tidak cocok!</small> }
+                </div>
+                <button class="btn btn-warning w-100" @onclick="ChangePassword" disabled="@_savingPass">@(_savingPass?"...":"Ganti Password")</button>
+            </div>
+        </div>
+    </div>
+
+    @if (_jamaah != null)
+    {
+        <div class="card mt-3"><div class="card-header"><h3>Data Jamaah</h3></div><div class="card-body"><div class="grid grid-3">
+            <div class="profile-info-item"><span class="profile-info-label">NIK</span><span class="profile-info-value">@_jamaah.Nik</span></div>
+            <div class="profile-info-item"><span class="profile-info-label">Paspor</span><span class="profile-info-value">@_jamaah.NoPaspor</span></div>
+            <div class="profile-info-item"><span class="profile-info-label">Paket</span><span class="profile-info-value">@_jamaah.Paket?.NamaPaket</span></div>
+            <div class="profile-info-item"><span class="profile-info-label">Dokumen</span><span class="profile-info-value"><span class="badge @(_jamaah.StatusDokumen==HolySafar.Models.DocumentStatus.Verified?"badge-success":"badge-warning")">@_jamaah.StatusDokumen</span></span></div>
+            <div class="profile-info-item"><span class="profile-info-label">Keberangkatan</span><span class="profile-info-value">@_jamaah.StatusKeberangkatan</span></div>
+            <div class="profile-info-item"><span class="profile-info-label">Vaksin</span><span class="profile-info-value">@(_jamaah.SudahVaksin?"✅ "+_jamaah.JenisVaksin:"❌ Belum")</span></div>
+        </div></div></div>
+    }
+
+    <div class="card mt-3"><div class="card-header"><h3>Info Sesi</h3></div><div class="card-body">@_currentUser.Username | @_currentUser.Role | ID #@_currentUser.Id</div></div>
+}
+
+@code {
+    private HolySafar.Models.ApplicationUser? _currentUser;
+    private HolySafar.Models.Jamaah? _jamaah;
+    private string? _notif; private bool _notifOk;
+    private bool _editing, _saving, _uploading;
+    private string _editName="", _editEmail="", _editPhone="", _editPhotoUrl="";
+    private string _oldPass="", _newPass="", _confirmPass=""; private bool _savingPass;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _currentUser = await AuthService.GetCurrentUserAsync();
+        if (_currentUser != null)
+            _jamaah = Db.Jamaah.Include(j => j.Paket).FirstOrDefault(j => j.UserId == _currentUser.Id);
+    }
+
+    private static string GetBadge(HolySafar.Models.UserRole r) => r == HolySafar.Models.UserRole.Admin ? "badge-danger" : r == HolySafar.Models.UserRole.Agen ? "badge-info" : "badge-success";
+
+    // ===== EDIT PROFILE =====
+    private void StartEdit() { _editName=_currentUser?.FullName??""; _editEmail=_currentUser?.Email??""; _editPhone=_currentUser?.Phone??""; _editPhotoUrl=_currentUser?.ProfilePhotoUrl??""; _editing=true; }
+    private void CancelEdit() => _editing = false;
+
+    private async Task SaveProfile()
+    {
+        if (_currentUser == null || string.IsNullOrWhiteSpace(_editName)) { Show(false, "Nama wajib diisi."); return; }
+        _saving = true;
+
+        // Update ProfilePhotoUrl langsung ke DB
+        if (_editPhotoUrl != _currentUser.ProfilePhotoUrl)
+        {
+            _currentUser.ProfilePhotoUrl = _editPhotoUrl;
+            await Db.SaveChangesAsync();
+        }
+
+        var (ok, msg) = await AuthService.UpdateProfileAsync(_currentUser.Id, _editName.Trim(), _editEmail.Trim(), _editPhone.Trim());
+        if (ok) { _currentUser = await AuthService.GetCurrentUserAsync(); _editing = false; }
+        Show(ok, msg);
+        _saving = false;
+    }
+
+    // ===== PHOTO UPLOAD =====
+    private async Task OnPhotoUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File; if (file == null) return;
+        _uploading = true;
+        await using var stream = file.OpenReadStream(5 * 1024 * 1024);
+        _editPhotoUrl = await StorageService.UploadAsync(stream, file.Name, "avatars");
+        _uploading = false;
+    }
+    private void RemovePhoto() => _editPhotoUrl = "";
+
+    // ===== CHANGE PASSWORD =====
+    private async Task ChangePassword()
+    {
+        if (_currentUser == null || string.IsNullOrWhiteSpace(_oldPass)) { Show(false, "Password lama wajib."); return; }
+        if (string.IsNullOrWhiteSpace(_newPass) || _newPass.Length < 6) { Show(false, "Min 6 karakter."); return; }
+        if (_newPass != _confirmPass) { Show(false, "Konfirmasi tidak cocok."); return; }
+        _savingPass = true;
+        var (ok, msg) = await AuthService.ChangePasswordAsync(_currentUser.Id, _oldPass, _newPass);
+        if (ok) { _oldPass = ""; _newPass = ""; _confirmPass = ""; }
+        Show(ok, msg);
+        _savingPass = false;
+    }
+
+    // ===== PASSWORD STRENGTH =====
+    private int GetStrengthPercent()
+    {
+        if (string.IsNullOrEmpty(_newPass)) return 0;
+        var s = 0; if (_newPass.Length >= 6) s += 25; if (_newPass.Length >= 10) s += 25; if (_newPass.Any(char.IsUpper)) s += 25; if (_newPass.Any(ch => !char.IsLetterOrDigit(ch))) s += 25;
+        return Math.Clamp(s, 0, 100);
+    }
+    private string GetStrengthClass() => GetStrengthPercent() switch { <= 25 => "strength-weak", <= 50 => "strength-fair", <= 75 => "strength-good", _ => "strength-strong" };
+    private string GetStrengthLabel() => GetStrengthPercent() switch { 0 => "", <= 25 => "Lemah", <= 50 => "Cukup", <= 75 => "Baik", _ => "Kuat 💪" };
+
+    private void Show(bool ok, string msg) { _notifOk = ok; _notif = msg; _ = System.Threading.Tasks.Task.Delay(5000).ContinueWith(_ => { _notif = null; InvokeAsync(StateHasChanged); }); }
+}

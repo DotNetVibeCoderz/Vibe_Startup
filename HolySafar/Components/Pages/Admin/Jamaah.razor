@@ -1,0 +1,130 @@
+@page "/admin/jamaah"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+@inject Services.ExportService ExportService
+
+<div class="card">
+    <div class="card-header">
+        <h3>👥 Data Jamaah</h3>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline btn-sm" @onclick="ExportCsv">📥 CSV</button>
+            <button class="btn btn-outline btn-sm" @onclick="ExportExcel">📊 Excel</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <input class="form-control" style="max-width:250px;" placeholder="Cari nama/NIK..." @bind="_search" @bind:event="oninput" />
+            <select class="form-control" style="max-width:180px;" @bind="_filterStatusDokumen">
+                <option value="">Semua Status Dokumen</option>
+                <option value="Pending">Pending</option>
+                <option value="Submitted">Submitted</option>
+                <option value="Verified">Verified</option>
+                <option value="Rejected">Rejected</option>
+            </select>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nama</th><th>NIK</th><th>Paspor</th><th>Paket</th><th>Status Dokumen</th><th>Status Keberangkatan</th><th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var j in _pagedJamaah)
+                    {
+                        <tr>
+                            <td><strong>@j.NamaLengkap</strong></td>
+                            <td>@j.Nik</td>
+                            <td>@j.NoPaspor</td>
+                            <td>@j.Paket?.NamaPaket</td>
+                            <td><span class="badge badge-@(j.StatusDokumen == Models.DocumentStatus.Verified ? "success" : j.StatusDokumen == Models.DocumentStatus.Rejected ? "danger" : "warning")">@j.StatusDokumen</span></td>
+                            <td><span class="badge badge-info">@j.StatusKeberangkatan</span></td>
+                            <td>
+                                <button class="btn btn-outline btn-sm" @onclick="() => ShowDetail(j)">Detail</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination mt-3">
+            <button disabled="@(_currentPage <= 1)" @onclick="() => _currentPage--">Prev</button>
+            @for (int i = 1; i <= _totalPages; i++)
+            {
+                <button class="@(i == _currentPage ? "active" : "")" @onclick="() => _currentPage = i">@i</button>
+            }
+            <button disabled="@(_currentPage >= _totalPages)" @onclick="() => _currentPage++">Next</button>
+        </div>
+    </div>
+</div>
+
+@if (_detailJamaah != null)
+{
+    <div class="modal-backdrop" @onclick="() => _detailJamaah = null">
+        <div class="modal" @onclick:stopPropagation="true" style="max-width:700px;">
+            <div class="modal-header">
+                <h3>Detail Jamaah: @_detailJamaah.NamaLengkap</h3>
+                <button class="btn-icon" @onclick="() => _detailJamaah = null">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="grid grid-2">
+                    <div><strong>NIK:</strong> @_detailJamaah.Nik</div>
+                    <div><strong>Paspor:</strong> @_detailJamaah.NoPaspor</div>
+                    <div><strong>Tempat Lahir:</strong> @_detailJamaah.TempatLahir</div>
+                    <div><strong>Tanggal Lahir:</strong> @_detailJamaah.TanggalLahir?.ToString("dd MMM yyyy")</div>
+                    <div><strong>Telepon:</strong> @_detailJamaah.NoTelepon</div>
+                    <div><strong>Email:</strong> @_detailJamaah.Email</div>
+                    <div><strong>Gol. Darah:</strong> @_detailJamaah.GolonganDarah</div>
+                    <div><strong>Vaksin:</strong> @(_detailJamaah.SudahVaksin ? $"Ya ({_detailJamaah.JenisVaksin})" : "Belum")</div>
+                    <div><strong>Paket:</strong> @_detailJamaah.Paket?.NamaPaket</div>
+                    <div><strong>Ayah:</strong> @_detailJamaah.NamaAyahKandung</div>
+                    <div><strong>Ahli Waris:</strong> @_detailJamaah.AhliWaris (@_detailJamaah.HubunganAhliWaris)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Models.Jamaah> _allJamaah = new();
+    private IEnumerable<Models.Jamaah> _pagedJamaah = Enumerable.Empty<Models.Jamaah>();
+    private Models.Jamaah? _detailJamaah;
+    private string _search = "";
+    private string _filterStatusDokumen = "";
+    private int _currentPage = 1;
+    private int _pageSize = 15;
+    private int _totalPages = 1;
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        _allJamaah = await Task.Run(() =>
+            Db.Jamaah.Include(j => j.Paket).OrderByDescending(j => j.CreatedAt).ToList()
+        );
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        var query = _allJamaah.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var s = _search.ToLower();
+            query = query.Where(j => j.NamaLengkap.ToLower().Contains(s) || (j.Nik?.Contains(s) == true));
+        }
+        if (!string.IsNullOrEmpty(_filterStatusDokumen) && Enum.TryParse<Models.DocumentStatus>(_filterStatusDokumen, out var status))
+            query = query.Where(j => j.StatusDokumen == status);
+
+        _allJamaah = query.ToList();
+        _totalPages = Math.Max(1, (int)Math.Ceiling(_allJamaah.Count / (double)_pageSize));
+        _pagedJamaah = _allJamaah.Skip((_currentPage - 1) * _pageSize).Take(_pageSize);
+    }
+
+    private void ShowDetail(Models.Jamaah j) => _detailJamaah = j;
+
+    private async Task ExportCsv() => await Task.CompletedTask;
+    private async Task ExportExcel() => await Task.CompletedTask;
+}

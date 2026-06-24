@@ -1,0 +1,83 @@
+@page "/admin/users"
+@rendermode InteractiveServer
+@inject Services.AuthService AuthService
+@inject Services.ExportService ExportService
+@inject Data.AppDbContext Db
+@inject NavigationManager Nav
+
+<div class="card">
+    <div class="card-header"><h3>👥 Manajemen User</h3><div class="d-flex gap-2"><button class="btn btn-outline btn-sm" @onclick="ExportCsv">📥 CSV</button><button class="btn btn-outline btn-sm" @onclick="ExportExcel">📊 Excel</button><button class="btn btn-primary btn-sm" @onclick="() => ShowForm(null)">+ Tambah</button></div></div>
+    <div class="card-body">
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <input class="form-control" style="max-width:250px;" placeholder="Cari user..." @bind="_search" @bind:event="oninput"/>
+            <select class="form-control" style="max-width:150px;" @bind="_filterRole"><option value="">Semua Role</option><option value="Admin">Admin</option><option value="Agen">Agen</option><option value="Jamaah">Jamaah</option></select>
+        </div>
+        @if (_users.Any())
+        {
+            <div class="table-container"><table>
+                <thead><tr>
+                    <th @onclick="()=>ToggleSort(nameof(HolySafar.Models.ApplicationUser.Id))">ID @SortIcon(nameof(HolySafar.Models.ApplicationUser.Id))</th>
+                    <th @onclick="()=>ToggleSort(nameof(HolySafar.Models.ApplicationUser.Username))">Username @SortIcon(nameof(HolySafar.Models.ApplicationUser.Username))</th>
+                    <th @onclick="()=>ToggleSort(nameof(HolySafar.Models.ApplicationUser.FullName))">Nama @SortIcon(nameof(HolySafar.Models.ApplicationUser.FullName))</th>
+                    <th>Email</th>
+                    <th @onclick="()=>ToggleSort(nameof(HolySafar.Models.ApplicationUser.Role))">Role @SortIcon(nameof(HolySafar.Models.ApplicationUser.Role))</th>
+                    <th>Status</th><th>Aksi</th>
+                </tr></thead>
+                <tbody>
+                    @foreach (var user in _pagedUsers)
+                    { <tr><td>@user.Id</td><td><strong>@user.Username</strong></td><td>@user.FullName</td><td>@user.Email</td><td><span class="badge @(user.Role==HolySafar.Models.UserRole.Admin?"badge-danger":user.Role==HolySafar.Models.UserRole.Agen?"badge-info":"badge-success")">@user.Role</span></td><td><span class="badge @(user.IsActive?"badge-success":"badge-danger")">@(user.IsActive?"Aktif":"Nonaktif")</span></td><td><button class="btn btn-outline btn-sm" @onclick="()=>ShowForm(user)">Edit</button> <button class="btn btn-danger btn-sm" @onclick="()=>DeleteUser(user.Id)">Hapus</button></td></tr> }
+                </tbody>
+            </table></div>
+            <div class="pagination"><button disabled="@(_currentPage<=1)" @onclick="()=>_currentPage--">Prev</button>@for(int i=1;i<=_totalPages;i++){<button class="@(i==_currentPage?"active":"")" @onclick="()=>_currentPage=i">@i</button>}<button disabled="@(_currentPage>=_totalPages)" @onclick="()=>_currentPage++">Next</button><span class="text-muted" style="margin-left:12px;">@_users.Count data</span></div>
+        }
+    </div>
+</div>
+
+@if (_showForm)
+{ <div class="modal-backdrop" @onclick="()=>_showForm=false"><div class="modal" @onclick:stopPropagation="true"><div class="modal-header"><h3>@(_editingUser==null?"Tambah":"Edit") User</h3><button class="btn-icon" @onclick="()=>_showForm=false">✕</button></div><div class="modal-body">
+    <div class="form-group"><label>Username</label><input class="form-control" @bind="_editUsername"/></div>
+    <div class="form-group"><label>Password @(_editingUser!=null?"(kosongkan jika tidak diubah)":"")</label><input type="password" class="form-control" @bind="_editPassword"/></div>
+    <div class="form-group"><label>Nama</label><input class="form-control" @bind="_editFullName"/></div>
+    <div class="form-group"><label>Email</label><input class="form-control" @bind="_editEmail"/></div>
+    <div class="form-group"><label>Phone</label><input class="form-control" @bind="_editPhone"/></div>
+    <div class="form-group"><label>Role</label><select class="form-control" @bind="_editRole"><option>Jamaah</option><option>Agen</option><option>Admin</option></select></div>
+    <div class="form-group"><label><input type="checkbox" @bind="_editIsActive"/> Aktif</label></div>
+</div><div class="modal-footer"><button class="btn btn-outline" @onclick="()=>_showForm=false">Batal</button><button class="btn btn-primary" @onclick="SaveUser">Simpan</button></div></div></div> }
+
+@code {
+    private List<HolySafar.Models.ApplicationUser> _users=new(), _pagedUsers=new();
+    private string _search="",_filterRole="",_sortColumn=nameof(HolySafar.Models.ApplicationUser.Id);
+    private bool _sortAsc=true; private int _currentPage=1,_pageSize=15,_totalPages=1;
+    private bool _showForm; private HolySafar.Models.ApplicationUser? _editingUser;
+    private string _editUsername="",_editPassword="",_editFullName="",_editEmail="",_editPhone="",_editRole="Jamaah";
+    private bool _editIsActive=true;
+
+    protected override async Task OnInitializedAsync() { await LoadData(); }
+
+    private Task LoadData() { _users=Db.Users.ToList(); ApplyFilters(); return Task.CompletedTask; }
+
+    private void ApplyFilters()
+    {
+        var q=_users.AsEnumerable();
+        if(!string.IsNullOrWhiteSpace(_search)){ var s=_search.ToLower(); q=q.Where(u=>(u.Username?.ToLower().Contains(s)==true)||(u.FullName?.ToLower().Contains(s)==true)||(u.Email?.ToLower().Contains(s)==true)); }
+        if(!string.IsNullOrEmpty(_filterRole)) q=q.Where(u=>u.Role.ToString()==_filterRole);
+        q=_sortColumn switch { nameof(HolySafar.Models.ApplicationUser.Id)=>_sortAsc?q.OrderBy(u=>u.Id):q.OrderByDescending(u=>u.Id),nameof(HolySafar.Models.ApplicationUser.Username)=>_sortAsc?q.OrderBy(u=>u.Username):q.OrderByDescending(u=>u.Username),nameof(HolySafar.Models.ApplicationUser.FullName)=>_sortAsc?q.OrderBy(u=>u.FullName):q.OrderByDescending(u=>u.FullName),nameof(HolySafar.Models.ApplicationUser.Role)=>_sortAsc?q.OrderBy(u=>u.Role):q.OrderByDescending(u=>u.Role),_=>q };
+        _users=q.ToList(); _totalPages=Math.Max(1,(int)Math.Ceiling(_users.Count/(double)_pageSize)); _pagedUsers=_users.Skip((_currentPage-1)*_pageSize).Take(_pageSize).ToList();
+    }
+
+    private void ToggleSort(string c){ if(_sortColumn==c)_sortAsc=!_sortAsc; else{_sortColumn=c;_sortAsc=true;} ApplyFilters(); }
+    private string SortIcon(string c)=>_sortColumn==c?(_sortAsc?"▲":"▼"):"";
+
+    private void ShowForm(HolySafar.Models.ApplicationUser? u){ _editingUser=u; _editUsername=u?.Username??""; _editPassword=""; _editFullName=u?.FullName??""; _editEmail=u?.Email??""; _editPhone=u?.Phone??""; _editRole=u?.Role.ToString()??"Jamaah"; _editIsActive=u?.IsActive??true; _showForm=true; }
+
+    private async Task SaveUser()
+    {
+        if(_editingUser==null){ var h=Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(_editPassword+"HolySafarSalt"))); Db.Users.Add(new HolySafar.Models.ApplicationUser{Username=_editUsername,PasswordHash=h,FullName=_editFullName,Email=_editEmail,Phone=_editPhone,Role=Enum.Parse<HolySafar.Models.UserRole>(_editRole),IsActive=_editIsActive}); }
+        else{ _editingUser.Username=_editUsername; if(!string.IsNullOrEmpty(_editPassword))_editingUser.PasswordHash=Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(_editPassword+"HolySafarSalt"))); _editingUser.FullName=_editFullName; _editingUser.Email=_editEmail; _editingUser.Phone=_editPhone; _editingUser.Role=Enum.Parse<HolySafar.Models.UserRole>(_editRole); _editingUser.IsActive=_editIsActive; }
+        await Db.SaveChangesAsync(); _showForm=false; await LoadData();
+    }
+
+    private async Task DeleteUser(int id){ var u=await Db.Users.FindAsync(id); if(u!=null){ Db.Users.Remove(u); await Db.SaveChangesAsync(); await LoadData(); } }
+    private Task ExportCsv()=>Task.CompletedTask;
+    private Task ExportExcel()=>Task.CompletedTask;
+}

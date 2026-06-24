@@ -1,0 +1,111 @@
+@page "/login"
+@layout LoginLayout
+@rendermode InteractiveServer
+@inject Services.AuthService AuthService
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="login-page">
+    <div class="login-card">
+        <div style="text-align:center;margin-bottom:16px;">
+            <span style="font-size:3rem;">🕌</span>
+        </div>
+        <h2>HolySafar</h2>
+        <p class="subtitle">Sistem Manajemen Travel Haji & Umroh</p>
+        <h3 style="margin-bottom:16px;">Masuk ke Akun</h3>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+        @if (!string.IsNullOrEmpty(_success))
+        {
+            <div class="alert alert-success">@((MarkupString)_success)</div>
+        }
+
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" class="form-control" @bind="_username" placeholder="Username" autocomplete="username" />
+        </div>
+
+        <div class="form-group">
+            <label>Password</label>
+            <input type="password" class="form-control" @bind="_password" placeholder="Password" autocomplete="current-password"
+                   @onkeydown="HandleKeyDown" />
+        </div>
+
+        <div style="text-align:right;margin-bottom:16px;">
+            <a href="/reset-password" style="font-size:0.85rem;">Lupa password?</a>
+        </div>
+
+        <button class="btn btn-primary w-100 btn-lg" @onclick="HandleLogin" disabled="@_loading">
+            @(_loading ? "Mohon tunggu..." : "Masuk")
+        </button>
+
+        <div style="text-align:center;margin-top:16px;">
+            <span>Belum punya akun? </span>
+            <a href="/register">Daftar di sini</a>
+        </div>
+
+        <div style="text-align:center;margin-top:16px;font-size:0.8rem;color:var(--text-muted);">
+            <p><strong>Demo login:</strong></p>
+            <p>Admin: <code>admin</code> / <code>admin123</code></p>
+            <p>Agen: <code>agen1</code> / <code>agen123</code></p>
+            <p>Jamaah: <code>jamaah1</code> / <code>jamaah123</code></p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _username = "";
+    private string _password = "";
+    private string? _error;
+    private string? _success;
+    private bool _loading;
+
+    protected override void OnInitialized()
+    {
+        AuthService.SetJsRuntime(JS);
+        if (AuthService.IsAuthenticated)
+        {
+            Nav.NavigateTo("/");
+        }
+    }
+
+    private async Task HandleLogin()
+    {
+        _error = null;
+        _success = null;
+
+        if (string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_password))
+        {
+            _error = "Username dan password wajib diisi.";
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            var (success, msg, user) = await AuthService.LoginAsync(_username.Trim(), _password);
+            if (success)
+            {
+                // Force reload agar cookie terkirim & circuit baru dibuat dengan auth state
+                Nav.NavigateTo("/", forceLoad: true);
+            }
+            else
+            {
+                _error = msg;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Terjadi kesalahan: {ex.Message}";
+        }
+        _loading = false;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await HandleLogin();
+    }
+}

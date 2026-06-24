@@ -1,0 +1,102 @@
+@page "/admin/pengumuman"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+@inject Services.ExportService Export
+@inject IJSRuntime JS
+
+<div class="card">
+    <div class="card-header">
+        <h3>📢 Master Data Pengumuman</h3>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline btn-sm" @onclick="ExportCsv"><i class="bi bi-filetype-csv"></i> CSV</button>
+            <button class="btn btn-outline btn-sm" @onclick="ExportExcel"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+            <button class="btn btn-primary btn-sm" @onclick="(() => ShowForm(null))"><i class="bi bi-plus-lg"></i> Tambah</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <input class="form-control" style="max-width:250px;" placeholder="🔍 Cari judul..." @bind="_search" @bind:event="oninput" />
+            <select class="form-control" style="max-width:180px;" @bind="_filterTarget">
+                <option value="">Semua Target</option><option value="Admin">Admin</option><option value="Agen">Agen</option><option value="Jamaah">Jamaah</option>
+            </select>
+        </div>
+        <div class="table-container"><table>
+            <thead><tr><th>Judul</th><th>Isi</th><th>Target</th><th>Status</th><th>Tanggal</th><th>Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var a in _paged)
+                {
+                    <tr>
+                        <td><strong>@a.Judul</strong></td><td>@(a.Isi.Length > 60 ? a.Isi[..60] + "..." : a.Isi)</td>
+                        <td><span class="badge badge-info">@(a.TargetRole?.ToString() ?? "Semua")</span></td>
+                        <td><span class="badge @(a.IsActive ? "badge-success" : "badge-danger")">@(a.IsActive ? "Aktif" : "Nonaktif")</span></td>
+                        <td class="text-muted">@a.CreatedAt.ToString("dd/MM")</td>
+                        <td><button class="btn btn-outline btn-sm" @onclick="(() => ShowForm(a))"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-danger btn-sm" @onclick="(() => Delete(a.Id))"><i class="bi bi-trash"></i></button></td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+        <div class="pagination">
+            <button disabled="@(_page <= 1)" @onclick="() => _page--">Prev</button>
+            @for (int i = 1; i <= _totalPages; i++) { <button class="@(i==_page?"active":"")" @onclick="()=>_page=i">@i</button> }
+            <button disabled="@(_page >= _totalPages)" @onclick="() => _page++">Next</button>
+        </div>
+    </div>
+</div>
+
+@if (_showForm)
+{
+    <div class="modal-backdrop" @onclick="(()=>_showForm=false)">
+        <div class="modal" @onclick:stopPropagation="true" style="max-width:600px;">
+            <div class="modal-header"><h3>@(_edit==null?"Tambah":"Edit") Pengumuman</h3><button class="btn-icon" @onclick="(()=>_showForm=false)">✕</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>Judul *</label><input class="form-control" @bind="_ef.Judul" /></div>
+                <div class="form-group"><label>Isi</label><textarea class="form-control" rows="5" @bind="_ef.Isi"></textarea></div>
+                <div class="form-group"><label>Target Role</label><select class="form-control" @bind="_targetStr">
+                    <option value="">Semua</option><option value="Admin">Admin</option><option value="Agen">Agen</option><option value="Jamaah">Jamaah</option>
+                </select></div>
+                <div class="form-group"><label><input type="checkbox" @bind="_ef.IsActive" /> Aktif</label></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-outline" @onclick="(()=>_showForm=false)">Batal</button><button class="btn btn-primary" @onclick="Save">Simpan</button></div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Models.Pengumuman> _all = new(), _paged = new();
+    private string _search = "", _filterTarget = "", _targetStr = "";
+    private int _page = 1, _pageSize = 15, _totalPages = 1;
+    private bool _showForm; private Models.Pengumuman? _edit;
+    private Models.Pengumuman _ef = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load() { _all = await Task.Run(() => Db.Pengumuman.OrderByDescending(a => a.CreatedAt).ToList()); Apply(); }
+    private void Apply()
+    {
+        var q = _all.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(_search)) { var s = _search.ToLower(); q = q.Where(a => a.Judul.ToLower().Contains(s)); }
+        if (!string.IsNullOrEmpty(_filterTarget)) q = q.Where(a => a.TargetRole != null && a.TargetRole.ToString() == _filterTarget);
+        _all = q.ToList(); _totalPages = Math.Max(1, (int)Math.Ceiling(_all.Count / (double)_pageSize)); if (_page > _totalPages) _page = _totalPages;
+        _paged = _all.Skip((_page - 1) * _pageSize).Take(_pageSize).ToList();
+    }
+
+    private void ShowForm(Models.Pengumuman? a)
+    {
+        _edit = a; _ef = a == null ? new Models.Pengumuman { IsActive = true } : new Models.Pengumuman { Id = a.Id, Judul = a.Judul, Isi = a.Isi, TargetRole = a.TargetRole, IsActive = a.IsActive };
+        _targetStr = a?.TargetRole?.ToString() ?? ""; _showForm = true;
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_ef.Judul)) return;
+        _ef.TargetRole = string.IsNullOrEmpty(_targetStr) ? null : Enum.Parse<Models.UserRole>(_targetStr);
+        if (_edit == null) { _ef.CreatedAt = DateTime.UtcNow; Db.Pengumuman.Add(_ef); }
+        else { var a = await Db.Pengumuman.FindAsync(_edit.Id); if (a != null) { a.Judul = _ef.Judul; a.Isi = _ef.Isi; a.TargetRole = _ef.TargetRole; a.IsActive = _ef.IsActive; } }
+        await Db.SaveChangesAsync(); _showForm = false; await Load();
+    }
+
+    private async Task Delete(int id) { var a = await Db.Pengumuman.FindAsync(id); if (a != null) { Db.Pengumuman.Remove(a); await Db.SaveChangesAsync(); await Load(); } }
+    private async Task Dnl(byte[] b, string fn) { var b64 = Convert.ToBase64String(b); await JS.InvokeVoidAsync("eval", $"var a=document.createElement('a');a.href='data:application/octet-stream;base64,{b64}';a.download='{fn}';a.click();"); }
+    private async Task ExportCsv() => await Dnl(Export.ExportToCsv(_all.Select(a => new { a.Judul, a.Isi, Target = a.TargetRole?.ToString() ?? "Semua", a.IsActive })), "pengumuman.csv");
+    private async Task ExportExcel() => await Dnl(Export.ExportToExcel(_all.Select(a => new { a.Judul, a.Isi, Target = a.TargetRole?.ToString() ?? "Semua", a.IsActive }), "Pengumuman"), "pengumuman.xlsx");
+}

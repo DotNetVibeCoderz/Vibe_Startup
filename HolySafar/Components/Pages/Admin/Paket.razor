@@ -1,0 +1,80 @@
+@page "/admin/paket"
+@page "/agen/paket"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+
+<div class="card">
+    <div class="card-header"><h3>📦 Manajemen Paket</h3><button class="btn btn-primary btn-sm" @onclick="(() => ShowForm(null))">+ Tambah Paket</button></div>
+    <div class="card-body">
+        <div class="table-container"><table>
+            <thead><tr><th>Nama</th><th>Jenis</th><th>Harga</th><th>Durasi</th><th>Kuota</th><th>Terisi</th><th>Status</th><th>Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var p in _pakets)
+                {
+                    <tr><td><strong>@p.NamaPaket</strong></td><td><span class="badge badge-info">@p.JenisPaket</span></td>
+                    <td>@p.Harga.ToString("C0")</td><td>@p.DurasiHari hari</td><td>@p.Terisi/@p.Kuota</td><td>@p.Terisi</td>
+                    <td><span class="badge @(p.IsPublished ? "badge-success" : "badge-warning")">@(p.IsPublished ? "Published" : "Draft")</span></td>
+                    <td><button class="btn btn-outline btn-sm" @onclick="(() => ShowForm(p))">Edit</button>
+                    <button class="btn btn-danger btn-sm" @onclick="(() => DeletePaket(p.Id))">Hapus</button></td></tr>
+                }
+            </tbody>
+        </table></div>
+    </div>
+</div>
+
+@if (_showForm)
+{
+    <div class="modal-backdrop" @onclick="(() => _showForm = false)">
+        <div class="modal" @onclick:stopPropagation="true" style="max-width:700px;">
+            <div class="modal-header"><h3>@(_editing == null ? "Tambah Paket" : "Edit Paket")</h3><button class="btn-icon" @onclick="(() => _showForm = false)">✕</button></div>
+            <div class="modal-body">
+                <div class="grid grid-2">
+                    <div class="form-group"><label>Nama</label><input class="form-control" @bind="_en" /></div>
+                    <div class="form-group"><label>Jenis</label><select class="form-control" @bind="_ej"><option>Umroh</option><option>Haji</option><option>HajiPlus</option></select></div>
+                    <div class="form-group"><label>Harga</label><input type="number" class="form-control" @bind="_eh" /></div>
+                    <div class="form-group"><label>Durasi (hari)</label><input type="number" class="form-control" @bind="_ed" /></div>
+                    <div class="form-group"><label>Hotel Makkah</label><input class="form-control" @bind="_ehm" /></div>
+                    <div class="form-group"><label>Hotel Madinah</label><input class="form-control" @bind="_ehd" /></div>
+                    <div class="form-group"><label>Maskapai</label><input class="form-control" @bind="_em" /></div>
+                    <div class="form-group"><label>Kuota</label><input type="number" class="form-control" @bind="_ek" /></div>
+                    <div class="form-group"><label>Tgl Berangkat</label><InputDate class="form-control" @bind-Value="_etbDate" /></div>
+                    <div class="form-group"><label>Tgl Pulang</label><InputDate class="form-control" @bind-Value="_etpDate" /></div>
+                </div>
+                <div class="form-group"><label>Deskripsi</label><textarea class="form-control" rows="3" @bind="_edesc"></textarea></div>
+                <div class="form-group"><label>Fasilitas</label><input class="form-control" @bind="_ef" /></div>
+                <div class="form-group"><label>Rute</label><input class="form-control" @bind="_er" /></div>
+                <div class="form-group"><label><input type="checkbox" @bind="_epub" /> Published</label></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-outline" @onclick="(() => _showForm = false)">Batal</button><button class="btn btn-primary" @onclick="SavePaket">Simpan</button></div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Models.Paket> _pakets = new();
+    private bool _showForm; private Models.Paket? _editing;
+    private string _en = "", _ej = "Umroh", _edesc = "", _ef = "", _ehm = "", _ehd = "", _em = "", _er = "";
+    private decimal _eh; private int _ed = 9, _ek = 50; private bool _epub = true;
+    private DateTime? _etbDate, _etpDate;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load() => _pakets = await Task.Run(() => Db.Paket.OrderByDescending(p => p.CreatedAt).ToList());
+
+    private void ShowForm(Models.Paket? p)
+    {
+        _editing = p; _en = p?.NamaPaket ?? ""; _ej = p?.JenisPaket ?? "Umroh"; _edesc = p?.Deskripsi ?? ""; _ef = p?.Fasilitas ?? "";
+        _ehm = p?.NamaHotelMekkah ?? ""; _ehd = p?.NamaHotelMadinah ?? ""; _em = p?.Maskapai ?? ""; _er = p?.RutePenerbangan ?? "";
+        _eh = p?.Harga ?? 0; _ed = p?.DurasiHari ?? 9; _ek = p?.Kuota ?? 50;
+        _etbDate = p?.TanggalBerangkat; _etpDate = p?.TanggalPulang;
+        _epub = p?.IsPublished ?? true; _showForm = true;
+    }
+
+    private async Task SavePaket()
+    {
+        if (_editing == null) Db.Paket.Add(new Models.Paket { NamaPaket = _en, JenisPaket = _ej, Deskripsi = _edesc, Harga = _eh, Fasilitas = _ef, NamaHotelMekkah = _ehm, NamaHotelMadinah = _ehd, Maskapai = _em, RutePenerbangan = _er, DurasiHari = _ed, Kuota = _ek, TanggalBerangkat = _etbDate, TanggalPulang = _etpDate, IsPublished = _epub });
+        else { _editing.NamaPaket = _en; _editing.JenisPaket = _ej; _editing.Deskripsi = _edesc; _editing.Harga = _eh; _editing.Fasilitas = _ef; _editing.NamaHotelMekkah = _ehm; _editing.NamaHotelMadinah = _ehd; _editing.Maskapai = _em; _editing.RutePenerbangan = _er; _editing.DurasiHari = _ed; _editing.Kuota = _ek; _editing.TanggalBerangkat = _etbDate; _editing.TanggalPulang = _etpDate; _editing.IsPublished = _epub; }
+        await Db.SaveChangesAsync(); _showForm = false; await Load();
+    }
+
+    private async Task DeletePaket(int id) { var p = await Db.Paket.FindAsync(id); if (p != null) { Db.Paket.Remove(p); await Db.SaveChangesAsync(); await Load(); } }
+}

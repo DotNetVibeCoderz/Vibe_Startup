@@ -1,0 +1,73 @@
+@page "/marketplace"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+@inject Services.AuthService AuthService
+@inject NavigationManager Nav
+
+<div class="mb-3"><h2>🛍️ Marketplace HolySafar</h2><p class="text-muted">Perlengkapan Haji & Umroh Berkualitas</p></div>
+@if (_showNotify) { <div class="alert alert-success">@_notifyMsg</div> }
+
+<div class="product-grid">
+    @foreach (var p in _products)
+    {
+        <div class="product-card">
+            @if (!string.IsNullOrEmpty(p.GambarUrl)) { <div class="product-image"><img src="@p.GambarUrl" alt="@p.NamaProduk" style="width:100%;height:100%;object-fit:cover;"/></div> }
+            else { <div class="product-image product-placeholder">👜</div> }
+            <div class="product-info">
+                <div class="product-name">@p.NamaProduk</div><span class="badge badge-info">@p.Kategori</span>
+                <div class="product-price mt-2">@p.Harga.ToString("C0")</div><div class="product-stock">Stok: @p.Stok</div>
+                <p style="font-size:0.8rem;margin:8px 0;">@(p.Deskripsi.Length>80?p.Deskripsi[..80]+"...":p.Deskripsi)</p>
+                <div class="d-flex gap-2 mt-2">
+                    <input type="number" class="form-control" style="width:60px;" min="1" max="@p.Stok" value="1" @onchange="(ChangeEventArgs e)=>SetQty(p.Id,e)"/>
+                    <button class="btn btn-primary btn-sm" style="flex:1;" @onclick="()=>AddToCart(p)">🛒 Tambah</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@if (_cartItems.Any())
+{
+    <div class="card mt-3"><div class="card-header"><h3>🛒 Keranjang (@_cartItems.Count item)</h3></div>
+    <div class="card-body"><div class="table-container"><table>
+        <thead><tr><th>Produk</th><th>Harga</th><th>Qty</th><th>Subtotal</th><th></th></tr></thead>
+        <tbody>@foreach(var ci in _cartItems){<tr><td>@ci.Produk?.NamaProduk</td><td>@ci.Produk?.Harga.ToString("C0")</td><td>@ci.Quantity</td><td><strong>@((ci.Produk?.Harga??0)*ci.Quantity).ToString("C0")</strong></td><td><button class="btn btn-danger btn-sm" @onclick="()=>RemoveFromCart(ci)">✕</button></td></tr>}</tbody>
+        <tfoot><tr><td colspan="3"><strong>Total</strong></td><td><strong style="font-size:1.2rem;">@_cartTotal.ToString("C0")</strong></td><td></td></tr></tfoot>
+    </table></div><div class="mt-3"><button class="btn btn-success btn-lg" @onclick="Checkout">💰 Bayar Sekarang</button></div></div></div>
+}
+
+@code {
+    private List<Models.Produk> _products = new();
+    private List<Models.CartItem> _cartItems = new();
+    private Dictionary<int,int> _qty = new(); private decimal _cartTotal;
+    private bool _showNotify; private string _notifyMsg = ""; private int? _uid;
+
+    protected override async Task OnInitializedAsync(){ _uid=AuthService.CurrentUserId; await LoadAll(); }
+
+    private Task LoadAll(){
+        _products = Db.Produk.Where(p=>p.IsActive).ToList();
+        if(_uid!=null){ _cartItems=Db.CartItems.Include(c=>c.Produk).Where(c=>c.UserId==_uid).ToList(); _cartTotal=_cartItems.Sum(c=>(c.Produk?.Harga??0)*c.Quantity); }
+        return Task.CompletedTask;
+    }
+
+    private void SetQty(int pid,ChangeEventArgs e){ if(int.TryParse(e.Value?.ToString(),out var v))_qty[pid]=v; }
+
+    private async Task AddToCart(Models.Produk p){
+        if(_uid==null){ Nav.NavigateTo("/login"); return; }
+        var q=_qty.GetValueOrDefault(p.Id,1); var ex=_cartItems.FirstOrDefault(c=>c.ProdukId==p.Id);
+        if(ex!=null)ex.Quantity+=q; else Db.CartItems.Add(new Models.CartItem{UserId=_uid.Value,ProdukId=p.Id,Quantity=q});
+        await Db.SaveChangesAsync(); await LoadAll();
+        _notifyMsg=$"{p.NamaProduk} ditambahkan!"; _showNotify=true;
+        _ = System.Threading.Tasks.Task.Delay(3000).ContinueWith(_=>{ _showNotify=false; InvokeAsync(StateHasChanged); });
+    }
+
+    private async Task RemoveFromCart(Models.CartItem ci){ Db.CartItems.Remove(ci); await Db.SaveChangesAsync(); await LoadAll(); }
+
+    private async Task Checkout(){
+        if(_uid==null||!_cartItems.Any())return;
+        var o=new Models.Order{UserId=_uid.Value,NoOrder=$"ORD-{DateTime.UtcNow:yyyyMMdd}-{_uid:D4}",Total=_cartTotal,StatusOrder="Pending"};
+        foreach(var ci in _cartItems)o.Items.Add(new Models.OrderItem{ProdukId=ci.ProdukId,Quantity=ci.Quantity,HargaSatuan=ci.Produk?.Harga??0});
+        Db.Orders.Add(o); Db.CartItems.RemoveRange(_cartItems); await Db.SaveChangesAsync(); await LoadAll();
+        _notifyMsg="Pesanan dibuat!"; _showNotify=true;
+    }
+}

@@ -1,0 +1,75 @@
+@page "/admin/laporan"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+
+<div class="card">
+    <div class="card-header"><h3>📊 Laporan & Analitik</h3></div>
+    <div class="card-body">
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-icon gold">💰</div><div><div class="stat-value">@_totalPembayaran.ToString("C0")</div><div class="stat-label">Total Pembayaran</div></div></div>
+            <div class="stat-card"><div class="stat-icon blue">👥</div><div><div class="stat-value">@_totalJamaah</div><div class="stat-label">Total Jamaah</div></div></div>
+            <div class="stat-card"><div class="stat-icon green">📦</div><div><div class="stat-value">@_totalPaket</div><div class="stat-label">Paket Aktif</div></div></div>
+            <div class="stat-card"><div class="stat-icon red">🛍️</div><div><div class="stat-value">@_totalOrders</div><div class="stat-label">Order Marketplace</div></div></div>
+        </div>
+
+        <h4 class="mt-3">Ringkasan Keuangan per Paket</h4>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Paket</th><th>Jumlah Jamaah</th><th>Total Pembayaran</th><th>Outstanding</th></tr></thead>
+                <tbody>
+                    @foreach (var item in _ringkasan)
+                    {
+                        <tr>
+                            <td>@item.PaketName</td>
+                            <td>@item.JamaahCount</td>
+                            <td>@item.TotalPaid.ToString("C0")</td>
+                            <td>@item.Outstanding.ToString("C0")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private decimal _totalPembayaran;
+    private int _totalJamaah, _totalPaket, _totalOrders;
+    private List<RingkasanPaket> _ringkasan = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.Run(() =>
+        {
+            _totalPembayaran = Db.Pembayaran.Sum(p => p.TotalDibayar);
+            _totalJamaah = Db.Jamaah.Count();
+            _totalPaket = Db.Paket.Count(p => p.IsActive);
+            _totalOrders = Db.Orders.Count();
+
+            var pakets = Db.Paket.Where(p => p.IsActive).ToList();
+            var pembayaran = Db.Pembayaran.ToList();
+            var jamaah = Db.Jamaah.ToList();
+
+            _ringkasan = pakets.Select(p =>
+            {
+                var jamaahIds = jamaah.Where(j => j.PaketId == p.Id).Select(j => j.Id).ToList();
+                var pm = pembayaran.Where(x => jamaahIds.Contains(x.JamaahId)).ToList();
+                return new RingkasanPaket
+                {
+                    PaketName = p.NamaPaket,
+                    JamaahCount = jamaahIds.Count,
+                    TotalPaid = pm.Sum(x => x.TotalDibayar),
+                    Outstanding = pm.Sum(x => x.TotalBiaya - x.TotalDibayar)
+                };
+            }).ToList();
+        });
+    }
+
+    private class RingkasanPaket
+    {
+        public string PaketName { get; set; } = "";
+        public int JamaahCount { get; set; }
+        public decimal TotalPaid { get; set; }
+        public decimal Outstanding { get; set; }
+    }
+}

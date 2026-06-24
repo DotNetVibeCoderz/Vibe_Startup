@@ -1,0 +1,110 @@
+@page "/tracker"
+@rendermode InteractiveServer
+@inject Services.AuthService AuthService
+@inject Data.AppDbContext Db
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="mb-3"><h2>📍 GPS Tracker Pribadi</h2><p class="text-muted">Aktifkan pelacakan posisi real-time</p></div>
+
+@if (_jamaah == null)
+{
+    <div class="card"><div class="card-body text-center" style="padding:40px;"><div class="empty-state-icon">🔒</div><h3>Hanya untuk Jamaah</h3><a href="/profile" class="btn btn-primary mt-3">Cek Profil</a></div></div>
+}
+else
+{
+    <div class="stats-grid mb-3">
+        <div class="stat-card"><div class="stat-icon @(_tracking?"green":"red")">@(_tracking?"📍":"⏸️")</div><div><div class="stat-value">@(_tracking?"ON":"Idle")</div><div class="stat-label">Status</div></div></div>
+        <div class="stat-card"><div class="stat-icon blue">🔄</div><div><div class="stat-value">@_count x</div><div class="stat-label">Update Terkirim</div></div></div>
+        <div class="stat-card"><div class="stat-icon gold">⏱️</div><div><div class="stat-value">@_sec s</div><div class="stat-label">Interval</div></div></div>
+        <div class="stat-card"><div class="stat-icon @(_acc>=0&&_acc<20?"green":"gold")">🎯</div><div><div class="stat-value">@(_acc>=0?$"{_acc:F0}m":"-")</div><div class="stat-label">Akurasi</div></div></div>
+    </div>
+
+    <div class="grid grid-2">
+        <div class="card"><div class="card-header"><h3>🗺️ Peta</h3></div><div class="card-body p-0"><div class="map-container" id="tracker-map" style="height:350px;"></div></div></div>
+        <div class="card">
+            <div class="card-header"><h3>🎛️ Kontrol</h3></div>
+            <div class="card-body">
+                <div class="text-center mb-3">
+                    <button class="btn btn-lg @(_tracking?"btn-danger":"btn-success")" style="width:160px;height:160px;border-radius:50%;font-size:1.3rem;font-weight:700;" @onclick="Toggle" disabled="@_busy">@(_busy?"⏳":_tracking?"⏹ STOP":"▶ START")</button>
+                </div>
+                <div class="form-group"><label>⏱️ Interval Update (detik)</label>
+                    <div class="d-flex gap-2 align-center">
+                        <input type="range" class="form-control" style="flex:1;" min="10" max="3600" step="10" @bind="_sec" disabled="@_tracking"/>
+                        <input type="number" class="form-control" style="width:80px;" min="10" max="3600" @bind="_sec" disabled="@_tracking"/>
+                        <span class="text-muted">detik</span>
+                    </div>
+                    <small class="text-muted">Min 10s — Max 3600s (1 jam)</small>
+                </div>
+                <hr>
+                <div><strong>Jamaah:</strong> @_jamaah.NamaLengkap</div>
+                <div><strong>Paket:</strong> @_jamaah.Paket?.NamaPaket</div>
+                <div><strong>Posisi:</strong> @(_lastLat?.ToString("F6")), @(_lastLng?.ToString("F6"))</div>
+                <div><strong>Terakhir:</strong> @(_lastUpd?.ToString("HH:mm:ss") ?? "-")</div>
+                @if(!string.IsNullOrEmpty(_err)){<div class="alert alert-danger mt-2">@_err</div>}
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-3"><div class="card-header"><h3>📋 Log</h3></div><div class="card-body" style="max-height:200px;overflow-y:auto;">
+        @if(_log.Any()){<table><thead><tr><th>#</th><th>Waktu</th><th>Koordinat</th><th>Akurasi</th></tr></thead><tbody>
+            @foreach(var l in _log.OrderByDescending(x=>x.N)){<tr><td>@l.N</td><td>@l.T.ToString("HH:mm:ss")</td><td><code>@l.Lat.ToString("F6"), @l.Lng.ToString("F6")</code></td><td>@(l.A?.ToString("F0")??"-")m</td></tr>}
+        </tbody></table>}
+        else{<div class="text-center py-3"><p class="text-muted">Klik START untuk tracking.</p></div>}
+    </div></div>
+}
+
+@code {
+    private Models.Jamaah? _jamaah; private bool _tracking, _busy; private int _sec = 30, _count;
+    private double? _acc, _lastLat, _lastLng; private DateTime? _lastUpd; private string? _err;
+    private List<(int N, DateTime T, double Lat, double Lng, double? A)> _log = new();
+    private DotNetObjectReference<GpsTracker>? _ref; private Timer? _tmr; private volatile bool _gone;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var uid = AuthService.CurrentUserId; if (uid == null) return;
+        _jamaah = Db.Jamaah.Include(j => j.Paket).FirstOrDefault(j => j.UserId == uid);
+        if (_jamaah != null) { _lastLat = _jamaah.Latitude; _lastLng = _jamaah.Longitude; _lastUpd = _jamaah.LastLocationUpdate; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("initTrackerMap");
+            if (_lastLat != null && _lastLng != null)
+                await JS.InvokeVoidAsync("updateTrackerMarker", _lastLat.Value, _lastLng.Value);
+        }
+    }
+
+    private async Task Toggle() { if (_busy) return; _busy = true; _err = null; try { if (_tracking) await Stop(); else await Start(); } catch (Exception ex) { _err = ex.Message; } _busy = false; }
+
+    private async Task Start()
+    {
+        _ref = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("startGeoTracker", _ref, _sec * 1000);
+        _tracking = true; _count = 0;
+        _tmr = new Timer(async _ => { if (_gone || !_tracking) return; try { await InvokeAsync(StateHasChanged); } catch { } }, null, 2000, 2000);
+    }
+
+    private async Task Stop()
+    {
+        _tracking = false; _tmr?.Change(-1, -1);
+        try { await JS.InvokeVoidAsync("stopGeoTracker"); } catch { }
+        _ref?.Dispose(); _ref = null;
+    }
+
+    [JSInvokable] public async Task OnPositionUpdate(double lat, double lng, double a)
+    {
+        if (_gone || !_tracking || _jamaah == null) return;
+        _count++; _acc = a; _lastLat = lat; _lastLng = lng; _lastUpd = DateTime.Now;
+        _log.Add((_count, DateTime.Now, lat, lng, a));
+        if (_log.Count > 100) _log = _log.OrderByDescending(x => x.N).Take(100).ToList();
+        try { var j = await Db.Jamaah.FindAsync(_jamaah.Id); if (j != null) { j.Latitude = lat; j.Longitude = lng; j.LastLocationUpdate = DateTime.UtcNow; await Db.SaveChangesAsync(); } } catch { }
+        await JS.InvokeVoidAsync("updateTrackerMarker", lat, lng);
+    }
+
+    [JSInvokable] public async Task OnPositionError(string m) { _err = "GPS: " + m; if (m.Contains("denied") || m.Contains("unavailable")) await Stop(); await InvokeAsync(StateHasChanged); }
+
+    public void Dispose() { _gone = true; _tmr?.Dispose(); _ref?.Dispose(); }
+}

@@ -1,0 +1,107 @@
+@page "/admin/kuis"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+@inject Services.ExportService Export
+@inject IJSRuntime JS
+
+<div class="card">
+    <div class="card-header">
+        <h3>❓ Master Data Kuis</h3>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline btn-sm" @onclick="ExportCsv"><i class="bi bi-filetype-csv"></i> CSV</button>
+            <button class="btn btn-outline btn-sm" @onclick="ExportExcel"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+            <button class="btn btn-primary btn-sm" @onclick="(() => ShowForm(null))"><i class="bi bi-plus-lg"></i> Tambah</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <input class="form-control" style="max-width:250px;" placeholder="🔍 Cari pertanyaan..." @bind="_search" @bind:event="oninput" />
+            <select class="form-control" style="max-width:180px;" @bind="_filterKat">
+                <option value="">Semua Kategori</option>
+                <option>Ihram</option><option>Tawaf</option><option>Sa'i</option><option>Haji</option><option>Umum</option>
+            </select>
+        </div>
+        <div class="table-container"><table>
+            <thead><tr><th>Pertanyaan</th><th>Kategori</th><th>Jawaban</th><th>Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var k in _paged)
+                {
+                    <tr>
+                        <td><strong>@k.Pertanyaan</strong></td><td><span class="badge badge-info">@k.Kategori</span></td>
+                        <td><span class="badge badge-success">@k.JawabanBenar</span></td>
+                        <td><button class="btn btn-outline btn-sm" @onclick="(() => ShowForm(k))"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-danger btn-sm" @onclick="(() => Delete(k.Id))"><i class="bi bi-trash"></i></button></td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+        <div class="pagination">
+            <button disabled="@(_page <= 1)" @onclick="() => _page--">Prev</button>
+            @for (int i = 1; i <= _totalPages; i++) { <button class="@(i==_page?"active":"")" @onclick="()=>_page=i">@i</button> }
+            <button disabled="@(_page >= _totalPages)" @onclick="() => _page++">Next</button>
+        </div>
+    </div>
+</div>
+
+@if (_showForm)
+{
+    <div class="modal-backdrop" @onclick="(()=>_showForm=false)">
+        <div class="modal" @onclick:stopPropagation="true" style="max-width:700px;">
+            <div class="modal-header"><h3>@(_edit==null?"Tambah":"Edit") Kuis</h3><button class="btn-icon" @onclick="(()=>_showForm=false)">✕</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>Pertanyaan *</label><input class="form-control" @bind="_ef.Pertanyaan" /></div>
+                <div class="form-group"><label>Kategori</label><select class="form-control" @bind="_ef.Kategori"><option>Umum</option><option>Ihram</option><option>Tawaf</option><option>Sa'i</option><option>Haji</option></select></div>
+                <div class="grid grid-2">
+                    <div class="form-group"><label>Pilihan A</label><input class="form-control" @bind="_ef.PilihanA" /></div>
+                    <div class="form-group"><label>Pilihan B</label><input class="form-control" @bind="_ef.PilihanB" /></div>
+                    <div class="form-group"><label>Pilihan C</label><input class="form-control" @bind="_ef.PilihanC" /></div>
+                    <div class="form-group"><label>Pilihan D</label><input class="form-control" @bind="_ef.PilihanD" /></div>
+                </div>
+                <div class="form-group"><label>Jawaban Benar</label>
+                    <div class="d-flex gap-2">@foreach (var o in new[] { "A", "B", "C", "D" }) { <button class="btn @(_ef.JawabanBenar == o ? "btn-success" : "btn-outline") btn-sm" @onclick="() => _ef.JawabanBenar = o">@o</button> }</div>
+                </div>
+                <div class="form-group"><label>Penjelasan</label><textarea class="form-control" rows="3" @bind="_ef.Penjelasan"></textarea></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-outline" @onclick="(()=>_showForm=false)">Batal</button><button class="btn btn-primary" @onclick="Save">Simpan</button></div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Models.Kuis> _all = new(), _paged = new();
+    private string _search = "", _filterKat = "";
+    private int _page = 1, _pageSize = 15, _totalPages = 1;
+    private bool _showForm; private Models.Kuis? _edit;
+    private Models.Kuis _ef = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load() { _all = await Task.Run(() => Db.Kuis.OrderByDescending(k => k.CreatedAt).ToList()); Apply(); }
+    private void Apply()
+    {
+        var q = _all.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(_search)) { var s = _search.ToLower(); q = q.Where(k => k.Pertanyaan.ToLower().Contains(s) || k.Kategori.ToLower().Contains(s)); }
+        if (!string.IsNullOrEmpty(_filterKat)) q = q.Where(k => k.Kategori == _filterKat);
+        _all = q.ToList(); _totalPages = Math.Max(1, (int)Math.Ceiling(_all.Count / (double)_pageSize)); if (_page > _totalPages) _page = _totalPages;
+        _paged = _all.Skip((_page - 1) * _pageSize).Take(_pageSize).ToList();
+    }
+
+    private void ShowForm(Models.Kuis? k)
+    {
+        _edit = k; _ef = k == null ? new Models.Kuis { Kategori = "Umum", JawabanBenar = "A" } : new Models.Kuis { Id = k.Id, Pertanyaan = k.Pertanyaan, Kategori = k.Kategori, PilihanA = k.PilihanA, PilihanB = k.PilihanB, PilihanC = k.PilihanC, PilihanD = k.PilihanD, JawabanBenar = k.JawabanBenar, Penjelasan = k.Penjelasan };
+        _showForm = true;
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_ef.Pertanyaan)) return;
+        if (_edit == null) { _ef.CreatedAt = DateTime.UtcNow; Db.Kuis.Add(_ef); }
+        else { var k = await Db.Kuis.FindAsync(_edit.Id); if (k != null) { k.Pertanyaan = _ef.Pertanyaan; k.Kategori = _ef.Kategori; k.PilihanA = _ef.PilihanA; k.PilihanB = _ef.PilihanB; k.PilihanC = _ef.PilihanC; k.PilihanD = _ef.PilihanD; k.JawabanBenar = _ef.JawabanBenar; k.Penjelasan = _ef.Penjelasan; } }
+        await Db.SaveChangesAsync(); _showForm = false; await Load();
+    }
+
+    private async Task Delete(int id) { var k = await Db.Kuis.FindAsync(id); if (k != null) { Db.Kuis.Remove(k); await Db.SaveChangesAsync(); await Load(); } }
+
+    private async Task Dnl(byte[] b, string fn) { var b64 = Convert.ToBase64String(b); await JS.InvokeVoidAsync("eval", $"var a=document.createElement('a');a.href='data:application/octet-stream;base64,{b64}';a.download='{fn}';a.click();"); }
+    private async Task ExportCsv() => await Dnl(Export.ExportToCsv(_all.Select(k => new { k.Pertanyaan, k.Kategori, k.JawabanBenar })), "kuis.csv");
+    private async Task ExportExcel() => await Dnl(Export.ExportToExcel(_all.Select(k => new { k.Pertanyaan, k.Kategori, k.JawabanBenar }), "Kuis"), "kuis.xlsx");
+}

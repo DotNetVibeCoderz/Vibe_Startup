@@ -1,0 +1,127 @@
+@page "/chat"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+@inject Services.AuthService AuthService
+@inject Services.StorageService StorageService
+
+<div class="card" style="height:calc(100vh - 180px);display:flex;flex-direction:column;">
+    <div class="card-header">
+        <h3>💬 Pesan</h3>
+        <div class="d-flex gap-2">
+            @if (_role == "Admin")
+            {
+                <button class="btn btn-warning btn-sm" @onclick="ResetAllThreads" title="Hapus semua pesan (admin only)">
+                    🗑️ Reset All
+                </button>
+            }
+        </div>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+        @foreach (var msg in _messages.OrderBy(m => m.SentAt))
+        {
+            var isMine = msg.SenderId == _userId;
+            <div class="chat-bubble @(isMine ? "user" : "assistant")">
+                @if (!isMine) { <strong style="font-size:0.75rem;">@msg.Sender?.FullName</strong><br> }
+                @if (!string.IsNullOrEmpty(msg.Message)) { <span style="white-space:pre-wrap;">@msg.Message</span> }
+                @if (!string.IsNullOrEmpty(msg.AttachmentUrl))
+                {
+                    @if (IsImageUrl(msg.AttachmentUrl))
+                    {
+                        <a href="@msg.AttachmentUrl" target="_blank"><img src="@msg.AttachmentUrl" style="max-width:200px;max-height:200px;border-radius:8px;margin-top:6px;display:block;cursor:pointer;" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"/><span style="display:none;">📎 @(msg.AttachmentType ?? "Gambar")</span></a>
+                    }
+                    else
+                    { <a href="@msg.AttachmentUrl" target="_blank" class="btn btn-outline btn-sm mt-1" style="@(isMine ? "color:#fff;border-color:rgba(255,255,255,0.3);" : "")">📎 @(msg.AttachmentType ?? "Attachment")</a> }
+                }
+                <small style="font-size:0.65rem;opacity:0.7;display:block;margin-top:4px;">@msg.SentAt.ToString("HH:mm")</small>
+            </div>
+        }
+    </div>
+
+    @if (_previewUrl != null)
+    {
+        <div style="padding:8px 16px;background:var(--bg-secondary);display:flex;align-items:center;gap:8px;border-top:1px solid var(--border-color);">
+            @if (_previewIsImage) { <img src="@_previewUrl" style="max-height:50px;border-radius:4px;"/> } else { <span style="font-size:1.5rem;">📄</span> }
+            <span style="flex:1;font-size:0.8rem;">@_previewFileName</span>
+            <button class="btn btn-danger btn-sm" @onclick="ClearPreview">✕</button>
+        </div>
+    }
+    <div class="chat-input-area">
+        <label class="btn btn-outline btn-sm" style="cursor:pointer;" title="Upload">📷<InputFile OnChange="OnFileUpload" accept="image/*,.pdf,.doc,.docx,.txt,.xls,.xlsx,.csv" hidden/></label>
+        <textarea rows="2" @bind="_newMessage" placeholder="Tulis pesan..." @onkeydown="HandleKeyDown"></textarea>
+        <button class="btn btn-primary" @onclick="SendMessage" disabled="@(!CanSend)">Kirim</button>
+    </div>
+</div>
+
+@code {
+    private List<Models.ChatMessage> _messages = new();
+    private string _newMessage = "", _role = "";
+    private int? _userId;
+    private Timer? _timer;
+    private volatile bool _disposed;
+
+    private IBrowserFile? _selectedFile; private string? _previewUrl, _previewFileName; private bool _previewIsImage;
+    private bool CanSend => !string.IsNullOrWhiteSpace(_newMessage) || _selectedFile != null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _userId = AuthService.CurrentUserId;
+        _role = AuthService.CurrentUserRole;
+        await RefreshMessages();
+        _timer = new Timer(async _ =>
+        {
+            if (_disposed) return;
+            try { await InvokeAsync(async () => { if (!_disposed) { await RefreshMessages(); StateHasChanged(); } }); }
+            catch (ObjectDisposedException) { }
+        }, null, 3000, 3000);
+    }
+
+    private async Task RefreshMessages()
+    {
+        if (_userId == null || _disposed) return;
+        _messages = Db.ChatMessages.Include(m => m.Sender).Where(m => m.SenderId == _userId || m.ReceiverId == _userId).OrderByDescending(m => m.SentAt).Take(50).ToList();
+        await Task.CompletedTask;
+    }
+
+    private async Task ResetAllThreads()
+    {
+        var all = Db.ChatMessages.ToList();
+        Db.ChatMessages.RemoveRange(all);
+        await Db.SaveChangesAsync();
+        _messages = new();
+    }
+
+    private async Task OnFileUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File; if (file == null) return;
+        _selectedFile = file; _previewFileName = file.Name; _previewIsImage = StorageService.IsImage(file.Name);
+        await using var stream = file.OpenReadStream(20 * 1024 * 1024);
+        _previewUrl = await StorageService.UploadAsync(stream, file.Name, _previewIsImage ? "chat-images" : "chat-files");
+    }
+
+    private void ClearPreview() { _previewUrl = null; _previewFileName = null; _selectedFile = null; }
+
+    private async Task SendMessage()
+    {
+        if (_userId == null) return;
+        if (string.IsNullOrWhiteSpace(_newMessage) && _selectedFile == null) return;
+        Db.ChatMessages.Add(new Models.ChatMessage { SenderId = _userId.Value, Message = _newMessage.Trim(), AttachmentUrl = _previewUrl, AttachmentType = _previewFileName, SentAt = DateTime.UtcNow });
+        await Db.SaveChangesAsync();
+        _newMessage = ""; ClearPreview();
+        await RefreshMessages();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey) await SendMessage(); }
+    private static bool IsImageUrl(string? url)
+    {
+        if (string.IsNullOrEmpty(url)) return false;
+        var ext = System.IO.Path.GetExtension(url).ToLowerInvariant();
+        return ext is ".jpg" or ".jpeg" or ".png" or ".gif" or ".webp" or ".bmp" or ".svg";
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _timer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _timer?.Dispose();
+    }
+}

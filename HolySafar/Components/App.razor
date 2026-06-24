@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="HolySafar.styles.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body>
+    <Routes />
+    <ReconnectModal />
+
+    <script>
+        // ==================== GPS ADMIN MAP ====================
+        window.initGpsMap = function () {
+            if (window._hm) return;
+            var m = L.map('gps-map').setView([21.4225, 39.8262], 15);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }).addTo(m);
+            L.marker([21.4225, 39.8262]).addTo(m).bindPopup('🕋 Masjidil Haram');
+            window._hm = m; window._hmMarkers = {};
+        };
+        window.focusGpsMap = function (lat, lng) { var m = window._hm; if (m && typeof m.setView === 'function') m.setView([parseFloat(lat), parseFloat(lng)], 16); };
+        window.renderGpsMarkers = function (jsonData, isRunning) {
+            var m = window._hm; if (!m) return;
+            var old = window._hmMarkers || {}; Object.values(old).forEach(function (mk) { m.removeLayer(mk); }); window._hmMarkers = {};
+            var data = JSON.parse(jsonData); var bgColor = isRunning === 'true' ? '#e74c3c' : '#1a5f4e';
+            data.forEach(function (j) {
+                var icon = L.divIcon({ html: '<div style="background:' + bgColor + ';color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);">👤</div>', iconSize: [28, 28], iconAnchor: [14, 14] });
+                var mk = L.marker([j.lat, j.lng], { icon: icon }).addTo(m).bindPopup('<b>' + j.name + '</b><br>📍 ' + j.lat.toFixed(4) + ', ' + j.lng.toFixed(4) + '<br>⏰ ' + j.updated);
+                window._hmMarkers[j.id] = mk;
+            });
+        };
+
+        // ==================== PERSONAL GPS TRACKER ====================
+        window._geoWatchId = null;
+
+        window.initTrackerMap = function () {
+            if (window._tm) return;
+            var m = L.map('tracker-map').setView([21.4225, 39.8262], 15);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }).addTo(m);
+            L.marker([21.4225, 39.8262]).addTo(m).bindPopup('Masjidil Haram');
+            window._tm = m;
+            window._tk = L.marker([21.4225, 39.8262], { icon: L.divIcon({ html: '<div style="background:#e74c3c;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid #fff;">📍</div>', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(m).bindPopup('Posisi Saya');
+        };
+        window.updateTrackerMarker = function (lat, lng) {
+            var m = window._tm, mk = window._tk;
+            if (m && mk) { mk.setLatLng([lat, lng]); m.setView([lat, lng], 16); }
+        };
+
+        window.startGeoTracker = function (dotNetRef, intervalMs) {
+            if (!navigator.geolocation) { dotNetRef.invokeMethodAsync('OnPositionError', 'Geolocation tidak didukung.'); return; }
+            window._geoWatchId = navigator.geolocation.watchPosition(
+                function (pos) { dotNetRef.invokeMethodAsync('OnPositionUpdate', pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy); },
+                function (err) {
+                    var msg = ''; switch (err.code) { case 1: msg = 'Permission denied. Izinkan lokasi di browser.'; break; case 2: msg = 'Position unavailable.'; break; case 3: msg = 'Timeout.'; break; default: msg = err.message; }
+                    dotNetRef.invokeMethodAsync('OnPositionError', msg);
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
+        };
+        window.stopGeoTracker = function () { if (window._geoWatchId != null) { navigator.geolocation.clearWatch(window._geoWatchId); window._geoWatchId = null; } };
+    </script>
+
+    <script src="_framework/blazor.web.js"></script>
+</body>
+
+</html>

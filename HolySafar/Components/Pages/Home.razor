@@ -1,0 +1,85 @@
+@page "/"
+@rendermode InteractiveServer
+@inject Services.AuthService AuthService
+@inject Data.AppDbContext Db
+
+<div class="mb-3">
+    <h2>🕌 Selamat Datang di HolySafar</h2>
+    <p class="text-muted">Sistem Manajemen Travel Haji & Umroh Terintegrasi</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon blue">👥</div><div><div class="stat-value">@_totalJamaah</div><div class="stat-label">Total Jamaah</div></div></div>
+    <div class="stat-card"><div class="stat-icon green">📦</div><div><div class="stat-value">@_totalPaket</div><div class="stat-label">Paket Aktif</div></div></div>
+    <div class="stat-card"><div class="stat-icon gold">💰</div><div><div class="stat-value">@_totalPembayaran.ToString("C0")</div><div class="stat-label">Total Pembayaran</div></div></div>
+    <div class="stat-card"><div class="stat-icon red">✈️</div><div><div class="stat-value">@_keberangkatan</div><div class="stat-label">Keberangkatan Bulan Ini</div></div></div>
+</div>
+
+<div class="grid grid-2">
+    <div class="card">
+        <div class="card-header"><h3>🕋 Paket Populer</h3><a href="/paket" class="btn btn-outline btn-sm">Lihat Semua</a></div>
+        <div class="card-body">
+            @if (_paketPopuler.Any())
+            {
+                <div class="table-container"><table>
+                    <thead><tr><th>Nama Paket</th><th>Harga</th><th>Terisi</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var p in _paketPopuler)
+                        { <tr><td><strong>@p.NamaPaket</strong></td><td>@p.Harga.ToString("C0")</td><td>@p.Terisi/@p.Kuota</td><td><a href="/paket" class="btn btn-outline btn-sm">Detail</a></td></tr> }
+                    </tbody>
+                </table></div>
+            }
+            else { <p class="text-muted">Belum ada paket tersedia.</p> }
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><h3>📢 Pengumuman Terkini</h3><a href="/pengumuman" class="btn btn-outline btn-sm">Semua</a></div>
+        <div class="card-body">
+            @if (_pengumuman.Any())
+            {
+                @foreach (var p in _pengumuman)
+                {
+                    <div style="padding:12px 0;border-bottom:1px solid var(--border-color);">
+                        <strong>@p.Judul</strong>
+                        <p style="font-size:0.85rem;color:var(--text-muted);margin-top:4px;">@(p.Isi.Length > 100 ? p.Isi[..100] + "..." : p.Isi)</p>
+                        <small class="text-muted">@p.CreatedAt.ToString("dd MMM yyyy")</small>
+                    </div>
+                }
+            }
+            else { <p class="text-muted">Tidak ada pengumuman.</p> }
+        </div>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header"><h3>⚡ Akses Cepat</h3></div>
+    <div class="card-body">
+        <div class="d-flex flex-wrap gap-2">
+            <a href="/chatbot" class="btn btn-outline">🤖 Syeikh Jenggot AI</a>
+            <a href="/paket" class="btn btn-outline">🕋 Lihat Paket</a>
+            <a href="/sos" class="btn btn-outline">🆘 Layanan Darurat</a>
+            <a href="/gps" class="btn btn-outline">📍 GPS Tracking</a>
+            <a href="/marketplace" class="btn btn-outline">🛍️ Marketplace</a>
+            <a href="/edukasi" class="btn btn-outline">📚 Materi Manasik</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    private int _totalJamaah, _totalPaket, _keberangkatan;
+    private decimal _totalPembayaran;
+    private List<Models.Paket> _paketPopuler = new();
+    private List<Models.Pengumuman> _pengumuman = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Query langsung — NO Task.Run
+        _totalJamaah = Db.Jamaah.Count();
+        _totalPaket = Db.Paket.Count(p => p.IsActive && p.IsPublished);
+        _totalPembayaran = Db.Pembayaran.Sum(p => p.TotalDibayar);
+        _keberangkatan = Db.Keberangkatan.Count(k => k.TanggalBerangkat >= DateTime.UtcNow && k.TanggalBerangkat <= DateTime.UtcNow.AddMonths(1));
+        _paketPopuler = Db.Paket.Where(p => p.IsActive && p.IsPublished).OrderByDescending(p => p.Terisi).Take(5).ToList();
+        _pengumuman = Db.Pengumuman.Where(p => p.IsActive).OrderByDescending(p => p.CreatedAt).Take(5).ToList();
+        await Task.CompletedTask;
+    }
+}

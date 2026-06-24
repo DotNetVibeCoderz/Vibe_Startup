@@ -1,0 +1,43 @@
+@page "/admin/sos"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+
+<div class="card">
+    <div class="card-header"><h3>🚨 Panel SOS Admin</h3><span class="badge badge-danger">@_sosList.Count(s => !s.IsResolved) Aktif</span></div>
+    <div class="card-body">
+        @if (_sosList.Any())
+        {
+            <div class="table-container"><table>
+                <thead><tr><th>Waktu</th><th>Jamaah</th><th>Pesan</th><th>Lokasi</th><th>Status</th><th>Aksi</th></tr></thead>
+                <tbody>
+                    @foreach (var sos in _sosList)
+                    {
+                        <tr style="@(sos.IsResolved ? "" : "background:var(--danger-light);")">
+                            <td>@sos.TriggeredAt.ToString("dd/MM HH:mm")</td><td>@sos.Jamaah?.NamaLengkap</td><td>@sos.Pesan</td>
+                            <td><a href="https://google.com/maps?q=@sos.Latitude,@sos.Longitude" target="_blank">📍 @sos.Latitude.ToString("F4")</a></td>
+                            <td><span class="badge @(sos.IsResolved ? "badge-success" : "badge-danger")">@(sos.IsResolved ? "Done" : "Active")</span></td>
+                            <td>@if (!sos.IsResolved) { <button class="btn btn-success btn-sm" @onclick="() => Resolve(sos)">✅</button> }</td>
+                        </tr>
+                    }
+                </tbody>
+            </table></div>
+        }
+        else { <div class="empty-state"><div class="empty-state-icon">✅</div><p>Tidak ada SOS.</p></div> }
+    </div>
+</div>
+
+@code {
+    private List<Models.SOSTrigger> _sosList = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sosList = Db.SOSTriggers.Include(s => s.Jamaah).OrderByDescending(s => s.TriggeredAt).Take(50).ToList();
+        await Task.CompletedTask;
+    }
+
+    private async Task Resolve(Models.SOSTrigger sos)
+    {
+        sos.IsResolved = true; sos.ResolvedAt = DateTime.UtcNow; sos.CatatanResolusi = "Resolved by admin.";
+        await Db.SaveChangesAsync();
+    }
+}

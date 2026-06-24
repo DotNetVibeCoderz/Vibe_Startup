@@ -1,0 +1,93 @@
+@page "/gps"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+@inject Services.GpsSimulatorService Simulator
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="card mb-3">
+    <div class="card-header"><h3>📍 GPS Tracking Jamaah</h3>
+        <div class="d-flex gap-2"><span class="text-muted">Simulator: </span>
+            <button class="btn @(Simulator.IsRunning ? "btn-danger" : "btn-success") btn-sm" @onclick="ToggleSimulator">@(Simulator.IsRunning ? "⏹ Stop" : "▶ Start")</button>
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-2">
+    <div class="card"><div class="card-header"><h3>🗺️ Peta Lokasi</h3></div><div class="card-body p-0"><div class="map-container" id="gps-map"></div></div></div>
+    <div class="card">
+        <div class="card-header"><h3>👥 Daftar Jamaah</h3><input class="form-control" style="max-width:200px;" placeholder="Cari..." @bind="_search" @bind:event="oninput"/></div>
+        <div class="card-body" style="max-height:400px;overflow-y:auto;">
+            <table>
+                <thead><tr><th>Nama</th><th>Status</th><th>Lokasi</th><th>Aksi</th></tr></thead>
+                <tbody>
+                    @foreach (var j in _filtered)
+                    {
+                        <tr style="cursor:pointer;@(_focused?.Id==j.Id?"background:var(--accent-light);font-weight:600;":"")" @onclick="()=>FocusJamaah(j)">
+                            <td><strong>@j.NamaLengkap</strong>@if(_focused?.Id==j.Id){<span class="badge badge-info">Dipilih</span>}</td>
+                            <td><span class="badge badge-@(j.StatusKeberangkatan==Models.DepartureStatus.Arrived?"success":"info")">@j.StatusKeberangkatan</span></td>
+                            <td class="text-muted">@(j.LastLocationUpdate?.ToString("HH:mm:ss")??"-")</td>
+                            <td>@if(j.Latitude!=null){<a href="https://google.com/maps?q=@j.Latitude,@j.Longitude" target="_blank" class="btn btn-outline btn-sm">🗺️ Maps</a>}</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Models.Jamaah> _all=new(),_filtered=new();
+    private Models.Jamaah? _focused; private string _search="";
+    private Timer? _timer; private bool _mapReady; private volatile bool _disposed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Refresh();
+        _timer = new Timer(async _ =>
+        {
+            if (_disposed) return;
+            try { await InvokeAsync(async () => { if (!_disposed) { await Refresh(); await RenderMarkersOnMap(); StateHasChanged(); } }); }
+            catch (ObjectDisposedException) { }
+        }, null, 3000, 3000);
+    }
+
+    private async Task Refresh()
+    {
+        if (_disposed) return;
+        _all = Db.Jamaah.Where(j => j.Latitude != null).OrderByDescending(j => j.LastLocationUpdate).ToList();
+        _filtered = string.IsNullOrWhiteSpace(_search) ? _all.Take(20).ToList() : _all.Where(j => j.NamaLengkap.Contains(_search, StringComparison.OrdinalIgnoreCase)).Take(20).ToList();
+        await Task.CompletedTask;
+    }
+
+    private void ToggleSimulator() { if (Simulator.IsRunning) Simulator.Stop(); else Simulator.Start(); }
+
+    private async Task FocusJamaah(Models.Jamaah j)
+    {
+        _focused = j;
+        if (j.Latitude == null || j.Longitude == null) return;
+        var lat = ((double)j.Latitude).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var lng = ((double)j.Longitude).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        await JS.InvokeVoidAsync("focusGpsMap", lat, lng);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_disposed) { await JS.InvokeVoidAsync("initGpsMap"); _mapReady = true; await RenderMarkersOnMap(); }
+    }
+
+    private async Task RenderMarkersOnMap()
+    {
+        if (!_mapReady || _disposed) return;
+        var data = _filtered.Where(j => j.Latitude!=null&&j.Longitude!=null).Select(j=>new{id=j.Id,name=j.NamaLengkap,lat=j.Latitude!.Value,lng=j.Longitude!.Value,updated=j.LastLocationUpdate?.ToString("HH:mm")??""}).ToList();
+        var json = System.Text.Json.JsonSerializer.Serialize(data);
+        await JS.InvokeVoidAsync("renderGpsMarkers", json, Simulator.IsRunning ? "true" : "false");
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _timer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _timer?.Dispose();
+    }
+}

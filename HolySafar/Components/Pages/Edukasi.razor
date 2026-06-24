@@ -1,0 +1,62 @@
+@page "/edukasi"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+
+<div class="mb-3"><h2>📚 Edukasi & Bimbingan Manasik</h2><p class="text-muted">Materi, video tutorial, dan kuis interaktif</p></div>
+
+<div class="grid grid-2">
+    <div class="card">
+        <div class="card-header"><h3>📖 Materi Manasik</h3></div>
+        <div class="card-body">
+            @foreach (var m in _materiList)
+            {
+                <div class="card mb-2" style="padding:16px;cursor:pointer;" @onclick="() => _selectedMateri = m">
+                    <strong>@m.Urutan. @m.Judul</strong><span class="badge badge-info">@m.Kategori</span>
+                    @if (_selectedMateri?.Id == m.Id)
+                    { <p class="mt-2">@m.Konten</p> @if (!string.IsNullOrEmpty(m.VideoUrl)) { <a href="@m.VideoUrl" target="_blank" class="btn btn-primary btn-sm">▶ Tonton Video</a> } }
+                </div>
+            }
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><h3>❓ Kuis Manasik</h3></div>
+        <div class="card-body">
+            @if (!_kuisCompleted)
+            {
+                if (_currentKuisIndex < _kuisList.Count)
+                {
+                    var q = _kuisList[_currentKuisIndex];
+                    <div>
+                        <p class="text-muted">Soal @(_currentKuisIndex+1)/@_kuisList.Count - @q.Kategori</p><h4>@q.Pertanyaan</h4>
+                        <div class="mt-3">
+                            @foreach (var opt in new[] { ("A", q.PilihanA), ("B", q.PilihanB), ("C", q.PilihanC), ("D", q.PilihanD) })
+                            { if (!string.IsNullOrEmpty(opt.Item2)) { <button class="btn btn-outline w-100 mb-2 @(_selectedAnswer==opt.Item1?(_selectedAnswer==q.JawabanBenar?"btn-success":"btn-danger"):"")" style="text-align:left;" @onclick="()=>CheckAnswer(opt.Item1,q.JawabanBenar)"><strong>@opt.Item1.</strong> @opt.Item2</button> } }
+                        </div>
+                        @if (_answered) { <div class="alert @(_isCorrect?"alert-success":"alert-danger") mt-2">@(_isCorrect?"✅ Benar!":"❌ Kurang tepat")<p>@_kuisList[_currentKuisIndex].Penjelasan</p></div><button class="btn btn-primary" @onclick="NextQuestion">@(_currentKuisIndex<_kuisList.Count-1?"Soal Berikutnya →":"Lihat Hasil")</button> }
+                    </div>
+                }
+            }
+            else
+            { <div class="text-center" style="padding:40px;"><div style="font-size:4rem;">🎉</div><h3>Kuis Selesai!</h3><p>Skor: <strong>@_score</strong>/@_kuisList.Count</p><button class="btn btn-primary" @onclick="ResetKuis">Ulangi Kuis</button></div> }
+        </div>
+    </div>
+</div>
+<div class="card mt-3"><div class="card-header"><h3>🥽 Virtual Manasik (VR/AR)</h3></div><div class="card-body"><p>Simulasi manasik dalam lingkungan virtual:</p><a href="https://vr.manasik.hajj/" target="_blank" class="btn btn-primary btn-lg">🥽 Mulai Virtual Manasik</a></div></div>
+
+@code {
+    private List<Models.MateriManasik> _materiList = new();
+    private List<Models.Kuis> _kuisList = new();
+    private Models.MateriManasik? _selectedMateri;
+    private int _currentKuisIndex; private string? _selectedAnswer; private bool _answered, _isCorrect, _kuisCompleted; private int _score;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _materiList = Db.MateriManasik.Where(m => m.IsPublished).OrderBy(m => m.Urutan).ToList();
+        _kuisList = Db.Kuis.ToList();
+        await Task.CompletedTask;
+    }
+
+    private void CheckAnswer(string selected, string correct) { if (_answered) return; _selectedAnswer = selected; _answered = true; _isCorrect = selected == correct; if (_isCorrect) _score++; }
+    private void NextQuestion() { if (_currentKuisIndex < _kuisList.Count - 1) { _currentKuisIndex++; _selectedAnswer = null; _answered = false; } else _kuisCompleted = true; }
+    private void ResetKuis() { _currentKuisIndex = 0; _score = 0; _selectedAnswer = null; _answered = false; _kuisCompleted = false; }
+}

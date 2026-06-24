@@ -1,0 +1,254 @@
+@page "/chatbot"
+@rendermode InteractiveServer
+@inject Services.ChatbotService ChatbotService
+@inject Services.AuthService AuthService
+@inject Services.StorageService StorageService
+@inject IJSRuntime JS
+
+<div class="grid grid-2" style="height:calc(100vh - 160px);">
+    <!-- Session List -->
+    <div class="card" style="max-width:280px;">
+        <div class="card-header"><h3>🤖 @ChatbotService.ChatbotName</h3></div>
+        <div style="padding:12px;"><button class="btn btn-primary btn-sm w-100" @onclick="NewSession">+ New Chat</button></div>
+        <div style="overflow-y:auto;flex:1;">
+            @foreach (var s in _sessions)
+            {
+                <div class="d-flex align-center" style="padding:8px 12px;border-bottom:1px solid var(--border-color);@(_currentSessionId == s.Id ? "background:var(--accent-light);" : "")">
+                    <div style="flex:1;cursor:pointer;" @onclick="() => LoadSession(s.Id)">
+                        <strong style="font-size:0.85rem;">@s.Title</strong><br><small class="text-muted">@s.LastActivity.ToString("dd/MM HH:mm")</small>
+                    </div>
+                    <button class="btn-icon" @onclick="() => DeleteSession(s.Id)" title="Delete">🗑️</button>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div class="card" style="flex:1;display:flex;flex-direction:column;">
+        <div class="card-header">
+            <h3>@_currentSessionTitle</h3>
+            <div class="d-flex gap-2 align-center">
+                <span class="text-muted" style="font-size:0.75rem;">LLM: @ChatbotService.Provider</span>
+                <span class="text-muted" style="font-size:0.7rem;">|</span>
+                <span class="text-muted" style="font-size:0.7rem;">💾 @StorageService.Provider</span>
+                <button class="btn btn-warning btn-sm" @onclick="ResetSession" title="Reset sesi ini">🔄 Reset</button>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div class="chat-messages" id="chat-messages">
+            @if (!_messages.Any())
+            {
+                <div class="empty-state"><div class="empty-state-icon">🤖</div><h3>Assalamu'alaikum!</h3><p>Saya @ChatbotService.ChatbotName, asisten virtual HolySafar.</p></div>
+            }
+            @foreach (var msg in _messages)
+            {
+                if (msg.Role == "user")
+                {
+                    <div class="chat-bubble user">
+                        @if (!string.IsNullOrEmpty(msg.ImageUrl))
+                        {
+                            <img src="@msg.ImageUrl" style="max-width:250px;border-radius:8px;margin-bottom:8px;display:block;" />
+                        }
+                        @if (!string.IsNullOrEmpty(msg.Content))
+                        {
+                            <span style="white-space:pre-wrap;">@msg.Content</span>
+                        }
+                        @if (!string.IsNullOrEmpty(msg.AttachmentUrl))
+                        {
+                            <br><a href="@msg.AttachmentUrl" target="_blank" class="btn btn-outline btn-sm mt-1" style="color:#fff;border-color:rgba(255,255,255,0.3);">📎 Attachment</a>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="chat-bubble assistant">@((MarkupString)ChatbotService.RenderMarkdown(msg.Content))</div>
+                }
+            }
+            @if (_isTyping) { <div class="chat-typing"><span></span><span></span><span></span></div> }
+        </div>
+
+        <!-- Upload Preview -->
+        @if (_previewUrl != null)
+        {
+            <div style="padding:8px 16px;background:var(--bg-secondary);display:flex;align-items:center;gap:10px;border-top:1px solid var(--border-color);">
+                @if (_previewIsImage)
+                {
+                    <img src="@_previewUrl" style="max-height:55px;border-radius:6px;border:1px solid var(--border-color);" />
+                }
+                else
+                {
+                    <span style="font-size:1.5rem;">📄</span>
+                }
+                <div style="flex:1;min-width:0;">
+                    <small style="font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">@_previewFileName</small>
+                    <small class="text-muted">@(_previewIsImage ? "🖼️ Gambar — akan dikirim sebagai ImageContent" : "📎 File — URL akan disematkan di teks")</small>
+                </div>
+                <button class="btn btn-danger btn-sm" @onclick="ClearPreview">✕</button>
+            </div>
+        }
+
+        <!-- Input -->
+        <div class="chat-input-area">
+            <label class="btn btn-outline btn-sm" style="cursor:pointer;" title="Upload gambar / file">
+                📷
+                <InputFile OnChange="OnFileUpload" accept="image/*,.pdf,.doc,.docx,.txt,.xls,.xlsx,.csv" hidden />
+            </label>
+            <textarea rows="2" @bind="_inputMessage"
+                      placeholder="Tanyakan ke @ChatbotService.ChatbotName..."
+                      @onkeydown="HandleKeyDown"></textarea>
+            <button class="btn btn-primary" @onclick="SendMessage" disabled="@(!CanSend)">
+                @(_isTyping ? "..." : "➤")
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Models.ChatSession> _sessions = new();
+    private List<Models.ChatbotMessage> _messages = new();
+    private int? _currentSessionId;
+    private string _currentSessionTitle = "Syeikh Jenggot AI";
+    private string _inputMessage = "";
+    private bool _isTyping;
+
+    // Upload state
+    private IBrowserFile? _selectedFile;
+    private string? _previewUrl, _previewFileName;
+    private bool _previewIsImage;
+
+    private bool CanSend => (!string.IsNullOrWhiteSpace(_inputMessage) || _selectedFile != null) && !_isTyping;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var uid = AuthService.CurrentUserId;
+        if (uid == null) return;
+        _sessions = await ChatbotService.GetUserSessionsAsync(uid.Value);
+        if (_sessions.Any()) await LoadSession(_sessions.First().Id);
+        else await NewSession();
+    }
+
+    private async Task NewSession()
+    {
+        var uid = AuthService.CurrentUserId;
+        if (uid == null) return;
+        var (s, m) = await ChatbotService.GetOrCreateSessionAsync(uid.Value);
+        _currentSessionId = s.Id; _currentSessionTitle = s.Title; _messages = m; _inputMessage = "";
+        _sessions = await ChatbotService.GetUserSessionsAsync(uid.Value);
+    }
+
+    private async Task LoadSession(int id)
+    {
+        var uid = AuthService.CurrentUserId;
+        if (uid == null) return;
+        var (s, m) = await ChatbotService.GetOrCreateSessionAsync(uid.Value, id);
+        _currentSessionId = s.Id; _currentSessionTitle = s.Title; _messages = m;
+    }
+
+    private async Task DeleteSession(int id)
+    {
+        var uid = AuthService.CurrentUserId;
+        if (uid == null) return;
+        await ChatbotService.DeleteSessionAsync(id, uid.Value);
+        _sessions = await ChatbotService.GetUserSessionsAsync(uid.Value);
+        if (_currentSessionId == id)
+        { if (_sessions.Any()) await LoadSession(_sessions.First().Id); else await NewSession(); }
+    }
+
+    private async Task ResetSession()
+    {
+        var uid = AuthService.CurrentUserId;
+        if (uid == null || _currentSessionId == null) return;
+        await ChatbotService.ResetSessionAsync(_currentSessionId.Value, uid.Value);
+        _messages = new(); _currentSessionTitle = "New Chat"; _inputMessage = "";
+        _sessions = await ChatbotService.GetUserSessionsAsync(uid.Value);
+    }
+
+    // ============ UPLOAD ============
+
+    /// <summary>
+    /// Upload file ke storage provider (sesuai appsettings).
+    /// Gambar: preview + nanti jadi ImageContent.
+    /// File lain: preview + URL disematkan di text message.
+    /// </summary>
+    private async Task OnFileUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        _selectedFile = file;
+        _previewFileName = file.Name;
+        _previewIsImage = StorageService.IsImage(file.Name);
+
+        var folder = _previewIsImage ? "chat-images" : "chat-docs";
+
+        await using var stream = file.OpenReadStream(10 * 1024 * 1024);
+        _previewUrl = await StorageService.UploadAsync(stream, file.Name, folder);
+    }
+
+    private void ClearPreview()
+    {
+        _previewUrl = null;
+        _previewFileName = null;
+        _selectedFile = null;
+    }
+
+    // ============ SEND ============
+
+    /// <summary>
+    /// Kirim pesan ke chatbot.
+    /// - Gambar: imageUrl dikirim → ChatbotService akan memasukkannya sebagai ImageContent ke LLM
+    /// - File non-gambar: URL disematkan ke text message "📎 [filename](url)"
+    /// </summary>
+    private async Task SendMessage()
+    {
+        if (!CanSend) return;
+        if (_currentSessionId == null) return;
+        var uid = AuthService.CurrentUserId;
+        if (uid == null) return;
+
+        _isTyping = true;
+        StateHasChanged();
+
+        // Build message text
+        var msg = _inputMessage.Trim();
+
+        // Jika ada file non-gambar → sematkan URL di text
+        if (_selectedFile != null && !_previewIsImage && !string.IsNullOrEmpty(_previewUrl))
+        {
+            var fileLink = $"\n\n📎 [{_previewFileName}]({_previewUrl})";
+            msg = string.IsNullOrEmpty(msg) ? fileLink : msg + fileLink;
+        }
+
+        // Gambar → kirim sebagai imageUrl terpisah
+        var imageUrl = (_previewIsImage && _selectedFile != null) ? _previewUrl : null;
+        var attachUrl = (!_previewIsImage && _selectedFile != null) ? _previewUrl : null;
+
+        // Reset input state
+        _inputMessage = "";
+        ClearPreview();
+
+        // Kirim ke chatbot service
+        var resp = await ChatbotService.SendMessageAsync(_currentSessionId.Value, uid.Value, msg, imageUrl, attachUrl);
+
+        // Reload
+        var (s, m) = await ChatbotService.GetOrCreateSessionAsync(uid.Value, _currentSessionId.Value);
+        _messages = m;
+        _currentSessionTitle = s.Title;
+        _sessions = await ChatbotService.GetUserSessionsAsync(uid.Value);
+
+        _isTyping = false;
+        StateHasChanged();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) await SendMessage();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_messages.Any())
+            await JS.InvokeVoidAsync("eval", "var el=document.getElementById('chat-messages');if(el)el.scrollTop=el.scrollHeight;");
+    }
+}

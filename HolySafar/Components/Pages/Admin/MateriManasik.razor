@@ -1,0 +1,110 @@
+@page "/admin/materi-manasik"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+@inject Services.StorageService Storage
+@inject Services.ExportService Export
+@inject IJSRuntime JS
+
+<div class="card">
+    <div class="card-header">
+        <h3>📖 Master Data Materi Manasik</h3>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline btn-sm" @onclick="ExportCsv"><i class="bi bi-filetype-csv"></i> CSV</button>
+            <button class="btn btn-outline btn-sm" @onclick="ExportExcel"><i class="bi bi-file-earmark-excel"></i> Excel</button>
+            <button class="btn btn-primary btn-sm" @onclick="(() => ShowForm(null))"><i class="bi bi-plus-lg"></i> Tambah</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <input class="form-control" style="max-width:250px;" placeholder="🔍 Cari judul/kategori..." @bind="_search" @bind:event="oninput" />
+            <select class="form-control" style="max-width:180px;" @bind="_filterKat">
+                <option value="">Semua Kategori</option>
+                <option>Ihram</option><option>Tawaf</option><option>Sa'i</option><option>Tahallul</option><option>Haji</option><option>Doa</option><option>Umum</option>
+            </select>
+        </div>
+        <div class="table-container"><table>
+            <thead><tr @onclick="() => _sortAsc = !_sortAsc" style="cursor:pointer;"><th>#</th><th>Judul</th><th>Kategori</th><th>Urutan</th><th>Video</th><th>Status</th><th>Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var m in _paged)
+                {
+                    <tr>
+                        <td>@m.Urutan</td><td><strong>@m.Judul</strong></td><td><span class="badge badge-info">@m.Kategori</span></td><td>@m.Urutan</td>
+                        <td>@if (!string.IsNullOrEmpty(m.VideoUrl)) { <a href="@m.VideoUrl" target="_blank" class="btn btn-outline btn-sm">▶</a> }</td>
+                        <td><span class="badge @(m.IsPublished ? "badge-success" : "badge-warning")">@(m.IsPublished ? "Publish" : "Draft")</span></td>
+                        <td><button class="btn btn-outline btn-sm" @onclick="(() => ShowForm(m))"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-danger btn-sm" @onclick="(() => Delete(m.Id))"><i class="bi bi-trash"></i></button></td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+        <div class="pagination">
+            <button disabled="@(_page <= 1)" @onclick="() => _page--">Prev</button>
+            @for (int i = 1; i <= _totalPages; i++) { <button class="@(i==_page?"active":"")" @onclick="()=>_page=i">@i</button> }
+            <button disabled="@(_page >= _totalPages)" @onclick="() => _page++">Next</button>
+        </div>
+    </div>
+</div>
+
+@if (_showForm)
+{
+    <div class="modal-backdrop" @onclick="(()=>_showForm=false)">
+        <div class="modal" @onclick:stopPropagation="true" style="max-width:650px;">
+            <div class="modal-header"><h3>@(_edit==null?"Tambah":"Edit") Materi</h3><button class="btn-icon" @onclick="(()=>_showForm=false)">✕</button></div>
+            <div class="modal-body">
+                <div class="grid grid-2">
+                    <div class="form-group"><label>Judul *</label><input class="form-control" @bind="_ef.Judul" /></div>
+                    <div class="form-group"><label>Kategori</label><select class="form-control" @bind="_ef.Kategori"><option>Ihram</option><option>Tawaf</option><option>Sa'i</option><option>Tahallul</option><option>Haji</option><option>Doa</option><option>Umum</option></select></div>
+                    <div class="form-group"><label>Urutan</label><input type="number" class="form-control" @bind="_ef.Urutan" /></div>
+                    <div class="form-group"><label>Thumbnail</label><InputFile OnChange="OnUpload" accept="image/*" class="form-control" /></div>
+                </div>
+                <div class="form-group"><label>Konten</label><textarea class="form-control" rows="6" @bind="_ef.Konten"></textarea></div>
+                <div class="form-group"><label>Video URL</label><input class="form-control" @bind="_ef.VideoUrl" /></div>
+                <div class="form-group"><label><input type="checkbox" @bind="_ef.IsPublished" /> Published</label></div>
+                @if (!string.IsNullOrEmpty(_previewUrl)) { <img src="@_previewUrl" style="max-width:150px;border-radius:8px;" /> }
+            </div>
+            <div class="modal-footer"><button class="btn btn-outline" @onclick="(()=>_showForm=false)">Batal</button><button class="btn btn-primary" @onclick="Save">Simpan</button></div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Models.MateriManasik> _all = new(), _paged = new();
+    private string _search = "", _filterKat = ""; private bool _sortAsc = true;
+    private int _page = 1, _pageSize = 15, _totalPages = 1;
+    private bool _showForm; private Models.MateriManasik? _edit;
+    private Models.MateriManasik _ef = new(); private string? _previewUrl;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load() { _all = await Task.Run(() => Db.MateriManasik.OrderBy(m => m.Urutan).ToList()); Apply(); }
+    private void Apply()
+    {
+        var q = _all.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(_search)) { var s = _search.ToLower(); q = q.Where(m => m.Judul.ToLower().Contains(s) || m.Kategori.ToLower().Contains(s)); }
+        if (!string.IsNullOrEmpty(_filterKat)) q = q.Where(m => m.Kategori == _filterKat);
+        q = _sortAsc ? q.OrderBy(m => m.Urutan) : q.OrderByDescending(m => m.Urutan);
+        _all = q.ToList(); _totalPages = Math.Max(1, (int)Math.Ceiling(_all.Count / (double)_pageSize)); if (_page > _totalPages) _page = _totalPages;
+        _paged = _all.Skip((_page - 1) * _pageSize).Take(_pageSize).ToList();
+    }
+
+    private void ShowForm(Models.MateriManasik? m)
+    {
+        _edit = m; _ef = m == null ? new Models.MateriManasik { IsPublished = true, Kategori = "Umum", Urutan = _all.Count + 1 } : new Models.MateriManasik { Id = m.Id, Judul = m.Judul, Kategori = m.Kategori, Konten = m.Konten, VideoUrl = m.VideoUrl, ThumbnailUrl = m.ThumbnailUrl, Urutan = m.Urutan, IsPublished = m.IsPublished };
+        _previewUrl = _ef.ThumbnailUrl; _showForm = true;
+    }
+
+    private async Task OnUpload(InputFileChangeEventArgs e) { var f = e.File; if (f == null) return; await using var s = f.OpenReadStream(5 * 1024 * 1024); _ef.ThumbnailUrl = await Storage.UploadAsync(s, f.Name, "materi"); _previewUrl = _ef.ThumbnailUrl; }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_ef.Judul)) return;
+        if (_edit == null) { _ef.CreatedAt = DateTime.UtcNow; Db.MateriManasik.Add(_ef); }
+        else { var m = await Db.MateriManasik.FindAsync(_edit.Id); if (m != null) { m.Judul = _ef.Judul; m.Kategori = _ef.Kategori; m.Konten = _ef.Konten; m.VideoUrl = _ef.VideoUrl; m.ThumbnailUrl = _ef.ThumbnailUrl; m.Urutan = _ef.Urutan; m.IsPublished = _ef.IsPublished; } }
+        await Db.SaveChangesAsync(); _showForm = false; await Load();
+    }
+
+    private async Task Delete(int id) { var m = await Db.MateriManasik.FindAsync(id); if (m != null) { Db.MateriManasik.Remove(m); await Db.SaveChangesAsync(); await Load(); } }
+
+    private async Task DownloadFile(byte[] bytes, string fn) { var b64 = Convert.ToBase64String(bytes); await JS.InvokeVoidAsync("eval", $"var a=document.createElement('a');a.href='data:application/octet-stream;base64,{b64}';a.download='{fn}';a.click();"); }
+    private async Task ExportCsv() => await DownloadFile(Export.ExportToCsv(_all.Select(m => new { m.Judul, m.Kategori, m.Urutan, m.IsPublished })), "materi-manasik.csv");
+    private async Task ExportExcel() => await DownloadFile(Export.ExportToExcel(_all.Select(m => new { m.Judul, m.Kategori, m.Urutan, m.IsPublished }), "MateriManasik"), "materi-manasik.xlsx");
+}

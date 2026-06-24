@@ -1,0 +1,78 @@
+@page "/notifikasi"
+@rendermode InteractiveServer
+@inject Services.AuthService AuthService
+@inject Services.NotifikasiService NotifService
+
+<div class="mb-3"><h2>🔔 Notifikasi</h2><p class="text-muted">Pusat notifikasi dan pemberitahuan</p></div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Semua Notifikasi</h3>
+        <div class="d-flex gap-2">
+            <select class="form-control" style="max-width:150px;" @bind="_filterTipe">
+                <option value="">Semua</option><option value="info">Info</option><option value="success">Success</option><option value="warning">Warning</option><option value="danger">Darurat</option>
+            </select>
+            <button class="btn btn-outline btn-sm" @onclick="MarkAllRead">✅ Tandai Semua Dibaca</button>
+        </div>
+    </div>
+    <div class="card-body">
+        @if (_notifList.Any())
+        {
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                @foreach (var n in _notifList)
+                {
+                    <div style="padding:12px 16px;border-radius:var(--radius-md);border:1px solid var(--border-color);@(n.IsRead ? "" : "background:var(--accent-light);border-left:4px solid var(--accent);")">
+                        <div class="d-flex justify-between align-center">
+                            <div>
+                                <strong>@n.Judul</strong>
+                                <span class="badge @GetTipeBadge(n.Tipe) ml-2">@n.Tipe</span>
+                                @if (!n.IsRead) { <span class="badge badge-info">Baru</span> }
+                            </div>
+                            <small class="text-muted">@n.CreatedAt.ToString("dd MMM yyyy HH:mm")</small>
+                        </div>
+                        <p style="margin-top:4px;">@n.Pesan</p>
+                        @if (!n.IsRead)
+                        {
+                            <button class="btn btn-outline btn-sm mt-2" @onclick="() => MarkRead(n)">Tandai Dibaca</button>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="empty-state"><div class="empty-state-icon">🔔</div><p>Tidak ada notifikasi.</p></div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<Models.Notifikasi> _notifList = new();
+    private string _filterTipe = "";
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load()
+    {
+        var uid = AuthService.CurrentUserId;
+        var list = await NotifService.GetForUserAsync(uid ?? 0, 100);
+        _notifList = string.IsNullOrEmpty(_filterTipe) ? list : list.Where(n => n.Tipe == _filterTipe).ToList();
+    }
+
+    private async Task MarkRead(Models.Notifikasi n)
+    {
+        await NotifService.MarkAsReadAsync(n.Id);
+        n.IsRead = true;
+    }
+
+    private async Task MarkAllRead()
+    {
+        foreach (var n in _notifList.Where(x => !x.IsRead))
+            await NotifService.MarkAsReadAsync(n.Id);
+        await Load();
+    }
+
+    private static string GetTipeBadge(string t) => t switch
+    {
+        "danger" => "badge-danger", "warning" => "badge-warning", "success" => "badge-success", _ => "badge-info"
+    };
+}

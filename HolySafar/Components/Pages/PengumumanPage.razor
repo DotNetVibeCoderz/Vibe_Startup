@@ -1,0 +1,13 @@
+@page "/pengumuman"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+
+<div class="mb-3"><h2>📢 Pengumuman</h2><p class="text-muted">Informasi terbaru dari HolySafar</p></div>
+
+@foreach(var p in _pengumuman){<div class="card mb-2"><div class="card-body"><h4>@p.Judul</h4><p>@p.Isi</p><small class="text-muted">@p.CreatedAt.ToString("dd MMM yyyy")</small>@if(p.TargetRole!=null){<span class="badge badge-info">Untuk: @p.TargetRole</span>}</div></div>}
+@if(!_pengumuman.Any()){<div class="empty-state"><div class="empty-state-icon">📢</div><p>Tidak ada pengumuman.</p></div>}
+
+@code {
+    private List<Models.Pengumuman> _pengumuman=new();
+    protected override async Task OnInitializedAsync(){ _pengumuman=Db.Pengumuman.Where(p=>p.IsActive).OrderByDescending(p=>p.CreatedAt).ToList(); await Task.CompletedTask; }
+}

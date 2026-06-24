@@ -1,0 +1,37 @@
+@page "/admin/orders"
+@rendermode InteractiveServer
+@inject Data.AppDbContext Db
+
+<div class="card">
+    <div class="card-header"><h3>🛍️ Order Marketplace</h3></div>
+    <div class="card-body">
+        <div class="table-container"><table>
+            <thead><tr><th>No Order</th><th>Pemesan</th><th>Total</th><th>Status</th><th>Tanggal</th><th>Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var o in _orders)
+                {
+                    <tr>
+                        <td><strong>@o.NoOrder</strong></td><td>@o.User?.FullName</td><td>@o.Total.ToString("C0")</td>
+                        <td><span class="badge @GetStatusBadge(o.StatusOrder)">@o.StatusOrder</span></td>
+                        <td>@o.CreatedAt.ToString("dd/MM HH:mm")</td>
+                        <td>
+                            @if (o.StatusOrder == "Pending") { <button class="btn btn-success btn-sm" @onclick="(() => UpdateStatus(o, _paidStatus))">💰 Bayar</button> }
+                            @if (o.StatusOrder == "Paid") { <button class="btn btn-info btn-sm" @onclick="(() => UpdateStatus(o, _shippedStatus))">📦 Kirim</button> }
+                            @if (o.StatusOrder == "Shipped") { <button class="btn btn-primary btn-sm" @onclick="(() => UpdateStatus(o, _deliveredStatus))">✅ Selesai</button> }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+    </div>
+</div>
+
+@code {
+    private List<Models.Order> _orders = new();
+    private const string _paidStatus = "Paid", _shippedStatus = "Shipped", _deliveredStatus = "Delivered";
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private Task Load() { _orders = Db.Orders.Include(o => o.User).OrderByDescending(o => o.CreatedAt).Take(50).ToList(); return Task.CompletedTask; }
+    private static string GetStatusBadge(string s) => s switch { "Delivered" => "badge-success", "Paid" => "badge-info", _ => "badge-warning" };
+    private async Task UpdateStatus(Models.Order o, string s) { o.StatusOrder = s; await Db.SaveChangesAsync(); await Load(); }
+}
