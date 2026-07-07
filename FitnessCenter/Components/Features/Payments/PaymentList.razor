@@ -1,0 +1,231 @@
+@page "/payments"
+@attribute [Authorize]
+@inject PaymentService Service
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<h3>💰 Payments</h3>
+
+@* Admin: Generate & filter bar *@
+<div class="flex justify-between items-center mb-2">
+    <div class="flex gap-1">
+        <select class="brutal-select" style="width:160px;" @bind="filterStatus">
+            <option value="">All Status</option>
+            <option value="Pending">🟡 Pending</option>
+            <option value="Confirmed">🔵 Confirmed</option>
+            <option value="Completed">🟢 Completed</option>
+            <option value="Failed">🔴 Failed</option>
+        </select>
+        @if (isAdmin)
+        {
+            <button class="brutal-btn brutal-btn-sm brutal-btn-success" @onclick="GenerateMonthly" disabled="@isGenerating">
+                @(isGenerating ? "⏳ Generating..." : "🔄 Generate Monthly")
+            </button>
+        }
+    </div>
+    @if (isAdmin)
+    {
+        <div style="font-size:0.85rem;color:var(--text-muted);">
+            Total Revenue: <strong>Rp @totalRevenue.ToString("N0")</strong>
+        </div>
+    }
+</div>
+
+@if (!string.IsNullOrEmpty(toast))
+{
+    <div class="brutal-badge mb-2 @(toast.Contains("✅") ? "brutal-badge-success" : "brutal-badge-danger")" style="display:block;text-align:center;">@toast</div>
+}
+
+@if (payments.Any())
+{
+    <div class="brutal-card" style="padding:0;overflow-x:auto;">
+        <table class="brutal-table w-full">
+            <thead>
+                <tr>
+                    <th>Invoice</th>
+                    <th>Member</th>
+                    <th>Amount</th>
+                    <th>Method</th>
+                    <th>Status</th>
+                    <th>Description</th>
+                    <th>Date</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in payments)
+                {
+                    <tr>
+                        <td style="font-family:monospace;font-size:0.85rem;">@p.InvoiceNumber</td>
+                        <td>@p.User?.FullName</td>
+                        <td><strong>Rp @p.Amount.ToString("N0")</strong></td>
+                        <td>@p.Method</td>
+                        <td>
+                            <span class="brutal-badge @GetStatusBadge(p.Status)">
+                                @p.Status
+                            </span>
+                        </td>
+                        <td style="font-size:0.85rem;">@p.Description</td>
+                        <td>@p.CreatedAt.ToString("dd MMM yyyy")</td>
+                        <td>
+                            <div class="flex gap-1">
+                                @* Member: tombol konfirmasi *@
+                                @if (!isAdmin && p.UserId == currentUserId && p.Status == PaymentStatus.Pending)
+                                {
+                                    <button class="brutal-btn brutal-btn-sm brutal-btn-success" @onclick="() => ShowConfirmModal(p)">
+                                        💳 Bayar
+                                    </button>
+                                }
+
+                                @* Admin: tombol verifikasi / reject *@
+                                @if (isAdmin && p.Status == PaymentStatus.Confirmed)
+                                {
+                                    <button class="brutal-btn brutal-btn-sm brutal-btn-success" @onclick="() => VerifyPayment(p.Id)">
+                                        ✅ Verifikasi
+                                    </button>
+                                    <button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="() => RejectPayment(p.Id)">
+                                        ↩️ Kembalikan
+                                    </button>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else { <p class="text-center" style="color:var(--text-muted);">No payments recorded.</p> }
+
+@* Confirm Modal (Member) *@
+@if (confirmingPayment != null)
+{
+    <div class="brutal-modal-overlay" @onclick="() => confirmingPayment = null">
+        <div class="brutal-modal" @onclick:stopPropagation="true">
+            <h3>💳 Konfirmasi Pembayaran</h3>
+            <p>Invoice: <strong>@confirmingPayment.InvoiceNumber</strong></p>
+            <p>Amount: <strong>Rp @confirmingPayment.Amount.ToString("N0")</strong></p>
+
+            <div class="mt-1">
+                <label style="font-weight:600;">Metode Pembayaran</label>
+                <select class="brutal-select" @bind="confirmMethod">
+                    @foreach (var m in Enum.GetNames<PaymentMethod>()) { <option value="@m">@m</option> }
+                </select>
+            </div>
+            <div class="mt-1">
+                <label style="font-weight:600;">ID Transaksi / Bukti</label>
+                <input class="brutal-input" placeholder="Masukkan nomor referensi / bukti transfer..." @bind="confirmTxId" />
+                <span style="font-size:0.75rem;color:var(--text-muted);">Contoh: TF-20250123-XXXX, atau upload bukti di forum</span>
+            </div>
+
+            <div class="flex gap-1 mt-2">
+                <button class="brutal-btn brutal-btn-success" @onclick="SubmitConfirmation">
+                    ✅ Saya Sudah Bayar
+                </button>
+                <button class="brutal-btn" @onclick="() => confirmingPayment = null">Batal</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Payment> payments = new();
+    private string? currentUserId;
+    private bool isAdmin;
+    private string filterStatus = "";
+    private string toast = "";
+    private bool isGenerating;
+    private decimal totalRevenue;
+
+    // Confirm modal
+    private Payment? confirmingPayment;
+    private string confirmMethod = "BankTransfer";
+    private string confirmTxId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        currentUserId = user?.Id;
+        isAdmin = user?.Role == UserRole.Admin;
+
+        if (isAdmin)
+        {
+            payments = await Service.GetAllAsync();
+            totalRevenue = await Service.GetTotalRevenueAsync();
+        }
+        else if (currentUserId != null)
+        {
+            payments = await Service.GetUserPaymentsAsync(currentUserId);
+        }
+    }
+
+    private string GetStatusBadge(PaymentStatus s) => s switch
+    {
+        PaymentStatus.Pending => "brutal-badge-accent",
+        PaymentStatus.Confirmed => "brutal-badge-info",
+        PaymentStatus.Completed => "brutal-badge-success",
+        PaymentStatus.Failed => "brutal-badge-danger",
+        PaymentStatus.Refunded => "brutal-badge-purple",
+        _ => ""
+    };
+
+    private async Task GenerateMonthly()
+    {
+        isGenerating = true;
+        try
+        {
+            var (count, msg) = await Service.GenerateMonthlyPaymentsAsync();
+            toast = msg;
+            payments = await Service.GetAllAsync();
+        }
+        catch (Exception ex) { toast = $"❌ Error: {ex.Message}"; }
+        finally
+        {
+            isGenerating = false;
+            await Task.Delay(3000);
+            toast = "";
+            StateHasChanged();
+        }
+    }
+
+    private void ShowConfirmModal(Payment p)
+    {
+        confirmingPayment = p;
+        confirmMethod = "BankTransfer";
+        confirmTxId = "";
+    }
+
+    private async Task SubmitConfirmation()
+    {
+        if (confirmingPayment == null || currentUserId == null) return;
+        var (ok, msg) = await Service.ConfirmPaymentAsync(confirmingPayment.Id, currentUserId, confirmMethod, confirmTxId);
+        toast = msg;
+        confirmingPayment = null;
+        payments = currentUserId != null ? await Service.GetUserPaymentsAsync(currentUserId) : new();
+        await Task.Delay(3000);
+        toast = "";
+        StateHasChanged();
+    }
+
+    private async Task VerifyPayment(int id)
+    {
+        var (ok, msg) = await Service.VerifyPaymentAsync(id);
+        toast = msg;
+        payments = await Service.GetAllAsync();
+        totalRevenue = await Service.GetTotalRevenueAsync();
+        await Task.Delay(3000);
+        toast = "";
+        StateHasChanged();
+    }
+
+    private async Task RejectPayment(int id)
+    {
+        var (ok, msg) = await Service.RejectPaymentAsync(id);
+        toast = msg;
+        payments = await Service.GetAllAsync();
+        await Task.Delay(3000);
+        toast = "";
+        StateHasChanged();
+    }
+}

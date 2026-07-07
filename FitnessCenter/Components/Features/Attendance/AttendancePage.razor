@@ -1,0 +1,170 @@
+@page "/attendance"
+@attribute [Authorize]
+@inject AttendanceService Service
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+@inject AppDbContext Db
+
+<h3>📋 Attendance</h3>
+
+<div class="grid-3 mb-2">
+    @* Manual *@
+    <div class="brutal-card">
+        <h4>👋 Manual</h4>
+        <p>Total today: <strong>@todayCount</strong> check-ins</p>
+        @if (currentUserId != null)
+        {
+            <div class="flex gap-2 mt-1">
+                <button class="brutal-btn brutal-btn-success" @onclick="CheckIn">✅ Check In</button>
+                <button class="brutal-btn brutal-btn-danger" @onclick="CheckOut">🚪 Check Out</button>
+            </div>
+        }
+    </div>
+
+    @* My QR *@
+    <div class="brutal-card">
+        <h4>📱 My QR Code</h4>
+        <p style="font-size:0.8rem;color:var(--text-muted);">Generate QR untuk check-in/out</p>
+        @if (currentUserId != null)
+        {
+            <button class="brutal-btn brutal-btn-primary mt-1" @onclick="GenerateQRCode">🔳 Generate QR</button>
+        }
+        @if (!string.IsNullOrEmpty(qrCodeBase64))
+        {
+            <div class="mt-2 text-center">
+                <img src="data:image/png;base64,@qrCodeBase64" style="max-width:160px;border:3px solid var(--border-color);" />
+                <p style="font-size:0.7rem;font-family:monospace;">@currentUserId?[..8]...</p>
+                <div class="flex gap-1 justify-center mt-1">
+                    <button class="brutal-btn brutal-btn-sm brutal-btn-success" @onclick="ScanCheckIn">✅ In</button>
+                    <button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="ScanCheckOut">🚪 Out</button>
+                </div>
+            </div>
+        }
+    </div>
+
+    @* Scan member lain *@
+    <div class="brutal-card">
+        <h4>📷 Scan Member (Staff)</h4>
+        <p style="font-size:0.8rem;color:var(--text-muted);">Masukkan data QR atau user ID</p>
+        <input class="brutal-input" placeholder="QR data / User ID..." @bind="scanData" />
+        <div class="flex gap-1 mt-1">
+            <button class="brutal-btn brutal-btn-sm brutal-btn-success" @onclick="() => ManualScan(true)">✅ Check In</button>
+            <button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="() => ManualScan(false)">🚪 Check Out</button>
+        </div>
+        @if (!string.IsNullOrEmpty(scanResult)) { <div class="brutal-badge mt-1 @(scanResult.Contains("✅") ? "brutal-badge-success" : "brutal-badge-danger")" style="font-size:0.8rem;">@scanResult</div> }
+    </div>
+</div>
+
+@if (attendances.Any())
+{
+    <div class="brutal-card" style="padding:0;">
+        <h4 style="padding:1rem 1rem 0;">My Recent Attendance (30 hari terakhir)</h4>
+        <table class="brutal-table w-full">
+            <thead><tr><th>Date</th><th>Type</th><th>Time</th></tr></thead>
+            <tbody>
+                @foreach (var a in attendances)
+                {
+                    <tr>
+                        <td>@a.Timestamp.ToString("dd MMM yyyy")</td>
+                        <td><span class="brutal-badge @(a.Type == AttendanceType.CheckIn ? "brutal-badge-success" : "brutal-badge-danger")">@a.Type</span></td>
+                        <td>@a.Timestamp.ToString("HH:mm")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (showLogs)
+{
+    <div class="brutal-card mt-2" style="padding:0;">
+        <h4 style="padding:1rem 1rem 0;">All Attendance Logs (Admin View)</h4>
+        <table class="brutal-table w-full">
+            <thead><tr><th>User</th><th>Type</th><th>Date</th><th>Device</th></tr></thead>
+            <tbody>
+                @foreach (var log in allLogs)
+                {
+                    <tr>
+                        <td>@log.User?.FullName</td>
+                        <td><span class="brutal-badge @(log.Type == AttendanceType.CheckIn ? "brutal-badge-success" : "brutal-badge-danger")">@log.Type</span></td>
+                        <td>@log.Timestamp.ToString("dd MMM HH:mm")</td>
+                        <td>@(log.DeviceInfo ?? "-")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<Attendance> attendances = new();
+    private List<Attendance> allLogs = new();
+    private int todayCount;
+    private string? currentUserId;
+    private string qrCodeBase64 = "";
+    private string scanData = "";
+    private string scanResult = "";
+    private bool showLogs;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        currentUserId = user?.Id;
+        if (currentUserId != null) attendances = await Service.GetUserAttendanceAsync(currentUserId, 30);
+        todayCount = await Service.GetTodayCheckInsAsync();
+        if (user?.Role == UserRole.Admin) { allLogs = await Db.Attendances.Include(a => a.User).OrderByDescending(a => a.Timestamp).Take(50).ToListAsync(); showLogs = true; }
+    }
+
+    private async Task CheckIn()
+    {
+        if (currentUserId != null) { await Service.CheckInAsync(currentUserId); attendances = await Service.GetUserAttendanceAsync(currentUserId, 30); todayCount = await Service.GetTodayCheckInsAsync(); }
+    }
+
+    private async Task CheckOut()
+    {
+        if (currentUserId != null) { await Service.CheckOutAsync(currentUserId); attendances = await Service.GetUserAttendanceAsync(currentUserId, 30); }
+    }
+
+    private async Task GenerateQRCode()
+    {
+        if (currentUserId == null) return;
+        using var http = new HttpClient();
+        // QR data: ACTION|USERID|TIMESTAMP
+        var qrData = $"FC_INOUT|{currentUserId}|{DateTime.UtcNow:yyyyMMddHHmm}";
+        var resp = await http.GetAsync($"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={Uri.EscapeDataString(qrData)}");
+        var bytes = await resp.Content.ReadAsByteArrayAsync();
+        qrCodeBase64 = Convert.ToBase64String(bytes);
+    }
+
+    private async Task ScanCheckIn()
+    {
+        if (currentUserId != null) { await Service.CheckInAsync(currentUserId, $"QR:{currentUserId}"); scanResult = "✅ Check-in via QR berhasil!"; }
+    }
+
+    private async Task ScanCheckOut()
+    {
+        if (currentUserId != null) { await Service.CheckOutAsync(currentUserId); scanResult = "🚪 Check-out via QR berhasil!"; }
+    }
+
+    /// <param name="isCheckIn">true = check in, false = check out</param>
+    private async Task ManualScan(bool isCheckIn)
+    {
+        if (string.IsNullOrWhiteSpace(scanData)) { scanResult = "⚠️ Masukkan data QR atau user ID."; return; }
+        var userId = scanData;
+        if (scanData.Contains('|')) { var parts = scanData.Split('|'); if (parts.Length >= 2) userId = parts[1]; }
+        var user = await Db.Users.FindAsync(userId);
+        if (user == null) { scanResult = "❌ User tidak ditemukan."; return; }
+        if (isCheckIn)
+        {
+            await Service.CheckInAsync(userId, scanData);
+            scanResult = $"✅ Check-in: {user.FullName}";
+        }
+        else
+        {
+            await Service.CheckOutAsync(userId);
+            scanResult = $"🚪 Check-out: {user.FullName}";
+        }
+        todayCount = await Service.GetTodayCheckInsAsync();
+    }
+}

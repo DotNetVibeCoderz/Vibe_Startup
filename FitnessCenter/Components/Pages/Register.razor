@@ -1,0 +1,120 @@
+@page "/register"
+@layout FitnessCenter.Components.Layout.MinimalLayout
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager Navigation
+
+<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg-primary);">
+    <div class="brutal-card" style="width:480px;max-width:90vw;">
+        <div class="text-center mb-3">
+            <div style="font-size:3rem;">🏋️</div>
+            <h2>Register</h2>
+            <p style="color:var(--text-muted);">Join FitnessCenter today!</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="brutal-badge brutal-badge-danger w-full mb-2" style="display:block;text-align:center;">@errorMessage</div>
+        }
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="brutal-badge brutal-badge-success w-full mb-2" style="display:block;text-align:center;">@successMessage</div>
+        }
+
+        <EditForm Model="regModel" OnValidSubmit="HandleRegister" FormName="registerForm">
+            <DataAnnotationsValidator />
+            <div class="grid-2">
+                <div><label>Full Name *</label><InputText @bind-Value="regModel.FullName" class="brutal-input" /></div>
+                <div><label>Email *</label><InputText @bind-Value="regModel.Email" class="brutal-input" type="email" /></div>
+                <div><label>Phone</label><InputText @bind-Value="regModel.Phone" class="brutal-input" /></div>
+                <div>
+                    <label>Gender</label>
+                    <select class="brutal-select" @bind="regModel.Gender">
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div><label>Password *</label><InputText @bind-Value="regModel.Password" type="password" class="brutal-input" /></div>
+                <div><label>Confirm Password *</label><InputText @bind-Value="regModel.ConfirmPassword" type="password" class="brutal-input" /></div>
+            </div>
+            <div class="mt-1"><label>Address</label><InputText @bind-Value="regModel.Address" class="brutal-input" /></div>
+            <div class="mt-1"><label>KTP Number</label><InputText @bind-Value="regModel.KtpNumber" class="brutal-input" /></div>
+            <ValidationSummary class="text-danger" style="font-size:0.8rem;" />
+
+            <button type="submit" class="brutal-btn brutal-btn-primary w-full mt-2" disabled="@isLoading">
+                @(isLoading ? "Registering..." : "📝 REGISTER")
+            </button>
+        </EditForm>
+
+        <p class="mt-2 text-center">
+            Already have an account? <a href="/login">Login here</a>
+        </p>
+    </div>
+</div>
+
+@code {
+    private RegisterModel regModel = new();
+    private bool isLoading;
+    private string errorMessage = "";
+    private string successMessage = "";
+
+    public class RegisterModel
+    {
+        [Required(ErrorMessage = "Full name is required")]
+        public string FullName { get; set; } = "";
+
+        [Required(ErrorMessage = "Email is required")]
+        [EmailAddress(ErrorMessage = "Invalid email")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Password is required")]
+        [MinLength(8, ErrorMessage = "Password must be at least 8 characters")]
+        public string Password { get; set; } = "";
+
+        [Required(ErrorMessage = "Confirm password")]
+        [Compare(nameof(Password), ErrorMessage = "Passwords do not match")]
+        public string ConfirmPassword { get; set; } = "";
+
+        public string Phone { get; set; } = "";
+        public string Gender { get; set; } = "Male";
+        public string Address { get; set; } = "";
+        public string KtpNumber { get; set; } = "";
+    }
+
+    private async Task HandleRegister()
+    {
+        isLoading = true; errorMessage = ""; successMessage = "";
+        try
+        {
+            var user = new ApplicationUser
+            {
+                UserName = regModel.Email,
+                Email = regModel.Email,
+                FullName = regModel.FullName,
+                PhoneNumber = regModel.Phone,
+                Gender = Enum.TryParse<Gender>(regModel.Gender, out var g) ? g : Gender.Male,
+                Address = regModel.Address,
+                KtpNumber = regModel.KtpNumber,
+                RegisteredAt = DateTime.UtcNow,
+                IsActive = true,
+                Role = UserRole.Member,
+                EmailConfirmed = true
+            };
+
+            var result = await UserManager.CreateAsync(user, regModel.Password);
+            if (result.Succeeded)
+            {
+                await UserManager.AddToRoleAsync(user, "Member");
+                successMessage = "Registration successful! Redirecting to login...";
+                await Task.Delay(2000);
+                Navigation.NavigateTo("/login");
+            }
+            else
+            {
+                errorMessage = string.Join("; ", result.Errors.Select(e => e.Description));
+            }
+        }
+        catch (Exception ex) { errorMessage = ex.Message; }
+        finally { isLoading = false; }
+    }
+}

@@ -1,0 +1,99 @@
+@page "/trainers"
+@attribute [Authorize]
+@inject TrainerService Service
+@inject StorageService Storage
+@inject AuthenticationStateProvider AuthState
+@inject UserManager<ApplicationUser> UserManager
+
+<h3>🎯 Trainers</h3>
+@if (isAdmin) { <button class="brutal-btn brutal-btn-sm brutal-btn-success mb-2" @onclick="ShowCreate">➕ New Trainer</button> }
+
+<div class="grid-3">
+    @foreach (var t in trainers)
+    {
+        <div class="brutal-card text-center">
+            @if (!string.IsNullOrEmpty(t.PhotoUrl))
+            {
+                <img src="@t.PhotoUrl" style="width:100px;height:100px;border-radius:50%;border:4px solid var(--accent);object-fit:cover;margin:0 auto;" />
+            }
+            else
+            {
+                <div style="font-size:4rem;">👤</div>
+            }
+            <h4>@t.FullName</h4>
+            <span class="brutal-badge brutal-badge-accent">@t.Specialization</span>
+            <p class="mt-1">⭐ @t.Rating.ToString("F1") | 📚 @t.TotalClasses kelas</p>
+            <p style="font-size:0.9rem;">@t.Bio</p>
+            @if (isAdmin) { <div class="flex gap-1 justify-center mt-1"><button class="brutal-btn brutal-btn-sm" @onclick="() => EditTrainer(t)">✏️</button><button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="() => ToggleTrainer(t)">@(t.IsActive ? "⛔" : "✅")</button></div> }
+        </div>
+    }
+</div>
+
+@if (showModal)
+{
+    <div class="brutal-modal-overlay" @onclick="() => showModal = false"><div class="brutal-modal" @onclick:stopPropagation="true">
+        <h3>@(editId.HasValue ? "✏️ Edit" : "➕ New") Trainer</h3>
+
+        <div class="text-center mb-1">
+            @if (!string.IsNullOrEmpty(editPhotoPreview))
+            {
+                <img src="@editPhotoPreview" style="width:80px;height:80px;border-radius:50%;border:3px solid var(--accent);object-fit:cover;" />
+            }
+            <InputFile OnChange="HandlePhotoUpload" accept="image/*" style="display:none;" id="trainerPhotoUpload" />
+            <label for="trainerPhotoUpload" class="brutal-btn brutal-btn-sm mt-1" style="cursor:pointer;">📷 @(string.IsNullOrEmpty(editPhotoPreview) ? "Upload Foto" : "Ganti Foto")</label>
+            @if (isUploading) { <span style="font-size:0.8rem;">⏳ Uploading...</span> }
+            @if (!string.IsNullOrEmpty(uploadError)) { <div class="brutal-badge brutal-badge-danger" style="font-size:0.75rem;">@uploadError</div> }
+        </div>
+
+        <div class="grid-2 mt-1">
+            <div><label>Full Name *</label><input class="brutal-input" @bind="editName" /></div>
+            <div><label>Specialization</label><input class="brutal-input" @bind="editSpec" placeholder="Yoga, HIIT, Strength..." /></div>
+            <div><label>Email</label><input class="brutal-input" @bind="editEmail" type="email" /></div>
+            <div><label>Phone</label><input class="brutal-input" @bind="editPhone" /></div>
+            <div><label>Certifications</label><input class="brutal-input" @bind="editCert" placeholder="ACE, NASM, RYT-500..." /></div>
+        </div>
+        <div class="mt-1"><label>Bio</label><textarea class="brutal-input" rows="3" @bind="editBio" placeholder="Ceritakan tentang trainer..."></textarea></div>
+        <div class="flex gap-1 mt-2"><button class="brutal-btn brutal-btn-success" @onclick="SaveTrainer">💾 Save</button><button class="brutal-btn" @onclick="() => showModal = false">Cancel</button></div>
+    </div></div>
+}
+
+@code {
+    private const long MaxUploadSize = 5L * 1024 * 1024;
+    private List<Trainer> trainers = new(); private bool showModal; private int? editId; private bool isAdmin; private bool isUploading;
+    private string editName = "", editSpec = "", editBio = "", editEmail = "", editPhone = "", editPhoto = "", editPhotoPreview = "", editCert = "";
+    private string uploadError = "";
+
+    protected override async Task OnInitializedAsync()
+    { trainers = await Service.GetAllAsync(); try { var a = await AuthState.GetAuthenticationStateAsync(); var u = await UserManager.GetUserAsync(a.User); isAdmin = u?.Role == UserRole.Admin; } catch { } }
+
+    private void ShowCreate() { editId = null; editName = ""; editSpec = ""; editBio = ""; editEmail = ""; editPhone = ""; editPhoto = ""; editPhotoPreview = ""; editCert = ""; uploadError = ""; showModal = true; }
+    private void EditTrainer(Trainer t) { editId = t.Id; editName = t.FullName; editSpec = t.Specialization ?? ""; editBio = t.Bio ?? ""; editEmail = t.Email ?? ""; editPhone = t.Phone ?? ""; editPhoto = t.PhotoUrl ?? ""; editPhotoPreview = t.PhotoUrl ?? ""; editCert = t.Certifications ?? ""; uploadError = ""; showModal = true; }
+
+    private async Task HandlePhotoUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+        uploadError = "";
+        if (file.Size > MaxUploadSize) { uploadError = $"❌ File terlalu besar ({file.Size / 1024 / 1024} MB). Maks: 5 MB."; return; }
+        isUploading = true; StateHasChanged();
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(MaxUploadSize).CopyToAsync(ms); ms.Position = 0;
+            editPhoto = await Storage.UploadAsync(ms, file.Name, "trainers", file.ContentType);
+            editPhotoPreview = editPhoto;
+        }
+        finally { isUploading = false; StateHasChanged(); }
+    }
+
+    private async Task SaveTrainer()
+    {
+        var t = editId.HasValue ? await Service.GetByIdAsync(editId.Value) : new Trainer { JoinedAt = DateTime.UtcNow };
+        if (t == null) return;
+        t.FullName = editName; t.Specialization = editSpec; t.Bio = editBio; t.Email = editEmail; t.Phone = editPhone;
+        t.PhotoUrl = string.IsNullOrWhiteSpace(editPhoto) ? null : editPhoto; t.Certifications = editCert; t.IsActive = true;
+        if (editId.HasValue) await Service.UpdateAsync(t); else await Service.CreateAsync(t);
+        showModal = false; trainers = await Service.GetAllAsync();
+    }
+    private async Task ToggleTrainer(Trainer t) { t.IsActive = !t.IsActive; await Service.UpdateAsync(t); trainers = await Service.GetAllAsync(); }
+}

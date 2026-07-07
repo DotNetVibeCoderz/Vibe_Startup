@@ -1,0 +1,152 @@
+@page "/admin/config"
+@attribute [Authorize(Roles = "Admin")]
+@inject AppDbContext Db
+@inject StorageService StorageService
+@inject IConfiguration Config
+
+<h3>⚙️ System Configuration</h3>
+
+<div class="grid-4 mb-3">
+    <div class="stat-card">
+        <div class="stat-value" style="font-size:1.2rem;">@storageProvider</div>
+        <div class="stat-label">📦 Storage Provider</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="font-size:1.2rem;">@storageType</div>
+        <div class="stat-label">Storage Type</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="font-size:1.2rem;">@dbProvider</div>
+        <div class="stat-label">🗄️ Database</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="font-size:1.2rem;">@aiProvider</div>
+        <div class="stat-label">🤖 AI Provider</div>
+    </div>
+</div>
+
+<div class="brutal-card mb-2">
+    <h4>📦 Storage Configuration</h4>
+    <p style="color:var(--text-muted);">Current provider: <strong>@storageProvider</strong></p>
+    <p style="font-size:0.85rem;color:var(--text-muted);">
+        To switch providers, change <code>Storage:Provider</code> in <code>appsettings.json</code>:
+        <br>Available: <strong>FileSystem</strong> | <strong>AzureBlob</strong> | <strong>S3</strong> | <strong>MinIO</strong>
+    </p>
+    <div class="grid-2 mt-2">
+        <div>
+            <h5>FileSystem (Default)</h5>
+            <p style="font-size:0.85rem;">Root: @fsRootPath</p>
+        </div>
+        <div>
+            <h5>Azure Blob</h5>
+            <p style="font-size:0.85rem;">Container: @azureContainer</p>
+            <p style="font-size:0.85rem;color:var(--text-muted);">@azureStatus</p>
+        </div>
+        <div>
+            <h5>AWS S3</h5>
+            <p style="font-size:0.85rem;">Bucket: @s3Bucket | Region: @s3Region</p>
+            <p style="font-size:0.85rem;color:var(--text-muted);">@s3Status</p>
+        </div>
+        <div>
+            <h5>MinIO</h5>
+            <p style="font-size:0.85rem;">Endpoint: @minioEndpoint | Bucket: @minioBucket</p>
+            <p style="font-size:0.85rem;color:var(--text-muted);">@minioStatus</p>
+        </div>
+    </div>
+</div>
+
+<div class="brutal-card" style="padding:0;">
+    <h4 style="padding:1rem 1rem 0;">📝 App Settings</h4>
+    <table class="brutal-table w-full">
+        <thead><tr><th>Key</th><th>Value</th><th>Description</th><th>Actions</th></tr></thead>
+        <tbody>
+            @foreach (var cfg in configs)
+            {
+                <tr>
+                    <td><strong>@cfg.Key</strong></td>
+                    <td>@cfg.Value</td>
+                    <td>@cfg.Description</td>
+                    <td>
+                        <button class="brutal-btn brutal-btn-sm" @onclick="() => EditConfig(cfg)">✏️</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (editingConfig != null)
+{
+    <div class="brutal-modal-overlay" @onclick="() => editingConfig = null">
+        <div class="brutal-modal" @onclick:stopPropagation="true">
+            <h4>Edit: @editingConfig.Key</h4>
+            <input class="brutal-input mb-1" @bind="editValue" />
+            <div class="flex gap-1">
+                <button class="brutal-btn brutal-btn-success" @onclick="SaveConfig">💾 Save</button>
+                <button class="brutal-btn" @onclick="() => editingConfig = null">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<AppConfiguration> configs = new();
+    private AppConfiguration? editingConfig;
+    private string editValue = "";
+
+    // Storage info strings (avoid generic calls in Razor markup)
+    private string storageProvider = "";
+    private string storageType = "";
+    private string dbProvider = "";
+    private string aiProvider = "";
+    private string fsRootPath = "";
+    private string azureContainer = "";
+    private string azureStatus = "";
+    private string s3Bucket = "";
+    private string s3Region = "";
+    private string s3Status = "";
+    private string minioEndpoint = "";
+    private string minioBucket = "";
+    private string minioStatus = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        configs = await Db.AppConfigurations.ToListAsync();
+
+        var info = StorageService.GetStorageInfo();
+        storageProvider = info.ProviderName;
+        storageType = info.IsCloudStorage ? "☁️ Cloud" : "💾 Local";
+        dbProvider = Config.GetValue<string>("Database:Provider") ?? "SQLite";
+        aiProvider = Config.GetValue<string>("AI:DefaultProvider") ?? "OpenAI";
+
+        fsRootPath = Config.GetValue<string>("Storage:FileSystem:RootPath") ?? "wwwroot/uploads";
+
+        azureContainer = Config.GetValue<string>("Storage:AzureBlob:ContainerName") ?? "fitnesscenter";
+        var azureConn = Config.GetValue<string>("Storage:AzureBlob:ConnectionString") ?? "";
+        azureStatus = string.IsNullOrEmpty(azureConn) ? "⚠️ Not configured" : "✅ Configured";
+
+        s3Bucket = Config.GetValue<string>("Storage:S3:BucketName") ?? "fitnesscenter";
+        s3Region = Config.GetValue<string>("Storage:S3:Region") ?? "us-east-1";
+        var s3Key = Config.GetValue<string>("Storage:S3:AccessKey") ?? "";
+        s3Status = string.IsNullOrEmpty(s3Key) || s3Key.Contains("YOUR_") ? "⚠️ Not configured" : "✅ Configured";
+
+        minioEndpoint = Config.GetValue<string>("Storage:MinIO:Endpoint") ?? "localhost:9000";
+        minioBucket = Config.GetValue<string>("Storage:MinIO:BucketName") ?? "fitnesscenter";
+        minioStatus = "✅ Ready (default credentials)";
+    }
+
+    private void EditConfig(AppConfiguration c) { editingConfig = c; editValue = c.Value ?? ""; }
+
+    private async Task SaveConfig()
+    {
+        if (editingConfig != null)
+        {
+            editingConfig.Value = editValue;
+            editingConfig.UpdatedAt = DateTime.UtcNow;
+            Db.AppConfigurations.Update(editingConfig);
+            await Db.SaveChangesAsync();
+            editingConfig = null;
+            configs = await Db.AppConfigurations.ToListAsync();
+        }
+    }
+}

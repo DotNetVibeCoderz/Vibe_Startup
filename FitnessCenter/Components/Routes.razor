@@ -1,0 +1,6 @@
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(FitnessCenter.Components.Pages.NotFound)">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(FitnessCenter.Components.Layout.MainLayout)" />
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

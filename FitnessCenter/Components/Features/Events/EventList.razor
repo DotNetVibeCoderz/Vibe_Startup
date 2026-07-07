@@ -1,0 +1,87 @@
+@page "/events"
+@attribute [Authorize]
+@inject EventService Service
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<h3>🎪 Events</h3>
+@if (isAdmin) { <button class="brutal-btn brutal-btn-sm brutal-btn-success mb-2" @onclick="ShowCreate">➕ New Event</button> }
+
+@foreach (var evt in evts)
+{
+    <div class="brutal-card mb-2">
+        <h4>@evt.Title</h4><span class="brutal-badge brutal-badge-accent">@evt.Status</span><p class="mt-1">@evt.Summary</p>
+        <p>📅 @FormatEventDate(evt.EventDate) | 📍 @evt.Location</p><p>👥 @evt.CurrentParticipants / @evt.MaxParticipants</p>
+        @if (evt.Fee.HasValue) { <p>💰 Fee: Rp @evt.Fee.Value.ToString("N0")</p> }
+        <div class="flex gap-2 mt-1">
+            <button class="brutal-btn brutal-btn-sm" @onclick="() => LikeEvent(evt.Id)">❤️ @evt.Likes</button>
+            <button class="brutal-btn brutal-btn-sm" @onclick="() => RegisterEvent(evt.Id)">📝 Register</button>
+            <button class="brutal-btn brutal-btn-sm" @onclick="() => ToggleComments(evt.Id)">💬 @(evt.Comments?.Count ?? 0)</button>
+            @if (isAdmin) { <button class="brutal-btn brutal-btn-sm" @onclick="() => EditEvent(evt)">✏️</button><button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="() => DeleteEvent(evt.Id)">🗑️</button> }
+        </div>
+        @if (expandedCommentId == evt.Id)
+        {
+            <div style="border-top:var(--border-thin);margin-top:0.75rem;padding-top:0.75rem;">
+                <h5>Comments</h5>
+                @if (evt.Comments?.Any() == true) { foreach (var c in evt.Comments.OrderBy(c => c.CreatedAt)) { <div style="margin-bottom:0.5rem;padding-left:0.5rem;border-left:3px solid var(--accent);"><strong>@c.User?.FullName</strong><span style="font-size:0.7rem;">· @c.CreatedAt.ToString("dd MMM HH:mm")</span><p>@c.Content</p><span>❤️ @c.Likes</span></div> } }
+                <div class="flex gap-1 mt-1"><input class="brutal-input" style="flex:1;font-size:0.85rem;padding:0.4rem;" placeholder="Comment..." @bind="commentText" /><button class="brutal-btn brutal-btn-sm" @onclick="() => AddEventComment(evt.Id)">Send</button></div>
+            </div>
+        }
+        @if (editingEventId == evt.Id)
+        {
+            <div style="border-top:var(--border-thin);margin-top:0.75rem;padding-top:0.75rem;">
+                <div class="grid-2"><div><label>Title</label><input class="brutal-input" @bind="editTitle" /></div><div><label>Date (yyyy-MM-ddTHH:mm)</label><input class="brutal-input" @bind="editDate" @bind:event="oninput" /></div><div><label>Location</label><input class="brutal-input" @bind="editLocation" /></div><div><label>Max</label><input class="brutal-input" type="number" @bind="editMax" /></div><div><label>Fee</label><input class="brutal-input" type="number" @bind="editFee" /></div><div><label>Summary</label><input class="brutal-input" @bind="editSummary" /></div><div><label>Status</label><select class="brutal-select" @bind="editStatus">@foreach (var s in Enum.GetNames<EventStatus>()) { <option value="@s">@s</option> }</select></div></div>
+                <div><label>Content</label><textarea class="brutal-input" rows="5" @bind="editContent"></textarea></div>
+                <div class="flex gap-1 mt-1"><button class="brutal-btn brutal-btn-success" @onclick="SaveEvent">💾 Save</button><button class="brutal-btn" @onclick="() => editingEventId = null">Cancel</button></div>
+            </div>
+        }
+    </div>
+}
+
+@if (showCreate)
+{
+    <div class="brutal-modal-overlay" @onclick="() => showCreate = false"><div class="brutal-modal" @onclick:stopPropagation="true" style="max-width:700px;">
+        <h3>➕ New Event</h3>
+        <div class="grid-2 mt-1"><div><label>Title</label><input class="brutal-input" @bind="editTitle" /></div><div><label>Date (yyyy-MM-ddTHH:mm)</label><input class="brutal-input" @bind="editDate" @bind:event="oninput" /></div><div><label>Location</label><input class="brutal-input" @bind="editLocation" /></div><div><label>Max</label><input class="brutal-input" type="number" @bind="editMax" /></div><div><label>Fee</label><input class="brutal-input" type="number" @bind="editFee" /></div><div><label>Summary</label><input class="brutal-input" @bind="editSummary" /></div></div>
+        <div><label>Content</label><textarea class="brutal-input" rows="5" @bind="editContent"></textarea></div>
+        <div class="flex gap-1 mt-2"><button class="brutal-btn brutal-btn-success" @onclick="SaveEvent">💾 Create</button><button class="brutal-btn" @onclick="() => showCreate = false">Cancel</button></div>
+    </div></div>
+}
+
+@code {
+    private List<Event> evts = new(); private string? currentUserId; private int? expandedCommentId;
+    private string commentText = ""; private int? editingEventId; private bool showCreate; private bool isAdmin;
+    private string editTitle = "", editDate = "", editLocation = "", editSummary = "", editContent = "", editStatus = "Draft";
+    private int editMax, editFee;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var a = await AuthState.GetAuthenticationStateAsync(); var u = await UserManager.GetUserAsync(a.User);
+        currentUserId = u?.Id; isAdmin = u?.Role == UserRole.Admin;
+        evts = isAdmin ? await Service.GetAllAsync() : await Service.GetPublishedAsync();
+    }
+
+    private static string FormatEventDate(DateTime? dt) => dt?.ToString("dd MMM yyyy HH:mm") ?? "TBA";
+
+    private async Task LikeEvent(int id) { var e = await Service.GetByIdAsync(id); if (e != null) { e.Likes++; await Service.UpdateAsync(e); evts = await RefreshEvents(); } }
+    private async Task RegisterEvent(int id) { if (currentUserId != null) { await Service.RegisterAsync(id, currentUserId); evts = await RefreshEvents(); } }
+    private void ToggleComments(int id) => expandedCommentId = expandedCommentId == id ? null : id;
+    private async Task AddEventComment(int id) { if (string.IsNullOrWhiteSpace(commentText) || currentUserId == null) return; await Service.AddCommentAsync(new EventComment { EventId = id, UserId = currentUserId, Content = commentText }); commentText = ""; evts = await RefreshEvents(); expandedCommentId = id; }
+    private void EditEvent(Event e) { editingEventId = e.Id; editTitle = e.Title; editDate = e.EventDate?.ToString("yyyy-MM-ddTHH:mm") ?? ""; editLocation = e.Location ?? ""; editSummary = e.Summary ?? ""; editContent = e.Content ?? ""; editMax = e.MaxParticipants; editFee = (int)(e.Fee ?? 0); editStatus = e.Status.ToString(); }
+    private async Task DeleteEvent(int id) { var e = await Service.GetByIdAsync(id); if (e != null) { e.Status = EventStatus.Cancelled; await Service.UpdateAsync(e); evts = await RefreshEvents(); } }
+    private void ShowCreate() { showCreate = true; editingEventId = null; editTitle = ""; editDate = DateTime.UtcNow.AddDays(14).ToString("yyyy-MM-ddTHH:mm"); editLocation = ""; editSummary = ""; editContent = ""; editMax = 50; editFee = 0; editStatus = "Draft"; }
+
+    private async Task SaveEvent()
+    {
+        Event evt;
+        if (editingEventId.HasValue) { evt = await Service.GetByIdAsync(editingEventId.Value) ?? new Event { CreatedAt = DateTime.UtcNow }; }
+        else { evt = new Event { CreatedAt = DateTime.UtcNow }; }
+        evt.Title = editTitle; evt.Location = editLocation; evt.Summary = editSummary; evt.Content = editContent; evt.MaxParticipants = editMax; evt.Fee = editFee > 0 ? editFee : null;
+        evt.Status = Enum.TryParse<EventStatus>(editStatus, out var s) ? s : EventStatus.Draft;
+        if (DateTime.TryParse(editDate, out var dt)) evt.EventDate = dt;
+        if (editingEventId.HasValue) await Service.UpdateAsync(evt); else await Service.CreateAsync(evt);
+        showCreate = false; editingEventId = null; evts = await RefreshEvents();
+    }
+
+    private async Task<List<Event>> RefreshEvents() => isAdmin ? await Service.GetAllAsync() : await Service.GetPublishedAsync();
+}

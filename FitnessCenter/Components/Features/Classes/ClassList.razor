@@ -1,0 +1,115 @@
+@page "/classes"
+@attribute [Authorize]
+@inject ClassService Service
+@inject TrainerService TrainerService
+@inject StorageService Storage
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<h3>📅 Classes</h3>
+@if (isAdmin) { <button class="brutal-btn brutal-btn-sm brutal-btn-success mb-2" @onclick="ShowCreate">➕ New Class</button> }
+
+<div class="grid-3">
+    @foreach (var c in classes)
+    {
+        <div class="brutal-card">
+            @if (!string.IsNullOrEmpty(c.ImageUrl))
+            {
+                <img src="@c.ImageUrl" style="width:100%;height:140px;object-fit:cover;border:2px solid var(--border-color);margin-bottom:0.5rem;" />
+            }
+            <h4>@c.Name</h4><p>🎯 @c.Type | 📊 @c.Level</p><p>👤 @c.Trainer?.FullName</p><p>📍 @c.Room | ⏱️ @c.Duration.TotalMinutes min | 👥 @c.MaxParticipants</p>
+            @if (c.IsVirtual) { <span class="brutal-badge brutal-badge-info">Virtual</span> }
+            @if (currentUserId != null) { <button class="brutal-btn brutal-btn-sm mt-1" @onclick="() => BookClass(c.Id)">📝 Book</button> }
+            @if (isAdmin) { <div class="flex gap-1 mt-1"><button class="brutal-btn brutal-btn-sm" @onclick="() => EditClass(c)">✏️</button><button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="() => DeleteClass(c.Id)">🗑️</button></div> }
+        </div>
+    }
+</div>
+
+@if (!string.IsNullOrEmpty(message)) { <div class="brutal-toast">@message</div> }
+
+@if (showModal)
+{
+    <div class="brutal-modal-overlay" @onclick="() => showModal = false"><div class="brutal-modal" @onclick:stopPropagation="true" style="max-width:700px;">
+        <h3>@(editId.HasValue ? "✏️ Edit Class" : "➕ New Class")</h3>
+        <div class="grid-2 mt-1">
+            <div><label>Name *</label><input class="brutal-input" @bind="editName" /></div>
+            <div><label>Room</label><input class="brutal-input" @bind="editRoom" placeholder="Studio 1 / Gym Floor" /></div>
+            <div><label>Type</label><select class="brutal-select" @bind="editType">@foreach (var t in Enum.GetNames<ClassType>()) { <option value="@t">@t</option> }</select></div>
+            <div><label>Level</label><select class="brutal-select" @bind="editLevel">@foreach (var l in Enum.GetNames<ClassLevel>()) { <option value="@l">@l</option> }</select></div>
+            <div><label>Trainer</label><select class="brutal-select" @bind="editTrainerId">@foreach (var t in trainers) { <option value="@t.Id">@t.FullName</option> }</select></div>
+            <div><label>Duration (minutes)</label><input class="brutal-input" type="number" min="5" @bind="editDuration" /></div>
+            <div><label>Max Participants</label><input class="brutal-input" type="number" min="1" @bind="editMax" /></div>
+        </div>
+
+        @* Photo upload + URL *@
+        <div class="mt-1">
+            <label style="font-weight:600;">🖼️ Class Photo</label>
+            <div class="flex gap-1 items-center">
+                <InputFile OnChange="HandlePhotoUpload" accept="image/*" style="display:none;" id="classPhotoUpload" />
+                <label for="classPhotoUpload" class="brutal-btn brutal-btn-sm" style="cursor:pointer;">📷 Upload Foto</label>
+                <input class="brutal-input" style="flex:1;" placeholder="atau paste URL gambar..." @bind="editImage" />
+            </div>
+            @if (isUploading) { <span style="font-size:0.8rem;">⏳ Uploading...</span> }
+            @if (!string.IsNullOrEmpty(editImagePreview))
+            {
+                <div class="mt-1">
+                    <img src="@editImagePreview" style="max-width:200px;max-height:120px;border:2px solid var(--border-color);" />
+                    <div style="font-size:0.7rem;color:var(--text-muted);">Preview</div>
+                </div>
+            }
+        </div>
+
+        <label class="mt-1"><input type="checkbox" @bind="editVirtual" /> Virtual Class (Zoom/Teams)</label>
+        <div class="flex gap-1 mt-2"><button class="brutal-btn brutal-btn-success" @onclick="SaveClass">💾 Save</button><button class="brutal-btn" @onclick="() => showModal = false">Cancel</button></div>
+    </div></div>
+}
+
+@code {
+    private List<FitnessClass> classes = new(); private List<Trainer> trainers = new();
+    private string? currentUserId; private string message = "";
+    private bool showModal; private int? editId; private bool isAdmin; private bool isUploading;
+    private string editName = "", editRoom = "", editType = "Yoga", editLevel = "AllLevels", editImage = "", editImagePreview = "";
+    private int editTrainerId, editDuration = 60, editMax = 20; private bool editVirtual;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync(); var u = await UserManager.GetUserAsync(authState.User);
+        currentUserId = u?.Id; isAdmin = u?.Role == UserRole.Admin;
+        classes = await Service.GetAllAsync(); trainers = await TrainerService.GetAllAsync();
+    }
+
+    private async Task BookClass(int classId) { if (currentUserId == null) return; var c = await Service.GetByIdAsync(classId); var s = c?.Schedules.FirstOrDefault(); if (s != null) { var b = await Service.BookClassAsync(s.Id, currentUserId); message = b != null ? "✅ Berhasil booking!" : "❌ Gagal booking."; } }
+
+    private void ShowCreate() { editId = null; editName = ""; editRoom = ""; editType = "Yoga"; editLevel = "AllLevels"; editImage = ""; editImagePreview = ""; editTrainerId = trainers.FirstOrDefault()?.Id ?? 1; editDuration = 60; editMax = 20; editVirtual = false; showModal = true; }
+
+    private void EditClass(FitnessClass c) { editId = c.Id; editName = c.Name; editRoom = c.Room ?? ""; editType = c.Type.ToString(); editLevel = c.Level.ToString(); editImage = c.ImageUrl ?? ""; editImagePreview = c.ImageUrl ?? ""; editTrainerId = c.TrainerId; editDuration = (int)c.Duration.TotalMinutes; editMax = c.MaxParticipants; editVirtual = c.IsVirtual; showModal = true; }
+
+    private async Task HandlePhotoUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+        isUploading = true; StateHasChanged();
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(5 * 1024 * 1024).CopyToAsync(ms); ms.Position = 0;
+            editImage = await Storage.UploadAsync(ms, file.Name, "classes", file.ContentType);
+            editImagePreview = editImage;
+        }
+        finally { isUploading = false; StateHasChanged(); }
+    }
+
+    private async Task SaveClass()
+    {
+        var fc = editId.HasValue ? await Service.GetByIdAsync(editId.Value) : new FitnessClass { CreatedAt = DateTime.UtcNow };
+        if (fc == null) return;
+        fc.Name = editName; fc.Room = editRoom; fc.Type = Enum.TryParse<ClassType>(editType, out var t) ? t : ClassType.Yoga;
+        fc.Level = Enum.TryParse<ClassLevel>(editLevel, out var l) ? l : ClassLevel.AllLevels;
+        fc.TrainerId = editTrainerId; fc.Duration = TimeSpan.FromMinutes(editDuration); fc.MaxParticipants = editMax;
+        fc.ImageUrl = string.IsNullOrWhiteSpace(editImage) ? null : editImage; fc.IsVirtual = editVirtual; fc.IsActive = true;
+        if (editId.HasValue) await Service.UpdateAsync(fc); else await Service.CreateAsync(fc);
+        showModal = false; classes = await Service.GetAllAsync();
+    }
+
+    private async Task DeleteClass(int id) { await Service.DeleteAsync(id); classes = await Service.GetAllAsync(); }
+}

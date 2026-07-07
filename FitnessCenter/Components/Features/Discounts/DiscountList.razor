@@ -1,0 +1,64 @@
+@page "/discounts"
+@attribute [Authorize]
+@inject DiscountService Service
+@inject AuthenticationStateProvider AuthState
+@inject UserManager<ApplicationUser> UserManager
+
+<h3>🏷️ Discounts &amp; Promotions</h3>
+@if (isAdmin) { <button class="brutal-btn brutal-btn-sm brutal-btn-success mb-2" @onclick="ShowCreate">➕ New Discount</button> }
+
+<div class="grid-3">
+    @foreach (var d in discounts)
+    {
+        <div class="brutal-card">
+            <h4 style="font-family:monospace;">@d.Code</h4><span class="brutal-badge brutal-badge-accent">@(d.Type == DiscountType.Percentage ? $"{d.Value}%" : $"Rp {d.Value:N0}")</span>
+            <p>@d.Description</p>
+            <p>📅 @FormatDate(d.ValidFrom) - @FormatDate(d.ValidUntil)</p>
+            <p>Used: @d.CurrentUses / @(d.MaxUses?.ToString() ?? "∞")</p>
+            @if (d.MinPurchase.HasValue) { <p>Min: Rp @d.MinPurchase.Value.ToString("N0")</p> }
+            @if (isAdmin) { <div class="flex gap-1 mt-1"><button class="brutal-btn brutal-btn-sm" @onclick="() => EditDiscount(d)">✏️</button><button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="() => ToggleDiscount(d)">@(d.IsActive ? "⛔" : "✅")</button></div> }
+        </div>
+    }
+</div>
+
+@if (showModal)
+{
+    <div class="brutal-modal-overlay" @onclick="() => showModal = false"><div class="brutal-modal" @onclick:stopPropagation="true">
+        <h3>@(editId.HasValue ? "✏️ Edit" : "➕ New") Discount</h3>
+        <div class="grid-2 mt-1">
+            <div><label>Code</label><input class="brutal-input" @bind="editCode" /></div>
+            <div><label>Type</label><select class="brutal-select" @bind="editType"><option value="Percentage">%</option><option value="FixedAmount">Rp</option></select></div>
+            <div><label>Value</label><input class="brutal-input" type="number" @bind="editValue" /></div>
+            <div><label>Max Uses (0=unlimited)</label><input class="brutal-input" type="number" @bind="editMaxUses" /></div>
+            <div><label>Min Purchase</label><input class="brutal-input" type="number" @bind="editMinPurchase" /></div>
+            <div><label>Valid From (yyyy-MM-dd)</label><input class="brutal-input" @bind="editValidFrom" @bind:event="oninput" /></div>
+            <div><label>Valid Until (yyyy-MM-dd)</label><input class="brutal-input" @bind="editValidUntil" @bind:event="oninput" /></div>
+            <div><label>Description</label><input class="brutal-input" @bind="editDesc" /></div>
+        </div>
+        <div class="flex gap-1 mt-2"><button class="brutal-btn brutal-btn-success" @onclick="SaveDiscount">💾 Save</button><button class="brutal-btn" @onclick="() => showModal = false">Cancel</button></div>
+    </div></div>
+}
+
+@code {
+    private List<Discount> discounts = new(); private bool showModal; private int? editId; private bool isAdmin;
+    private string editCode = "", editType = "Percentage", editDesc = "", editValidFrom = "", editValidUntil = "";
+    private int editValue, editMaxUses, editMinPurchase;
+
+    protected override async Task OnInitializedAsync()
+    { discounts = await Service.GetAllAsync(); try { var a = await AuthState.GetAuthenticationStateAsync(); var u = await UserManager.GetUserAsync(a.User); isAdmin = u?.Role == UserRole.Admin; } catch { } }
+
+    private static string FormatDate(DateTime dt) => dt.ToString("dd MMM yyyy");
+
+    private void ShowCreate() { editId = null; editCode = ""; editType = "Percentage"; editDesc = ""; editValue = 0; editMaxUses = 0; editMinPurchase = 0; editValidFrom = DateTime.UtcNow.ToString("yyyy-MM-dd"); editValidUntil = DateTime.UtcNow.AddMonths(3).ToString("yyyy-MM-dd"); showModal = true; }
+    private void EditDiscount(Discount d) { editId = d.Id; editCode = d.Code; editType = d.Type.ToString(); editDesc = d.Description ?? ""; editValue = (int)d.Value; editMaxUses = d.MaxUses ?? 0; editMinPurchase = (int)(d.MinPurchase ?? 0); editValidFrom = d.ValidFrom.ToString("yyyy-MM-dd"); editValidUntil = d.ValidUntil.ToString("yyyy-MM-dd"); showModal = true; }
+    private async Task SaveDiscount()
+    {
+        var d = editId.HasValue ? (await Service.GetAllAsync()).FirstOrDefault(x => x.Id == editId.Value) : new Discount();
+        if (d == null) return;
+        d.Code = editCode.ToUpper(); d.Type = editType == "FixedAmount" ? DiscountType.FixedAmount : DiscountType.Percentage; d.Value = editValue; d.MaxUses = editMaxUses > 0 ? editMaxUses : null; d.MinPurchase = editMinPurchase > 0 ? editMinPurchase : null; d.Description = editDesc; d.ValidFrom = ParseDate(editValidFrom); d.ValidUntil = ParseDate(editValidUntil); d.IsActive = true;
+        if (editId.HasValue) await Service.UpdateAsync(d); else await Service.CreateAsync(d);
+        showModal = false; discounts = await Service.GetAllAsync();
+    }
+    private static DateTime ParseDate(string d) => DateTime.TryParse(d, out var dt) ? dt : DateTime.UtcNow;
+    private async Task ToggleDiscount(Discount d) { d.IsActive = !d.IsActive; await Service.UpdateAsync(d); discounts = await Service.GetAllAsync(); }
+}

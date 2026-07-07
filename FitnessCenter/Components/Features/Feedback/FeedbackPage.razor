@@ -1,0 +1,91 @@
+@page "/feedback"
+@attribute [Authorize]
+@inject FeedbackService Service
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<h3>⭐ Feedback &amp; Reviews</h3>
+
+<div class="brutal-card mb-2">
+    <h4>Submit Feedback</h4>
+    <select class="brutal-select mb-1" @bind="feedbackType">
+        <option value="General">General</option>
+        <option value="Class">Class</option>
+        <option value="Trainer">Trainer</option>
+        <option value="Facility">Facility</option>
+    </select>
+
+    @* Star rating — gunakan callback method biar closure aman *@
+    <div class="flex gap-1 mb-1 items-center">
+        <span>Rating:</span>
+        <button class="brutal-btn brutal-btn-sm @(rating >= 1 ? "brutal-btn-primary" : "brutal-btn-outline")" @onclick="() => SetRating(1)" type="button" title="Buruk">★</button>
+        <button class="brutal-btn brutal-btn-sm @(rating >= 2 ? "brutal-btn-primary" : "brutal-btn-outline")" @onclick="() => SetRating(2)" type="button" title="Kurang">★</button>
+        <button class="brutal-btn brutal-btn-sm @(rating >= 3 ? "brutal-btn-primary" : "brutal-btn-outline")" @onclick="() => SetRating(3)" type="button" title="Cukup">★</button>
+        <button class="brutal-btn brutal-btn-sm @(rating >= 4 ? "brutal-btn-primary" : "brutal-btn-outline")" @onclick="() => SetRating(4)" type="button" title="Bagus">★</button>
+        <button class="brutal-btn brutal-btn-sm @(rating >= 5 ? "brutal-btn-primary" : "brutal-btn-outline")" @onclick="() => SetRating(5)" type="button" title="Luar Biasa">★</button>
+        <span style="margin-left:0.5rem;font-weight:700;">@rating/5</span>
+    </div>
+
+    <textarea class="brutal-input mb-1" rows="3" placeholder="Tulis komentar kamu..." @bind="comment"></textarea>
+    <button class="brutal-btn brutal-btn-success" @onclick="SubmitFeedback">Submit Review</button>
+</div>
+
+@if (feedbacks.Any())
+{
+    @foreach (var f in feedbacks)
+    {
+        <div class="brutal-card mb-1">
+            <div class="flex justify-between">
+                <strong>@f.User?.FullName</strong>
+                <span>@f.CreatedAt.ToString("dd MMM yyyy")</span>
+            </div>
+            <span class="brutal-badge brutal-badge-accent">@f.Type</span>
+            <div style="color:var(--accent);">
+                @for (int i = 1; i <= 5; i++)
+                {
+                    <span>@(i <= f.Rating ? "★" : "☆")</span>
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(f.Comment)) { <p>@f.Comment</p> }
+        </div>
+    }
+}
+else { <p class="text-center" style="color:var(--text-muted);">Belum ada feedback. Jadilah yang pertama!</p> }
+
+@code {
+    private List<Feedback> feedbacks = new();
+    private string? currentUserId;
+    private string feedbackType = "General";
+    private string comment = "";
+    private int rating = 5;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        currentUserId = user?.Id;
+        feedbacks = await Service.GetAllAsync();
+    }
+
+    /// <summary>Set rating dengan method terpisah — hindari closure issue di loop</summary>
+    private void SetRating(int stars)
+    {
+        rating = stars;
+        StateHasChanged();
+    }
+
+    private async Task SubmitFeedback()
+    {
+        if (currentUserId == null) return;
+        await Service.CreateAsync(new Feedback
+        {
+            UserId = currentUserId,
+            Type = Enum.TryParse<FeedbackType>(feedbackType, out var t) ? t : FeedbackType.General,
+            Rating = rating,
+            Comment = comment
+        });
+        comment = ""; rating = 5;
+        feedbacks = await Service.GetAllAsync();
+        StateHasChanged();
+    }
+}

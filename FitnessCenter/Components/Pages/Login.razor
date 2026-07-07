@@ -1,0 +1,65 @@
+@page "/login"
+@layout FitnessCenter.Components.Layout.MinimalLayout
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg-primary);">
+    <div class="brutal-card" style="width:420px;max-width:90vw;">
+        <div class="text-center mb-3">
+            <div style="font-size:3rem;">🏋️</div>
+            <h2>FITNESS CENTER</h2>
+            <p style="color:var(--text-muted);">Login to your account</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="brutal-badge brutal-badge-danger w-full mb-2" style="display:block;text-align:center;">@errorMessage</div>
+        }
+
+        <form method="post" action="/login" class="flex flex-col gap-2">
+            <AntiforgeryToken />
+            <input type="hidden" name="returnUrl" value="@returnUrl" />
+
+            <div class="mb-1">
+                <label style="display:block;font-weight:600;">Email</label>
+                <input name="email" type="email" class="brutal-input" placeholder="your@email.com" required />
+            </div>
+            <div class="mb-2">
+                <label style="display:block;font-weight:600;">Password</label>
+                <input name="password" type="password" class="brutal-input" placeholder="••••••••" required />
+            </div>
+            <button type="submit" class="brutal-btn brutal-btn-primary w-full">🔑 LOGIN</button>
+        </form>
+
+        <div class="flex justify-between mt-2" style="font-size:0.85rem;">
+            <a href="/register">📝 Register</a>
+            <a href="/reset-password" style="color:var(--text-muted);">Lupa password?</a>
+        </div>
+
+        <div class="mt-3 text-center" style="font-size:0.9rem;border-top:var(--border-thin);padding-top:1rem;">
+            <p style="font-weight:600;">🔑 Demo Accounts:</p>
+            <p style="font-size:0.8rem;color:var(--text-muted);">
+                Admin: admin@fitnesscenter.com / Admin123!<br>
+                Trainer: trainer1@fitnesscenter.com / Trainer123!<br>
+                Member: member1@email.com / Member123!
+            </p>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    private string errorMessage = "";
+    private string returnUrl = "/";
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrWhiteSpace(Error)) { errorMessage = Error; }
+        returnUrl = string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl;
+    }
+}

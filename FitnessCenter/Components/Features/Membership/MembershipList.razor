@@ -1,0 +1,59 @@
+@page "/memberships"
+@attribute [Authorize]
+@inject MembershipService Service
+@inject AuthenticationStateProvider AuthState
+@inject UserManager<ApplicationUser> UserManager
+
+<h3>💳 Membership Plans</h3>
+@if (isAdmin) { <button class="brutal-btn brutal-btn-sm brutal-btn-success mb-2" @onclick="ShowCreate">➕ New Plan</button> }
+
+<div class="grid-3">
+    @foreach (var plan in plans)
+    {
+        <div class="brutal-card">
+            <h4>@plan.Name</h4><p style="font-size:2rem;font-weight:900;">Rp @plan.Price.ToString("N0")</p>
+            @if (plan.DiscountedPrice.HasValue) { <span class="brutal-badge brutal-badge-danger">Rp @plan.DiscountedPrice.Value.ToString("N0")</span> }
+            <p class="mt-1">@plan.Description</p><p><strong>⏱️ @plan.Duration</strong> | Max @plan.MaxClassesPerMonth kelas/bulan</p>
+            @if (plan.IncludesPersonalTrainer) { <span class="brutal-badge brutal-badge-info">PT</span> }
+            @if (plan.IncludesNutritionPlan) { <span class="brutal-badge brutal-badge-success">Nutrition</span> }
+            @if (plan.AllowAutoRenew) { <span class="brutal-badge brutal-badge-accent">Auto Renew</span> }
+            @if (isAdmin) { <div class="flex gap-1 mt-1"><button class="brutal-btn brutal-btn-sm" @onclick="() => EditPlan(plan)">✏️</button><button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="() => TogglePlan(plan)">@(plan.IsActive ? "⛔" : "✅")</button></div> }
+        </div>
+    }
+</div>
+
+@if (showModal)
+{
+    <div class="brutal-modal-overlay" @onclick="() => showModal = false"><div class="brutal-modal" @onclick:stopPropagation="true">
+        <h3>@(editId.HasValue ? "✏️ Edit Plan" : "➕ New Plan")</h3>
+        <div class="grid-2 mt-1">
+            <div><label>Name</label><input class="brutal-input" @bind="editName" /></div>
+            <div><label>Price</label><input class="brutal-input" type="number" @bind="editPrice" /></div>
+            <div><label>Discounted Price</label><input class="brutal-input" type="number" @bind="editDiscounted" /></div>
+            <div><label>Duration</label><select class="brutal-select" @bind="editDuration">@foreach (var d in Enum.GetNames<MembershipDuration>()) { <option value="@d">@d</option> }</select></div>
+            <div><label>Max Classes/Month</label><input class="brutal-input" type="number" @bind="editMaxClasses" /></div>
+            <div><label>Description</label><textarea class="brutal-input" rows="2" @bind="editDesc"></textarea></div>
+        </div>
+        <div class="flex gap-1 mt-1"><label><input type="checkbox" @bind="editAutoRenew" /> Auto Renew</label><label><input type="checkbox" @bind="editPT" /> PT</label><label><input type="checkbox" @bind="editNutrition" /> Nutrition</label></div>
+        <div class="flex gap-1 mt-2"><button class="brutal-btn brutal-btn-success" @onclick="SavePlan">💾 Save</button><button class="brutal-btn" @onclick="() => showModal = false">Cancel</button></div>
+    </div></div>
+}
+
+@code {
+    private List<MembershipPlan> plans = new();
+    private bool showModal; private int? editId;
+    private string editName = "", editDesc = "", editDuration = "Monthly";
+    private int editMaxClasses = 12, editPrice, editDiscounted;
+    private bool editAutoRenew, editPT, editNutrition, isAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        plans = await Service.GetAllPlansAsync();
+        try { var a = await AuthState.GetAuthenticationStateAsync(); var u = await UserManager.GetUserAsync(a.User); isAdmin = u?.Role == UserRole.Admin; } catch { }
+    }
+
+    private void ShowCreate() { editId = null; editName = ""; editDesc = ""; editDuration = "Monthly"; editMaxClasses = 12; editPrice = 0; editDiscounted = 0; editAutoRenew = false; editPT = false; editNutrition = false; showModal = true; }
+    private void EditPlan(MembershipPlan p) { editId = p.Id; editName = p.Name; editDesc = p.Description ?? ""; editDuration = p.Duration.ToString(); editMaxClasses = p.MaxClassesPerMonth; editPrice = (int)p.Price; editDiscounted = (int)(p.DiscountedPrice ?? 0); editAutoRenew = p.AllowAutoRenew; editPT = p.IncludesPersonalTrainer; editNutrition = p.IncludesNutritionPlan; showModal = true; }
+    private async Task SavePlan() { var plan = editId.HasValue ? await Service.GetPlanByIdAsync(editId.Value) : new MembershipPlan { CreatedAt = DateTime.UtcNow }; if (plan == null) return; plan.Name = editName; plan.Description = editDesc; plan.Price = editPrice; plan.DiscountedPrice = editDiscounted > 0 ? editDiscounted : null; plan.Duration = Enum.TryParse<MembershipDuration>(editDuration, out var dur) ? dur : MembershipDuration.Monthly; plan.MaxClassesPerMonth = editMaxClasses; plan.AllowAutoRenew = editAutoRenew; plan.IncludesPersonalTrainer = editPT; plan.IncludesNutritionPlan = editNutrition; plan.IsActive = true; if (editId.HasValue) await Service.UpdatePlanAsync(plan); else await Service.CreatePlanAsync(plan); showModal = false; plans = await Service.GetAllPlansAsync(); }
+    private async Task TogglePlan(MembershipPlan p) { p.IsActive = !p.IsActive; await Service.UpdatePlanAsync(p); plans = await Service.GetAllPlansAsync(); }
+}

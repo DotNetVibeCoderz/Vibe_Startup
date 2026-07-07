@@ -1,0 +1,229 @@
+@page "/chatbot"
+@attribute [Authorize]
+@using FitnessCenter.Services
+@inject ChatBotService ChatService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+@inject StorageService Storage
+@inject IJSRuntime JS
+
+<div class="flex justify-between items-center mb-2">
+    <h3>🤖 @ChatService.BotName <span style="font-size:0.7rem;color:var(--text-muted);">AI Assistant</span></h3>
+    <div class="flex gap-1 items-center">
+        <span class="brutal-badge brutal-badge-info" style="font-size:0.7rem;">@chatInfo.Provider</span>
+        <span class="brutal-badge brutal-badge-accent" style="font-size:0.7rem;">@chatInfo.Model</span>
+        @if (chatInfo.FunctionsEnabled.TryGetValue("DatabaseQuery", out var db) && db) { <span title="Database Query" style="font-size:0.8rem;">📊</span> }
+        @if (chatInfo.FunctionsEnabled.TryGetValue("WebSearch", out var ws) && ws) { <span title="Web Search" style="font-size:0.8rem;">🔍</span> }
+        @if (chatInfo.FunctionsEnabled.TryGetValue("MathCalculation", out var mc) && mc) { <span title="Math &amp; Calc" style="font-size:0.8rem;">🧮</span> }
+    </div>
+</div>
+
+<div class="grid-2" style="height:calc(100vh - 220px);">
+    <div class="brutal-card" style="overflow-y:auto;">
+        <div class="flex justify-between items-center mb-2">
+            <h4>💬 Sessions</h4>
+            <button class="brutal-btn brutal-btn-sm brutal-btn-success" @onclick="NewSession">➕ New</button>
+        </div>
+        @if (!sessions.Any()) { <p class="text-center" style="color:var(--text-muted);">No sessions yet.</p> }
+        @foreach (var s in sessions)
+        {
+            <div class="flex justify-between items-center mb-1" style="padding:0.5rem;border:2px solid @(s.Id == activeSessionId ? "var(--accent)" : "var(--border-color)");cursor:pointer;"
+                 @onclick="() => LoadSession(s.Id)">
+                <div style="overflow:hidden;">
+                    <strong>@s.Title</strong>
+                    <div style="font-size:0.7rem;color:var(--text-muted);">@s.LastActivity.ToString("dd MMM HH:mm")</div>
+                </div>
+                <div class="flex gap-1">
+                    <button class="brutal-btn brutal-btn-sm" title="Reset" @onclick:stopPropagation="true" @onclick="() => ResetSession(s.Id)">🔄</button>
+                    <button class="brutal-btn brutal-btn-sm brutal-btn-danger" title="Delete" @onclick:stopPropagation="true" @onclick="() => DeleteSession(s.Id)">🗑️</button>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="brutal-card" style="display:flex;flex-direction:column;">
+        @if (activeSession != null)
+        {
+            <div class="chat-messages" id="chatMessages">
+                @foreach (var msg in activeSession.Messages)
+                {
+                    <div class="chat-msg @(msg.Role == "user" ? "chat-msg-user" : "chat-msg-assistant")">
+                        @if (!string.IsNullOrEmpty(msg.ImageUrl))
+                        {
+                            <img src="@msg.ImageUrl" style="max-width:200px;display:block;margin-bottom:0.5rem;border:2px solid var(--border-color);" />
+                        }
+                        @if (!string.IsNullOrEmpty(msg.DocumentUrl))
+                        {
+                            <a href="@msg.DocumentUrl" target="_blank" class="brutal-btn brutal-btn-sm mb-1" style="display:inline-block;">📎 Document</a>
+                        }
+                        @if (!string.IsNullOrEmpty(msg.ModelUsed) && msg.Role == "assistant")
+                        {
+                            <div style="font-size:0.6rem;color:var(--text-muted);margin-bottom:0.25rem;">🤖 @msg.ModelUsed</div>
+                        }
+                        <div class="chat-content">@((MarkupString)RenderMarkdown(msg.Content))</div>
+                    </div>
+                }
+                @if (isTyping)
+                {
+                    <div class="chat-msg chat-msg-assistant">
+                        <div class="flex items-center gap-1">
+                            <span>🤔</span>
+                            <div class="brutal-spinner" style="width:16px;height:16px;border-width:2px;margin:0;"></div>
+                            <span style="font-size:0.8rem;">Memproses...</span>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div style="padding:0.25rem 0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;border-top:1px solid var(--border-color);">
+                @foreach (var suggestion in quickSuggestions)
+                {
+                    <button class="brutal-btn brutal-btn-sm" style="font-size:0.7rem;" @onclick="() => QuickAsk(suggestion.Text)">
+                        @suggestion.Icon @suggestion.Label
+                    </button>
+                }
+            </div>
+
+            <div style="padding:0.5rem;border-top:var(--border-thin);">
+                <div class="flex gap-1 mb-1">
+                    <InputFile OnChange="HandleImageUpload" accept="image/*" style="display:none;" id="imageUpload" />
+                    <label for="imageUpload" class="brutal-btn brutal-btn-sm" style="cursor:pointer;">🖼️</label>
+                    <InputFile OnChange="HandleDocUpload" style="display:none;" id="docUpload" />
+                    <label for="docUpload" class="brutal-btn brutal-btn-sm" style="cursor:pointer;">📎</label>
+                    @if (uploadedImageUrl != null) { <span class="brutal-badge brutal-badge-success" style="font-size:0.7rem;">🖼️ Ready</span> }
+                    @if (uploadedDocUrl != null) { <span class="brutal-badge brutal-badge-info" style="font-size:0.7rem;">📎 Ready</span> }
+                </div>
+                <div class="flex gap-1">
+                    <textarea class="brutal-input" rows="2" placeholder="Tanya Coach Tommy..." @bind="userInput"
+                              @onkeydown="HandleKeyDown" style="resize:none;"></textarea>
+                    <button class="brutal-btn brutal-btn-primary" @onclick="SendMessage"
+                            disabled="@(string.IsNullOrWhiteSpace(userInput) || isTyping)" style="min-width:50px;">➤</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="text-center" style="margin:auto;">
+                <div style="font-size:5rem;">🤖</div>
+                <h3>@ChatService.BotName</h3>
+                <p style="color:var(--text-muted);">AI Assistant Kebugaran Kamu</p>
+                <p style="font-size:0.85rem;">Powered by <strong>@chatInfo.Provider</strong> — Model: <strong>@chatInfo.Model</strong></p>
+                <div class="flex gap-1 justify-center mt-1">
+                    @if (chatInfo.FunctionsEnabled.GetValueOrDefault("DatabaseQuery")) { <span class="brutal-badge brutal-badge-info">📊 Data Query</span> }
+                    @if (chatInfo.FunctionsEnabled.GetValueOrDefault("WebSearch")) { <span class="brutal-badge brutal-badge-accent">🔍 Web Search</span> }
+                    @if (chatInfo.FunctionsEnabled.GetValueOrDefault("MathCalculation")) { <span class="brutal-badge brutal-badge-success">🧮 Kalkulasi</span> }
+                    @if (chatInfo.FunctionsEnabled.GetValueOrDefault("WebScraping")) { <span class="brutal-badge brutal-badge-purple">📄 Scraping</span> }
+                </div>
+                <button class="brutal-btn mt-2" @onclick="NewSession">💬 Mulai Chat Baru</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<ChatSession> sessions = new();
+    private ChatSession? activeSession;
+    private int? activeSessionId;
+    private string? currentUserId;
+    private string userInput = "";
+    private string? uploadedImageUrl;
+    private string? uploadedDocUrl;
+    private bool isTyping;
+    private ChatBotInfo chatInfo = new();
+
+    // Quick suggestion buttons
+    private record QuickSuggestion(string Icon, string Label, string Text);
+    private static readonly List<QuickSuggestion> quickSuggestions = new()
+    {
+        new("📅", "Jadwal Hari Ini", "Jadwal kelas hari ini apa saja?"),
+        new("💳", "Membership", "Daftar paket membership dan harganya"),
+        new("⚕️", "Kalkulator BMI", "Hitung BMI saya, berat 70kg tinggi 170cm"),
+        new("🔥", "Kalori", "Berapa kalori yang terbakar untuk HIIT 45 menit dengan berat 70kg?"),
+        new("🎪", "Events", "Apa saja event yang akan datang?"),
+        new("🥗", "Tips Nutrisi", "Tips nutrisi untuk muscle building"),
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        chatInfo = ChatService.GetChatBotInfo();
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        currentUserId = user?.Id;
+        if (currentUserId != null) sessions = await ChatService.GetSessionsAsync(currentUserId);
+    }
+
+    private async Task NewSession()
+    {
+        if (currentUserId != null)
+        {
+            var s = await ChatService.CreateSessionAsync(currentUserId);
+            sessions.Insert(0, s); activeSession = s; activeSessionId = s.Id;
+        }
+    }
+
+    private async Task LoadSession(int id) { activeSession = await ChatService.GetSessionAsync(id); activeSessionId = id; StateHasChanged(); }
+
+    private async Task ResetSession(int id)
+    {
+        await ChatService.ResetSessionAsync(id);
+        if (activeSessionId == id) { activeSession = await ChatService.GetSessionAsync(id); StateHasChanged(); }
+    }
+
+    private async Task DeleteSession(int id)
+    {
+        await ChatService.DeleteSessionAsync(id);
+        sessions = currentUserId != null ? await ChatService.GetSessionsAsync(currentUserId) : new();
+        if (activeSessionId == id) { activeSession = null; activeSessionId = null; }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(userInput) || activeSessionId == null || isTyping) return;
+        isTyping = true; var input = userInput; userInput = ""; StateHasChanged();
+        try
+        {
+            await ChatService.SendMessageAsync(activeSessionId.Value, input, uploadedImageUrl, uploadedDocUrl);
+            activeSession = await ChatService.GetSessionAsync(activeSessionId.Value);
+            uploadedImageUrl = null; uploadedDocUrl = null;
+            sessions = currentUserId != null ? await ChatService.GetSessionsAsync(currentUserId) : new();
+        }
+        finally
+        {
+            isTyping = false; StateHasChanged();
+            await JS.InvokeVoidAsync("eval", "setTimeout(function(){var el=document.getElementById('chatMessages');if(el)el.scrollTop=el.scrollHeight;},100)");
+        }
+    }
+
+    private async Task QuickAsk(string question) { userInput = question; await SendMessage(); }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey) { await SendMessage(); } }
+
+    private async Task HandleImageUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file != null) { using var ms = new MemoryStream(); await file.OpenReadStream(5 * 1024 * 1024).CopyToAsync(ms); ms.Position = 0; uploadedImageUrl = await Storage.UploadAsync(ms, file.Name, "chat"); }
+    }
+
+    private async Task HandleDocUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file != null) { using var ms = new MemoryStream(); await file.OpenReadStream(10 * 1024 * 1024).CopyToAsync(ms); ms.Position = 0; uploadedDocUrl = await Storage.UploadAsync(ms, file.Name, "documents"); }
+    }
+
+    private string RenderMarkdown(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        text = System.Net.WebUtility.HtmlEncode(text);
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*\*\*(.+?)\*\*\*", "<strong><em>$1</em></strong>");
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*\*(.+?)\*\*", "<strong>$1</strong>");
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*(.+?)\*", "<em>$1</em>");
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"`([^`]+)`", "<code style='background:var(--bg-tertiary);padding:0.1rem 0.3rem;'>$1</code>");
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"```(\w*)\n([\s\S]*?)```", "<pre style='background:#1a1a2e;color:#e0e0e0;padding:0.75rem;overflow-x:auto;border:2px solid var(--accent);font-size:0.8rem;'><code>$2</code></pre>");
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"^### (.+)$", "<h5>$1</h5>", System.Text.RegularExpressions.RegexOptions.Multiline);
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"^## (.+)$", "<h4>$1</h4>", System.Text.RegularExpressions.RegexOptions.Multiline);
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"^# (.+)$", "<h3>$1</h3>", System.Text.RegularExpressions.RegexOptions.Multiline);
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"^[\s]*[-*] (.+)$", "• $1<br>", System.Text.RegularExpressions.RegexOptions.Multiline);
+        text = text.Replace("\n\n", "<br><br>").Replace("\n", "<br>");
+        return text;
+    }
+}

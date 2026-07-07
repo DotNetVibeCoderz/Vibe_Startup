@@ -1,0 +1,109 @@
+@page "/"
+@attribute [Authorize]
+@inject MemberService MemberService
+@inject AttendanceService AttendanceService
+@inject PaymentService PaymentService
+@inject ClassService ClassService
+@inject GamificationService GamificationService
+@inject AppDbContext Db
+
+@if (isLoading)
+{
+    <div class="brutal-spinner"></div>
+}
+else
+{
+    <div class="grid-4 mb-3">
+        <div class="stat-card"><div class="stat-value">@totalMembers</div><div class="stat-label">Total Members</div></div>
+        <div class="stat-card"><div class="stat-value">@activeMembers</div><div class="stat-label">Active Members</div></div>
+        <div class="stat-card"><div class="stat-value">@todayCheckins</div><div class="stat-label">Today Check-ins</div></div>
+        <div class="stat-card"><div class="stat-value">Rp @monthlyRevenue.ToString("N0")</div><div class="stat-label">Monthly Revenue</div></div>
+    </div>
+
+    <div class="grid-2">
+        <div class="brutal-card">
+            <h3 class="mb-2">💰 Recent Payments</h3>
+            @if (recentPayments.Any())
+            {
+                <table class="brutal-table w-full">
+                    <thead><tr><th>Invoice</th><th>Member</th><th>Amount</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (var p in recentPayments)
+                        {
+                            <tr>
+                                <td style="font-family:monospace;">@p.InvoiceNumber</td>
+                                <td>@p.User?.FullName</td>
+                                <td>Rp @p.Amount.ToString("N0")</td>
+                                <td><span class="brutal-badge @(p.Status == PaymentStatus.Completed ? "brutal-badge-success" : "brutal-badge-danger")">@p.Status</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else { <p class="text-center" style="color:var(--text-muted);">No payments yet</p> }
+        </div>
+
+        <div class="brutal-card">
+            <h3 class="mb-2">🏆 Leaderboard</h3>
+            @if (leaderboard.Any())
+            {
+                <table class="brutal-table w-full">
+                    <thead><tr><th>Rank</th><th>Member</th><th>Points</th></tr></thead>
+                    <tbody>
+                        @foreach (var l in leaderboard)
+                        {
+                            <tr>
+                                <td>@(l.Rank == 1 ? "🥇" : l.Rank == 2 ? "🥈" : l.Rank == 3 ? "🥉" : l.Rank.ToString())</td>
+                                <td>@l.UserName</td>
+                                <td><strong>@l.TotalPoints</strong></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            <div class="mt-2 text-center"><a href="/leaderboard" class="brutal-btn brutal-btn-sm">View Full →</a></div>
+        </div>
+    </div>
+
+    <div class="mt-3 grid-2">
+        <div class="brutal-card">
+            <h3 class="mb-2">⚡ Quick Actions</h3>
+            <div class="flex gap-2" style="flex-wrap:wrap;">
+                <a href="/members" class="brutal-btn">👥 Members</a>
+                <a href="/attendance" class="brutal-btn brutal-btn-primary">📋 Check-In</a>
+                <a href="/classes" class="brutal-btn brutal-btn-outline">📅 Schedule</a>
+                <a href="/chatbot" class="brutal-btn brutal-btn-success">🤖 Coach</a>
+            </div>
+        </div>
+        <div class="brutal-card">
+            <h3 class="mb-2">📊 Quick Stats</h3>
+            <p>Total Classes: <strong>@totalClasses</strong></p>
+            <p>Retention Rate: <strong>@retentionRate%</strong></p>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private int totalMembers, activeMembers, todayCheckins, totalClasses;
+    private decimal monthlyRevenue, retentionRate;
+    private List<Payment> recentPayments = new();
+    private List<LeaderboardEntry> leaderboard = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            totalMembers = await MemberService.GetTotalMembersAsync();
+            activeMembers = await MemberService.GetActiveMembersAsync();
+            todayCheckins = await AttendanceService.GetTodayCheckInsAsync();
+            monthlyRevenue = await PaymentService.GetTotalRevenueAsync(DateTime.UtcNow.AddMonths(-1));
+            retentionRate = await MemberService.GetRetentionRateAsync();
+            totalClasses = (await ClassService.GetAllAsync()).Count;
+            leaderboard = await GamificationService.GetLeaderboardAsync(5);
+            recentPayments = await Db.Payments.Include(p => p.User).OrderByDescending(p => p.CreatedAt).Take(5).ToListAsync();
+        }
+        catch { }
+        finally { isLoading = false; }
+    }
+}

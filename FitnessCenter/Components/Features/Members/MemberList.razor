@@ -1,0 +1,205 @@
+@page "/members"
+@attribute [Authorize]
+@inject AppDbContext Db
+@inject UserManager<ApplicationUser> UserManager
+@inject ExportService ExportService
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthState
+
+<h3>👥 Members</h3>
+
+<div class="flex justify-between items-center mb-2">
+    <div class="flex gap-1">
+        <input class="brutal-input" style="width:250px;" placeholder="🔍 Search..." @bind="searchTerm" @bind:event="oninput" />
+        <select class="brutal-select" style="width:150px;" @bind="filterRole">
+            <option value="">All Roles</option>
+            <option value="Admin">Admin</option>
+            <option value="Trainer">Trainer</option>
+            <option value="Member">Member</option>
+            <option value="Staff">Staff</option>
+        </select>
+        <select class="brutal-select" style="width:120px;" @bind="filterStatus">
+            <option value="">All Status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+        </select>
+        <button class="brutal-btn brutal-btn-sm" @onclick="RefreshData">🔄</button>
+    </div>
+    <div class="flex gap-1">
+        @if (isAdmin) { <button class="brutal-btn brutal-btn-sm brutal-btn-success" @onclick="ShowCreateModal">➕ New Member</button> }
+        <button class="brutal-btn brutal-btn-sm" @onclick="ExportCsv">📥 CSV</button>
+        <button class="brutal-btn brutal-btn-sm brutal-btn-success" @onclick="ExportExcel">📊 Excel</button>
+    </div>
+</div>
+
+@if (isLoading) { <div class="brutal-spinner"></div> }
+else
+{
+    <div class="brutal-card" style="padding:0;overflow-x:auto;">
+        <table class="brutal-table w-full">
+            <thead>
+                <tr>
+                    <th @onclick="() => ToggleSort(nameof(ApplicationUser.FullName))">Name @SortIcon(nameof(ApplicationUser.FullName))</th>
+                    <th @onclick="() => ToggleSort(nameof(ApplicationUser.Email))">Email @SortIcon(nameof(ApplicationUser.Email))</th>
+                    <th @onclick="() => ToggleSort(nameof(ApplicationUser.Role))">Role @SortIcon(nameof(ApplicationUser.Role))</th>
+                    <th>Points</th>
+                    <th @onclick="() => ToggleSort(nameof(ApplicationUser.RegisteredAt))">Registered @SortIcon(nameof(ApplicationUser.RegisteredAt))</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @{
+                    var paged = members.Skip((currentPage - 1) * pageSize).Take(pageSize).ToList();
+                }
+                @foreach (var m in paged)
+                {
+                    <tr>
+                        <td><strong>@m.FullName</strong></td>
+                        <td>@m.Email</td>
+                        <td><span class="brutal-badge @GetRoleBadge(m.Role)">@m.Role</span></td>
+                        <td>⭐ @m.LoyaltyPoints</td>
+                        <td>@m.RegisteredAt.ToString("dd MMM yyyy")</td>
+                        <td><span class="brutal-badge @(m.IsActive ? "brutal-badge-success" : "brutal-badge-danger")">@(m.IsActive ? "Active" : "Inactive")</span></td>
+                        <td>
+                            <div class="flex gap-1">
+                                <button class="brutal-btn brutal-btn-sm" @onclick="() => ViewMember(m.Id)">👁️</button>
+                                @if (isAdmin)
+                                {
+                                    <button class="brutal-btn brutal-btn-sm" @onclick="() => EditMember(m)">✏️</button>
+                                    <button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="() => ToggleActive(m)">@(m.IsActive ? "⛔" : "✅")</button>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+                @if (!paged.Any()) { <tr><td colspan="7" class="text-center">No members found.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    var totalPages = (int)Math.Ceiling((double)members.Count / pageSize);
+    if (totalPages > 1)
+    {
+        <div class="brutal-pagination">
+            <button disabled="@(currentPage <= 1)" @onclick="() => currentPage--">◀</button>
+            @for (int i = 1; i <= totalPages; i++)
+            {
+                <button class="@(i == currentPage ? "active" : "")" @onclick="() => currentPage = i">@i</button>
+            }
+            <button disabled="@(currentPage >= totalPages)" @onclick="() => currentPage++">▶</button>
+        </div>
+    }
+}
+
+@if (selectedMember != null && !showEditModal && !showCreateModal)
+{
+    <div class="brutal-modal-overlay" @onclick="() => selectedMember = null">
+        <div class="brutal-modal" @onclick:stopPropagation="true">
+            <div class="flex justify-between items-center mb-2"><h3>👤 @selectedMember.FullName</h3><button class="brutal-btn brutal-btn-sm" @onclick="() => selectedMember = null">✕</button></div>
+            <div class="grid-2"><div><p><strong>Email:</strong> @selectedMember.Email</p><p><strong>Phone:</strong> @selectedMember.PhoneNumber</p><p><strong>Role:</strong> @selectedMember.Role</p><p><strong>Gender:</strong> @selectedMember.Gender</p><p><strong>Address:</strong> @selectedMember.Address</p></div><div><p><strong>Points:</strong> ⭐ @selectedMember.LoyaltyPoints</p><p><strong>Registered:</strong> @selectedMember.RegisteredAt.ToString("dd MMM yyyy")</p><p><strong>Membership Expiry:</strong> @(selectedMember.MembershipExpiryDate?.ToString("dd MMM yyyy") ?? "N/A")</p></div></div>
+        </div>
+    </div>
+}
+
+@if (showCreateModal || showEditModal)
+{
+    <div class="brutal-modal-overlay" @onclick="CloseModal">
+        <div class="brutal-modal" @onclick:stopPropagation="true" style="max-width:700px;">
+            <h3>@(showCreateModal ? "➕ New Member" : "✏️ Edit Member")</h3>
+            <div class="grid-2 mt-1">
+                <div><label>Full Name</label><input class="brutal-input mb-1" @bind="editForm.FullName" /></div>
+                <div><label>Email</label><input class="brutal-input mb-1" @bind="editForm.Email" type="email" /></div>
+                <div><label>Phone</label><input class="brutal-input mb-1" @bind="editForm.Phone" /></div>
+                <div><label>Role</label><select class="brutal-select mb-1" @bind="editForm.Role"><option value="Member">Member</option><option value="Trainer">Trainer</option><option value="Staff">Staff</option><option value="Admin">Admin</option></select></div>
+                <div><label>Gender</label><select class="brutal-select mb-1" @bind="editForm.Gender"><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select></div>
+                <div><label>Address</label><input class="brutal-input mb-1" @bind="editForm.Address" /></div>
+                <div><label>Password @(showCreateModal ? "" : "(leave blank)")</label><input class="brutal-input mb-1" type="password" @bind="editForm.Password" /></div>
+                <div><label>KTP Number</label><input class="brutal-input mb-1" @bind="editForm.KtpNumber" /></div>
+            </div>
+            @if (!string.IsNullOrEmpty(editError)) { <div class="brutal-badge brutal-badge-danger mb-1">@editError</div> }
+            <div class="flex gap-1 mt-1"><button class="brutal-btn brutal-btn-success" @onclick="SaveMember">💾 Save</button><button class="brutal-btn" @onclick="CloseModal">Cancel</button></div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ApplicationUser> members = new();
+    private string searchTerm = "";
+    private string filterRole = "";
+    private string filterStatus = "";
+    private string sortColumn = nameof(ApplicationUser.RegisteredAt);
+    private bool sortDescending = true;
+    private int currentPage = 1; private int pageSize = 10;
+    private ApplicationUser? selectedMember;
+    private bool isLoading = true;
+    private bool showCreateModal; private bool showEditModal;
+    private string editError = "";
+    private bool isAdmin;
+
+    private class EditForm { public string FullName = "", Email = "", Phone = "", Role = "Member", Gender = "Male", Address = "", Password = "", KtpNumber = ""; }
+    private EditForm editForm = new();
+    private string? editingUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { var a = await AuthState.GetAuthenticationStateAsync(); var u = await UserManager.GetUserAsync(a.User); isAdmin = u?.Role == UserRole.Admin; } catch { }
+        await RefreshData();
+    }
+
+    private async Task RefreshData()
+    {
+        isLoading = true;
+        var query = Db.Users.AsQueryable();
+        if (!string.IsNullOrEmpty(searchTerm)) query = query.Where(u => u.FullName.Contains(searchTerm) || u.Email.Contains(searchTerm));
+        if (!string.IsNullOrEmpty(filterRole) && Enum.TryParse<UserRole>(filterRole, out var role)) query = query.Where(u => u.Role == role);
+        if (filterStatus == "active") query = query.Where(u => u.IsActive);
+        if (filterStatus == "inactive") query = query.Where(u => !u.IsActive);
+        query = sortColumn switch { nameof(ApplicationUser.FullName) => sortDescending ? query.OrderByDescending(u => u.FullName) : query.OrderBy(u => u.FullName), nameof(ApplicationUser.Email) => sortDescending ? query.OrderByDescending(u => u.Email) : query.OrderBy(u => u.Email), nameof(ApplicationUser.Role) => sortDescending ? query.OrderByDescending(u => u.Role) : query.OrderBy(u => u.Role), _ => sortDescending ? query.OrderByDescending(u => u.RegisteredAt) : query.OrderBy(u => u.RegisteredAt) };
+        members = await query.ToListAsync();
+        isLoading = false;
+    }
+
+    private void ToggleSort(string column) { if (sortColumn == column) sortDescending = !sortDescending; else { sortColumn = column; sortDescending = false; } _ = RefreshData(); }
+    private string SortIcon(string column) => sortColumn != column ? "↕" : sortDescending ? "↓" : "↑";
+    private string GetRoleBadge(UserRole role) => role switch { UserRole.Admin => "brutal-badge-purple", UserRole.Trainer => "brutal-badge-info", UserRole.Staff => "brutal-badge-accent", _ => "brutal-badge-success" };
+
+    private async Task ViewMember(string id) { selectedMember = await Db.Users.FindAsync(id); showCreateModal = false; showEditModal = false; }
+    private void ShowCreateModal() { editForm = new EditForm(); editingUserId = null; showCreateModal = true; showEditModal = false; selectedMember = null; editError = ""; }
+    private void EditMember(ApplicationUser m) { editForm = new EditForm { FullName = m.FullName, Email = m.Email ?? "", Phone = m.PhoneNumber ?? "", Role = m.Role.ToString(), Gender = m.Gender.ToString(), Address = m.Address ?? "", KtpNumber = m.KtpNumber ?? "" }; editingUserId = m.Id; showEditModal = true; showCreateModal = false; selectedMember = null; editError = ""; }
+    private void CloseModal() { showCreateModal = false; showEditModal = false; editingUserId = null; editError = ""; }
+
+    private async Task SaveMember()
+    {
+        editError = "";
+        try
+        {
+            if (showCreateModal)
+            {
+                if (string.IsNullOrWhiteSpace(editForm.Email) || string.IsNullOrWhiteSpace(editForm.Password)) { editError = "Email and password required."; return; }
+                var user = new ApplicationUser { UserName = editForm.Email, Email = editForm.Email, FullName = editForm.FullName, PhoneNumber = editForm.Phone, Role = Enum.TryParse<UserRole>(editForm.Role, out var r) ? r : UserRole.Member, Gender = Enum.TryParse<Gender>(editForm.Gender, out var g) ? g : Gender.Male, Address = editForm.Address, KtpNumber = editForm.KtpNumber, RegisteredAt = DateTime.UtcNow, IsActive = true };
+                var result = await UserManager.CreateAsync(user, editForm.Password);
+                if (!result.Succeeded) { editError = string.Join(", ", result.Errors.Select(e => e.Description)); return; }
+                if (!string.IsNullOrEmpty(editForm.Role)) await UserManager.AddToRoleAsync(user, editForm.Role);
+            }
+            else if (showEditModal && editingUserId != null)
+            {
+                var user = await UserManager.FindByIdAsync(editingUserId);
+                if (user != null)
+                {
+                    user.FullName = editForm.FullName; user.Email = editForm.Email; user.UserName = editForm.Email; user.PhoneNumber = editForm.Phone; user.Address = editForm.Address; user.KtpNumber = editForm.KtpNumber;
+                    user.Role = Enum.TryParse<UserRole>(editForm.Role, out var r2) ? r2 : user.Role; user.Gender = Enum.TryParse<Gender>(editForm.Gender, out var g2) ? g2 : user.Gender;
+                    await UserManager.UpdateAsync(user);
+                    if (!string.IsNullOrEmpty(editForm.Password)) { await UserManager.RemovePasswordAsync(user); await UserManager.AddPasswordAsync(user, editForm.Password); }
+                }
+            }
+            CloseModal(); await RefreshData();
+        }
+        catch (Exception ex) { editError = ex.Message; }
+    }
+
+    private async Task ToggleActive(ApplicationUser m) { m.IsActive = !m.IsActive; await UserManager.UpdateAsync(m); await RefreshData(); }
+    private async Task ExportCsv() { var data = members.Select(u => new { u.FullName, u.Email, u.PhoneNumber, u.Role, u.LoyaltyPoints, u.RegisteredAt }); await DownloadFile(ExportService.ExportToCsv(data), "members.csv", "text/csv"); }
+    private async Task ExportExcel() { var data = members.Select(u => new { u.FullName, u.Email, u.PhoneNumber, u.Role, u.LoyaltyPoints, u.RegisteredAt }); await DownloadFile(ExportService.ExportToExcel(data), "members.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"); }
+    private async Task DownloadFile(byte[] bytes, string fileName, string contentType) { var b64 = Convert.ToBase64String(bytes); await JS.InvokeVoidAsync("eval", $"const l=document.createElement('a');l.href='data:{contentType};base64,{b64}';l.download='{fileName}';l.click();"); }
+}

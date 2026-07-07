@@ -1,0 +1,106 @@
+@page "/forum"
+@attribute [Authorize]
+@inject ForumService Service
+@inject StorageService Storage
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<h3>💬 Community Forum</h3>
+<button class="brutal-btn mb-2" @onclick="ShowNewPost">➕ New Post</button>
+
+@if (showNewPost)
+{
+    <div class="brutal-card mb-2">
+        <h4>Create New Post</h4>
+        <input class="brutal-input mb-1" placeholder="Title" @bind="newTitle" />
+        <textarea class="brutal-input mb-1" rows="4" placeholder="Content..." @bind="newContent"></textarea>
+        <div class="flex gap-1 mb-1">
+            <InputFile OnChange="HandleImage" accept="image/*" style="display:none;" id="postImageUpload" />
+            <label for="postImageUpload" class="brutal-btn brutal-btn-sm" style="cursor:pointer;">🖼️ Attach</label>
+            @if (uploadingImage) { <span style="font-size:0.8rem;">Uploading...</span> }
+            @if (!string.IsNullOrEmpty(postImageUrl)) { <span class="brutal-badge brutal-badge-success">✅</span> }
+        </div>
+        <div class="flex gap-1"><button class="brutal-btn brutal-btn-success" @onclick="CreatePost">Post</button><button class="brutal-btn brutal-btn-outline" @onclick="CancelPost">Cancel</button></div>
+    </div>
+}
+
+@foreach (var post in posts)
+{
+    <div class="forum-post">
+        @if (editingPostId == post.Id)
+        {
+            <input class="brutal-input mb-1" @bind="editTitle" /><textarea class="brutal-input mb-1" rows="3" @bind="editContent"></textarea>
+            <div class="flex gap-1"><button class="brutal-btn brutal-btn-sm brutal-btn-success" @onclick="() => UpdatePost(post.Id)">💾 Save</button><button class="brutal-btn brutal-btn-sm" @onclick="() => editingPostId = null">Cancel</button></div>
+        }
+        else
+        {
+            <div class="flex justify-between"><h4>@(post.IsPinned ? "📌 " : "")@post.Title</h4><span style="font-size:0.8rem;">@post.User?.FullName · @post.CreatedAt.ToString("dd MMM HH:mm")</span></div>
+            <p class="mt-1">@post.Content</p>
+            @if (!string.IsNullOrEmpty(post.ImageUrl)) { <img src="@post.ImageUrl" style="max-width:300px;border:2px solid var(--border-color);margin-top:0.5rem;" /> }
+            <div class="flex gap-2 mt-1 items-center">
+                <button class="brutal-btn brutal-btn-sm" @onclick="() => LikePost(post.Id)">❤️ @post.Likes</button> <span>💬 @post.Comments.Count</span>
+                @foreach (var emoji in quickEmojis) { var c = post.Reactions.Count(r => r.ReactionType == emoji); if (c > 0) { <span style="cursor:pointer;" @onclick="() => ReactPost(post.Id, emoji)">@emoji @c</span> } }
+                @if (isAdmin || post.UserId == currentUserId) { <button class="brutal-btn brutal-btn-sm" @onclick="() => { editingPostId = post.Id; editTitle = post.Title; editContent = post.Content; }">✏️</button><button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="() => DeletePost(post.Id)">🗑️</button> }
+            </div>
+        }
+
+        @if (post.Comments.Any())
+        {
+            <div style="margin-left:1rem;margin-top:0.75rem;border-left:3px solid var(--accent);padding-left:0.75rem;">
+                @foreach (var c in post.Comments.OrderBy(c => c.CreatedAt))
+                {
+                    <div style="margin-bottom:0.5rem;"><strong>@c.User?.FullName</strong><span style="font-size:0.7rem;">· @c.CreatedAt.ToString("dd MMM HH:mm")</span>
+                        @if (!string.IsNullOrEmpty(c.ImageUrl)) { <div><img src="@c.ImageUrl" style="max-width:150px;" /></div> }
+                        <p style="margin:0.25rem 0;">@c.Content</p>
+                        <div class="flex gap-1">
+                            <button class="brutal-btn brutal-btn-sm" style="font-size:0.6rem;padding:0.1rem 0.4rem;" @onclick="() => LikeComment(c.Id)">❤️ @c.Likes</button>
+                            @foreach (var emoji in quickEmojis) { var cc = c.Reactions.Count(r => r.ReactionType == emoji); if (cc > 0) { <span style="font-size:0.8rem;cursor:pointer;" @onclick="() => ReactComment(c.Id, emoji)">@emoji @cc</span> } }
+                            @if (isAdmin || c.UserId == currentUserId) { <button class="brutal-btn" style="font-size:0.5rem;padding:0.1rem 0.3rem;color:red;" @onclick="() => DeleteComment(c.Id)">🗑️</button> }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <div style="margin-left:1rem;margin-top:0.5rem;">
+            <div class="flex gap-1">
+                <input class="brutal-input" style="flex:1;font-size:0.85rem;padding:0.4rem;" placeholder="Comment..." @bind="commentText" />
+                <InputFile OnChange="e => HandleCommentImage(e, post.Id)" accept="image/*" style="display:none;" id="@("cmt"+post.Id)" />
+                <label for="@("cmt"+post.Id)" class="brutal-btn brutal-btn-sm" style="cursor:pointer;font-size:0.7rem;">🖼️</label>
+                <button class="brutal-btn brutal-btn-sm brutal-btn-primary" style="font-size:0.7rem;" @onclick="() => AddComment(post.Id)">Send</button>
+            </div>
+            @if (commentImageUrls.ContainsKey(post.Id)) { <span class="brutal-badge brutal-badge-success" style="font-size:0.65rem;">🖼️ Ready</span> }
+        </div>
+    </div>
+}
+
+@code {
+    private List<ForumPost> posts = new(); private bool showNewPost;
+    private string newTitle = "", newContent = "", postImageUrl = "";
+    private string? currentUserId; private bool uploadingImage; private int? editingPostId;
+    private string editTitle = "", editContent = ""; private string commentText = "";
+    private Dictionary<int, string?> commentImageUrls = new();
+    private static readonly string[] quickEmojis = { "👍", "😂", "❤️", "🔥", "👏", "💪" };
+    private bool isAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var a = await AuthState.GetAuthenticationStateAsync(); var u = await UserManager.GetUserAsync(a.User);
+        currentUserId = u?.Id; isAdmin = u?.Role == UserRole.Admin;
+        posts = await Service.GetAllPostsAsync();
+    }
+
+    private void ShowNewPost() => showNewPost = !showNewPost;
+    private void CancelPost() { showNewPost = false; postImageUrl = null; }
+    private async Task CreatePost() { if (string.IsNullOrEmpty(newTitle) || currentUserId == null) return; await Service.CreatePostAsync(new ForumPost { Title = newTitle, Content = newContent, UserId = currentUserId, ImageUrl = postImageUrl }); showNewPost = false; newTitle = ""; newContent = ""; postImageUrl = null; posts = await Service.GetAllPostsAsync(); }
+    private async Task UpdatePost(int id) { var p = posts.FirstOrDefault(x => x.Id == id); if (p != null) { p.Title = editTitle; p.Content = editContent; await Service.UpdatePostAsync(p); editingPostId = null; posts = await Service.GetAllPostsAsync(); } }
+    private async Task DeletePost(int id) { await Service.DeletePostAsync(id); posts = await Service.GetAllPostsAsync(); }
+    private async Task LikePost(int id) { if (currentUserId != null) { await Service.ToggleReactionAsync(id, null, currentUserId, "like"); posts = await Service.GetAllPostsAsync(); } }
+    private async Task ReactPost(int pid, string e) { if (currentUserId != null) { await Service.ToggleReactionAsync(pid, null, currentUserId, e); posts = await Service.GetAllPostsAsync(); } }
+    private async Task HandleImage(InputFileChangeEventArgs e) { var f = e.File; if (f != null) { uploadingImage = true; StateHasChanged(); using var ms = new MemoryStream(); await f.OpenReadStream(5 * 1024 * 1024).CopyToAsync(ms); ms.Position = 0; postImageUrl = await Storage.UploadAsync(ms, f.Name, "forum"); uploadingImage = false; StateHasChanged(); } }
+    private async Task HandleCommentImage(InputFileChangeEventArgs e, int pid) { var f = e.File; if (f != null) { using var ms = new MemoryStream(); await f.OpenReadStream(5 * 1024 * 1024).CopyToAsync(ms); ms.Position = 0; commentImageUrls[pid] = await Storage.UploadAsync(ms, f.Name, "forum"); StateHasChanged(); } }
+    private async Task AddComment(int pid) { if (string.IsNullOrWhiteSpace(commentText) || currentUserId == null) return; var img = commentImageUrls.GetValueOrDefault(pid); await Service.AddCommentAsync(new ForumComment { PostId = pid, UserId = currentUserId, Content = commentText, ImageUrl = img }); commentText = ""; commentImageUrls.Remove(pid); posts = await Service.GetAllPostsAsync(); }
+    private async Task LikeComment(int cid) { if (currentUserId != null) { await Service.ToggleReactionAsync(null, cid, currentUserId, "like"); posts = await Service.GetAllPostsAsync(); } }
+    private async Task ReactComment(int cid, string e) { if (currentUserId != null) { await Service.ToggleReactionAsync(null, cid, currentUserId, e); posts = await Service.GetAllPostsAsync(); } }
+    private async Task DeleteComment(int cid) { await Service.DeleteCommentAsync(cid); posts = await Service.GetAllPostsAsync(); }
+}

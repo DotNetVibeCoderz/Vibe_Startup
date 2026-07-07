@@ -1,0 +1,191 @@
+@page "/profile"
+@attribute [Authorize]
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+@inject AppDbContext Db
+@inject StorageService Storage
+
+<h3>👤 My Profile</h3>
+
+@if (profile == null) { <div class="brutal-spinner"></div> }
+else
+{
+    <div class="grid-2">
+        @* Profile Card + Photo Upload *@
+        <div class="brutal-card text-center">
+            @if (!string.IsNullOrEmpty(profile.ProfilePictureUrl))
+            {
+                <img src="@profile.ProfilePictureUrl" style="width:120px;height:120px;border-radius:50%;border:4px solid var(--accent);object-fit:cover;" />
+            }
+            else
+            {
+                <div style="font-size:6rem;">👤</div>
+            }
+            <h3>@profile.FullName</h3>
+            <span class="brutal-badge brutal-badge-accent">@profile.Role</span>
+            <p>⭐ @profile.LoyaltyPoints points</p>
+            <p>Member since @profile.RegisteredAt.ToString("dd MMMM yyyy")</p>
+            <p style="font-size:0.8rem;color:var(--text-muted);">@profile.Email | @profile.PhoneNumber</p>
+
+            @* Upload photo — max 5MB, hanya gambar *@
+            <InputFile OnChange="HandlePhotoUpload" accept="image/*" style="display:none;" id="profilePhotoUpload" />
+            <label for="profilePhotoUpload" class="brutal-btn brutal-btn-sm mt-1" style="cursor:pointer;">
+                @(string.IsNullOrEmpty(profile.ProfilePictureUrl) ? "📷 Upload Photo" : "🔄 Change Photo")
+            </label>
+            @if (!string.IsNullOrEmpty(profile.ProfilePictureUrl))
+            {
+                <button class="brutal-btn brutal-btn-sm brutal-btn-danger mt-1" @onclick="RemovePhoto">🗑️ Remove</button>
+            }
+            @if (isUploadingPhoto) { <div style="font-size:0.8rem;">⏳ Uploading...</div> }
+            @if (!string.IsNullOrEmpty(uploadError))
+            {
+                <div class="brutal-badge brutal-badge-danger mt-1" style="display:inline-block;font-size:0.8rem;">@uploadError</div>
+            }
+            <p style="font-size:0.7rem;color:var(--text-muted);margin-top:0.5rem;">
+                Format: JPG, PNG, WebP. Maks: 5 MB
+            </p>
+        </div>
+
+        @* Update Profile Form *@
+        <div class="brutal-card">
+            <h4>Update Profile</h4>
+            <div class="grid-2">
+                <div><label>Full Name</label><input class="brutal-input" @bind="editFullName" /></div>
+                <div><label>Phone</label><input class="brutal-input" @bind="editPhone" /></div>
+                <div><label>Address</label><input class="brutal-input" @bind="editAddress" /></div>
+                <div><label>Emergency Contact</label><input class="brutal-input" @bind="editEmergencyName" /></div>
+                <div><label>Emergency Phone</label><input class="brutal-input" @bind="editEmergencyPhone" /></div>
+                <div><label>KTP Number</label><input class="brutal-input" @bind="editKtp" /></div>
+            </div>
+            <button class="brutal-btn brutal-btn-success mt-2" @onclick="UpdateProfile">💾 Update Profile</button>
+            @if (!string.IsNullOrEmpty(updateMsg)) { <div class="brutal-badge brutal-badge-success mt-1">@updateMsg</div> }
+        </div>
+    </div>
+
+    @* Statistic cards *@
+    <div class="grid-4 mt-3">
+        <div class="stat-card"><div class="stat-value">@totalWorkouts</div><div class="stat-label">Total Workouts</div></div>
+        <div class="stat-card"><div class="stat-value">@totalClasses</div><div class="stat-label">Classes Attended</div></div>
+        <div class="stat-card"><div class="stat-value">@totalPosts</div><div class="stat-label">Forum Posts</div></div>
+        <div class="stat-card"><div class="stat-value">@totalCalories</div><div class="stat-label">Calories Burned</div></div>
+    </div>
+
+    @if (achievements.Any())
+    {
+        <div class="brutal-card mt-2">
+            <h4>🏅 Achievements</h4>
+            <div class="flex gap-2" style="flex-wrap:wrap;">
+                @foreach (var a in achievements)
+                {
+                    <span class="brutal-badge brutal-badge-accent">@a.Name ⭐ @a.Points</span>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="mt-2">
+        <a href="/reset-password" class="brutal-btn brutal-btn-outline">🔑 Change Password</a>
+    </div>
+}
+
+@code {
+    /// <summary>Batas ukuran upload — 5 MB (cukup untuk foto profil HQ)</summary>
+    private const long MaxUploadSize = 5L * 1024 * 1024;
+
+    private ApplicationUser? profile;
+    private string editFullName = "", editPhone = "", editAddress = "", editEmergencyName = "", editEmergencyPhone = "", editKtp = "";
+    private string updateMsg = "";
+    private string uploadError = "";
+    private bool isUploadingPhoto;
+    private int totalWorkouts, totalClasses, totalPosts, totalCalories;
+    private List<Achievement> achievements = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user != null)
+        {
+            profile = user;
+            editFullName = user.FullName; editPhone = user.PhoneNumber ?? "";
+            editAddress = user.Address ?? ""; editEmergencyName = user.EmergencyContactName ?? "";
+            editEmergencyPhone = user.EmergencyContactPhone ?? ""; editKtp = user.KtpNumber ?? "";
+
+            totalWorkouts = await Db.WorkoutLogs.CountAsync(w => w.UserId == user.Id);
+            totalClasses = await Db.ClassBookings.CountAsync(b => b.UserId == user.Id && b.IsAttended);
+            totalPosts = await Db.ForumPosts.CountAsync(p => p.UserId == user.Id);
+            totalCalories = await Db.WorkoutLogs.Where(w => w.UserId == user.Id).SumAsync(w => w.CaloriesBurned ?? 0);
+            achievements = await Db.Achievements.Where(a => a.UserId == user.Id).ToListAsync();
+        }
+    }
+
+    private async Task HandlePhotoUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null || profile == null) return;
+
+        uploadError = "";
+
+        // Validasi ukuran
+        if (file.Size > MaxUploadSize)
+        {
+            uploadError = $"❌ File terlalu besar ({file.Size / 1024 / 1024} MB). Maks: 5 MB.";
+            StateHasChanged();
+            return;
+        }
+
+        // Validasi tipe MIME
+        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp" };
+        if (!allowedTypes.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
+        {
+            uploadError = $"❌ Format tidak didukung: {file.ContentType}. Gunakan JPG/PNG/WebP.";
+            StateHasChanged();
+            return;
+        }
+
+        isUploadingPhoto = true; StateHasChanged();
+        try
+        {
+            // OpenReadStream dengan maxAllowedSize = MaxUploadSize
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(MaxUploadSize).CopyToAsync(ms);
+            ms.Position = 0;
+
+            var url = await Storage.UploadAsync(ms, file.Name, "profiles", file.ContentType);
+            profile.ProfilePictureUrl = url;
+            await UserManager.UpdateAsync(profile);
+
+            uploadError = "";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            uploadError = $"❌ Upload gagal: {ex.Message}";
+        }
+        finally { isUploadingPhoto = false; StateHasChanged(); }
+    }
+
+    private async Task RemovePhoto()
+    {
+        if (profile == null) return;
+        if (!string.IsNullOrEmpty(profile.ProfilePictureUrl))
+            await Storage.DeleteAsync(profile.ProfilePictureUrl);
+        profile.ProfilePictureUrl = null;
+        await UserManager.UpdateAsync(profile);
+        StateHasChanged();
+    }
+
+    private async Task UpdateProfile()
+    {
+        if (profile == null) return;
+        profile.FullName = editFullName; profile.PhoneNumber = editPhone; profile.Address = editAddress;
+        profile.EmergencyContactName = editEmergencyName; profile.EmergencyContactPhone = editEmergencyPhone;
+        profile.KtpNumber = editKtp;
+        await UserManager.UpdateAsync(profile);
+        updateMsg = "✅ Profile updated!";
+        StateHasChanged();
+        await Task.Delay(2000);
+        updateMsg = "";
+        StateHasChanged();
+    }
+}

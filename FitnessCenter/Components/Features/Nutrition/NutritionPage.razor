@@ -1,0 +1,37 @@
+@page "/nutrition"
+@attribute [Authorize]
+@inject NutritionService Service
+@inject AuthenticationStateProvider AuthState
+@inject UserManager<ApplicationUser> UserManager
+
+<h3>🥗 Nutrition Plans</h3>
+@if (isAdmin) { <button class="brutal-btn brutal-btn-sm brutal-btn-success mb-2" @onclick="ShowCreate">➕ New Plan</button> }
+
+<div class="grid-3">
+    @foreach (var plan in plans)
+    {
+        <div class="brutal-card"><h4>@plan.Name</h4><span class="brutal-badge brutal-badge-accent">@plan.Goal</span><p class="mt-1">@plan.Description</p><p><strong>🔥 @plan.DailyCalories kcal/day</strong></p>
+        @if (isAdmin) { <div class="flex gap-1 mt-1"><button class="brutal-btn brutal-btn-sm" @onclick="() => EditPlan(plan)">✏️</button><button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="() => DeletePlan(plan.Id)">🗑️</button></div> }</div>
+    }
+</div>
+
+@if (showModal)
+{
+    <div class="brutal-modal-overlay" @onclick="() => showModal = false"><div class="brutal-modal" @onclick:stopPropagation="true">
+        <h3>@(editId.HasValue ? "✏️ Edit" : "➕ New") Nutrition Plan</h3>
+        <div class="mt-1"><label>Name</label><input class="brutal-input" @bind="editName" /><label>Goal</label><input class="brutal-input" @bind="editGoal" /><label>Daily Calories</label><input class="brutal-input" type="number" @bind="editCalories" /><label>Description</label><textarea class="brutal-input" rows="3" @bind="editDesc"></textarea></div>
+        <div class="flex gap-1 mt-2"><button class="brutal-btn brutal-btn-success" @onclick="SavePlan">💾 Save</button><button class="brutal-btn" @onclick="() => showModal = false">Cancel</button></div>
+    </div></div>
+}
+
+@code {
+    private List<NutritionPlan> plans = new(); private bool showModal; private int? editId; private bool isAdmin;
+    private string editName = "", editDesc = "", editGoal = ""; private int editCalories = 2000;
+
+    protected override async Task OnInitializedAsync() { plans = await Service.GetAllPlansAsync(); try { var a = await AuthState.GetAuthenticationStateAsync(); var u = await UserManager.GetUserAsync(a.User); isAdmin = u?.Role == UserRole.Admin; } catch { } }
+
+    private void ShowCreate() { editId = null; editName = ""; editDesc = ""; editGoal = ""; editCalories = 2000; showModal = true; }
+    private void EditPlan(NutritionPlan p) { editId = p.Id; editName = p.Name; editDesc = p.Description ?? ""; editGoal = p.Goal ?? ""; editCalories = p.DailyCalories; showModal = true; }
+    private async Task SavePlan() { var p = editId.HasValue ? await Service.GetPlanByIdAsync(editId.Value) : new NutritionPlan { CreatedAt = DateTime.UtcNow }; if (p == null) return; p.Name = editName; p.Description = editDesc; p.Goal = editGoal; p.DailyCalories = editCalories; if (editId.HasValue) await Service.UpdatePlanAsync(p); else await Service.CreatePlanAsync(p); showModal = false; plans = await Service.GetAllPlansAsync(); }
+    private async Task DeletePlan(int id) { await Service.DeletePlanAsync(id); plans = await Service.GetAllPlansAsync(); }
+}

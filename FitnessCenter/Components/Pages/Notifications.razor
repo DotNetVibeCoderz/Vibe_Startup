@@ -1,0 +1,47 @@
+@page "/notifications"
+@attribute [Authorize]
+@inject NotificationService Service
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<h3>🔔 Notifications</h3>
+<button class="brutal-btn brutal-btn-sm mb-2" @onclick="MarkAllRead">✅ Mark All Read</button>
+@if (notifications.Any())
+{
+    @foreach (var n in notifications)
+    {
+        <div class="brutal-card mb-1" style="@(n.IsRead ? "opacity:0.6;" : "")">
+            <div class="flex justify-between">
+                <strong>@n.Title</strong>
+                <span style="font-size:0.8rem;">@n.CreatedAt.ToString("dd MMM HH:mm")</span>
+            </div>
+            <p>@n.Message</p>
+            <span class="brutal-badge @GetNotifBadge(n.Type)">@n.Type</span>
+            @if (!n.IsRead) { <button class="brutal-btn brutal-btn-sm" @onclick="() => MarkRead(n.Id)">Read</button> }
+        </div>
+    }
+}
+else { <p>No notifications.</p> }
+
+@code {
+    private List<Notification> notifications = new();
+    private string? currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        currentUserId = user?.Id;
+        if (currentUserId != null) notifications = await Service.GetUserNotificationsAsync(currentUserId);
+    }
+
+    private async Task MarkRead(int id) { await Service.MarkAsReadAsync(id); notifications = currentUserId != null ? await Service.GetUserNotificationsAsync(currentUserId) : new(); }
+    private async Task MarkAllRead() { if (currentUserId != null) { await Service.MarkAllReadAsync(currentUserId); notifications = await Service.GetUserNotificationsAsync(currentUserId); } }
+
+    private string GetNotifBadge(NotificationType t) => t switch
+    {
+        NotificationType.Emergency => "brutal-badge-danger",
+        NotificationType.Promotion => "brutal-badge-accent",
+        _ => "brutal-badge-info"
+    };
+}

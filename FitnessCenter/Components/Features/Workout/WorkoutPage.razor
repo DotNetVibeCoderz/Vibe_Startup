@@ -1,0 +1,121 @@
+@page "/workout"
+@attribute [Authorize]
+@inject WorkoutService Service
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<h3>🏃 Workout Tracking</h3>
+
+@* Log new workout — dengan label keterangan jelas *@
+<div class="brutal-card mb-2">
+    <h4>💪 Log New Workout</h4>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;">
+        Catat setiap latihan kamu. Isi data sesuai yang kamu lakukan.
+    </p>
+
+    @* Baris 1: Nama latihan + Sets + Reps *@
+    <div class="grid-3 mb-1">
+        <div>
+            <label style="font-weight:600;font-size:0.85rem;">🏋️ Nama Latihan</label>
+            <input class="brutal-input" placeholder="contoh: Bench Press, Squat, Deadlift..." @bind="exerciseName" />
+            <span style="font-size:0.7rem;color:var(--text-muted);">Nama gerakan yang kamu lakukan</span>
+        </div>
+        <div>
+            <label style="font-weight:600;font-size:0.85rem;">🔢 Sets</label>
+            <input class="brutal-input" type="number" min="0" placeholder="0" @bind="sets" />
+            <span style="font-size:0.7rem;color:var(--text-muted);">Jumlah set (putaran)</span>
+        </div>
+        <div>
+            <label style="font-weight:600;font-size:0.85rem;">🔁 Reps</label>
+            <input class="brutal-input" type="number" min="0" placeholder="0" @bind="reps" />
+            <span style="font-size:0.7rem;color:var(--text-muted);">Jumlah repetisi per set</span>
+        </div>
+    </div>
+
+    @* Baris 2: Weight + Duration + Calories *@
+    <div class="grid-3 mb-1">
+        <div>
+            <label style="font-weight:600;font-size:0.85rem;">⚖️ Beban (kg)</label>
+            <input class="brutal-input" type="number" step="0.5" min="0" placeholder="0" @bind="weight" />
+            <span style="font-size:0.7rem;color:var(--text-muted);">Berat beban dalam kilogram</span>
+        </div>
+        <div>
+            <label style="font-weight:600;font-size:0.85rem;">⏱️ Durasi (menit)</label>
+            <input class="brutal-input" type="number" min="0" placeholder="0" @bind="duration" />
+            <span style="font-size:0.7rem;color:var(--text-muted);">Lama latihan dalam menit</span>
+        </div>
+        <div>
+            <label style="font-weight:600;font-size:0.85rem;">🔥 Kalori Terbakar</label>
+            <input class="brutal-input" type="number" min="0" placeholder="0" @bind="calories" />
+            <span style="font-size:0.7rem;color:var(--text-muted);">Estimasi kalori (optional)</span>
+        </div>
+    </div>
+
+    <button class="brutal-btn brutal-btn-success mt-1" @onclick="AddLog">💾 Simpan Log Latihan</button>
+    <span style="font-size:0.75rem;color:var(--text-muted);margin-left:0.5rem;">
+        ⚠️ Minimal isi nama latihan dan sets/reps
+    </span>
+</div>
+
+@* Log history *@
+@if (logs.Any())
+{
+    <div class="brutal-card" style="padding:0;">
+        <h4 style="padding:1rem 1rem 0;">📊 Riwayat Latihan (30 hari terakhir)</h4>
+        <table class="brutal-table w-full">
+            <thead>
+                <tr>
+                    <th>Latihan</th>
+                    <th>Sets × Reps</th>
+                    <th>Beban</th>
+                    <th>Durasi</th>
+                    <th>Kalori</th>
+                    <th>Tanggal</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var l in logs)
+                {
+                    <tr>
+                        <td><strong>@l.ExerciseName</strong></td>
+                        <td>@l.Sets × @l.Reps</td>
+                        <td>@(l.Weight > 0 ? $"{l.Weight} kg" : "-")</td>
+                        <td>@(l.DurationMinutes > 0 ? $"{l.DurationMinutes} menit" : "-")</td>
+                        <td>@(l.CaloriesBurned > 0 ? l.CaloriesBurned.ToString() : "-")</td>
+                        <td>@l.LoggedAt.ToString("dd MMM HH:mm")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else { <p class="text-center" style="color:var(--text-muted);">Belum ada log latihan. Yuk mulai tracking! 💪</p> }
+
+@code {
+    private List<WorkoutLog> logs = new();
+    private string? currentUserId;
+    private string exerciseName = "";
+    private int sets, reps, duration, calories;
+    private decimal? weight;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        currentUserId = user?.Id;
+        if (currentUserId != null) logs = await Service.GetUserLogsAsync(currentUserId);
+    }
+
+    private async Task AddLog()
+    {
+        if (currentUserId == null || string.IsNullOrWhiteSpace(exerciseName)) return;
+        await Service.AddLogAsync(new WorkoutLog
+        {
+            UserId = currentUserId, ExerciseName = exerciseName.Trim(),
+            Sets = sets, Reps = reps, Weight = weight, DurationMinutes = duration, CaloriesBurned = calories
+        });
+        // Reset form
+        exerciseName = ""; sets = 0; reps = 0; weight = null; duration = 0; calories = 0;
+        logs = await Service.GetUserLogsAsync(currentUserId);
+    }
+}
