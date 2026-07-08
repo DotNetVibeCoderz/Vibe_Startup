@@ -1,0 +1,294 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Operator")]
+@page "/coaches"
+@inject AppDbContext Db
+@inject ExportService ExportService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<PageTitle>Pelatih - PadelHub</PageTitle>
+
+@* Header *@
+<div class="d-flex align-center justify-space-between mb-4">
+    <MudText Typo="Typo.h4">👨‍🏫 Pelatih & Kursus</MudText>
+    <div class="d-flex gap-2">
+        <MudIconButton Icon="@(_tableView ? Icons.Material.Filled.GridView : Icons.Material.Filled.ViewList)"
+                        Color="Color.Primary" OnClick="ToggleView" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                    OnClick="OpenAddDialog">Tambah</MudButton>
+        <MudTooltip Text="Export CSV">
+            <MudIconButton Icon="@Icons.Material.Filled.FileDownload" Color="Color.Secondary" OnClick="ExportToCsv" />
+        </MudTooltip>
+        <MudTooltip Text="Export Excel">
+            <MudIconButton Icon="@Icons.Material.Filled.GridOn" Color="Color.Tertiary" OnClick="ExportToExcel" />
+        </MudTooltip>
+    </div>
+</div>
+
+@* Filter Bar *@
+<MudPaper Class="pa-4 mb-4" Elevation="0">
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudTextField T="string" Placeholder="Cari pelatih..." Immediate="true"
+                           @bind-Value="_searchQuery"
+                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudSelect T="string" Label="Spesialisasi" Clearable="true" @bind-Value="_filterSpecialization"
+                        AnchorOrigin="Origin.BottomCenter">
+                <MudSelectItem Value="@("All")">Semua</MudSelectItem>
+                @foreach (var spec in _specializations)
+                {
+                    <MudSelectItem Value="@spec">@spec</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (!_tableView)
+{
+    <MudGrid>
+        @foreach (var c in _filteredCoaches)
+        {
+            <MudItem xs="12" md="6" lg="4">
+                <MudPaper Class="pa-4 fade-in" Elevation="2" Style="border-radius:12px; text-align:center; position:relative;">
+                    @if (!c.IsAvailable)
+                    {
+                        <span class="badge-chip badge-error" style="position:absolute; top:8px; right:8px;">Not Available</span>
+                    }
+                    <MudAvatar Style="background:var(--mud-palette-primary); width:80px; height:80px; font-size:2rem; margin:0 auto;">
+                        @GetInitials(c.User?.FullName)
+                    </MudAvatar>
+                    <MudText Typo="Typo.h6" Class="mt-3" Style="font-weight:600;">@c.User?.FullName</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@c.Specialization</MudText>
+                    @if (c.ExperienceYears.HasValue)
+                    {
+                        <MudText Typo="Typo.caption">🎾 @c.ExperienceYears tahun pengalaman</MudText>
+                    }
+                    <MudText Typo="Typo.body1" Color="Color.Primary" Style="font-weight:600;" Class="mt-2">
+                        Rp @c.HourlyRate.ToString("N0")/jam
+                    </MudText>
+                    @if (!string.IsNullOrEmpty(c.Certifications))
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">📜 @c.Certifications</MudText>
+                    }
+                    <div class="d-flex gap-2 justify-center mt-3">
+                        <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
+                                    OnClick="() => OpenEditDialog(c.Id)">Edit</MudButton>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
+                                    OnClick="() => DeleteCoach(c.Id)">Hapus</MudButton>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                    Color="@(c.IsAvailable ? Color.Warning : Color.Success)"
+                                    OnClick="() => ToggleAvailable(c.Id)">
+                            @(c.IsAvailable ? "Nonaktifkan" : "Aktifkan")
+                        </MudButton>
+                    </div>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+}
+else
+{
+    <MudPaper Elevation="1">
+        <MudTable Items="_filteredCoaches" Hover="true" Loading="_isLoading" FixedHeader="true">
+            <HeaderContent>
+                <MudTh>Nama</MudTh>
+                <MudTh>Spesialisasi</MudTh>
+                <MudTh>Pengalaman</MudTh>
+                <MudTh>Sertifikasi</MudTh>
+                <MudTh Style="cursor:pointer;" OnClick="() => ToggleSort("HourlyRate")">
+                    Tarif/Jam @SortIcon("HourlyRate")
+                </MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh Style="text-align:center;">Aksi</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><strong>@context.User?.FullName</strong></MudTd>
+                <MudTd><span class="badge-chip badge-primary">@context.Specialization</span></MudTd>
+                <MudTd>@(context.ExperienceYears?.ToString() ?? "-") tahun</MudTd>
+                <MudTd>@context.Certifications</MudTd>
+                <MudTd Style="font-weight:600;">Rp @context.HourlyRate.ToString("N0")</MudTd>
+                <MudTd>
+                    <span class="@(context.IsAvailable ? "badge-chip badge-success" : "badge-chip badge-error")">
+                        @(context.IsAvailable ? "Available" : "Not Available")
+                    </span>
+                </MudTd>
+                <MudTd Style="text-align:center; white-space:nowrap;">
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary"
+                                    OnClick="() => OpenEditDialog(context.Id)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                                    OnClick="() => DeleteCoach(context.Id)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small"
+                                    Color="@(context.IsAvailable ? Color.Warning : Color.Success)"
+                                    OnClick="() => ToggleAvailable(context.Id)" />
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Typo="Typo.body1" Color="Color.Secondary" Class="pa-4">Tidak ada data pelatih.</MudText>
+            </NoRecordsContent>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+            </PagerContent>
+        </MudTable>
+    </MudPaper>
+}
+
+@code {
+    private List<Coach> _coaches = new();
+    private IEnumerable<Coach> _filteredCoaches = Enumerable.Empty<Coach>();
+    private bool _isLoading = true;
+    private bool _tableView;
+
+    private string? _searchQuery;
+    private string? _filterSpecialization;
+    private List<string> _specializations = new();
+
+    private string _sortBy = "HourlyRate";
+    private SortDirection _sortDir = SortDirection.Descending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isLoading = true;
+        var raw = await Db.Coaches.Include(c => c.User).Include(c => c.Club).ToListAsync();
+        _coaches = raw.OrderByDescending(c => c.HourlyRate).ToList();
+        _specializations = _coaches
+            .Where(c => !string.IsNullOrEmpty(c.Specialization))
+            .Select(c => c.Specialization!).Distinct().OrderBy(s => s).ToList();
+        ApplyFilters();
+        _isLoading = false;
+    }
+
+    protected override void OnParametersSet()
+    {
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        var q = _coaches.AsEnumerable();
+        if (!string.IsNullOrEmpty(_searchQuery))
+            q = q.Where(c => (c.User?.FullName ?? "").Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)
+                           || (c.Specialization ?? "").Contains(_searchQuery, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(_filterSpecialization) && _filterSpecialization != "All")
+            q = q.Where(c => c.Specialization == _filterSpecialization);
+
+        q = (_sortBy, _sortDir) switch
+        {
+            ("HourlyRate", SortDirection.Ascending) => q.OrderBy(c => c.HourlyRate),
+            ("HourlyRate", SortDirection.Descending) => q.OrderByDescending(c => c.HourlyRate),
+            ("ExperienceYears", SortDirection.Ascending) => q.OrderBy(c => c.ExperienceYears),
+            ("ExperienceYears", SortDirection.Descending) => q.OrderByDescending(c => c.ExperienceYears),
+            _ => q.OrderByDescending(c => c.HourlyRate)
+        };
+        _filteredCoaches = q.ToList();
+    }
+
+    private void ToggleView() => _tableView = !_tableView;
+
+    private void ToggleSort(string field)
+    {
+        if (_sortBy == field)
+            _sortDir = _sortDir == SortDirection.Ascending ? SortDirection.Descending : SortDirection.Ascending;
+        else { _sortBy = field; _sortDir = SortDirection.Ascending; }
+        ApplyFilters();
+    }
+
+    private string SortIcon(string field)
+    {
+        if (_sortBy != field) return "↕️";
+        return _sortDir == SortDirection.Ascending ? "↑" : "↓";
+    }
+
+    private static string GetInitials(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return "C";
+        return name[..1].ToUpper();
+    }
+
+    private async Task ToggleAvailable(int id)
+    {
+        var coach = await Db.Coaches.FindAsync(id);
+        if (coach == null) return;
+        coach.IsAvailable = !coach.IsAvailable;
+        await Db.SaveChangesAsync();
+        Snackbar.Add($"Status pelatih: {(coach.IsAvailable ? "Available" : "Not Available")}", Severity.Info);
+        await RefreshData();
+    }
+
+    private async Task OpenAddDialog()
+    {
+        var clubs = await Db.Clubs.Where(c => c.IsActive).OrderBy(c => c.Name).ToListAsync();
+        var users = await Db.Users.Where(u => u.IsActive).OrderBy(u => u.FullName)
+            .Select(u => new ApplicationUser { Id = u.Id, FullName = u.FullName, Email = u.Email }).ToListAsync();
+        var parameters = new DialogParameters { ["Clubs"] = clubs, ["Users"] = users, ["IsEdit"] = false };
+        var dialog = await DialogService.ShowAsync<CoachDialog>("Tambah Pelatih", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+        if (!result.Canceled) await RefreshData();
+    }
+
+    private async Task OpenEditDialog(int id)
+    {
+        var coach = _coaches.FirstOrDefault(c => c.Id == id);
+        if (coach == null) return;
+        var clubs = await Db.Clubs.Where(c => c.IsActive).OrderBy(c => c.Name).ToListAsync();
+        var users = await Db.Users.Where(u => u.IsActive).OrderBy(u => u.FullName)
+            .Select(u => new ApplicationUser { Id = u.Id, FullName = u.FullName, Email = u.Email }).ToListAsync();
+        var parameters = new DialogParameters { ["Clubs"] = clubs, ["Users"] = users, ["IsEdit"] = true, ["Coach"] = coach };
+        var dialog = await DialogService.ShowAsync<CoachDialog>("Edit Pelatih", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+        if (!result.Canceled) await RefreshData();
+    }
+
+    private async Task DeleteCoach(int id)
+    {
+        var coach = await Db.Coaches.FindAsync(id);
+        if (coach == null) return;
+        Db.Coaches.Remove(coach);
+        await Db.SaveChangesAsync();
+        Snackbar.Add("Pelatih dihapus!", Severity.Warning);
+        await RefreshData();
+    }
+
+    private async Task RefreshData()
+    {
+        _isLoading = true;
+        var raw = await Db.Coaches.Include(c => c.User).Include(c => c.Club).ToListAsync();
+        _coaches = raw.OrderByDescending(c => c.HourlyRate).ToList();
+        _specializations = _coaches.Where(c => !string.IsNullOrEmpty(c.Specialization))
+            .Select(c => c.Specialization!).Distinct().OrderBy(s => s).ToList();
+        ApplyFilters();
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task ExportToCsv()
+    {
+        var data = _filteredCoaches.Select(c => new {
+            Nama = c.User?.FullName, c.Specialization, Pengalaman = c.ExperienceYears,
+            Sertifikasi = c.Certifications, Tarif = c.HourlyRate, Available = c.IsAvailable, Klub = c.Club?.Name
+        });
+        var bytes = ExportService.ExportToCsv(data);
+        await DownloadFile(bytes, "coaches.csv", "text/csv");
+    }
+
+    private async Task ExportToExcel()
+    {
+        var data = _filteredCoaches.Select(c => new {
+            Nama = c.User?.FullName, c.Specialization, Pengalaman = c.ExperienceYears,
+            Sertifikasi = c.Certifications, Tarif = c.HourlyRate, Available = c.IsAvailable, Klub = c.Club?.Name
+        });
+        var bytes = ExportService.ExportToExcel(data, "Coaches");
+        await DownloadFile(bytes, "coaches.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    private async Task DownloadFile(byte[] bytes, string fileName, string contentType)
+    {
+        using var ms = new MemoryStream(bytes);
+        await JS.InvokeVoidAsync("downloadFileFromStream", fileName, new DotNetStreamReference(ms));
+    }
+}

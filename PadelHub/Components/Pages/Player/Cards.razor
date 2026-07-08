@@ -1,0 +1,110 @@
+@using Microsoft.AspNetCore.Authorization
+@implements IAsyncDisposable
+@attribute [Authorize(Roles = "Admin,Operator")]
+@page "/players/cards"
+@inject AppDbContext Db
+@inject QrCodeService QrCodeService
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<PageTitle>Kartu Member - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">🎫 Cetak Kartu Member</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0">
+    <MudTextField @bind-Value="_searchQuery" Placeholder="Cari member..." Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Style="max-width:400px;" />
+</MudPaper>
+
+<MudGrid>
+    @foreach (var p in FilteredPlayers)
+    {
+        <MudItem xs="12" sm="6" md="4" lg="3">
+            <MudPaper Class="pa-0" Elevation="2" Style="border-radius:12px; overflow:hidden;">
+                <div class="pa-4" style="background: linear-gradient(135deg, #1B5E20, #4CAF50); color:white; text-align:center; cursor:pointer;" @onclick="() => ShowCard(p)">
+                    <MudText Typo="Typo.caption">PADELHUB</MudText>
+                    <MudText Typo="Typo.h6" Style="font-weight:700;">@p.User?.FullName</MudText>
+                    <span class="badge-chip" style="background:rgba(255,255,255,0.2); color:white;">@p.User?.MemberNumber</span>
+                </div>
+                <div class="pa-3 text-center">
+                    <MudText Typo="Typo.caption">Level: <strong>@p.Level</strong> | Rank: <strong>#@p.Ranking</strong></MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" FullWidth="true" Class="mt-2" StartIcon="@Icons.Material.Filled.Print" OnClick="() => ShowCard(p)">Cetak</MudButton>
+                </div>
+            </MudPaper>
+        </MudItem>
+    }
+</MudGrid>
+
+<MudDialog Visible="_showDialog" @bind-IsVisible="_showDialog">
+    <TitleContent><MudText Typo="Typo.h6">🎾 Kartu Member</MudText></TitleContent>
+    <DialogContent>
+        <div id="member-card-print">
+            <MudPaper Class="pa-6" Elevation="3" Style="text-align:center; max-width:350px; margin:0 auto; border-radius:16px; background: linear-gradient(135deg, #1B5E20 0%, #4CAF50 100%); color:white;">
+                <MudText Typo="Typo.h6" Style="font-weight:700;">PadelHub</MudText>
+                <MudText Typo="Typo.caption">Member Card</MudText>
+                <MudDivider Class="my-3" Style="border-color:rgba(255,255,255,0.3);" />
+                @if (!string.IsNullOrEmpty(_selectedQr)) { <img src="@_selectedQr" alt="QR" style="width:180px; height:180px; background:white; padding:8px; border-radius:8px;" /> }
+                <MudDivider Class="my-3" Style="border-color:rgba(255,255,255,0.3);" />
+                <MudText Typo="Typo.body1" Style="font-weight:600;">@_selectedName</MudText>
+                <MudText Typo="Typo.caption">@_selectedMemberNo</MudText>
+            </MudPaper>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PrintCard">Cetak</MudButton>
+        <MudButton OnClick="CloseDialog">Tutup</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<PlayerProfile> _players = new();
+    private string? _searchQuery;
+    private bool _showDialog;
+    private string? _selectedQr;
+    private string? _selectedName;
+    private string? _selectedMemberNo;
+    private IJSObjectReference? _printModule;
+
+    protected override async Task OnInitializedAsync() => _players = await Db.PlayerProfiles.Include(p => p.User).OrderBy(p => p.Ranking).ToListAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _printModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/print-helper.js");
+        }
+    }
+
+    private IEnumerable<PlayerProfile> FilteredPlayers => string.IsNullOrWhiteSpace(_searchQuery)
+        ? _players
+        : _players.Where(p => (p.User?.FullName ?? "").Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)
+                           || (p.User?.MemberNumber ?? "").Contains(_searchQuery, StringComparison.OrdinalIgnoreCase));
+
+    private void ShowCard(PlayerProfile p)
+    {
+        _selectedQr = QrCodeService.GenerateQrCodeBase64("PADELHUB:MEMBER:" + (p.User?.MemberNumber ?? "") + ":" + (p.User?.FullName ?? ""));
+        _selectedName = p.User?.FullName;
+        _selectedMemberNo = p.User?.MemberNumber;
+        _showDialog = true;
+    }
+
+    private async Task PrintCard()
+    {
+        if (_printModule == null)
+        {
+            Snackbar.Add("Modul print belum siap. Silakan coba lagi.", Severity.Warning);
+            return;
+        }
+
+        await Task.Delay(150);
+        await _printModule.InvokeVoidAsync("printElement", "member-card-print", "Kartu Member");
+    }
+
+    private void CloseDialog() => _showDialog = false;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_printModule != null)
+        {
+            await _printModule.DisposeAsync();
+        }
+    }
+}

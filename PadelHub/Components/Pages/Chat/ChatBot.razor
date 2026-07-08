@@ -1,0 +1,154 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@page "/chatbot"
+@implements IDisposable
+@inject IConfiguration Config
+@inject ChatBotService ChatBotService
+@inject FileStorageService FileStorage
+@inject IJSRuntime JS
+
+<PageTitle>Coach Sherly - AI Assistant PadelHub</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">
+    🤖 Coach Sherly
+    <span class="badge-chip badge-success" style="font-size:0.7rem;">AI Assistant</span>
+    <span class="badge-chip badge-info" style="font-size:0.7rem; margin-left:4px;">Semantic Kernel</span>
+</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+    Asisten virtual padel dengan AI + akses database real-time. Tanya seputar padel, teknik, klub, turnamen, atau apapun!
+</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="8">
+        <MudPaper Class="d-flex flex-column" Style="height:70vh; border-radius:12px;" Elevation="2">
+            <div class="d-flex align-center pa-3" style="background:var(--mud-palette-primary); border-radius:12px 12px 0 0; color:white;">
+                <MudIcon Icon="@Icons.Material.Filled.SmartToy" Class="mr-2" />
+                <MudText Typo="Typo.body1" Style="font-weight:600;">Coach Sherly</MudText>
+                <MudSpacer />
+                <MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Inherit" OnClick="ResetSession" />
+                <span style="background:rgba(255,255,255,0.2); padding:4px 10px; border-radius:16px; font-size:0.7rem;">@_selectedModel</span>
+            </div>
+
+            <div class="flex-grow-1 pa-3" style="overflow-y:auto; background:var(--mud-palette-background);" @ref="_chatContainer">
+                @foreach (var msg in _messages)
+                {
+                    <div class="mb-3 @(msg.IsUser ? "d-flex justify-end" : "")">
+                        @if (!msg.IsUser)
+                        {
+                            <div class="d-flex align-start gap-2 fade-in">
+                                <MudAvatar Size="Size.Small" Style="background:#4CAF50;">CS</MudAvatar>
+                                <MudPaper Class="pa-3" Style="max-width:85%; border-radius:0 12px 12px 12px; background:var(--mud-palette-surface);" Elevation="0">
+                                    <div class="markdown-content">@((MarkupString)RenderMarkdown(msg.Content))</div>
+                                    @if (!string.IsNullOrEmpty(msg.ImageUrl)) { <img src="@msg.ImageUrl" style="max-width:250px; border-radius:8px; margin-top:8px;" /> }
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">Coach Sherly · @msg.Timestamp.ToLocalTime().ToString("HH:mm")</MudText>
+                                </MudPaper>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-column align-end fade-in" style="max-width:85%;">
+                                <MudPaper Class="pa-3" Style="border-radius:12px 0 12px 12px; background:var(--mud-palette-primary); color:white;" Elevation="0">
+                                    @if (!string.IsNullOrEmpty(msg.ImageUrl)) { <img src="@msg.ImageUrl" style="max-width:250px; border-radius:8px; margin-bottom:8px;" /> }
+                                    <div style="white-space:pre-wrap; word-break:break-word;">@msg.Content</div>
+                                    @if (!string.IsNullOrEmpty(msg.FileUrl)) { <a href="@msg.FileUrl" target="_blank" style="color:white; text-decoration:underline;">📎 @msg.FileName</a> }
+                                </MudPaper>
+                                <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary);" Class="mt-1">Anda · @msg.Timestamp.ToLocalTime().ToString("HH:mm")</MudText>
+                            </div>
+                        }
+                    </div>
+                }
+                @if (_isTyping) { <div class="d-flex align-start gap-2 mb-3"><MudAvatar Size="Size.Small" Style="background:#4CAF50;">CS</MudAvatar><MudPaper Class="pa-3" Elevation="0"><MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" /><MudText Typo="Typo.caption">Mengetik@(_typingDots)...</MudText></MudPaper></div> }
+            </div>
+
+            <div class="pa-3" style="border-top:1px solid var(--mud-palette-divider);">
+                <div class="d-flex gap-2 align-center">
+                    <MudTextField @bind-Value="_userInput" Placeholder="Ketik pertanyaan seputar padel..." Variant="Variant.Outlined" Immediate="true" OnKeyDown="HandleKeyPress" Style="flex-grow:1;" Lines="2" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Send" Color="Color.Primary" OnClick="SendMessage" Disabled="@(string.IsNullOrWhiteSpace(_userInput))" />
+                </div>
+            </div>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="4">
+        <MudPaper Class="pa-4 mb-3" Elevation="1" Style="border-radius:12px;">
+            <MudText Typo="Typo.h6" GutterBottom="true">⚙️ Model AI</MudText>
+            <MudSelect T="string" @bind-Value="_selectedModel" Label="Pilih Model" Variant="Variant.Outlined" Class="mb-2">
+                <MudSelectItem Value="@("OpenAI")">🧠 OpenAI</MudSelectItem>
+                <MudSelectItem Value="@("Anthropic")">🧠 Anthropic</MudSelectItem>
+                <MudSelectItem Value="@("Gemini")">🧠 Gemini</MudSelectItem>
+                <MudSelectItem Value="@("Ollama")">🖥️ Ollama</MudSelectItem>
+            </MudSelect>
+            <MudText Typo="Typo.caption" Class="mb-2">Temperature: <strong>@_temperature</strong></MudText>
+            <MudSlider @bind-Value="_temperature" Min="0" Max="2" Step="0.1" Color="Color.Primary" />
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-3" Elevation="1" Style="border-radius:12px;">
+            <MudText Typo="Typo.h6" GutterBottom="true">💬 Sesi</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="NewSession" Class="mb-2">Sesi Baru</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Error" FullWidth="true" Size="Size.Small" StartIcon="@Icons.Material.Filled.Delete" OnClick="ResetSession">Reset</MudButton>
+            <MudDivider Class="my-3" />
+            <MudText Typo="Typo.caption">Session: <strong>@_sessionId</strong> | Pesan: <strong>@_messages.Count</strong></MudText>
+        </MudPaper>
+
+        <MudPaper Class="pa-4" Elevation="1" Style="border-radius:12px;">
+            <MudText Typo="Typo.h6" GutterBottom="true">🎯 Quick Questions</MudText>
+            <MudButton Variant="Variant.Outlined" FullWidth="true" Size="Size.Small" Class="mb-2" OnClick="AskTournaments">🏆 Turnamen Terdekat</MudButton>
+            <MudButton Variant="Variant.Outlined" FullWidth="true" Size="Size.Small" Class="mb-2" OnClick="AskServis">🎾 Teknik Servis</MudButton>
+            <MudButton Variant="Variant.Outlined" FullWidth="true" Size="Size.Small" Class="mb-2" OnClick="AskClubs">🏢 Info Klub</MudButton>
+            <MudButton Variant="Variant.Outlined" FullWidth="true" Size="Size.Small" Class="mb-2" OnClick="AskPlayers">👥 Top Pemain</MudButton>
+            <MudButton Variant="Variant.Outlined" FullWidth="true" Size="Size.Small" Class="mb-2" OnClick="AskRaket">🏸 Rekomendasi Raket</MudButton>
+            <MudButton Variant="Variant.Outlined" FullWidth="true" Size="Size.Small" OnClick="AskFinance">💰 Ringkasan Keuangan</MudButton>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private List<ChatMsg> _messages = new();
+    private string _userInput = "";
+    private string _selectedModel = "OpenAI";
+    private double _temperature = 0.7;
+    private bool _isTyping;
+    private string _typingDots = "";
+    private string _sessionId = "";
+    private ElementReference _chatContainer;
+    private CancellationTokenSource? _typingCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _temperature = Config.GetValue<double>("ChatBot:Temperature", 0.7);
+        _selectedModel = Config.GetValue<string>("AI:DefaultModel") ?? "OpenAI";
+        _sessionId = Guid.NewGuid().ToString("N")[..8];
+        ChatBotService.Initialize(_selectedModel);
+        _messages.Add(new ChatMsg { Content = Config.GetValue<string>("ChatBot:WelcomeMessage") ?? "Hai! Aku Coach Sherly! 🎾", IsUser = false, Timestamp = DateTime.UtcNow });
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_userInput)) return;
+        var m = _userInput.Trim();
+        _messages.Add(new ChatMsg { Content = m, IsUser = true, Timestamp = DateTime.UtcNow });
+        _userInput = ""; _isTyping = true; await ScrollToBottom(); StartTypingAnimation();
+        try { var r = await ChatBotService.SendMessageAsync(m); _messages.Add(new ChatMsg { Content = r, IsUser = false, Timestamp = DateTime.UtcNow }); }
+        catch (Exception ex) { _messages.Add(new ChatMsg { Content = "⚠️ Error: " + ex.Message, IsUser = false, Timestamp = DateTime.UtcNow }); }
+        StopTypingAnimation(); _isTyping = false; await ScrollToBottom();
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey && !e.CtrlKey) await SendMessage(); }
+    private void NewSession() { ChatBotService.ResetSession(); _messages.Clear(); _sessionId = Guid.NewGuid().ToString("N")[..8]; _messages.Add(new ChatMsg { Content = "Sesi baru! 🎾", IsUser = false, Timestamp = DateTime.UtcNow }); }
+    private void ResetSession() { ChatBotService.ResetSession(); _messages.Clear(); _messages.Add(new ChatMsg { Content = "Sesi di-reset! 🎾", IsUser = false, Timestamp = DateTime.UtcNow }); }
+    private async Task QuickAsk(string q) { _userInput = q; await SendMessage(); }
+    private async Task AskTournaments() => await QuickAsk("Ada turnamen apa saja yang akan datang?");
+    private async Task AskServis() => await QuickAsk("Bagaimana teknik servis padel yang benar?");
+    private async Task AskClubs() => await QuickAsk("Tampilkan daftar klub PadelHub dan lapangannya");
+    private async Task AskPlayers() => await QuickAsk("Siapa top 5 pemain terbaik saat ini?");
+    private async Task AskRaket() => await QuickAsk("Apa rekomendasi raket padel untuk pemula?");
+    private async Task AskFinance() => await QuickAsk("Berapa total pendapatan PadelHub saat ini?");
+
+    private async void StartTypingAnimation() { _typingCts?.Cancel(); _typingCts = new CancellationTokenSource(); var dots = new[] { "", ".", "..", "..." }; int i = 0; try { while (!_typingCts.Token.IsCancellationRequested) { _typingDots = dots[i % 4]; StateHasChanged(); await Task.Delay(400, _typingCts.Token); i++; } } catch (TaskCanceledException) { } }
+    private void StopTypingAnimation() { _typingCts?.Cancel(); _typingDots = ""; }
+    private static string RenderMarkdown(string t) { if (string.IsNullOrEmpty(t)) return ""; try { return Markdig.Markdown.ToHtml(t, new Markdig.MarkdownPipelineBuilder().Build()); } catch { return System.Net.WebUtility.HtmlEncode(t).Replace("\n", "<br/>"); } }
+    private async Task ScrollToBottom() => await JS.InvokeVoidAsync("eval", "setTimeout(function(){var e=document.querySelector('.flex-grow-1.pa-3');if(e)e.scrollTop=e.scrollHeight;},100);");
+    public void Dispose() { _typingCts?.Cancel(); _typingCts?.Dispose(); }
+
+    private class ChatMsg { public string Content { get; set; } = ""; public bool IsUser { get; set; } public DateTime Timestamp { get; set; } public string? ImageUrl { get; set; } public string? FileUrl { get; set; } public string? FileName { get; set; } }
+}

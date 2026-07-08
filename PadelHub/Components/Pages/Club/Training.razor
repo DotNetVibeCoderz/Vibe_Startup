@@ -1,0 +1,115 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Operator")]
+@page "/training"
+@inject AppDbContext Db
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject ExportService ExportService
+
+<PageTitle>Jadwal Latihan - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">📋 Jadwal Latihan</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0">
+    <MudGrid>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="int?" Label="Coach" @bind-Value="_filterCoachId" Clearable="true" Variant="Variant.Outlined">
+                @foreach (var c in _coaches) { <MudSelectItem Value="c.Id">@c.User?.FullName</MudSelectItem> }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="string" Label="Status" @bind-Value="_filterStatus" Clearable="true" Variant="Variant.Outlined">
+                <MudSelectItem Value="@("Scheduled")">Scheduled</MudSelectItem>
+                <MudSelectItem Value="@("InProgress")">In Progress</MudSelectItem>
+                <MudSelectItem Value="@("Completed")">Completed</MudSelectItem>
+                <MudSelectItem Value="@("Cancelled")">Cancelled</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudDateRangePicker @bind-DateRange="_filterDateRange" Label="Tanggal" Variant="Variant.Outlined" Clearable="true" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3" Class="d-flex gap-2 justify-end align-center">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenAdd">Tambah</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.FileDownload" OnClick="ExportCsv">CSV</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.GridOn" OnClick="ExportExcel">Excel</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Elevation="1">
+    <MudTable Items="_filteredSessions" Hover="true" Loading="_isLoading" FixedHeader="true">
+        <HeaderContent><MudTh>Coach</MudTh><MudTh>Siswa</MudTh><MudTh>Tanggal</MudTh><MudTh>Jam</MudTh><MudTh>Lapangan</MudTh><MudTh>Harga</MudTh><MudTh>Status</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+        <RowTemplate>
+            <MudTd><strong>@context.Coach?.User?.FullName</strong></MudTd><MudTd>@context.Student?.FullName</MudTd>
+            <MudTd>@context.SessionDate.ToString("dd MMM yyyy")</MudTd>
+            <MudTd>@context.StartTime.ToString(@"hh\:mm") - @context.EndTime.ToString(@"hh\:mm")</MudTd>
+            <MudTd>@context.Court?.Name</MudTd><MudTd>Rp @context.Price.ToString("N0")</MudTd>
+            <MudTd><span class="badge-chip @GetBadge(context.Status)">@context.Status</span></MudTd>
+            <MudTd>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="() => Edit(context)" />
+                <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Color="Color.Success" OnClick="() => Complete(context.Id)" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => Del(context.Id)" />
+            </MudTd>
+        </RowTemplate>
+        <PagerContent><MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" /></PagerContent>
+    </MudTable>
+</MudPaper>
+
+<MudText Typo="Typo.h6" GutterBottom="true" Class="mt-8">📚 Materi Pelatihan</MudText>
+<MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenMatAdd" Class="mb-4">Tambah Materi</MudButton>
+<MudGrid>
+    @foreach (var m in _materials)
+    {
+        <MudItem xs="12" sm="6" md="4" lg="3">
+            <MudPaper Class="pa-3" Elevation="1" Style="border-radius:12px;">
+                <MudText Typo="Typo.body2" Style="font-weight:600;">@m.Title</MudText>
+                <span class="badge-chip @GetCatBadge(m.Category)">@m.Category</span>
+                @if (!string.IsNullOrEmpty(m.Description)) { <MudText Typo="Typo.caption" Class="mt-2">@Truncate(m.Description, 80)</MudText> }
+                <div class="d-flex gap-2 mt-2">
+                    @if (!string.IsNullOrEmpty(m.VideoUrl)) { <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.PlayCircle" Href="@m.VideoUrl" Target="_blank">Video</MudButton> }
+                    @if (!string.IsNullOrEmpty(m.FileUrl)) { <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.FileDownload" Href="@m.FileUrl" Target="_blank">File</MudButton> }
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DelMat(m.Id)" />
+                </div>
+            </MudPaper>
+        </MudItem>
+    }
+</MudGrid>
+
+@code {
+    private List<TrainingSession> _sessions = new(); private List<Coach> _coaches = new(); private List<CourseMaterial> _materials = new();
+    private IEnumerable<TrainingSession> _filteredSessions = Enumerable.Empty<TrainingSession>(); private bool _isLoading = true;
+    private int? _filterCoachId; private string? _filterStatus; private DateRange? _filterDateRange;
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        var all = await Db.TrainingSessions.Include(s => s.Coach).ThenInclude(c => c!.User).Include(s => s.Student).Include(s => s.Court).ToListAsync();
+        _sessions = all.OrderByDescending(s => s.SessionDate).ThenBy(s => s.StartTime).ToList();
+        _coaches = await Db.Coaches.Include(c => c.User).Where(c => c.IsAvailable).OrderBy(c => c.User!.FullName).ToListAsync();
+        _materials = await Db.CourseMaterials.OrderByDescending(m => m.CreatedAt).Take(12).ToListAsync();
+        ApplyFilters(); _isLoading = false;
+    }
+    private void ApplyFilters()
+    {
+        var q = _sessions.AsEnumerable();
+        if (_filterCoachId.HasValue) q = q.Where(s => s.CoachId == _filterCoachId.Value);
+        if (!string.IsNullOrEmpty(_filterStatus)) q = q.Where(s => s.Status == _filterStatus);
+        if (_filterDateRange?.Start.HasValue == true) q = q.Where(s => s.SessionDate.Date >= _filterDateRange.Start.Value.Date);
+        if (_filterDateRange?.End.HasValue == true) q = q.Where(s => s.SessionDate.Date <= _filterDateRange.End.Value.Date);
+        _filteredSessions = q;
+    }
+    private static string GetBadge(string? s) => s switch { "Scheduled" => "badge-info", "InProgress" => "badge-warning", "Completed" => "badge-success", "Cancelled" => "badge-error", _ => "" };
+    private static string GetCatBadge(string? c) => c switch { "Technique" => "badge-primary", "Strategy" => "badge-info", "Fitness" => "badge-warning", "Mental" => "badge-success", _ => "" };
+    private static string Truncate(string? t, int m) => string.IsNullOrEmpty(t) ? "" : (t.Length > m ? t[..m] + "..." : t);
+
+    private async void OpenAdd() { var d = await DialogService.ShowAsync<TrainingDialog>("Jadwalkan Sesi", new DialogParameters { ["Coaches"] = _coaches, ["IsEdit"] = false }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true }); var r = await d.Result; if (!r.Canceled) { await LoadData(); Snackbar.Add("Sesi dijadwalkan!", Severity.Success); } }
+    private async void Edit(TrainingSession s) { var d = await DialogService.ShowAsync<TrainingDialog>("Edit Sesi", new DialogParameters { ["Coaches"] = _coaches, ["IsEdit"] = true }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true }); var r = await d.Result; if (!r.Canceled) { await LoadData(); Snackbar.Add("Sesi diupdate!", Severity.Success); } }
+    private async void Complete(int id) { var s = await Db.TrainingSessions.FindAsync(id); if (s != null) { s.Status = "Completed"; await Db.SaveChangesAsync(); Snackbar.Add("Sesi selesai!", Severity.Success); await LoadData(); } }
+    private async void Del(int id) { var s = await Db.TrainingSessions.FindAsync(id); if (s != null) { Db.TrainingSessions.Remove(s); await Db.SaveChangesAsync(); Snackbar.Add("Sesi dihapus!", Severity.Warning); await LoadData(); } }
+    private async void OpenMatAdd() { var d = await DialogService.ShowAsync<MaterialDialog>("Tambah Materi", new DialogParameters { ["Coaches"] = _coaches }, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true }); var r = await d.Result; if (!r.Canceled) { _materials = await Db.CourseMaterials.OrderByDescending(m => m.CreatedAt).Take(12).ToListAsync(); StateHasChanged(); } }
+    private async void DelMat(int id) { var m = await Db.CourseMaterials.FindAsync(id); if (m != null) { Db.CourseMaterials.Remove(m); await Db.SaveChangesAsync(); _materials = await Db.CourseMaterials.OrderByDescending(x => x.CreatedAt).Take(12).ToListAsync(); StateHasChanged(); } }
+
+    private async void ExportCsv() { var d = _filteredSessions.Select(s => new { Coach = s.Coach?.User?.FullName, Siswa = s.Student?.FullName, Tanggal = s.SessionDate.ToString("yyyy-MM-dd"), s.StartTime, s.EndTime, Lapangan = s.Court?.Name, s.Price, s.Status }); var b = ExportService.ExportToCsv(d); await JS.InvokeVoidAsync("downloadFileFromStream", "training.csv", new DotNetStreamReference(new MemoryStream(b))); }
+    private async void ExportExcel() { var d = _filteredSessions.Select(s => new { Coach = s.Coach?.User?.FullName, Siswa = s.Student?.FullName, Tanggal = s.SessionDate.ToString("yyyy-MM-dd"), JamMulai = s.StartTime.ToString(@"hh\:mm"), JamSelesai = s.EndTime.ToString(@"hh\:mm"), Lapangan = s.Court?.Name, s.Price, s.Status }); var b = ExportService.ExportToExcel(d); await JS.InvokeVoidAsync("downloadFileFromStream", "training.xlsx", new DotNetStreamReference(new MemoryStream(b))); }
+}

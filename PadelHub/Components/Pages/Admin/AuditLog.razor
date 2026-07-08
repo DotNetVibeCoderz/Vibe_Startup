@@ -1,0 +1,38 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@page "/admin/audit-log"
+@inject AuditLogService AuditLogService
+
+<PageTitle>Audit Log - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">📋 Audit Log</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0">
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudTextField @bind-Value="_searchQuery" Placeholder="Cari log..." Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+        </MudItem>
+        <MudItem xs="12" md="6" Class="d-flex justify-end">
+            <MudDateRangePicker @bind-DateRange="_dateRange" Label="Rentang Tanggal" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Elevation="1">
+    <MudTable Items="_logs" Hover="true" Dense="true" Loading="_isLoading">
+        <HeaderContent><MudTh>Waktu</MudTh><MudTh>User</MudTh><MudTh>Aksi</MudTh><MudTh>Entity</MudTh><MudTh>Detail</MudTh></HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</MudTd><MudTd>@context.UserId</MudTd>
+            <MudTd><span class="badge-chip">@context.Action</span></MudTd><MudTd>@context.EntityName</MudTd>
+            <MudTd>@Truncate(context.Details, 80)</MudTd>
+        </RowTemplate>
+        <PagerContent><MudTablePager /></PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private List<Models.AuditLog> _logs = new(); private bool _isLoading = true;
+    private string? _searchQuery; private DateRange? _dateRange;
+    protected override async Task OnInitializedAsync() => await LoadLogs();
+    private async Task LoadLogs() { _isLoading = true; var q = AuditLogService.GetLogs(from: _dateRange?.Start, to: _dateRange?.End); _logs = await q.Take(100).ToListAsync(); _isLoading = false; }
+    private static string Truncate(string? t, int m) => string.IsNullOrEmpty(t) ? "-" : (t.Length > m ? t[..m] + "..." : t);
+}

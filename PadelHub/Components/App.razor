@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <link href="css/app.css" rel="stylesheet" />
+    <HeadOutlet />
+</head>
+<body>
+    <!--
+        Render mode diatur pada Routes.razor agar seluruh halaman interaktif.
+    -->
+    <Routes />
+
+    <script src="_framework/blazor.web.js"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+    <script>
+        // Helper untuk download file dari Blazor
+        window.downloadFileFromStream = async function (fileName, contentStreamReference) {
+            const arrayBuffer = await contentStreamReference.arrayBuffer();
+            const blob = new Blob([arrayBuffer]);
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = fileName;
+            anchor.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Helper untuk mencetak elemen tertentu (kartu member, dll.)
+        window.printElement = function (elementId, title) {
+            const element = document.getElementById(elementId);
+            if (!element) return;
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) return;
+            printWindow.document.write(`
+                <html>
+                <head>
+                    <title>${title || 'Print'}</title>
+                    <style>
+                        body { font-family: 'Inter', Arial, sans-serif; padding: 24px; }
+                        .print-wrap { display: flex; justify-content: center; }
+                    </style>
+                </head>
+                <body>
+                    <div class="print-wrap">${element.outerHTML}</div>
+                </body>
+                </html>`);
+            printWindow.document.close();
+            printWindow.focus();
+            printWindow.print();
+            printWindow.close();
+        }
+    </script>
+</body>
+</html>

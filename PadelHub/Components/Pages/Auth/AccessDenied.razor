@@ -1,0 +1,21 @@
+@page "/auth/access-denied"
+@inject NavigationManager Nav
+
+<PageTitle>Akses Ditolak - PadelHub</PageTitle>
+
+<div class="d-flex flex-column align-center justify-center" style="min-height:60vh; text-align:center;">
+    <MudIcon Icon="@Icons.Material.Filled.GppBad" Size="Size.Large" Color="Color.Error" Style="font-size:5rem;" />
+    <MudText Typo="Typo.h3" Style="font-weight:700;" Class="mt-4">🚫 Akses Ditolak</MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mt-2 mb-6">
+        Anda tidak memiliki izin untuk mengakses halaman ini.
+    </MudText>
+    <div class="d-flex gap-3">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GoHome">Ke Dashboard</MudButton>
+        <MudButton Variant="Variant.Outlined" OnClick="GoLogin">Login Ulang</MudButton>
+    </div>
+</div>
+
+@code {
+    private void GoHome() => Nav.NavigateTo("/");
+    private void GoLogin() => Nav.NavigateTo("/auth/login");
+}

@@ -1,0 +1,48 @@
+@using MudBlazor
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">✏️ Edit Pemain</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_fullName" Label="Nama Lengkap" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudTextField @bind-Value="_email" Label="Email" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_phone" Label="Telepon" Variant="Variant.Outlined" Class="mb-3" />
+        <MudSelect @bind-Value="_level" Label="Level" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Beginner")">Beginner</MudSelectItem>
+            <MudSelectItem Value="@("Intermediate")">Intermediate</MudSelectItem>
+            <MudSelectItem Value="@("Advanced")">Advanced</MudSelectItem>
+            <MudSelectItem Value="@("Professional")">Professional</MudSelectItem>
+        </MudSelect>
+        <MudSelect @bind-Value="_hand" Label="Tangan Dominan" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Right")">Kanan</MudSelectItem>
+            <MudSelectItem Value="@("Left")">Kiri</MudSelectItem>
+        </MudSelect>
+        <MudTextField @bind-Value="_style" Label="Gaya Bermain" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_address" Label="Alamat" Variant="Variant.Outlined" Lines="2" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Submit">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance? MudDialog { get; set; }
+    [Parameter] public string PlayerName { get; set; } = "";
+    [Parameter] public string PlayerEmail { get; set; } = "";
+    [Parameter] public string PlayerPhone { get; set; } = "";
+    [Parameter] public string PlayerLevel { get; set; } = "Beginner";
+    [Parameter] public string PlayerHand { get; set; } = "Right";
+    [Parameter] public string PlayerStyle { get; set; } = "";
+    [Parameter] public string PlayerAddress { get; set; } = "";
+    private string _fullName = ""; private string _email = ""; private string _phone = "";
+    private string _level = "Beginner"; private string _hand = "Right";
+    private string _style = ""; private string _address = "";
+
+    protected override void OnInitialized()
+    {
+        _fullName = PlayerName; _email = PlayerEmail; _phone = PlayerPhone;
+        _level = PlayerLevel; _hand = PlayerHand; _style = PlayerStyle; _address = PlayerAddress;
+    }
+    private void Submit() => MudDialog?.Close(DialogResult.Ok(new { FullName = _fullName, Email = _email, Phone = _phone, Level = _level, DominantHand = _hand, PlayingStyle = _style, Address = _address }));
+    private void Cancel() => MudDialog?.Cancel();
+}

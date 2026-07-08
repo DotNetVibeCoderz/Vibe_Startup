@@ -1,0 +1,61 @@
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@attribute [Authorize(Roles = "Admin")]
+@page "/admin/users"
+@inject UserManager<ApplicationUser> UserManager
+@inject ISnackbar Snackbar
+
+<PageTitle>Manajemen User - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">👥 Manajemen User</MudText>
+
+<MudPaper Elevation="1">
+    <MudTable Items="_users" Hover="true" Dense="false" Loading="_loading" FixedHeader="true">
+        <HeaderContent><MudTh>Nama</MudTh><MudTh>Email</MudTh><MudTh>No. Member</MudTh><MudTh>Role</MudTh><MudTh>Status</MudTh><MudTh>Login Terakhir</MudTh><MudTh style="text-align:center;">Aksi</MudTh></HeaderContent>
+        <RowTemplate>
+            <MudTd><strong>@context.FullName</strong></MudTd>
+            <MudTd>@context.Email</MudTd>
+            <MudTd>@context.MemberNumber</MudTd>
+            <MudTd><span class="badge-chip @GetRoleBadge(context)">@_userRoles.GetValueOrDefault(context.Id, "-")</span></MudTd>
+            <MudTd><span class="badge-chip @(context.IsActive ? "badge-success" : "badge-error")">@(context.IsActive ? "Aktif" : "Nonaktif")</span></MudTd>
+            <MudTd>@(context.LastLoginAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "-")</MudTd>
+            <MudTd style="text-align:center;">
+                <MudIconButton Icon="@Icons.Material.Filled.ToggleOn" Size="Size.Small" Color="Color.Primary" OnClick="() => ToggleUser(context)" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteUser(context.Id)" />
+            </MudTd>
+        </RowTemplate>
+        <PagerContent><MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" /></PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private List<ApplicationUser> _users = new();
+    private Dictionary<string, string> _userRoles = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _users = await UserManager.Users.OrderBy(u => u.FullName).ToListAsync();
+        foreach (var u in _users) { var roles = await UserManager.GetRolesAsync(u); _userRoles[u.Id] = roles.FirstOrDefault() ?? "Member"; }
+        _loading = false;
+    }
+
+    private async Task ToggleUser(ApplicationUser u)
+    {
+        u.IsActive = !u.IsActive;
+        await UserManager.UpdateAsync(u);
+        Snackbar.Add($"User {(u.IsActive ? "diaktifkan" : "dinonaktifkan")}!", Severity.Info);
+        _users = await UserManager.Users.OrderBy(x => x.FullName).ToListAsync();
+        StateHasChanged();
+    }
+
+    private async Task DeleteUser(string id)
+    {
+        var u = await UserManager.FindByIdAsync(id);
+        if (u != null) { await UserManager.DeleteAsync(u); _users.RemoveAll(x => x.Id == id); Snackbar.Add("User dihapus!", Severity.Warning); StateHasChanged(); }
+    }
+
+    private static string GetRoleBadge(ApplicationUser u) =>
+        (u.Email?.Contains("admin") == true) ? "badge-error"
+        : (u.Email?.Contains("operator") == true) ? "badge-warning"
+        : (u.Email?.Contains("coach") == true) ? "badge-info" : "badge-primary";
+}

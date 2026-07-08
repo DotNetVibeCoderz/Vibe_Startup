@@ -1,0 +1,510 @@
+@page "/auth/profile"
+@using Microsoft.AspNetCore.Identity
+@using System.Security.Claims
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject AppDbContext Db
+@inject FileStorageService FileStorage
+@inject QrCodeService QrCodeService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JS
+
+<PageTitle>Profil Saya - PadelHub</PageTitle>
+
+@if (_isLoading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-4" />
+    <MudSkeleton Width="100%" Height="400px" />
+}
+else if (_user == null)
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-4">Anda belum login. <a href="/auth/login">Login di sini</a></MudAlert>
+}
+else
+{
+    <MudGrid>
+        <!-- ============================================================ -->
+        <!-- LEFT: PROFILE CARD & PHOTO                                    -->
+        <!-- ============================================================ -->
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-6" Elevation="2" Style="border-radius:16px; text-align:center;">
+                
+                <!-- Avatar with upload overlay -->
+                <div style="position:relative; display:inline-block; cursor:pointer;" @onclick="TriggerPhotoUpload">
+                    @if (!string.IsNullOrEmpty(_photoPreview))
+                    {
+                        <MudAvatar Style="width:140px; height:140px; font-size:3rem; border:4px solid var(--mud-palette-primary);">
+                            <img src="@_photoPreview" style="width:100%; height:100%; object-fit:cover;" />
+                        </MudAvatar>
+                    }
+                    else
+                    {
+                        <MudAvatar Style="width:140px; height:140px; font-size:3rem; background:linear-gradient(135deg, var(--mud-palette-primary), #4CAF50); border:4px solid var(--mud-palette-primary);">
+                            @GetInitials(_user.FullName)
+                        </MudAvatar>
+                    }
+                    <div style="position:absolute; bottom:0; right:0; background:var(--mud-palette-primary); border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; border:3px solid white;">
+                        <MudIcon Icon="@Icons.Material.Filled.CameraAlt" Style="color:white; font-size:1rem;" />
+                    </div>
+                    <InputFile id="photoUpload" OnChange="HandlePhotoUpload" hidden accept="image/*" />
+                </div>
+
+                <MudText Typo="Typo.h5" Style="font-weight:700;" Class="mt-4">@_user.FullName</MudText>
+                <span class="badge-chip badge-primary" style="font-size:0.8rem;">@_currentRole</span>
+
+                @if (_playerProfile != null)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
+                        Rating: <strong>@_playerProfile.Rating</strong> · Ranking: <strong>#@(_playerProfile.Ranking ?? 0)</strong>
+                    </MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        @_playerProfile.Level · @_playerProfile.DominantHand Hand
+                    </MudText>
+
+                    <MudDivider Class="my-3" />
+                    
+                    <!-- Mini Stats -->
+                    <MudGrid Class="mt-2">
+                        <MudItem xs="4">
+                            <MudText Typo="Typo.h6" Style="font-weight:700;">@_playerProfile.TotalMatches</MudText>
+                            <MudText Typo="Typo.caption">Match</MudText>
+                        </MudItem>
+                        <MudItem xs="4">
+                            <MudText Typo="Typo.h6" Style="font-weight:700; color:#2E7D32;">@_playerProfile.Wins</MudText>
+                            <MudText Typo="Typo.caption">Menang</MudText>
+                        </MudItem>
+                        <MudItem xs="4">
+                            <MudText Typo="Typo.h6" Style="font-weight:700; color:#C62828;">@_playerProfile.Losses</MudText>
+                            <MudText Typo="Typo.caption">Kalah</MudText>
+                        </MudItem>
+                    </MudGrid>
+                }
+
+                <MudDivider Class="my-3" />
+
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    📧 @_user.Email<br/>
+                    📱 @(_user.PhoneNumber ?? "-")<br/>
+                    🎫 @_user.MemberNumber<br/>
+                    📅 Bergabung: @_user.CreatedAt.ToString("dd MMM yyyy")
+                </MudText>
+
+                <div class="d-flex gap-2 mt-4 justify-center">
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.QrCode"
+                               OnClick="ShowMemberCard">Kartu Member</MudButton>
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <!-- ============================================================ -->
+        <!-- RIGHT: EDIT PROFILE & PASSWORD                                -->
+        <!-- ============================================================ -->
+        <MudItem xs="12" md="8">
+            <MudTabs Elevation="1" Class="rounded-lg" Position="Position.Top">
+                
+                <!-- TAB 1: EDIT PROFIL -->
+                <MudTabPanel Text="✏️ Edit Profil">
+                    <EditForm Model="_editModel" OnValidSubmit="SaveProfileAsync" FormName="profileForm">
+                        <MudGrid>
+                            <MudItem xs="12" md="6">
+                                <MudTextField @bind-Value="_editModel.FullName" Label="Nama Lengkap"
+                                              Variant="Variant.Outlined" Required="true" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudTextField @bind-Value="_editModel.Email" Label="Email"
+                                              Variant="Variant.Outlined" Required="true" InputType="InputType.Email" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudTextField @bind-Value="_editModel.PhoneNumber" Label="Telepon"
+                                              Variant="Variant.Outlined" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudSelect @bind-Value="_editModel.Gender" Label="Jenis Kelamin" Variant="Variant.Outlined">
+                                    <MudSelectItem Value="@("Male")">👨 Laki-laki</MudSelectItem>
+                                    <MudSelectItem Value="@("Female")">👩 Perempuan</MudSelectItem>
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudDatePicker @bind-Date="_editModel.DateOfBirth" Label="Tanggal Lahir"
+                                               Variant="Variant.Outlined" />
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudTextField @bind-Value="_editModel.PhoneNumber2" Label="Telepon 2 (opsional)"
+                                              Variant="Variant.Outlined" />
+                            </MudItem>
+                            <MudItem xs="12">
+                                <MudTextField @bind-Value="_editModel.Address" Label="Alamat"
+                                              Variant="Variant.Outlined" Lines="2" />
+                            </MudItem>
+
+                            @if (_playerProfile != null)
+                            {
+                                <MudItem xs="12" md="6">
+                                    <MudSelect @bind-Value="_editModel.Level" Label="Level Bermain" Variant="Variant.Outlined">
+                                        <MudSelectItem Value="@("Beginner")">🔰 Beginner</MudSelectItem>
+                                        <MudSelectItem Value="@("Intermediate")">👍 Intermediate</MudSelectItem>
+                                        <MudSelectItem Value="@("Advanced")">💪 Advanced</MudSelectItem>
+                                        <MudSelectItem Value="@("Professional")">🏆 Professional</MudSelectItem>
+                                    </MudSelect>
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudSelect @bind-Value="_editModel.DominantHand" Label="Tangan Dominan" Variant="Variant.Outlined">
+                                        <MudSelectItem Value="@("Right")">🤚 Kanan</MudSelectItem>
+                                        <MudSelectItem Value="@("Left")">✋ Kiri</MudSelectItem>
+                                    </MudSelect>
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudSelect @bind-Value="_editModel.PlayingStyle" Label="Gaya Bermain" Variant="Variant.Outlined">
+                                        <MudSelectItem Value="@("Aggressive")">⚡ Aggressive</MudSelectItem>
+                                        <MudSelectItem Value="@("Defensive")">🛡️ Defensive</MudSelectItem>
+                                        <MudSelectItem Value="@("All-Round")">🔄 All-Round</MudSelectItem>
+                                    </MudSelect>
+                                </MudItem>
+                            }
+
+                            @if (!string.IsNullOrEmpty(_profileError))
+                            { <MudItem xs="12"><MudAlert Severity="Severity.Error" Square="false" Variant="Variant.Filled">@_profileError</MudAlert></MudItem> }
+
+                            <MudItem xs="12" Class="d-flex gap-2 justify-end">
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" ButtonType="ButtonType.Submit"
+                                           StartIcon="@Icons.Material.Filled.Save" Disabled="_isSaving">
+                                    @(_isSaving ? "Menyimpan..." : "Simpan Profil")
+                                </MudButton>
+                            </MudItem>
+                        </MudGrid>
+                    </EditForm>
+                </MudTabPanel>
+
+                <!-- TAB 2: GANTI PASSWORD -->
+                <MudTabPanel Text="🔒 Ganti Password">
+                    <EditForm Model="_passwordModel" OnValidSubmit="ChangePasswordAsync" FormName="passwordForm">
+                        <MudTextField @bind-Value="_passwordModel.CurrentPassword" Label="Password Saat Ini"
+                                      Variant="Variant.Outlined" Required="true"
+                                      InputType="InputType.Password" Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Lock" Class="mb-3" />
+                        <MudTextField @bind-Value="_passwordModel.NewPassword" Label="Password Baru"
+                                      Variant="Variant.Outlined" Required="true"
+                                      InputType="InputType.Password" Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Lock" Class="mb-3"
+                                      HelperText="Min. 8 karakter, huruf besar, kecil & angka" />
+                        <MudTextField @bind-Value="_passwordModel.ConfirmPassword" Label="Konfirmasi Password Baru"
+                                      Variant="Variant.Outlined" Required="true"
+                                      InputType="InputType.Password" Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Lock" Class="mb-4" />
+
+                        @if (!string.IsNullOrEmpty(_passwordError))
+                        { <MudAlert Severity="Severity.Error" Class="mb-3" Square="false" Variant="Variant.Filled">@_passwordError</MudAlert> }
+
+                        @if (!string.IsNullOrEmpty(_passwordSuccess))
+                        { <MudAlert Severity="Severity.Success" Class="mb-3" Square="false" Variant="Variant.Filled">@_passwordSuccess</MudAlert> }
+
+                        <MudButton Variant="Variant.Filled" Color="Color.Secondary" ButtonType="ButtonType.Submit"
+                                   StartIcon="@Icons.Material.Filled.LockReset" Disabled="_isChangingPassword">
+                            @(_isChangingPassword ? "Memproses..." : "Ganti Password")
+                        </MudButton>
+                    </EditForm>
+                </MudTabPanel>
+
+                <!-- TAB 3: ACHIEVEMENTS -->
+                @if (_playerProfile != null && _achievements.Any())
+                {
+                    <MudTabPanel Text="🏆 Pencapaian">
+                        <MudGrid>
+                            @foreach (var ach in _achievements)
+                            {
+                                <MudItem xs="6" md="4">
+                                    <MudPaper Class="pa-3" Elevation="1" Style="text-align:center; border-radius:12px;">
+                                        <MudText Typo="Typo.h5">@GetAchievementIcon(ach.Type)</MudText>
+                                        <MudText Typo="Typo.body2" Style="font-weight:600;">@ach.Title</MudText>
+                                        <MudText Typo="Typo.caption">@ach.AchievedAt.ToString("dd MMM yyyy")</MudText>
+                                    </MudPaper>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    </MudTabPanel>
+                }
+            </MudTabs>
+        </MudItem>
+    </MudGrid>
+
+    <!-- Member Card Dialog -->
+    <MudDialog @bind-IsVisible="_showMemberCard">
+        <TitleContent><MudText Typo="Typo.h6">🎾 Kartu Member</MudText></TitleContent>
+        <DialogContent>
+            <MudPaper Class="pa-6" Elevation="3" Style="text-align:center; max-width:350px; margin:0 auto; border-radius:16px; background: linear-gradient(135deg, #1B5E20 0%, #4CAF50 100%); color:white;">
+                @if (!string.IsNullOrEmpty(_qrCodeBase64))
+                {
+                    <MudText Typo="Typo.h6" Style="font-weight:700;">PadelHub</MudText>
+                    <MudText Typo="Typo.caption">Member Card</MudText>
+                    <MudDivider Class="my-3" Style="border-color:rgba(255,255,255,0.3);" />
+                    <img src="@_qrCodeBase64" alt="QR Code" style="width:180px; height:180px; background:white; padding:8px; border-radius:8px;" />
+                    <MudDivider Class="my-3" Style="border-color:rgba(255,255,255,0.3);" />
+                    <MudText Typo="Typo.body1" Style="font-weight:600;">@_user?.FullName</MudText>
+                    <MudText Typo="Typo.caption">@_user?.MemberNumber</MudText>
+                }
+            </MudPaper>
+        </DialogContent>
+        <DialogActions>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PrintCard">Cetak</MudButton>
+            <MudButton OnClick="() => _showMemberCard = false">Tutup</MudButton>
+        </DialogActions>
+    </MudDialog>
+}
+
+@code {
+    private ApplicationUser? _user;
+    private PlayerProfile? _playerProfile;
+    private string _currentRole = "Member";
+    private bool _isLoading = true;
+
+    // Profile edit
+    private ProfileEditModel _editModel = new();
+    private string? _profileError;
+    private bool _isSaving;
+    private string? _photoPreview;
+
+    // Password change
+    private PasswordChangeModel _passwordModel = new();
+    private string? _passwordError;
+    private string? _passwordSuccess;
+    private bool _isChangingPassword;
+
+    // Member card
+    private bool _showMemberCard;
+    private string? _qrCodeBase64;
+
+    // Achievements
+    private List<PlayerAchievement> _achievements = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProfileAsync();
+    }
+
+    private async Task LoadProfileAsync()
+    {
+        _isLoading = true;
+
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+            _user = await UserManager.FindByIdAsync(userId!);
+
+            if (_user != null)
+            {
+                // Load role
+                var roles = await UserManager.GetRolesAsync(_user);
+                _currentRole = roles.FirstOrDefault() ?? "Member";
+
+                // Load player profile
+                _playerProfile = await Db.PlayerProfiles
+                    .FirstOrDefaultAsync(p => p.UserId == _user.Id);
+
+                // Load achievements
+                if (_playerProfile != null)
+                {
+                    _achievements = await Db.PlayerAchievements
+                        .Where(a => a.PlayerProfileId == _playerProfile.Id)
+                        .OrderByDescending(a => a.AchievedAt)
+                        .Take(6)
+                        .ToListAsync();
+                }
+
+                // Populate edit model
+                _editModel = new ProfileEditModel
+                {
+                    FullName = _user.FullName,
+                    Email = _user.Email ?? "",
+                    PhoneNumber = _user.PhoneNumber ?? "",
+                    PhoneNumber2 = _user.PhoneNumber2 ?? "",
+                    Address = _user.Address ?? "",
+                    Gender = _user.Gender ?? "",
+                    DateOfBirth = _user.DateOfBirth,
+                    Level = _playerProfile?.Level ?? "Beginner",
+                    DominantHand = _playerProfile?.DominantHand ?? "Right",
+                    PlayingStyle = _playerProfile?.PlayingStyle ?? ""
+                };
+
+                // Photo preview
+                if (!string.IsNullOrEmpty(_user.AvatarUrl))
+                {
+                    _photoPreview = _user.AvatarUrl;
+                }
+
+                // QR Code for member card
+                var qrContent = $"PADELHUB:MEMBER:{_user.MemberNumber}:{_user.FullName}";
+                _qrCodeBase64 = QrCodeService.GenerateQrCodeBase64(qrContent);
+            }
+        }
+
+        _isLoading = false;
+    }
+
+    // ================================================================
+    // PHOTO UPLOAD
+    // ================================================================
+    private async Task TriggerPhotoUpload()
+    {
+        await JS.InvokeVoidAsync("eval", "document.getElementById('photoUpload').click()");
+    }
+
+    private async Task HandlePhotoUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        try
+        {
+            // Create data URL for preview
+            var buffer = new byte[file.Size];
+            await file.OpenReadStream().ReadAsync(buffer);
+            var base64 = Convert.ToBase64String(buffer);
+            _photoPreview = $"data:{file.ContentType};base64,{base64}";
+
+            // Save to storage & update user
+            if (_user != null)
+            {
+                var fileUrl = await FileStorage.SaveBase64ImageAsync(base64, "avatars");
+                _user.AvatarUrl = fileUrl;
+                await UserManager.UpdateAsync(_user);
+                Snackbar.Add("Foto profil berhasil diupload! 📸", Severity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Gagal upload foto: {ex.Message}", Severity.Error);
+        }
+    }
+
+    // ================================================================
+    // SAVE PROFILE
+    // ================================================================
+    private async Task SaveProfileAsync()
+    {
+        _profileError = null; _isSaving = true;
+
+        if (_user == null) { _isSaving = false; return; }
+
+        try
+        {
+            _user.FullName = _editModel.FullName;
+            _user.Email = _editModel.Email;
+            _user.UserName = _editModel.Email;
+            _user.PhoneNumber = _editModel.PhoneNumber;
+            _user.PhoneNumber2 = _editModel.PhoneNumber2;
+            _user.Address = _editModel.Address;
+            _user.Gender = _editModel.Gender;
+            _user.DateOfBirth = _editModel.DateOfBirth;
+
+            var result = await UserManager.UpdateAsync(_user);
+            if (!result.Succeeded)
+            {
+                _profileError = string.Join(", ", result.Errors.Select(e => e.Description));
+                _isSaving = false;
+                return;
+            }
+
+            // Update player profile
+            if (_playerProfile != null)
+            {
+                _playerProfile.Level = _editModel.Level ?? "Beginner";
+                _playerProfile.DominantHand = _editModel.DominantHand ?? "Right";
+                _playerProfile.PlayingStyle = _editModel.PlayingStyle;
+                _playerProfile.UpdatedAt = DateTime.UtcNow;
+                await Db.SaveChangesAsync();
+            }
+
+            // Update identity claims
+            await SignInManager.RefreshSignInAsync(_user);
+
+            Snackbar.Add("Profil berhasil disimpan! ✅", Severity.Success);
+            await LoadProfileAsync();
+        }
+        catch (Exception ex)
+        {
+            _profileError = $"Gagal menyimpan: {ex.Message}";
+        }
+
+        _isSaving = false;
+    }
+
+    // ================================================================
+    // CHANGE PASSWORD
+    // ================================================================
+    private async Task ChangePasswordAsync()
+    {
+        _passwordError = null; _passwordSuccess = null; _isChangingPassword = true;
+
+        if (_passwordModel.NewPassword != _passwordModel.ConfirmPassword)
+        { _passwordError = "Password baru tidak cocok."; _isChangingPassword = false; return; }
+
+        if (_user == null) { _isChangingPassword = false; return; }
+
+        var result = await UserManager.ChangePasswordAsync(_user,
+            _passwordModel.CurrentPassword, _passwordModel.NewPassword);
+
+        if (result.Succeeded)
+        {
+            _passwordSuccess = "Password berhasil diganti! 🔒";
+            _passwordModel = new PasswordChangeModel();
+            await SignInManager.RefreshSignInAsync(_user);
+            Snackbar.Add("Password berhasil diganti!", Severity.Success);
+        }
+        else
+        {
+            _passwordError = string.Join(", ", result.Errors.Select(e => e.Description));
+        }
+
+        _isChangingPassword = false;
+    }
+
+    // ================================================================
+    // MEMBER CARD
+    // ================================================================
+    private void ShowMemberCard() => _showMemberCard = true;
+    private async Task PrintCard() => await JS.InvokeVoidAsync("print");
+
+    // ================================================================
+    // HELPERS
+    // ================================================================
+    private static string GetInitials(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "?";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 ? $"{parts[0][0]}{parts[^1][0]}".ToUpper() : name[..Math.Min(2, name.Length)].ToUpper();
+    }
+
+    private static string GetAchievementIcon(string? type) => type switch
+    {
+        "Badge" => "🏅", "Trophy" => "🏆", "Medal" => "🥇", _ => "⭐"
+    };
+
+    // ================================================================
+    // MODELS
+    // ================================================================
+    private class ProfileEditModel
+    {
+        public string FullName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string PhoneNumber { get; set; } = "";
+        public string? PhoneNumber2 { get; set; }
+        public string? Address { get; set; }
+        public string? Gender { get; set; }
+        public DateTime? DateOfBirth { get; set; }
+        public string? Level { get; set; } = "Beginner";
+        public string? DominantHand { get; set; } = "Right";
+        public string? PlayingStyle { get; set; }
+    }
+
+    private class PasswordChangeModel
+    {
+        public string CurrentPassword { get; set; } = "";
+        public string NewPassword { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

@@ -1,0 +1,76 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+@page "/auth/login"
+@inject NavigationManager Nav
+
+<PageTitle>Login - PadelHub</PageTitle>
+
+<div class="d-flex align-center justify-center" style="min-height:80vh;">
+    <MudPaper Class="pa-8" Elevation="4" Style="max-width:440px; width:100%; border-radius:16px;">
+        <div class="text-center mb-6">
+            <MudText Typo="Typo.h3" Style="font-weight:800; color:var(--mud-palette-primary);">🎾 PadelHub</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">Masuk ke akun Anda</MudText>
+        </div>
+
+        <!--
+            Gunakan form post biasa agar cookie login bisa diset oleh server
+            (menghindari error "Headers are read-only, response has already started").
+        -->
+        <form method="post" action="/auth/login-handler">
+            <MudTextField @bind-Value="_model.Email" Name="Email" Label="Email" Variant="Variant.Outlined" Required="true" InputType="InputType.Email" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Email" Class="mb-3" />
+            <MudTextField @bind-Value="_model.Password" Name="Password" Label="Password" Variant="Variant.Outlined" Required="true" InputType="InputType.Password" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Lock" Class="mb-2" />
+            <div class="d-flex justify-space-between align-center mb-4">
+                <MudCheckBox @bind-Value="_model.RememberMe" Name="RememberMe" Label="Ingat saya" Size="Size.Small" Color="Color.Primary" />
+                <MudText Typo="Typo.caption"><a href="/auth/reset-password" style="color:var(--mud-palette-primary); text-decoration:none;">Lupa password?</a></MudText>
+            </div>
+
+            <input type="hidden" name="ReturnUrl" value="@returnUrl" />
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-3" Square="false" Variant="Variant.Filled">@_error</MudAlert>
+            }
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Size="Size.Large" ButtonType="ButtonType.Submit" StartIcon="@Icons.Material.Filled.Login">
+                Masuk
+            </MudButton>
+        </form>
+
+        <MudDivider Class="my-4" />
+        <MudText Typo="Typo.body2" Align="Align.Center">Belum punya akun? <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="GoRegister" Size="Size.Small">Daftar Sekarang</MudButton></MudText>
+
+        <MudExpansionPanels Class="mt-4">
+            <MudExpansionPanel Text="🔑 Akun Demo">
+                <MudText Typo="Typo.caption" Class="mb-2" Style="line-height:1.8;"><strong>Admin:</strong> admin@padelhub.com / Admin@123<br/><strong>Operator:</strong> operator@padelhub.com / Operator@123<br/><strong>Coach:</strong> coach.andi@padelhub.com / Coach@123<br/><strong>Member:</strong> rina@padelhub.com / Member@123</MudText>
+                <div class="d-flex flex-wrap gap-2">
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary" OnClick="FillAdmin">Admin</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary" OnClick="FillOperator">Operator</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Info" OnClick="FillCoach">Coach</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Success" OnClick="FillMember">Member</MudButton>
+                </div>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+    </MudPaper>
+</div>
+
+@code {
+    private LoginModel _model = new();
+
+    [SupplyParameterFromQuery] private string? returnUrl { get; set; }
+    [SupplyParameterFromQuery] private string? error { get; set; }
+
+    private string? _error => error;
+
+    private void GoRegister() => Nav.NavigateTo("/auth/register");
+    private void FillAdmin() { _model.Email = "admin@padelhub.com"; _model.Password = "Admin@123"; }
+    private void FillOperator() { _model.Email = "operator@padelhub.com"; _model.Password = "Operator@123"; }
+    private void FillCoach() { _model.Email = "coach.andi@padelhub.com"; _model.Password = "Coach@123"; }
+    private void FillMember() { _model.Email = "rina@padelhub.com"; _model.Password = "Member@123"; }
+
+    private class LoginModel
+    {
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+        public bool RememberMe { get; set; }
+    }
+}

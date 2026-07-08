@@ -1,0 +1,77 @@
+@using MudBlazor
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@(IsEdit ? "✏️ Edit Turnamen" : "➕ Buat Turnamen")</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_name" Label="Nama Turnamen" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudSelect @bind-Value="_clubId" Label="Klub" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var c in _clubs) { <MudSelectItem Value="c.Id">@c.Name</MudSelectItem> }
+        </MudSelect>
+        <MudGrid>
+            <MudItem xs="6">
+                <MudSelect @bind-Value="_type" Label="Tipe" Variant="Variant.Outlined" Class="mb-3">
+                    <MudSelectItem Value="@("Single")">Single</MudSelectItem>
+                    <MudSelectItem Value="@("Double")">Double</MudSelectItem>
+                    <MudSelectItem Value="@("Mixed")">Mixed</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6">
+                <MudSelect @bind-Value="_format" Label="Format" Variant="Variant.Outlined" Class="mb-3">
+                    <MudSelectItem Value="@("Knockout")">Knockout</MudSelectItem>
+                    <MudSelectItem Value="@("RoundRobin")">Round Robin</MudSelectItem>
+                    <MudSelectItem Value="@("GroupStage")">Group Stage</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+        <MudSelect @bind-Value="_level" Label="Level" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Open")">Open</MudSelectItem>
+            <MudSelectItem Value="@("Beginner")">Beginner</MudSelectItem>
+            <MudSelectItem Value="@("Intermediate")">Intermediate</MudSelectItem>
+            <MudSelectItem Value="@("Advanced")">Advanced</MudSelectItem>
+            <MudSelectItem Value="@("Professional")">Professional</MudSelectItem>
+        </MudSelect>
+        <MudGrid>
+            <MudItem xs="6"><MudDatePicker @bind-Date="_startDate" Label="Tanggal Mulai" Variant="Variant.Outlined" Class="mb-3" /></MudItem>
+            <MudItem xs="6"><MudDatePicker @bind-Date="_endDate" Label="Tanggal Selesai" Variant="Variant.Outlined" Class="mb-3" /></MudItem>
+        </MudGrid>
+        <MudGrid>
+            <MudItem xs="6"><MudTextField @bind-Value="_entryFee" Label="Biaya (Rp)" Variant="Variant.Outlined" Class="mb-3" /></MudItem>
+            <MudItem xs="6"><MudTextField @bind-Value="_prize" Label="Hadiah (Rp)" Variant="Variant.Outlined" Class="mb-3" /></MudItem>
+        </MudGrid>
+        <MudTextField @bind-Value="_maxParticipants" Label="Max Peserta" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_desc" Label="Deskripsi" Variant="Variant.Outlined" Lines="3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Submit">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance? MudDialog { get; set; }
+    [Parameter] public List<Club> Clubs { get; set; } = new();
+    [Parameter] public bool IsEdit { get; set; }
+    [Parameter] public Tournament? Tournament { get; set; }
+
+    private List<Club> _clubs = new();
+    private string _name = ""; private int _clubId; private string _type = "Single"; private string _format = "Knockout";
+    private string _level = "Open"; private DateTime? _startDate = DateTime.Today.AddDays(30);
+    private DateTime? _endDate = DateTime.Today.AddDays(33); private string _entryFee = "250000";
+    private string _prize = ""; private string _maxParticipants = "32"; private string _desc = "";
+
+    protected override void OnParametersSet()
+    {
+        _clubs = Clubs;
+        if (Tournament != null)
+        {
+            _name = Tournament.Name; _clubId = Tournament.ClubId ?? 0; _type = Tournament.Type ?? "Single";
+            _format = Tournament.Format ?? "Knockout"; _level = Tournament.Level ?? "Open";
+            _startDate = Tournament.StartDate; _endDate = Tournament.EndDate;
+            _entryFee = Tournament.EntryFee.ToString(); _prize = Tournament.PrizeMoney?.ToString();
+            _maxParticipants = Tournament.MaxParticipants.ToString(); _desc = Tournament.Description ?? "";
+        }
+    }
+
+    private void Submit() => MudDialog?.Close(DialogResult.Ok(new { Name = _name, ClubId = _clubId, Type = _type, Format = _format, Level = _level, StartDate = _startDate, EndDate = _endDate, EntryFee = _entryFee, PrizeMoney = _prize, MaxParticipants = _maxParticipants, Description = _desc }));
+    private void Cancel() => MudDialog?.Cancel();
+}

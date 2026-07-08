@@ -1,0 +1,144 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@page "/players"
+@page "/players/rankings"
+@inject AppDbContext Db
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject ExportService ExportService
+@inject QrCodeService QrCodeService
+@inject NavigationManager Nav
+
+<PageTitle>Pemain - PadelHub</PageTitle>
+
+@if (_isRankingsView)
+{
+    <MudText Typo="Typo.h4" GutterBottom="true">🏆 Leaderboard Pemain</MudText>
+    <MudPaper Class="pa-4 mb-4" Elevation="0">
+        <MudGrid>
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField @bind-Value="_searchText" Placeholder="Cari pemain..." Immediate="true" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" OnKeyUp="ApplyFilters" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="string" Label="Level" @bind-Value="_filterLevel" Clearable="true" Variant="Variant.Outlined" SelectedValuesChanged="OnLevelChanged">
+                    <MudSelectItem Value="@("Beginner")">Beginner</MudSelectItem>
+                    <MudSelectItem Value="@("Intermediate")">Intermediate</MudSelectItem>
+                    <MudSelectItem Value="@("Advanced")">Advanced</MudSelectItem>
+                    <MudSelectItem Value="@("Professional")">Professional</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" Class="d-flex gap-2 justify-end align-center">
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.People" OnClick="GoToList">Lihat Semua</MudButton>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.FileDownload" OnClick="ExportRankCsv">CSV</MudButton>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.GridOn" OnClick="ExportRankExcel">Excel</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+    <MudPaper Elevation="1">
+        <MudTable Items="_filteredPlayers" Hover="true" Loading="_isLoading" FixedHeader="true">
+            <HeaderContent><MudTh>Peringkat</MudTh><MudTh>Nama</MudTh><MudTh>Level</MudTh><MudTh>Rating</MudTh><MudTh>Match</MudTh><MudTh>Win</MudTh><MudTh>Loss</MudTh><MudTh>Win Rate</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@GetRankDisplay(context.Ranking)</MudTd><MudTd><strong>@context.User?.FullName</strong></MudTd>
+                <MudTd><span class="badge-chip @GetLevelBadge(context.Level)">@context.Level</span></MudTd>
+                <MudTd style="font-weight:700;">@context.Rating</MudTd>
+                <MudTd>@context.TotalMatches</MudTd><MudTd style="color:#2E7D32;">@context.Wins</MudTd><MudTd style="color:#C62828;">@context.Losses</MudTd>
+                <MudTd>@(context.TotalMatches > 0 ? (context.Wins * 100 / context.TotalMatches) + "%" : "-")</MudTd>
+            </RowTemplate>
+            <PagerContent><MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" /></PagerContent>
+        </MudTable>
+    </MudPaper>
+}
+else
+{
+    <MudText Typo="Typo.h4" GutterBottom="true">👥 Manajemen Pemain</MudText>
+    <MudPaper Class="pa-4 mb-4" Elevation="0">
+        <MudGrid>
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField @bind-Value="_searchText" Placeholder="Cari pemain..." Immediate="true" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" OnKeyUp="ApplyFilters" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="string" Label="Level" @bind-Value="_filterLevel" Clearable="true" Variant="Variant.Outlined" SelectedValuesChanged="OnLevelChanged">
+                    <MudSelectItem Value="@("Beginner")">Beginner</MudSelectItem>
+                    <MudSelectItem Value="@("Intermediate")">Intermediate</MudSelectItem>
+                    <MudSelectItem Value="@("Advanced")">Advanced</MudSelectItem>
+                    <MudSelectItem Value="@("Professional")">Professional</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="string" Label="Tangan" @bind-Value="_filterHand" Clearable="true" Variant="Variant.Outlined" SelectedValuesChanged="OnHandChanged">
+                    <MudSelectItem Value="@("Right")">Kanan</MudSelectItem>
+                    <MudSelectItem Value="@("Left")">Kiri</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2" Class="d-flex gap-2 justify-end align-center">
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Leaderboard" OnClick="GoToRankings">Ranking</MudButton>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.FileDownload" OnClick="ExportCsv">CSV</MudButton>
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.GridOn" OnClick="ExportExcel">Excel</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+    <MudPaper Elevation="1">
+        <MudTable Items="_filteredPlayers" Hover="true" Loading="_isLoading" FixedHeader="true">
+            <HeaderContent><MudTh>Nama</MudTh><MudTh>No. Member</MudTh><MudTh>Level</MudTh><MudTh>Ranking</MudTh><MudTh>Rating</MudTh><MudTh>W/L/D</MudTh><MudTh>Tangan</MudTh><MudTh>Gaya</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd><strong>@context.User?.FullName</strong></MudTd><MudTd>@context.User?.MemberNumber</MudTd>
+                <MudTd><span class="badge-chip @GetLevelBadge(context.Level)">@context.Level</span></MudTd>
+                <MudTd>@(context.Ranking.HasValue ? "#" + context.Ranking.Value : "-")</MudTd>
+                <MudTd>@context.Rating</MudTd><MudTd>@context.Wins/@context.Losses/@context.Draws</MudTd>
+                <MudTd>@context.DominantHand</MudTd><MudTd>@context.PlayingStyle</MudTd>
+                <MudTd>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="() => Edit(context)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.QrCode" Size="Size.Small" Color="Color.Secondary" OnClick="() => Qr(context)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => Del(context.Id)" />
+                </MudTd>
+            </RowTemplate>
+            <PagerContent><MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" /></PagerContent>
+        </MudTable>
+    </MudPaper>
+}
+
+@code {
+    private List<PlayerProfile> _players = new(); private IEnumerable<PlayerProfile> _filteredPlayers = Enumerable.Empty<PlayerProfile>();
+    private bool _isLoading = true; private string _searchText = ""; private string? _filterLevel; private string? _filterHand;
+    private bool _isRankingsView;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var uri = Nav.Uri;
+        _isRankingsView = uri.EndsWith("/players/rankings", StringComparison.OrdinalIgnoreCase);
+        await LoadData();
+    }
+    private async Task LoadData()
+    {
+        _isLoading = true; StateHasChanged();
+        _players = await Db.PlayerProfiles.Include(p => p.User).ToListAsync();
+        ApplyFilters(); _isLoading = false; StateHasChanged();
+    }
+    private void ApplyFilters()
+    {
+        var q = _players.AsEnumerable();
+        if (!string.IsNullOrEmpty(_searchText)) q = q.Where(p => (p.User?.FullName ?? "").Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(_filterLevel)) q = q.Where(p => p.Level == _filterLevel);
+        if (!string.IsNullOrEmpty(_filterHand)) q = q.Where(p => p.DominantHand == _filterHand);
+        _filteredPlayers = q.OrderBy(p => p.Ranking ?? 999);
+    }
+    private async Task OnLevelChanged(IEnumerable<string>? values) { _filterLevel = values?.FirstOrDefault(); await Task.CompletedTask; }
+    private async Task OnHandChanged(IEnumerable<string>? values) { _filterHand = values?.FirstOrDefault(); await Task.CompletedTask; }
+
+    private string GetRankDisplay(int? rank) => rank switch { 1 => "🥇", 2 => "🥈", 3 => "🥉", _ => "#" + rank };
+    private static string GetLevelBadge(string? l) => l switch { "Beginner" => "badge-info", "Intermediate" => "badge-warning", "Advanced" => "badge-primary", "Professional" => "badge-success", _ => "" };
+
+    private void GoToRankings() => Nav.NavigateTo("/players/rankings");
+    private void GoToList() => Nav.NavigateTo("/players");
+
+    private async void Edit(PlayerProfile p) { var par = new DialogParameters { ["PlayerName"] = p.User?.FullName ?? "", ["PlayerLevel"] = p.Level ?? "", ["PlayerHand"] = p.DominantHand ?? "", ["PlayerStyle"] = p.PlayingStyle ?? "" }; var d = await DialogService.ShowAsync<PlayerEditDialog>("Edit Pemain", par, new DialogOptions { MaxWidth = MaxWidth.Small }); var r = await d.Result; if (!r.Canceled) { await LoadData(); Snackbar.Add("Pemain diupdate!", Severity.Success); } }
+    private async void Qr(PlayerProfile p) { var qr = QrCodeService.GenerateQrCodeBase64("PADELHUB:MEMBER:" + (p.User?.MemberNumber ?? "") + ":" + (p.User?.FullName ?? "")); var par = new DialogParameters { ["QrCodeBase64"] = qr, ["PlayerName"] = p.User?.FullName ?? "" }; await DialogService.ShowAsync<QrCodeDialog>("Kartu Member", par, new DialogOptions { MaxWidth = MaxWidth.Small }); }
+    private async void Del(int id) { var p = await Db.PlayerProfiles.FindAsync(id); if (p != null) { Db.PlayerProfiles.Remove(p); await Db.SaveChangesAsync(); await LoadData(); Snackbar.Add("Pemain dihapus!", Severity.Warning); } }
+
+    private async void ExportCsv() { var d = _filteredPlayers.Select(p => new { Nama = p.User?.FullName, NoMember = p.User?.MemberNumber, p.Level, p.Ranking, p.Rating }); await Download(ExportService.ExportToCsv(d), "players.csv", "text/csv"); }
+    private async void ExportExcel() { var d = _filteredPlayers.Select(p => new { Nama = p.User?.FullName, NoMember = p.User?.MemberNumber, p.Level, p.Ranking, p.Rating }); await Download(ExportService.ExportToExcel(d), "players.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"); }
+    private async void ExportRankCsv() { var d = _filteredPlayers.Select(p => new { Peringkat = p.Ranking, Nama = p.User?.FullName, p.Level, p.Rating, Match = p.TotalMatches, Win = p.Wins, Loss = p.Losses, WinRate = p.TotalMatches > 0 ? (p.Wins * 100 / p.TotalMatches) + "%" : "-" }); await Download(ExportService.ExportToCsv(d), "rankings.csv", "text/csv"); }
+    private async void ExportRankExcel() { var d = _filteredPlayers.Select(p => new { Peringkat = p.Ranking, Nama = p.User?.FullName, p.Level, p.Rating, Match = p.TotalMatches, Win = p.Wins, Loss = p.Losses, WinRate = p.TotalMatches > 0 ? (p.Wins * 100 / p.TotalMatches) + "%" : "-" }); await Download(ExportService.ExportToExcel(d), "rankings.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"); }
+    private async Task Download(byte[] bytes, string fileName, string contentType) { using var ms = new MemoryStream(bytes); using var sr = new DotNetStreamReference(ms); await JS.InvokeVoidAsync("downloadFileFromStream", fileName, sr); }
+}

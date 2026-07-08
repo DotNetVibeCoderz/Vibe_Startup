@@ -1,0 +1,167 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@page "/admin/iot"
+@inject AppDbContext Db
+@inject IoTSimulatorService SimService
+@inject ISnackbar Snackbar
+
+<PageTitle>IoT Simulator - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">🔌 IoT Simulator</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">➕ Tambah Simulator</MudText>
+    <MudGrid>
+        <MudItem xs="12" md="4"><MudTextField @bind-Value="_newName" Label="Nama Simulator" Variant="Variant.Outlined" Required="true" /></MudItem>
+        <MudItem xs="12" md="3">
+            <MudSelect @bind-Value="_newType" Label="Tipe Sensor" Variant="Variant.Outlined">
+                <MudSelectItem Value="@("Temperature")">🌡️ Temperature</MudSelectItem>
+                <MudSelectItem Value="@("Humidity")">💧 Humidity</MudSelectItem>
+                <MudSelectItem Value="@("Lighting")">💡 Lighting</MudSelectItem>
+                <MudSelectItem Value="@("BallTracking")">🎾 Ball Tracking</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="3"><MudTextField @bind-Value="_newInterval" Label="Interval (ms)" Variant="Variant.Outlined" HelperText="Default: 5000ms" /></MudItem>
+        <MudItem xs="12" md="2" Class="d-flex align-center">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveSim">Simpan</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0">
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshData">Refresh Data</MudButton>
+</MudPaper>
+
+<MudGrid>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" GutterBottom="true">🎛️ Simulator Control</MudText>
+            @foreach (var s in _simulators)
+            {
+                <MudPaper Class="pa-3 mb-2" Elevation="0" Style="background:var(--mud-palette-background); border-radius:8px;">
+                    <div class="d-flex align-center">
+                        <div style="flex-grow:1;">
+                            <MudText Typo="Typo.body1" Style="font-weight:600;">@s.Name</MudText>
+                            <MudText Typo="Typo.caption">@s.SensorType | Interval: @s.IntervalMs ms</MudText>
+                            <span class="badge-chip @(s.IsRunning ? "badge-success" : "badge-error")">@(s.IsRunning ? "🟢 Running" : "⚪ Stopped")</span>
+                        </div>
+                        <MudSwitch Value="@s.IsRunning" ValueChanged="(bool value) => ToggleSimulator(s, value)" Color="Color.Success" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DelSim(s.Id)" />
+                    </div>
+                </MudPaper>
+            }
+            @if (!_simulators.Any()) { <MudText Typo="Typo.body2" Color="Color.Secondary">Belum ada simulator.</MudText> }
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" GutterBottom="true">📡 Sensor Data (Real-time)</MudText>
+            <MudTable Items="_sensorData" Hover="true" Dense="true" FixedHeader="true" Style="max-height:400px;">
+                <HeaderContent><MudTh>Waktu</MudTh><MudTh>Sensor</MudTh><MudTh>Value</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.RecordedAt.ToLocalTime().ToString("HH:mm:ss")</MudTd>
+                    <MudTd><span class="badge-chip">@context.SensorType</span></MudTd>
+                    <MudTd><MudText Style="font-family:monospace; font-size:0.8rem;">@Truncate(context.Value, 60)</MudText></MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private List<Models.IoTSimulator> _simulators = new();
+    private List<SensorData> _sensorData = new();
+    private string _newName = "";
+    private string _newType = "Temperature";
+    private string _newInterval = "5000";
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _timerCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshData();
+        StartAutoRefresh();
+    }
+
+    private void StartAutoRefresh()
+    {
+        _timerCts?.Cancel();
+        _timerCts = new CancellationTokenSource();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (await _timer.WaitForNextTickAsync(_timerCts.Token))
+                {
+                    await InvokeAsync(RefreshData);
+                }
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
+
+    private async Task RefreshData()
+    {
+        _simulators = await Db.IoTSimulators.OrderByDescending(s => s.Id).ToListAsync();
+        _sensorData = await Db.SensorData.OrderByDescending(s => s.RecordedAt).Take(50).ToListAsync();
+        StateHasChanged();
+    }
+
+    private async Task SaveSim()
+    {
+        if (string.IsNullOrWhiteSpace(_newName))
+        {
+            Snackbar.Add("Nama simulator wajib diisi.", Severity.Warning);
+            return;
+        }
+        Db.IoTSimulators.Add(new Models.IoTSimulator
+        {
+            Name = _newName.Trim(),
+            SensorType = _newType,
+            IntervalMs = int.TryParse(_newInterval, out var i) ? i : 5000
+        });
+        await Db.SaveChangesAsync();
+        _newName = "";
+        _newType = "Temperature";
+        _newInterval = "5000";
+        await RefreshData();
+        Snackbar.Add("Simulator ditambahkan!", Severity.Success);
+    }
+
+    private async Task ToggleSimulator(Models.IoTSimulator sim, bool isRunning)
+    {
+        if (isRunning)
+        {
+            await SimService.StartAsync(sim.Id);
+            Snackbar.Add($"Simulator {sim.Name} berjalan.", Severity.Success);
+        }
+        else
+        {
+            await SimService.StopAsync(sim.Id);
+            Snackbar.Add($"Simulator {sim.Name} dihentikan.", Severity.Info);
+        }
+        await RefreshData();
+    }
+
+    private async Task DelSim(int id)
+    {
+        var s = await Db.IoTSimulators.FindAsync(id);
+        if (s != null)
+        {
+            await SimService.StopAsync(id);
+            Db.IoTSimulators.Remove(s);
+            await Db.SaveChangesAsync();
+            await RefreshData();
+        }
+    }
+
+    private static string Truncate(string? t, int m) => string.IsNullOrEmpty(t) ? "-" : (t.Length > m ? t[..m] + "..." : t);
+
+    public ValueTask DisposeAsync()
+    {
+        _timerCts?.Cancel();
+        _timer?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

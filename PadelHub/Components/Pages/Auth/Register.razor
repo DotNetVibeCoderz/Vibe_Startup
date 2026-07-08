@@ -1,0 +1,65 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+@page "/auth/register"
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject AppDbContext Db
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<PageTitle>Daftar - PadelHub</PageTitle>
+
+<div class="d-flex align-center justify-center" style="min-height:80vh;">
+    <MudPaper Class="pa-8" Elevation="4" Style="max-width:520px; width:100%; border-radius:16px;">
+        <div class="text-center mb-6">
+            <MudText Typo="Typo.h3" Style="font-weight:800; color:var(--mud-palette-primary);">🎾 Bergabung</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">Daftar akun PadelHub baru</MudText>
+        </div>
+
+        <EditForm Model="_model" OnValidSubmit="RegisterAsync" FormName="registerForm">
+            <MudGrid>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_model.FullName" Label="Nama Lengkap" Variant="Variant.Outlined" Required="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person" /></MudItem>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_model.PhoneNumber" Label="Telepon" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Phone" /></MudItem>
+                <MudItem xs="12"><MudTextField @bind-Value="_model.Email" Label="Email" Variant="Variant.Outlined" Required="true" InputType="InputType.Email" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Email" /></MudItem>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_model.Password" Label="Password" Variant="Variant.Outlined" Required="true" InputType="InputType.Password" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Lock" HelperText="Min. 8 karakter, huruf besar, kecil & angka" /></MudItem>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_model.ConfirmPassword" Label="Konfirmasi Password" Variant="Variant.Outlined" Required="true" InputType="InputType.Password" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Lock" /></MudItem>
+                <MudItem xs="12" md="6"><MudSelect @bind-Value="_model.Level" Label="Level Bermain" Variant="Variant.Outlined"><MudSelectItem Value="@("Beginner")">🔰 Beginner</MudSelectItem><MudSelectItem Value="@("Intermediate")">👍 Intermediate</MudSelectItem><MudSelectItem Value="@("Advanced")">💪 Advanced</MudSelectItem><MudSelectItem Value="@("Professional")">🏆 Professional</MudSelectItem></MudSelect></MudItem>
+                <MudItem xs="12" md="6"><MudSelect @bind-Value="_model.DominantHand" Label="Tangan Dominan" Variant="Variant.Outlined"><MudSelectItem Value="@("Right")">🤚 Kanan</MudSelectItem><MudSelectItem Value="@("Left")">✋ Kiri</MudSelectItem></MudSelect></MudItem>
+                <MudItem xs="12"><MudTextField @bind-Value="_model.Address" Label="Alamat (opsional)" Variant="Variant.Outlined" Lines="2" /></MudItem>
+                <MudItem xs="12"><MudCheckBox @bind-Value="_model.AgreeTerms" Color="Color.Primary" Size="Size.Small" Required="true">Saya setuju dengan Syarat & Ketentuan</MudCheckBox></MudItem>
+            </MudGrid>
+            @if (!string.IsNullOrEmpty(_error)) { <MudAlert Severity="Severity.Error" Class="mb-3" Square="false" Variant="Variant.Filled">@_error</MudAlert> }
+            @if (_errors.Any()) { <MudAlert Severity="Severity.Error" Class="mb-3" Square="false" Variant="Variant.Filled"><ul class="mb-0 ps-3">@foreach (var e in _errors) { <li>@e</li> }</ul></MudAlert> }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Size="Size.Large" ButtonType="ButtonType.Submit" StartIcon="@Icons.Material.Filled.PersonAdd" Disabled="_isSubmitting">@(_isSubmitting ? "Memproses..." : "Daftar")</MudButton>
+        </EditForm>
+        <MudDivider Class="my-4" />
+        <MudText Typo="Typo.body2" Align="Align.Center">Sudah punya akun? <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="GoLogin" Size="Size.Small">Masuk Sekarang</MudButton></MudText>
+    </MudPaper>
+</div>
+
+@code {
+    private RegisterModel _model = new(); private string? _error; private List<string> _errors = new(); private bool _isSubmitting;
+
+    private async Task RegisterAsync()
+    {
+        _error = null; _errors.Clear(); _isSubmitting = true;
+        if (_model.Password != _model.ConfirmPassword) { _error = "Password tidak cocok."; _isSubmitting = false; return; }
+        if (_model.Password.Length < 8) { _error = "Password min 8 karakter."; _isSubmitting = false; return; }
+        var mc = await UserManager.Users.CountAsync();
+        var user = new ApplicationUser { UserName = _model.Email, Email = _model.Email, FullName = _model.FullName, PhoneNumber = _model.PhoneNumber, MemberNumber = $"MEM-{mc + 1:D3}", Address = _model.Address, CreatedAt = DateTime.UtcNow, IsActive = true };
+        var result = await UserManager.CreateAsync(user, _model.Password);
+        if (result.Succeeded)
+        {
+            await UserManager.AddToRoleAsync(user, "Member");
+            Db.PlayerProfiles.Add(new PlayerProfile { UserId = user.Id, Level = string.IsNullOrEmpty(_model.Level) ? "Beginner" : _model.Level, DominantHand = string.IsNullOrEmpty(_model.DominantHand) ? "Right" : _model.DominantHand, Rating = 1000, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+            await Db.SaveChangesAsync();
+            Snackbar.Add($"Selamat datang, {_model.FullName}! 🎾", Severity.Success);
+            await SignInManager.SignInAsync(user, isPersistent: false);
+            Nav.NavigateTo("/");
+        }
+        else { foreach (var err in result.Errors) _errors.Add(err.Description switch { "Passwords must have at least one uppercase ('A'-'Z')." => "Password butuh 1 huruf besar.", "Passwords must have at least one lowercase ('a'-'z')." => "Password butuh 1 huruf kecil.", "Passwords must have at least one digit ('0'-'9')." => "Password butuh 1 angka.", _ => err.Description }); }
+        _isSubmitting = false;
+    }
+    private void GoLogin() => Nav.NavigateTo("/auth/login");
+    private class RegisterModel { public string FullName { get; set; } = ""; public string Email { get; set; } = ""; public string PhoneNumber { get; set; } = ""; public string Password { get; set; } = ""; public string ConfirmPassword { get; set; } = ""; public string? Level { get; set; } = "Beginner"; public string? DominantHand { get; set; } = "Right"; public string? Address { get; set; } public bool AgreeTerms { get; set; } }
+}

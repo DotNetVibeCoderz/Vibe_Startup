@@ -1,0 +1,16 @@
+@page "/auth/logout"
+@using Microsoft.AspNetCore.Identity
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+@* Halaman logout - auto sign out dan redirect *@
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await SignInManager.SignOutAsync();
+        Snackbar.Add("Anda telah keluar. Sampai jumpa! 🎾", Severity.Info);
+        Nav.NavigateTo("/auth/login", forceLoad: true);
+    }
+}

@@ -1,0 +1,40 @@
+@using MudBlazor
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@(_isEdit ? "✏️ Edit Lapangan" : "➕ Tambah Lapangan")</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_name" Label="Nama Lapangan" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudSelect @bind-Value="_clubId" Label="Klub" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var c in _clubs) { <MudSelectItem Value="c.Id">@c.Name</MudSelectItem> }
+        </MudSelect>
+        <MudSelect @bind-Value="_type" Label="Tipe" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Indoor")">Indoor</MudSelectItem>
+            <MudSelectItem Value="@("Outdoor")">Outdoor</MudSelectItem>
+        </MudSelect>
+        <MudTextField @bind-Value="_surface" Label="Permukaan" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_price" Label="Harga/Jam" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentText="Rp" Class="mb-3" />
+        <MudTextField @bind-Value="_peakPrice" Label="Harga Peak/Jam" Variant="Variant.Outlined" Class="mb-3" />
+        <MudSwitch @bind-Value="_hasLighting" Label="Ada Lighting" Color="Color.Primary" />
+        <MudSwitch @bind-Value="_hasRoof" Label="Ada Atap" Color="Color.Primary" />
+        <MudSwitch @bind-Value="_isActive" Label="Aktif" Color="Color.Primary" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Submit">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance? MudDialog { get; set; }
+    [Parameter] public List<Club> Clubs { get; set; } = new();
+    [Parameter] public bool IsEdit { get; set; }
+    private bool _isEdit => IsEdit;
+    private List<Club> _clubs = new();
+    private string _name = ""; private int _clubId; private string _type = "Indoor";
+    private string _surface = "Artificial Grass"; private string _price = "150000";
+    private string _peakPrice = ""; private bool _hasLighting = true; private bool _hasRoof; private bool _isActive = true;
+
+    protected override void OnParametersSet() { _clubs = Clubs; }
+    private void Submit() => MudDialog?.Close(DialogResult.Ok(new { Name = _name, ClubId = _clubId, Type = _type, SurfaceType = _surface, PricePerHour = _price, PeakPricePerHour = _peakPrice, HasLighting = _hasLighting, HasRoof = _hasRoof, IsActive = _isActive }));
+    private void Cancel() => MudDialog?.Cancel();
+}

@@ -1,0 +1,68 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@page "/admin/system-config"
+@inject AppDbContext Db
+@inject IConfiguration Config
+@inject ISnackbar Snackbar
+
+<PageTitle>Konfigurasi Sistem - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">⚙️ Konfigurasi Sistem</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius:12px;">
+    <MudText Typo="Typo.h6" GutterBottom="true">📋 System Config</MudText>
+    <MudTable Items="_configs" Hover="true" Dense="true">
+        <HeaderContent><MudTh>Key</MudTh><MudTh>Value</MudTh><MudTh>Kategori</MudTh><MudTh>Deskripsi</MudTh><MudTh>Update</MudTh></HeaderContent>
+        <RowTemplate>
+            <MudTd><strong>@context.Key</strong></MudTd>
+            <MudTd>@context.Value</MudTd>
+            <MudTd><span class="badge-chip">@context.Category</span></MudTd>
+            <MudTd>@Truncate(context.Description, 50)</MudTd>
+            <MudTd>@context.UpdatedAt.ToLocalTime().ToString("dd/MM HH:mm")</MudTd>
+        </RowTemplate>
+        <PagerContent><MudTablePager /></PagerContent>
+    </MudTable>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius:12px;">
+    <MudText Typo="Typo.h6" GutterBottom="true">🔧 Informasi Sistem</MudText>
+    <MudGrid>
+        <MudItem xs="12" md="4"><MudPaper Class="pa-3" Elevation="1"><MudText Typo="Typo.caption">Database Provider</MudText><MudText Typo="Typo.body1" Style="font-weight:600;">@Config["DatabaseProvider"]</MudText></MudPaper></MudItem>
+        <MudItem xs="12" md="4"><MudPaper Class="pa-3" Elevation="1"><MudText Typo="Typo.caption">Storage Provider</MudText><MudText Typo="Typo.body1" Style="font-weight:600;">@Config["StorageProvider"]</MudText></MudPaper></MudItem>
+        <MudItem xs="12" md="4"><MudPaper Class="pa-3" Elevation="1"><MudText Typo="Typo.caption">AI Default Model</MudText><MudText Typo="Typo.body1" Style="font-weight:600;">@Config["AI:DefaultModel"]</MudText></MudPaper></MudItem>
+        <MudItem xs="12" md="4"><MudPaper Class="pa-3" Elevation="1"><MudText Typo="Typo.caption">App Version</MudText><MudText Typo="Typo.body1" Style="font-weight:600;">@Config["AppSettings:AppVersion"]</MudText></MudPaper></MudItem>
+        <MudItem xs="12" md="4"><MudPaper Class="pa-3" Elevation="1"><MudText Typo="Typo.caption">Max Upload Size</MudText><MudText Typo="Typo.body1" Style="font-weight:600;">@(Config["AppSettings:MaxFileUploadSizeMB"] ?? "10") MB</MudText></MudPaper></MudItem>
+        <MudItem xs="12" md="4"><MudPaper Class="pa-3" Elevation="1"><MudText Typo="Typo.caption">Registration</MudText><MudText Typo="Typo.body1" Style="font-weight:600;">@(Config["AppSettings:EnableRegistration"] == "true" ? "✅ Open" : "❌ Closed")</MudText></MudPaper></MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="pa-4" Elevation="2" Style="border-radius:12px;">
+    <MudText Typo="Typo.h6" GutterBottom="true">➕ Tambah Konfigurasi Baru</MudText>
+    <MudGrid>
+        <MudItem xs="12" md="4"><MudTextField @bind-Value="_newKey" Label="Key" Variant="Variant.Outlined" /></MudItem>
+        <MudItem xs="12" md="4"><MudTextField @bind-Value="_newValue" Label="Value" Variant="Variant.Outlined" /></MudItem>
+        <MudItem xs="12" md="4"><MudTextField @bind-Value="_newCategory" Label="Kategori" Variant="Variant.Outlined" /></MudItem>
+        <MudItem xs="12" md="8"><MudTextField @bind-Value="_newDesc" Label="Deskripsi" Variant="Variant.Outlined" /></MudItem>
+        <MudItem xs="12" md="4" Class="d-flex align-end">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="AddConfig" Disabled="@(string.IsNullOrWhiteSpace(_newKey))">Simpan</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@code {
+    private List<Models.SystemConfig> _configs = new();
+    private string _newKey = "", _newValue = "", _newCategory = "General", _newDesc = "";
+
+    protected override async Task OnInitializedAsync() => _configs = await Db.SystemConfigs.OrderBy(c => c.Category).ThenBy(c => c.Key).ToListAsync();
+
+    private async void AddConfig()
+    {
+        if (string.IsNullOrWhiteSpace(_newKey)) return;
+        Db.SystemConfigs.Add(new Models.SystemConfig { Key = _newKey.Trim(), Value = _newValue, Category = _newCategory, Description = _newDesc, UpdatedAt = DateTime.UtcNow });
+        await Db.SaveChangesAsync();
+        _configs = await Db.SystemConfigs.OrderBy(c => c.Category).ThenBy(c => c.Key).ToListAsync();
+        _newKey = _newValue = _newDesc = ""; _newCategory = "General";
+        Snackbar.Add("Konfigurasi disimpan!", Severity.Success); StateHasChanged();
+    }
+
+    private static string Truncate(string? t, int m) => string.IsNullOrEmpty(t) ? "-" : (t.Length > m ? t[..m] + "..." : t);
+}

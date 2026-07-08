@@ -1,0 +1,51 @@
+@using MudBlazor
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@(IsEdit ? "✏️ Edit Pelatih" : "➕ Tambah Pelatih")</MudText></TitleContent>
+    <DialogContent>
+        <MudSelect @bind-Value="_userId" Label="User" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var u in _users) { <MudSelectItem Value="u.Id">@u.FullName (@u.Email)</MudSelectItem> }
+        </MudSelect>
+        <MudSelect @bind-Value="_clubId" Label="Klub (opsional)" Variant="Variant.Outlined" T="int?" Clearable="true" Class="mb-3">
+            @foreach (var c in _clubs) { <MudSelectItem Value="c.Id">@c.Name</MudSelectItem> }
+        </MudSelect>
+        <MudTextField @bind-Value="_specialization" Label="Spesialisasi" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_experience" Label="Pengalaman (tahun)" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_hourlyRate" Label="Tarif/Jam (Rp)" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentText="Rp" Class="mb-3" />
+        <MudTextField @bind-Value="_certifications" Label="Sertifikasi" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_bio" Label="Bio" Variant="Variant.Outlined" Lines="3" Class="mb-3" />
+        <MudSwitch @bind-Value="_isAvailable" Label="Tersedia" Color="Color.Primary" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Submit">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance? MudDialog { get; set; }
+    [Parameter] public List<Club> Clubs { get; set; } = new();
+    [Parameter] public List<ApplicationUser> Users { get; set; } = new();
+    [Parameter] public bool IsEdit { get; set; }
+    [Parameter] public Coach? Coach { get; set; }
+
+    private List<Club> _clubs = new(); private List<ApplicationUser> _users = new();
+    private string _userId = ""; private int? _clubId; private string _specialization = "";
+    private string _experience = "5"; private string _hourlyRate = "250000";
+    private string _certifications = ""; private string _bio = ""; private bool _isAvailable = true;
+
+    protected override void OnParametersSet()
+    {
+        _clubs = Clubs; _users = Users;
+        if (Coach != null)
+        {
+            _userId = Coach.UserId; _clubId = Coach.ClubId; _specialization = Coach.Specialization ?? "";
+            _experience = Coach.ExperienceYears?.ToString() ?? "5";
+            _hourlyRate = Coach.HourlyRate.ToString(); _certifications = Coach.Certifications ?? "";
+            _bio = Coach.Bio ?? ""; _isAvailable = Coach.IsAvailable;
+        }
+    }
+
+    private void Submit() => MudDialog?.Close(DialogResult.Ok(new { UserId = _userId, ClubId = _clubId, Specialization = _specialization, ExperienceYears = _experience, HourlyRate = _hourlyRate, Certifications = _certifications, Bio = _bio, IsAvailable = _isAvailable }));
+    private void Cancel() => MudDialog?.Cancel();
+}

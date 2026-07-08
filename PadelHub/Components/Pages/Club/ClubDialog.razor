@@ -1,0 +1,41 @@
+@using MudBlazor
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@(IsEdit ? "✏️ Edit Klub" : "➕ Tambah Klub")</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_name" Label="Nama Klub" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudTextField @bind-Value="_city" Label="Kota" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_country" Label="Negara" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_address" Label="Alamat" Variant="Variant.Outlined" Lines="2" Class="mb-3" />
+        <MudTextField @bind-Value="_phone" Label="Telepon" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_email" Label="Email" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_website" Label="Website" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_desc" Label="Deskripsi" Variant="Variant.Outlined" Lines="3" Class="mb-3" />
+        <MudSwitch @bind-Value="_isActive" Label="Aktif" Color="Color.Primary" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Submit">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance? MudDialog { get; set; }
+    [Parameter] public bool IsEdit { get; set; }
+    [Parameter] public Club? Club { get; set; }
+    private string _name = ""; private string _city = ""; private string _country = "Indonesia";
+    private string _address = ""; private string _phone = ""; private string _email = "";
+    private string _website = ""; private string _desc = ""; private bool _isActive = true;
+
+    protected override void OnParametersSet()
+    {
+        if (Club != null)
+        {
+            _name = Club.Name; _city = Club.City ?? ""; _country = Club.Country ?? "Indonesia";
+            _address = Club.Address ?? ""; _phone = Club.Phone ?? ""; _email = Club.Email ?? "";
+            _website = Club.Website ?? ""; _desc = Club.Description ?? ""; _isActive = Club.IsActive;
+        }
+    }
+    private void Submit() => MudDialog?.Close(DialogResult.Ok(new { Name = _name, City = _city, Country = _country, Address = _address, Phone = _phone, Email = _email, Website = _website, Description = _desc, IsActive = _isActive }));
+    private void Cancel() => MudDialog?.Cancel();
+}

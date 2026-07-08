@@ -1,0 +1,292 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Operator")]
+@page "/clubs"
+@inject AppDbContext Db
+@inject ExportService ExportService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Manajemen Klub - PadelHub</PageTitle>
+
+@* Header *@
+<div class="d-flex align-center justify-space-between mb-4">
+    <MudText Typo="Typo.h4">🏢 Manajemen Klub</MudText>
+    <div class="d-flex gap-2">
+        <MudIconButton Icon="@(_tableView ? Icons.Material.Filled.GridView : Icons.Material.Filled.ViewList)"
+                        Color="Color.Primary" OnClick="ToggleView" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                    OnClick="OpenAddDialog">Tambah Klub</MudButton>
+        <MudTooltip Text="Export CSV">
+            <MudIconButton Icon="@Icons.Material.Filled.FileDownload" Color="Color.Secondary" OnClick="ExportToCsv" />
+        </MudTooltip>
+        <MudTooltip Text="Export Excel">
+            <MudIconButton Icon="@Icons.Material.Filled.GridOn" Color="Color.Tertiary" OnClick="ExportToExcel" />
+        </MudTooltip>
+    </div>
+</div>
+
+@* Filter Bar *@
+<MudPaper Class="pa-4 mb-4" Elevation="0">
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudTextField T="string" Placeholder="Cari klub..." Immediate="true"
+                           @bind-Value="_searchQuery"
+                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudSelect T="string" Label="Kota" Clearable="true" @bind-Value="_filterCity"
+                        AnchorOrigin="Origin.BottomCenter">
+                <MudSelectItem Value="@("All")">Semua</MudSelectItem>
+                @foreach (var city in _cities)
+                {
+                    <MudSelectItem Value="@city">@city</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (!_tableView)
+{
+    <MudGrid>
+        @foreach (var club in _filteredClubs)
+        {
+            <MudItem xs="12" md="6" lg="4">
+                <MudPaper Class="pa-0 fade-in" Elevation="2" Style="border-radius:12px; overflow:hidden;">
+                    <div style="height:120px; @(club.IsActive ? "background: linear-gradient(135deg, #1B5E20, #4CAF50);" : "background: linear-gradient(135deg, #757575, #BDBDBD);"); display:flex; align-items:center; justify-content:center; color:white;">
+                        <div style="text-align:center;">
+                            <MudText Typo="Typo.h3" Style="font-weight:700;">@GetInitials(club.Name)</MudText>
+                            @if (!club.IsActive)
+                            {
+                                <span class="badge-chip badge-error" style="background:rgba(255,255,255,0.2);">Inactive</span>
+                            }
+                        </div>
+                    </div>
+                    <MudCardContent>
+                        <MudText Typo="Typo.h6" Style="font-weight:600;">@club.Name</MudText>
+                        @if (!string.IsNullOrEmpty(club.City) || !string.IsNullOrEmpty(club.Country))
+                        {
+                            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">📍 @club.City, @club.Country</MudText>
+                        }
+                        @if (!string.IsNullOrEmpty(club.Address))
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">📍 @club.Address</MudText>
+                        }
+                        @if (!string.IsNullOrEmpty(club.Phone))
+                        {
+                            <MudText Typo="Typo.caption">📞 @club.Phone</MudText>
+                        }
+                        @if (!string.IsNullOrEmpty(club.Email))
+                        {
+                            <MudText Typo="Typo.caption">✉️ @club.Email</MudText>
+                        }
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">🏟️ @club.Courts.Count lapangan</MudText>
+                        <div class="d-flex gap-2 mt-3">
+                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
+                                        OnClick="() => OpenEditDialog(club.Id)">Edit</MudButton>
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
+                                        OnClick="() => DeleteClub(club.Id)">Hapus</MudButton>
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary"
+                                        OnClick="() => ViewCourts(club.Id)">Lapangan</MudButton>
+                        </div>
+                    </MudCardContent>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+}
+else
+{
+    <MudPaper Elevation="1">
+        <MudTable Items="_filteredClubs" Hover="true" Loading="_isLoading" FixedHeader="true">
+            <HeaderContent>
+                <MudTh Style="cursor:pointer;" OnClick="() => ToggleSort("Name")">
+                    Nama @SortIcon("Name")
+                </MudTh>
+                <MudTh Style="cursor:pointer;" OnClick="() => ToggleSort("City")">
+                    Kota @SortIcon("City")
+                </MudTh>
+                <MudTh>Negara</MudTh>
+                <MudTh>Telepon</MudTh>
+                <MudTh>Email</MudTh>
+                <MudTh>Lapangan</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh Style="text-align:center;">Aksi</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><strong>@context.Name</strong></MudTd>
+                <MudTd>@context.City</MudTd>
+                <MudTd>@context.Country</MudTd>
+                <MudTd>@context.Phone</MudTd>
+                <MudTd>@context.Email</MudTd>
+                <MudTd>@context.Courts.Count</MudTd>
+                <MudTd>
+                    <span class="@(context.IsActive ? "badge-chip badge-success" : "badge-chip badge-error")">
+                        @(context.IsActive ? "Active" : "Inactive")
+                    </span>
+                </MudTd>
+                <MudTd Style="text-align:center; white-space:nowrap;">
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary"
+                                    OnClick="() => OpenEditDialog(context.Id)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                                    OnClick="() => DeleteClub(context.Id)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.GridView" Size="Size.Small" Color="Color.Secondary"
+                                    OnClick="() => ViewCourts(context.Id)" />
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Typo="Typo.body1" Color="Color.Secondary" Class="pa-4">Tidak ada data klub.</MudText>
+            </NoRecordsContent>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+            </PagerContent>
+        </MudTable>
+    </MudPaper>
+}
+
+@code {
+    private List<Club> _clubs = new();
+    private IEnumerable<Club> _filteredClubs = Enumerable.Empty<Club>();
+    private bool _isLoading = true;
+    private bool _tableView;
+
+    private string? _searchQuery;
+    private string? _filterCity;
+    private List<string> _cities = new();
+
+    private string _sortBy = "Name";
+    private SortDirection _sortDir = SortDirection.Ascending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isLoading = true;
+        _clubs = await Db.Clubs.Include(c => c.Courts).OrderBy(c => c.Name).ToListAsync();
+        _cities = _clubs.Where(c => !string.IsNullOrEmpty(c.City))
+            .Select(c => c.City!).Distinct().OrderBy(c => c).ToList();
+        ApplyFilters();
+        _isLoading = false;
+    }
+
+    protected override void OnParametersSet()
+    {
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        var q = _clubs.AsEnumerable();
+        if (!string.IsNullOrEmpty(_searchQuery))
+            q = q.Where(c => c.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)
+                           || (c.City ?? "").Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)
+                           || (c.Country ?? "").Contains(_searchQuery, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(_filterCity) && _filterCity != "All")
+            q = q.Where(c => c.City == _filterCity);
+
+        q = (_sortBy, _sortDir) switch
+        {
+            ("Name", SortDirection.Ascending) => q.OrderBy(c => c.Name),
+            ("Name", SortDirection.Descending) => q.OrderByDescending(c => c.Name),
+            ("City", SortDirection.Ascending) => q.OrderBy(c => c.City),
+            ("City", SortDirection.Descending) => q.OrderByDescending(c => c.City),
+            _ => q.OrderBy(c => c.Name)
+        };
+        _filteredClubs = q.ToList();
+    }
+
+    private void ToggleView() => _tableView = !_tableView;
+
+    private void ToggleSort(string field)
+    {
+        if (_sortBy == field)
+            _sortDir = _sortDir == SortDirection.Ascending ? SortDirection.Descending : SortDirection.Ascending;
+        else { _sortBy = field; _sortDir = SortDirection.Ascending; }
+        ApplyFilters();
+    }
+
+    private string SortIcon(string field)
+    {
+        if (_sortBy != field) return "↕️";
+        return _sortDir == SortDirection.Ascending ? "↑" : "↓";
+    }
+
+    private static string GetInitials(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "C";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2) return $"{parts[0][0]}{parts[1][0]}".ToUpper();
+        return name.Length >= 2 ? name[..2].ToUpper() : name.ToUpper();
+    }
+
+    private void ViewCourts(int id) => Nav.NavigateTo($"/courts?clubId={id}");
+
+    private async Task OpenAddDialog()
+    {
+        var parameters = new DialogParameters { ["IsEdit"] = false };
+        var dialog = await DialogService.ShowAsync<ClubDialog>("Tambah Klub", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+        if (!result.Canceled) await RefreshData();
+    }
+
+    private async Task OpenEditDialog(int id)
+    {
+        var club = _clubs.FirstOrDefault(c => c.Id == id);
+        if (club == null) return;
+        var parameters = new DialogParameters { ["IsEdit"] = true, ["Club"] = club };
+        var dialog = await DialogService.ShowAsync<ClubDialog>("Edit Klub", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+        if (!result.Canceled) await RefreshData();
+    }
+
+    private async Task DeleteClub(int id)
+    {
+        var club = await Db.Clubs.FindAsync(id);
+        if (club == null) return;
+        Db.Clubs.Remove(club);
+        await Db.SaveChangesAsync();
+        Snackbar.Add("Klub dihapus!", Severity.Warning);
+        await RefreshData();
+    }
+
+    private async Task RefreshData()
+    {
+        _isLoading = true;
+        _clubs = await Db.Clubs.Include(c => c.Courts).OrderBy(c => c.Name).ToListAsync();
+        _cities = _clubs.Where(c => !string.IsNullOrEmpty(c.City))
+            .Select(c => c.City!).Distinct().OrderBy(c => c).ToList();
+        ApplyFilters();
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task ExportToCsv()
+    {
+        var data = _filteredClubs.Select(c => new {
+            c.Name, c.City, c.Country, c.Address, c.PostalCode,
+            c.Phone, c.Email, c.Website, Lapangan = c.Courts.Count,
+            Status = c.IsActive ? "Active" : "Inactive"
+        });
+        var bytes = ExportService.ExportToCsv(data);
+        await DownloadFile(bytes, "clubs.csv", "text/csv");
+    }
+
+    private async Task ExportToExcel()
+    {
+        var data = _filteredClubs.Select(c => new {
+            c.Name, c.City, c.Country, c.Address, c.PostalCode,
+            c.Phone, c.Email, c.Website, Lapangan = c.Courts.Count,
+            Status = c.IsActive ? "Active" : "Inactive"
+        });
+        var bytes = ExportService.ExportToExcel(data, "Clubs");
+        await DownloadFile(bytes, "clubs.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    private async Task DownloadFile(byte[] bytes, string fileName, string contentType)
+    {
+        using var ms = new MemoryStream(bytes);
+        await JS.InvokeVoidAsync("downloadFileFromStream", fileName, new DotNetStreamReference(ms));
+    }
+}

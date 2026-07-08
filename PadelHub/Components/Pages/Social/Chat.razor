@@ -1,0 +1,221 @@
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@attribute [Authorize]
+@page "/social/chat"
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+@inject UserManager<ApplicationUser> UserManager
+@inject ISnackbar Snackbar
+
+<PageTitle>Chat Komunitas - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">💬 Chat Komunitas</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="4">
+        <MudPaper Class="pa-0" Elevation="2" Style="border-radius:12px; overflow:hidden;">
+            <div class="pa-3 d-flex align-center" style="background:var(--mud-palette-primary); color:white;">
+                <MudText Typo="Typo.body1" Style="font-weight:600;">👥 Grup Chat</MudText>
+                <MudSpacer />
+                <MudIconButton Icon="@Icons.Material.Filled.Add" Color="Color.Inherit" Size="Size.Small" OnClick="OpenCreateGroup" />
+            </div>
+            <div class="pa-2" style="max-height:500px; overflow-y:auto;">
+                @foreach (var g in _groups)
+                {
+                    <div class="pa-2 mb-1 d-flex align-center @(g.Id.ToString() == _activeGroupId ? "mud-theme-primary" : "")" style="border-radius:8px; cursor:pointer;" @onclick="() => SelectGroup(g.Id)">
+                        <MudIcon Icon="@Icons.Material.Filled.Group" Size="Size.Small" Class="mr-2" />
+                        <div style="flex-grow:1;">
+                            <MudText Typo="Typo.body2" Style="font-weight:600;">@g.Name</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@(g.Members?.Count ?? 0) anggota</MudText>
+                        </div>
+                        <span @onclick:stopPropagation="true">
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DelGroup(g.Id)" />
+                        </span>
+                    </div>
+                }
+                @if (!_groups.Any()) { <MudText Typo="Typo.caption" Color="Color.Secondary" Class="pa-4">Belum ada grup chat.</MudText> }
+            </div>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="8">
+        <MudPaper Class="d-flex flex-column" Elevation="2" Style="border-radius:12px; height:60vh;">
+            <div class="pa-3 d-flex align-center" style="background:var(--mud-palette-primary); color:white; border-radius:12px 12px 0 0;">
+                <MudText Typo="Typo.body1" Style="font-weight:600;">@_activeGroupName</MudText>
+                <MudSpacer /><MudText Typo="Typo.caption">@_activeGroupMsgs.Count pesan</MudText>
+            </div>
+            <div class="flex-grow-1 pa-3" style="overflow-y:auto;" @ref="_msgContainer">
+                @foreach (var msg in _activeGroupMsgs)
+                {
+                    var isMine = msg.SenderId == _currentUserId;
+                    <div class="mb-2 @(isMine ? "d-flex justify-end" : "")">
+                        @if (!isMine) { <MudText Typo="Typo.caption" Color="Color.Primary" Style="font-weight:600;">@msg.Sender?.FullName</MudText> }
+                        <MudPaper Class="pa-2" Style="@(isMine ? "max-width:75%; border-radius:12px; background:var(--mud-palette-primary); color:white;" : "max-width:75%; border-radius:12px; background:var(--mud-palette-surface);")" Elevation="0">
+                            <MudText Typo="Typo.body2">@msg.Content</MudText>
+                        </MudPaper>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="@(isMine ? "text-right" : "")">@msg.SentAt.ToLocalTime().ToString("HH:mm")</MudText>
+                    </div>
+                }
+            </div>
+            <div class="pa-3 d-flex gap-2" style="border-top:1px solid var(--mud-palette-divider);">
+                <MudTextField @bind-Value="_newMessage" Placeholder="Ketik pesan..." Variant="Variant.Outlined" Immediate="true" OnKeyDown="HandleEnter" Style="flex-grow:1;" />
+                <MudIconButton Icon="@Icons.Material.Filled.Send" Color="Color.Primary" OnClick="SendMsg" Disabled="@(string.IsNullOrWhiteSpace(_newMessage) || string.IsNullOrEmpty(_activeGroupId))" />
+            </div>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@* Create Group Dialog *@
+<MudDialog @bind-Visible="_showGroupDialog">
+    <TitleContent><MudText Typo="Typo.h6">➕ Buat Grup Chat</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_newGroupName" Label="Nama Grup" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudTextField @bind-Value="_newGroupDesc" Label="Deskripsi" Variant="Variant.Outlined" Lines="2" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => _showGroupDialog = false">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateGroup" Disabled="@(string.IsNullOrWhiteSpace(_newGroupName))">Buat</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<ChatGroup> _groups = new();
+    private List<ChatMessage> _activeGroupMsgs = new();
+    private string _activeGroupName = "Pilih grup chat";
+    private string _activeGroupId = "";
+    private string _newMessage = "";
+    private string _currentUserId = "";
+    private ElementReference _msgContainer;
+    private bool _showGroupDialog;
+    private string _newGroupName = "";
+    private string _newGroupDesc = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var claimId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        var user = await UserManager.FindByIdAsync(claimId);
+        _currentUserId = user?.Id ?? (await Db.Users.FirstOrDefaultAsync())?.Id ?? "";
+        await RefreshGroupsAsync();
+        if (_groups.Any()) SelectGroup(_groups[0].Id);
+    }
+
+    private async Task RefreshGroupsAsync()
+    {
+        _groups = await Db.ChatGroups.Include(g => g.Members).OrderByDescending(g => g.CreatedAt).ToListAsync();
+    }
+
+    private void SelectGroup(int id)
+    {
+        _activeGroupId = id.ToString();
+        var g = _groups.FirstOrDefault(x => x.Id == id);
+        _activeGroupName = g?.Name ?? "Grup Chat";
+        _ = LoadMessages();
+    }
+
+    private async Task LoadMessages()
+    {
+        if (string.IsNullOrEmpty(_activeGroupId)) return;
+        var gid = int.Parse(_activeGroupId);
+        _activeGroupMsgs = await Db.ChatMessages.Include(m => m.Sender)
+            .Where(m => m.GroupId == gid)
+            .OrderByDescending(m => m.SentAt)
+            .Take(50)
+            .ToListAsync();
+        _activeGroupMsgs.Reverse();
+    }
+
+    private async Task EnsureCurrentUserAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(_currentUserId)) return;
+        _currentUserId = (await Db.Users.FirstOrDefaultAsync())?.Id ?? "";
+    }
+
+    private async Task SendMsg()
+    {
+        if (string.IsNullOrWhiteSpace(_newMessage) || string.IsNullOrEmpty(_activeGroupId)) return;
+        await EnsureCurrentUserAsync();
+        if (string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            Snackbar.Add("User aktif tidak ditemukan. Silakan login ulang.", Severity.Error);
+            return;
+        }
+        Db.ChatMessages.Add(new ChatMessage
+        {
+            SenderId = _currentUserId,
+            GroupId = int.Parse(_activeGroupId),
+            Content = _newMessage.Trim(),
+            SentAt = DateTime.UtcNow
+        });
+        await Db.SaveChangesAsync();
+        _newMessage = "";
+        await LoadMessages();
+        StateHasChanged();
+    }
+
+    private async Task HandleEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+            await SendMsg();
+    }
+
+    private void OpenCreateGroup()
+    {
+        _newGroupName = "";
+        _newGroupDesc = "";
+        _showGroupDialog = true;
+    }
+
+    private async Task CreateGroup()
+    {
+        if (string.IsNullOrWhiteSpace(_newGroupName)) return;
+        await EnsureCurrentUserAsync();
+
+        var group = new ChatGroup
+        {
+            Name = _newGroupName.Trim(),
+            Description = _newGroupDesc.Trim(),
+            CreatedAt = DateTime.UtcNow
+        };
+        Db.ChatGroups.Add(group);
+        await Db.SaveChangesAsync();
+
+        if (!string.IsNullOrWhiteSpace(_currentUserId))
+        {
+            Db.ChatGroupMembers.Add(new ChatGroupMember
+            {
+                GroupId = group.Id,
+                UserId = _currentUserId,
+                Role = "Admin",
+                JoinedAt = DateTime.UtcNow
+            });
+            await Db.SaveChangesAsync();
+        }
+
+        _showGroupDialog = false;
+        await RefreshGroupsAsync();
+        SelectGroup(group.Id);
+        Snackbar.Add("Grup berhasil dibuat!", Severity.Success);
+        StateHasChanged();
+    }
+
+    private async Task DelGroup(int id)
+    {
+        var g = await Db.ChatGroups.Include(x => x.Messages).Include(x => x.Members).FirstOrDefaultAsync(x => x.Id == id);
+        if (g != null)
+        {
+            Db.ChatGroups.Remove(g);
+            await Db.SaveChangesAsync();
+            await RefreshGroupsAsync();
+            if (_activeGroupId == id.ToString())
+            {
+                _activeGroupId = "";
+                _activeGroupName = "Pilih grup chat";
+                _activeGroupMsgs.Clear();
+            }
+            if (_groups.Any() && string.IsNullOrEmpty(_activeGroupId))
+                SelectGroup(_groups[0].Id);
+            Snackbar.Add("Grup dihapus!", Severity.Warning);
+            StateHasChanged();
+        }
+    }
+}

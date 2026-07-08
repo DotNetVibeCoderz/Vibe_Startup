@@ -1,0 +1,109 @@
+@page "/"
+@attribute [AllowAnonymous]
+@inject AppDbContext Db
+@inject NavigationManager Nav
+
+<PageTitle>Dashboard - PadelHub</PageTitle>
+
+@if (_isAuthenticated)
+{
+    <MudText Typo="Typo.h3" GutterBottom="true" Style="font-weight:700;">🎾 Selamat Datang di PadelHub</MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">Sistem Manajemen Padel Terintegrasi</MudText>
+
+    @if (_stats != null)
+    {
+        <MudGrid>
+            <MudItem xs="12" sm="6" md="3"><MudPaper Class="pa-4" Elevation="1"><MudText Typo="Typo.caption" Color="Color.Secondary">Total Klub</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_stats.TotalClubs</MudText></MudPaper></MudItem>
+            <MudItem xs="12" sm="6" md="3"><MudPaper Class="pa-4" Elevation="1"><MudText Typo="Typo.caption" Color="Color.Secondary">Total Lapangan</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_stats.TotalCourts</MudText></MudPaper></MudItem>
+            <MudItem xs="12" sm="6" md="3"><MudPaper Class="pa-4" Elevation="1"><MudText Typo="Typo.caption" Color="Color.Secondary">Total Pemain</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_stats.TotalPlayers</MudText></MudPaper></MudItem>
+            <MudItem xs="12" sm="6" md="3"><MudPaper Class="pa-4" Elevation="1"><MudText Typo="Typo.caption" Color="Color.Secondary">Turnamen Aktif</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_stats.ActiveTournaments</MudText></MudPaper></MudItem>
+        </MudGrid>
+        <MudText Typo="Typo.h5" GutterBottom="true" Class="mt-8">⚡ Quick Actions</MudText>
+        <MudGrid>
+            <MudItem xs="6" sm="4" md="2"><MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.CalendarMonth" OnClick="GoReservations">Booking</MudButton></MudItem>
+            <MudItem xs="6" sm="4" md="2"><MudButton Variant="Variant.Filled" Color="Color.Secondary" FullWidth="true" StartIcon="@Icons.Material.Filled.EmojiEvents" OnClick="GoTournaments">Turnamen</MudButton></MudItem>
+            <MudItem xs="6" sm="4" md="2"><MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.People" OnClick="GoPlayers">Pemain</MudButton></MudItem>
+            <MudItem xs="6" sm="4" md="2"><MudButton Variant="Variant.Outlined" Color="Color.Secondary" FullWidth="true" StartIcon="@Icons.Material.Filled.SmartToy" OnClick="GoChatbot">Coach Sherly</MudButton></MudItem>
+        </MudGrid>
+        <MudText Typo="Typo.h5" GutterBottom="true" Class="mt-8">📋 Aktivitas Terbaru</MudText>
+        <MudPaper Class="pa-0" Elevation="1">
+            <MudTable Items="_recentReservations" Hover="true" Striped="true" Dense="true">
+                <HeaderContent><MudTh>Lapangan</MudTh><MudTh>Tanggal</MudTh><MudTh>Jam</MudTh><MudTh>Status</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Court?.Name</MudTd><MudTd>@context.ReservationDate.ToShortDateString()</MudTd>
+                    <MudTd>@FormatTime(context.StartTime) - @FormatTime(context.EndTime)</MudTd>
+                    <MudTd><span class="@GetStatusClass(context.Status)">@context.Status</span></MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    }
+    else { <MudProgressCircular Color="Color.Primary" Indeterminate="true" Class="my-8" /> }
+}
+else
+{
+    @* --- PUBLIC LANDING PAGE --- *@
+    <div class="text-center py-8">
+        <MudText Typo="Typo.h2" Style="font-weight:800; color:var(--mud-palette-primary);">🎾 PadelHub</MudText>
+        <MudText Typo="Typo.h5" Color="Color.Secondary" Class="mt-2 mb-6">
+            Sistem Manajemen Padel Terintegrasi untuk Klub, Turnamen & Pemain
+        </MudText>
+        <MudGrid Class="justify-center mb-8">
+            <MudItem xs="12" md="8">
+                <MudGrid>
+                    <MudItem xs="6" md="3"><MudPaper Class="pa-3" Elevation="1" Style="text-align:center;"><MudText Typo="Typo.h6">🏢</MudText><MudText Typo="Typo.body2">Manajemen Klub</MudText></MudPaper></MudItem>
+                    <MudItem xs="6" md="3"><MudPaper Class="pa-3" Elevation="1" Style="text-align:center;"><MudText Typo="Typo.h6">📅</MudText><MudText Typo="Typo.body2">Reservasi</MudText></MudPaper></MudItem>
+                    <MudItem xs="6" md="3"><MudPaper Class="pa-3" Elevation="1" Style="text-align:center;"><MudText Typo="Typo.h6">🏆</MudText><MudText Typo="Typo.body2">Turnamen</MudText></MudPaper></MudItem>
+                    <MudItem xs="6" md="3"><MudPaper Class="pa-3" Elevation="1" Style="text-align:center;"><MudText Typo="Typo.h6">🤖</MudText><MudText Typo="Typo.body2">AI Coach</MudText></MudPaper></MudItem>
+                </MudGrid>
+            </MudItem>
+        </MudGrid>
+        <div class="d-flex justify-center gap-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" StartIcon="@Icons.Material.Filled.Login" OnClick="GoLogin">Masuk</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Large" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="GoRegister">Daftar Gratis</MudButton>
+        </div>
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-6">
+            © @DateTime.Now.Year PadelHub by GraviCode Studios
+        </MudText>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthStateTask { get; set; }
+    private bool _isAuthenticated;
+    private DashboardStats? _stats;
+    private List<Reservation> _recentReservations = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthStateTask != null)
+        {
+            var authState = await AuthStateTask;
+            _isAuthenticated = authState.User.Identity?.IsAuthenticated == true;
+        }
+
+        if (_isAuthenticated)
+        {
+            _stats = new DashboardStats
+            {
+                TotalClubs = await Db.Clubs.CountAsync(),
+                TotalCourts = await Db.Courts.CountAsync(),
+                TotalPlayers = await Db.PlayerProfiles.CountAsync(),
+                ActiveTournaments = await Db.Tournaments.CountAsync(t => t.Status == "InProgress" || t.Status == "Registration"),
+                TotalReservations = await Db.Reservations.CountAsync(),
+                TotalRevenue = await Db.Payments.Where(p => p.Status == "Success").SumAsync(p => p.Amount)
+            };
+            _recentReservations = await Db.Reservations.Include(r => r.Court).OrderByDescending(r => r.CreatedAt).Take(10).ToListAsync();
+        }
+    }
+
+    private void GoLogin() => Nav.NavigateTo("/auth/login");
+    private void GoRegister() => Nav.NavigateTo("/auth/register");
+    private void GoReservations() => Nav.NavigateTo("/reservations");
+    private void GoTournaments() => Nav.NavigateTo("/tournaments");
+    private void GoPlayers() => Nav.NavigateTo("/players");
+    private void GoChatbot() => Nav.NavigateTo("/chatbot");
+    private string FormatTime(TimeSpan ts) => ts.ToString(@"hh\:mm");
+    private string GetStatusClass(string s) => s switch { "Confirmed" => "status-confirmed", "Pending" => "status-pending", "Cancelled" => "status-cancelled", _ => "" };
+
+    private class DashboardStats { public int TotalClubs { get; set; } public int TotalCourts { get; set; } public int TotalPlayers { get; set; } public int ActiveTournaments { get; set; } public int TotalReservations { get; set; } public decimal TotalRevenue { get; set; } }
+}

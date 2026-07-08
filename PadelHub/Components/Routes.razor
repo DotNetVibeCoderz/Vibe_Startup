@@ -1,0 +1,35 @@
+@rendermode RenderMode.InteractiveServer
+@using Microsoft.AspNetCore.Components.Authorization
+
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    @if (context.User.Identity?.IsAuthenticated != true)
+                    {
+                        <RedirectToLogin />
+                    }
+                    else
+                    {
+                        <LayoutView Layout="typeof(Layout.MainLayout)">
+                            <MudText Typo="Typo.h3" Align="Align.Center" Class="my-16">
+                                🚫 Anda tidak memiliki akses ke halaman ini.
+                            </MudText>
+                        </LayoutView>
+                    }
+                </NotAuthorized>
+                <Authorizing>
+                    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mt-0" />
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>Not Found - PadelHub</PageTitle>
+            <LayoutView Layout="typeof(Layout.MainLayout)">
+                <MudText Typo="Typo.h3" Align="Align.Center" Class="my-16">Halaman tidak ditemukan 🎾</MudText>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

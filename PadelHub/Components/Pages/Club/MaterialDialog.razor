@@ -1,0 +1,37 @@
+@using MudBlazor
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">➕ Tambah Materi Pelatihan</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_title" Label="Judul" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudSelect @bind-Value="_coachId" Label="Coach" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var c in _coaches) { <MudSelectItem Value="c.Id">@c.User?.FullName</MudSelectItem> }
+        </MudSelect>
+        <MudSelect @bind-Value="_category" Label="Kategori" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Technique")">Teknik</MudSelectItem>
+            <MudSelectItem Value="@("Strategy")">Strategi</MudSelectItem>
+            <MudSelectItem Value="@("Fitness")">Fisik</MudSelectItem>
+            <MudSelectItem Value="@("Mental")">Mental</MudSelectItem>
+        </MudSelect>
+        <MudTextField @bind-Value="_desc" Label="Deskripsi" Variant="Variant.Outlined" Lines="3" Class="mb-3" />
+        <MudTextField @bind-Value="_videoUrl" Label="URL Video" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_fileUrl" Label="URL File" Variant="Variant.Outlined" Class="mb-3" />
+        <MudSwitch @bind-Value="_isPublic" Label="Publik" Color="Color.Primary" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Submit">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance? MudDialog { get; set; }
+    [Parameter] public List<Coach> Coaches { get; set; } = new();
+    private List<Coach> _coaches = new();
+    private string _title = ""; private int _coachId; private string _category = "Technique";
+    private string _desc = ""; private string _videoUrl = ""; private string _fileUrl = ""; private bool _isPublic = true;
+
+    protected override void OnParametersSet() { _coaches = Coaches; }
+    private void Submit() => MudDialog?.Close(DialogResult.Ok(new { Title = _title, CoachId = _coachId, Category = _category, Description = _desc, VideoUrl = _videoUrl, FileUrl = _fileUrl, IsPublic = _isPublic }));
+    private void Cancel() => MudDialog?.Cancel();
+}

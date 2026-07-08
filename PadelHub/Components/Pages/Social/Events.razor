@@ -1,0 +1,222 @@
+@using Microsoft.AspNetCore.Authorization
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Identity
+@attribute [Authorize]
+@page "/social/events"
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+@inject UserManager<ApplicationUser> UserManager
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Event Sosial - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">🎉 Event Sosial</MudText>
+
+@if (_isAdmin)
+{
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenAddDialog" Class="mb-4">Tambah Event</MudButton>
+}
+
+<MudGrid>
+    @foreach (var evt in _events)
+    {
+        var isJoined = _joinedEventIds.Contains(evt.Id);
+        <MudItem xs="12" md="6" lg="4">
+            <MudPaper Class="pa-0" Elevation="2" Style="border-radius:12px; overflow:hidden;">
+                <div style="height:80px; display:flex; align-items:center; justify-content:center; background: linear-gradient(135deg, @GetGradient(evt.Type));">
+                    <MudText Typo="Typo.h5" Style="color:white; font-weight:700;">@evt.Title</MudText>
+                </div>
+                <MudCardContent>
+                    <div class="d-flex gap-2 mb-2">
+                        <span class="badge-chip">@evt.Type</span>
+                        <span class="badge-chip @GetStatusBadge(evt.Status)">@evt.Status</span>
+                        @if (isJoined) { <span class="badge-chip badge-success">✅ Terdaftar</span> }
+                    </div>
+                    @if (!string.IsNullOrEmpty(evt.Description)) { <MudText Typo="Typo.body2" Class="mb-2">@Truncate(evt.Description, 80)</MudText> }
+                    <MudText Typo="Typo.caption">📅 @evt.EventDate.ToString("dd MMM yyyy HH:mm")</MudText>
+                    @if (evt.EndDate.HasValue)
+                    {
+                        <MudText Typo="Typo.caption">🏁 Selesai: @evt.EndDate.Value.ToString("dd MMM yyyy HH:mm")</MudText>
+                    }
+                    <MudText Typo="Typo.caption">📍 @evt.Location</MudText>
+                    @if (evt.Fee.HasValue && evt.Fee > 0) { <MudText Typo="Typo.caption">💰 Rp @evt.Fee.Value.ToString("N0")</MudText> }
+                    <div class="d-flex gap-2 mt-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" FullWidth="true"
+                                   OnClick="() => JoinEvent(evt.Id)" Disabled="@(isJoined || evt.Status != "Upcoming")">
+                            @(isJoined ? "Sudah Terdaftar" : "Ikut Event")
+                        </MudButton>
+                        @if (_isAdmin)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="() => EditEvent(evt)" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DelEvent(evt.Id)" />
+                        }
+                    </div>
+                </MudCardContent>
+            </MudPaper>
+        </MudItem>
+    }
+</MudGrid>
+
+<MudDialog @bind-Visible="_showDialog">
+    <TitleContent><MudText Typo="Typo.h6">@(_editId > 0 ? "✏️ Edit Event" : "➕ Tambah Event")</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_formTitle" Label="Judul" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudSelect @bind-Value="_formType" Label="Tipe" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Gathering")">👥 Gathering</MudSelectItem>
+            <MudSelectItem Value="@("FunMatch")">🎾 Fun Match</MudSelectItem>
+            <MudSelectItem Value="@("Charity")">💝 Charity</MudSelectItem>
+            <MudSelectItem Value="@("Tournament")">🏆 Tournament</MudSelectItem>
+        </MudSelect>
+        <MudSelect @bind-Value="_formStatus" Label="Status" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Upcoming")">Upcoming</MudSelectItem>
+            <MudSelectItem Value="@("InProgress")">In Progress</MudSelectItem>
+            <MudSelectItem Value="@("Completed")">Completed</MudSelectItem>
+        </MudSelect>
+        <MudTextField @bind-Value="_formDesc" Label="Deskripsi" Variant="Variant.Outlined" Lines="3" Class="mb-3" />
+        <MudDatePicker @bind-Date="_formDate" Label="Tanggal" Variant="Variant.Outlined" Class="mb-3" />
+        <MudDatePicker @bind-Date="_formEndDate" Label="Tanggal Selesai" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_formLocation" Label="Lokasi" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_formFee" Label="Biaya (Rp)" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_formMaxParticipants" Label="Max Peserta" Variant="Variant.Outlined" Class="mb-3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => _showDialog = false">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveEvent" Disabled="@(string.IsNullOrWhiteSpace(_formTitle))">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private const string EventJoinAction = "SocialEventJoin";
+    private List<SocialEvent> _events = new();
+    private HashSet<int> _joinedEventIds = new();
+    private string _currentUserId = "";
+    private bool _isAdmin;
+    private bool _showDialog;
+    private int _editId;
+    private string _formTitle = "";
+    private string _formType = "Gathering";
+    private string _formStatus = "Upcoming";
+    private string _formDesc = "";
+    private DateTime? _formDate = DateTime.Today.AddDays(7);
+    private DateTime? _formEndDate;
+    private string _formLocation = "";
+    private string _formFee = "";
+    private string _formMaxParticipants = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var claimId = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
+        var user = await UserManager.FindByIdAsync(claimId);
+        _currentUserId = user?.Id ?? (await Db.Users.FirstOrDefaultAsync())?.Id ?? "";
+        _isAdmin = state.User.IsInRole("Admin") || state.User.IsInRole("Operator");
+        await ReloadEventsAsync();
+    }
+
+    private async Task ReloadEventsAsync()
+    {
+        _events = await Db.SocialEvents.OrderBy(e => e.EventDate).ToListAsync();
+        var joinedIds = await Db.AuditLogs
+            .Where(l => l.Action == EventJoinAction && l.UserId == _currentUserId)
+            .Select(l => l.EntityId)
+            .ToListAsync();
+
+        _joinedEventIds = joinedIds
+            .Select(id => int.TryParse(id, out var parsed) ? parsed : 0)
+            .Where(id => id > 0)
+            .ToHashSet();
+    }
+
+    private async Task JoinEvent(int id)
+    {
+        if (_joinedEventIds.Contains(id)) return;
+        Db.AuditLogs.Add(new AuditLog
+        {
+            UserId = _currentUserId,
+            Action = EventJoinAction,
+            EntityName = nameof(SocialEvent),
+            EntityId = id.ToString(),
+            CreatedAt = DateTime.UtcNow
+        });
+        await Db.SaveChangesAsync();
+        _joinedEventIds.Add(id);
+        Snackbar.Add("Pendaftaran berhasil! 🎉", Severity.Success);
+    }
+
+    private void OpenAddDialog()
+    {
+        _editId = 0;
+        _formTitle = "";
+        _formType = "Gathering";
+        _formStatus = "Upcoming";
+        _formDesc = "";
+        _formDate = DateTime.Today.AddDays(7);
+        _formEndDate = null;
+        _formLocation = "";
+        _formFee = "";
+        _formMaxParticipants = "";
+        _showDialog = true;
+    }
+
+    private void EditEvent(SocialEvent e)
+    {
+        _editId = e.Id;
+        _formTitle = e.Title;
+        _formType = e.Type;
+        _formStatus = e.Status;
+        _formDesc = e.Description ?? "";
+        _formDate = e.EventDate;
+        _formEndDate = e.EndDate;
+        _formLocation = e.Location ?? "";
+        _formFee = e.Fee?.ToString() ?? "";
+        _formMaxParticipants = e.MaxParticipants?.ToString() ?? "";
+        _showDialog = true;
+    }
+
+    private async Task SaveEvent()
+    {
+        SocialEvent ev;
+        if (_editId > 0)
+        {
+            ev = (await Db.SocialEvents.FindAsync(_editId))!;
+        }
+        else
+        {
+            ev = new SocialEvent { CreatedAt = DateTime.UtcNow };
+            Db.SocialEvents.Add(ev);
+        }
+
+        ev.Title = _formTitle.Trim();
+        ev.Type = _formType;
+        ev.Status = _formStatus;
+        ev.Description = _formDesc.Trim();
+        ev.EventDate = _formDate ?? DateTime.Today.AddDays(7);
+        ev.EndDate = _formEndDate;
+        ev.Location = _formLocation.Trim();
+        ev.Fee = decimal.TryParse(_formFee, out var f) ? f : null;
+        ev.MaxParticipants = int.TryParse(_formMaxParticipants, out var mp) ? mp : null;
+
+        await Db.SaveChangesAsync();
+        _showDialog = false;
+        await ReloadEventsAsync();
+        Snackbar.Add("Event disimpan!", Severity.Success);
+        StateHasChanged();
+    }
+
+    private async Task DelEvent(int id)
+    {
+        var e = await Db.SocialEvents.FindAsync(id);
+        if (e != null)
+        {
+            Db.SocialEvents.Remove(e);
+            await Db.SaveChangesAsync();
+            await ReloadEventsAsync();
+            Snackbar.Add("Event dihapus!", Severity.Warning);
+            StateHasChanged();
+        }
+    }
+
+    private static string Truncate(string? t, int m) => string.IsNullOrEmpty(t) ? "" : (t.Length > m ? t[..m] + "..." : t);
+    private static string GetGradient(string? t) => t switch { "Gathering" => "#1B5E20, #4CAF50", "FunMatch" => "#E65100, #FF9800", "Charity" => "#C62828, #EF5350", _ => "#1565C0, #42A5F5" };
+    private static string GetStatusBadge(string? s) => s switch { "Upcoming" => "badge-success", "InProgress" => "badge-warning", "Completed" => "badge-info", _ => "" };
+}

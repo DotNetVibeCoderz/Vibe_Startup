@@ -1,0 +1,191 @@
+@using Microsoft.AspNetCore.Authorization
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Identity
+@attribute [Authorize]
+@page "/social/forum"
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+@inject UserManager<ApplicationUser> UserManager
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Forum - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">💭 Forum Diskusi</MudText>
+
+<MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog" Class="mb-4">Buat Topik Baru</MudButton>
+
+<MudPaper Elevation="1">
+    <MudTable Items="_topics" Hover="true" Dense="false">
+        <HeaderContent><MudTh>Topik</MudTh><MudTh>Kategori</MudTh><MudTh>Balasan</MudTh><MudTh>Dilihat</MudTh><MudTh>Terakhir</MudTh></HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <div style="cursor:pointer;" @onclick="() => ViewDetail(context.Id)">
+                    <MudText Typo="Typo.body1" Style="font-weight:600;">@context.Title</MudText>
+                </div>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">oleh @context.CreatedByUser?.FullName</MudText>
+            </MudTd>
+            <MudTd><span class="badge-chip">@context.Category</span></MudTd>
+            <MudTd>@context.ReplyCount</MudTd>
+            <MudTd>@context.ViewCount</MudTd>
+            <MudTd>@(context.LastReplyAt?.ToLocalTime().ToString("dd MMM HH:mm") ?? "-")</MudTd>
+        </RowTemplate>
+        <PagerContent><MudTablePager PageSizeOptions="new int[] { 10, 25, 50 }" /></PagerContent>
+    </MudTable>
+</MudPaper>
+
+@if (_showDetail && _selectedTopic != null)
+{
+    <MudPaper Class="pa-4 mt-4" Elevation="2" Style="border-radius:12px;">
+        <div class="d-flex align-center mb-4">
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="BackToList">Kembali</MudButton>
+            <MudSpacer />
+            <span class="badge-chip badge-success">@_selectedTopic.Category</span>
+        </div>
+        <MudText Typo="Typo.h5" Style="font-weight:700;">@_selectedTopic.Title</MudText>
+        <div class="d-flex align-center gap-2 mt-1 mb-3">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Oleh @_selectedTopic.CreatedByUser?.FullName · @_selectedTopic.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</MudText>
+            <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.ThumbUp" OnClick="LikeTopic" Color="Color.Primary">
+                @(_userLiked ? "👍" : "👍") @_selectedLikes
+            </MudButton>
+        </div>
+        <MudText Typo="Typo.body1" Class="mb-4">@_selectedTopic.Content</MudText>
+        <MudDivider Class="mb-4" />
+        <MudText Typo="Typo.h6" GutterBottom="true">Balasan (@_topicReplies.Count)</MudText>
+        @foreach (var reply in _topicReplies)
+        {
+            <MudPaper Class="pa-3 mb-2" Elevation="0" Style="background:var(--mud-palette-background); border-radius:8px;">
+                <MudText Typo="Typo.body2" Style="font-weight:600;">@reply.User?.FullName</MudText>
+                <MudText Typo="Typo.body2">@reply.Content</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@reply.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</MudText>
+            </MudPaper>
+        }
+        <div class="d-flex gap-2 mt-3">
+            <MudTextField @bind-Value="_newReply" Placeholder="Tulis balasan..." Variant="Variant.Outlined" Style="flex-grow:1;" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SubmitReply" Disabled="@(string.IsNullOrWhiteSpace(_newReply))">Balas</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private const string ForumLikeAction = "ForumTopicLike";
+    private List<ForumTopic> _topics = new();
+    private ForumTopic? _selectedTopic;
+    private List<ForumPost> _topicReplies = new();
+    private bool _showDetail;
+    private string _newReply = "";
+    private string _currentUserId = "";
+    private int _selectedLikes;
+    private bool _userLiked;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var claimId = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
+        var user = await UserManager.FindByIdAsync(claimId);
+        _currentUserId = user?.Id ?? (await Db.Users.FirstOrDefaultAsync())?.Id ?? "";
+        await ReloadTopicsAsync();
+    }
+
+    private async Task ReloadTopicsAsync()
+    {
+        _topics = await Db.ForumTopics.Include(t => t.CreatedByUser)
+            .OrderByDescending(t => t.LastReplyAt ?? t.CreatedAt)
+            .ToListAsync();
+    }
+
+    private async void OpenCreateDialog()
+    {
+        var dialog = await DialogService.ShowAsync<ForumCreateDialog>("Buat Topik Baru", new DialogParameters(), new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result.Canceled) return;
+
+        var payload = result.Data as dynamic;
+        if (payload == null) return;
+
+        var topic = new ForumTopic
+        {
+            Title = ((string)payload.Title).Trim(),
+            Category = ((string)payload.Category).Trim(),
+            Content = ((string)payload.Content).Trim(),
+            CreatedByUserId = _currentUserId,
+            CreatedAt = DateTime.UtcNow,
+            LastReplyAt = DateTime.UtcNow
+        };
+        Db.ForumTopics.Add(topic);
+        await Db.SaveChangesAsync();
+
+        await ReloadTopicsAsync();
+        Snackbar.Add("Topik dibuat!", Severity.Success);
+        StateHasChanged();
+    }
+
+    private async Task ViewDetail(int id)
+    {
+        _selectedTopic = await Db.ForumTopics.Include(t => t.CreatedByUser).FirstOrDefaultAsync(t => t.Id == id);
+        if (_selectedTopic == null) return;
+
+        _selectedTopic.ViewCount++;
+        await Db.SaveChangesAsync();
+
+        _topicReplies = await Db.ForumPosts.Include(p => p.User)
+            .Where(p => p.TopicId == id)
+            .OrderBy(p => p.CreatedAt)
+            .ToListAsync();
+
+        _selectedLikes = await Db.AuditLogs.CountAsync(l => l.Action == ForumLikeAction && l.EntityId == id.ToString());
+        _userLiked = await Db.AuditLogs.AnyAsync(l => l.Action == ForumLikeAction && l.EntityId == id.ToString() && l.UserId == _currentUserId);
+        _showDetail = true;
+    }
+
+    private void BackToList()
+    {
+        _showDetail = false;
+        _selectedTopic = null;
+    }
+
+    private async Task LikeTopic()
+    {
+        if (_selectedTopic == null || string.IsNullOrWhiteSpace(_currentUserId)) return;
+        var topicId = _selectedTopic.Id.ToString();
+        var existing = await Db.AuditLogs.FirstOrDefaultAsync(l => l.Action == ForumLikeAction && l.EntityId == topicId && l.UserId == _currentUserId);
+
+        if (existing != null)
+        {
+            Db.AuditLogs.Remove(existing);
+            await Db.SaveChangesAsync();
+            _userLiked = false;
+            Snackbar.Add("Like dibatalkan.", Severity.Info);
+        }
+        else
+        {
+            Db.AuditLogs.Add(new AuditLog
+            {
+                UserId = _currentUserId,
+                Action = ForumLikeAction,
+                EntityName = nameof(ForumTopic),
+                EntityId = topicId,
+                CreatedAt = DateTime.UtcNow
+            });
+            await Db.SaveChangesAsync();
+            _userLiked = true;
+            Snackbar.Add("Terima kasih sudah menyukai topik!", Severity.Success);
+        }
+
+        _selectedLikes = await Db.AuditLogs.CountAsync(l => l.Action == ForumLikeAction && l.EntityId == topicId);
+        StateHasChanged();
+    }
+
+    private async Task SubmitReply()
+    {
+        if (string.IsNullOrWhiteSpace(_newReply) || _selectedTopic == null || string.IsNullOrEmpty(_currentUserId)) return;
+        Db.ForumPosts.Add(new ForumPost { TopicId = _selectedTopic.Id, UserId = _currentUserId, Content = _newReply.Trim(), CreatedAt = DateTime.UtcNow });
+        _selectedTopic.ReplyCount++;
+        _selectedTopic.LastReplyAt = DateTime.UtcNow;
+        await Db.SaveChangesAsync();
+        _newReply = "";
+        Snackbar.Add("Balasan terkirim!", Severity.Success);
+        _topicReplies = await Db.ForumPosts.Include(p => p.User).Where(p => p.TopicId == _selectedTopic.Id).OrderBy(p => p.CreatedAt).ToListAsync();
+        await ReloadTopicsAsync();
+        StateHasChanged();
+    }
+}

@@ -1,0 +1,97 @@
+@inherits LayoutComponentBase
+@using Microsoft.AspNetCore.Components.Authorization
+@using MudBlazor
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthStateProvider
+
+<MudPopoverProvider />
+<MudThemeProvider @bind-IsDarkMode="_isDarkMode" />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
+        <MudText Typo="Typo.h6" Style="font-weight:700;">🎾 PadelHub</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" Color="Color.Inherit" OnClick="ToggleTheme" />
+
+        @if (_isAuthenticated)
+        {
+            <MudText Typo="Typo.body2" Class="hide-on-mobile mr-2" Style="color:rgba(255,255,255,0.9);">@_userName</MudText>
+
+            @* MUDBLAZOR 9.x: JANGAN pakai ActivatorContent/MudIconButton di dalam MudMenu.
+               Gunakan Icon + EndIcon langsung di MudMenu, dan item langsung sebagai child. *@
+            <MudMenu Icon="@Icons.Material.Filled.AccountCircle"
+                     Color="Color.Inherit"
+                     EndIcon="@Icons.Material.Filled.ArrowDropDown"
+                     Size="Size.Large">
+                <MudText Typo="Typo.body2" Class="px-4 pt-3 pb-1" Style="font-weight:600;">@_userName</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="px-4 pb-2">@_userEmail</MudText>
+                <MudDivider />
+                <MudMenuItem OnClick="GoProfile" Icon="@Icons.Material.Filled.Person">Profil Saya</MudMenuItem>
+                <MudMenuItem OnClick="GoLogout" Icon="@Icons.Material.Filled.Logout">Keluar</MudMenuItem>
+            </MudMenu>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" Style="color:white; border-color:rgba(255,255,255,0.5);"
+                       OnClick="GoLogin" StartIcon="@Icons.Material.Filled.Login" Class="mr-2">Masuk</MudButton>
+            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Secondary"
+                       OnClick="GoRegister" StartIcon="@Icons.Material.Filled.PersonAdd">Daftar</MudButton>
+        }
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
+        <div class="d-flex align-center justify-center py-4" style="background:var(--mud-palette-primary);">
+            <MudText Typo="Typo.h5" Style="font-weight:800; color:white;">🎾 PadelHub</MudText>
+        </div>
+        <MudDivider />
+        <NavMenu />
+    </MudDrawer>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="py-6">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+
+    <MudPaper Class="px-4 py-3" Style="text-align:center; border-top:1px solid var(--mud-palette-divider);" Square="true">
+        <MudText Typo="Typo.caption" Color="Color.Secondary">&copy; @DateTime.Now.Year PadelHub by GraviCode Studios</MudText>
+    </MudPaper>
+</MudLayout>
+
+@code {
+    private bool _drawerOpen = true;
+    private bool _isDarkMode;
+    private bool _isAuthenticated;
+    private string _userName = "";
+    private string _userEmail = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAuthStateAsync();
+    }
+
+    private async Task RefreshAuthStateAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        _isAuthenticated = user.Identity?.IsAuthenticated == true;
+        _userName = user.FindFirst("FullName")?.Value ?? user.Identity?.Name ?? "";
+        _userEmail = user.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "";
+        StateHasChanged();
+    }
+
+    private void DrawerToggle() => _drawerOpen = !_drawerOpen;
+    private void ToggleTheme() => _isDarkMode = !_isDarkMode;
+    private void GoProfile() => Nav.NavigateTo("/auth/profile");
+    private void GoLogin() => Nav.NavigateTo("/auth/login");
+    private void GoRegister() => Nav.NavigateTo("/auth/register");
+
+    private void GoLogout()
+    {
+        // Gunakan endpoint logout agar cookie bisa dihapus sebelum response dikirim.
+        Nav.NavigateTo("/auth/logout-handler", forceLoad: true);
+    }
+}

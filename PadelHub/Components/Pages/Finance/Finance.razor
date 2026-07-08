@@ -1,0 +1,520 @@
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@attribute [Authorize(Roles = "Admin,Operator")]
+@page "/finance/payments"
+@page "/finance/membership"
+@page "/finance/reports"
+@page "/finance"
+@inject AppDbContext Db
+@inject UserManager<ApplicationUser> UserManager
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject ExportService ExportService
+
+<PageTitle>Keuangan - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">💰 Manajemen Keuangan</MudText>
+
+<MudTabs Elevation="1" Class="rounded-lg">
+    @* ============================================================ *@
+    @* TAB: PEMBAYARAN                                               *@
+    @* ============================================================ *@
+    <MudTabPanel Text="💳 Pembayaran">
+        @* --- ACTION BAR --- *@
+        <MudPaper Class="pa-4 mb-4" Elevation="0">
+            <MudGrid>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="string" Label="Status" @bind-Value="_payFilterStatus" Clearable="true" Variant="Variant.Outlined">
+                        <MudSelectItem Value="@("Pending")">Pending</MudSelectItem>
+                        <MudSelectItem Value="@("Confirmed")">Confirmed</MudSelectItem>
+                        <MudSelectItem Value="@("Cancelled")">Cancelled</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="int?" Label="Bulan" @bind-Value="_payFilterMonth" Clearable="true" Variant="Variant.Outlined">
+                        <MudSelectItem Value="@((int?)null)">Semua Bulan</MudSelectItem>
+                        @for (int m = 1; m <= 12; m++)
+                        {
+                            var monthName = new DateTime(2024, m, 1).ToString("MMMM");
+                            <MudSelectItem Value="@(m)">@monthName</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="int?" Label="Tahun" @bind-Value="_payFilterYear" Clearable="true" Variant="Variant.Outlined">
+                        <MudSelectItem Value="@((int?)null)">Semua Tahun</MudSelectItem>
+                        @for (int y = DateTime.Now.Year - 1; y <= DateTime.Now.Year + 1; y++)
+                        {
+                            <MudSelectItem Value="@(y)">@y</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3" Class="d-flex gap-2 justify-end align-center">
+                    <MudButton Variant="Variant.Filled" Color="Color.Secondary" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.AutoAwesome" OnClick="GenerateMonthlyPayments"
+                               Disabled="_isGenerating">
+                        @(_isGenerating ? "Generating..." : "Generate Tagihan")
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.FileDownload" OnClick="ExportPayCsv">CSV</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.GridOn" OnClick="ExportPayExcel">Excel</MudButton>
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        @* --- PAYMENT TABLE --- *@
+        <MudPaper Elevation="1">
+            <MudTable Items="_filteredPayments" Hover="true" Loading="_isPayLoading" FixedHeader="true">
+                <HeaderContent>
+                    <MudTh>Member</MudTh>
+                    <MudTh>Paket</MudTh>
+                    <MudTh Style="text-align:right;">Jumlah</MudTh>
+                    <MudTh>Periode</MudTh>
+                    <MudTh>Jatuh Tempo</MudTh>
+                    <MudTh>Status</MudTh>
+                    <MudTh Style="text-align:center;">Verifikasi</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><strong>@GetMemberName(context)</strong></MudTd>
+                    <MudTd>@GetPackageName(context)</MudTd>
+                    <MudTd Style="text-align:right;">Rp @context.Amount.ToString("N0")</MudTd>
+                    <MudTd>@GetPeriodLabel(context)</MudTd>
+                    <MudTd>@(context.PaidAt?.ToLocalTime().ToString("dd MMM yyyy") ?? "-")</MudTd>
+                    <MudTd><span class="badge-chip @GetPayBadge(context.Status)">@context.Status</span></MudTd>
+                    <MudTd Style="text-align:center; white-space:nowrap;">
+                        @if (context.Status == "Pending")
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Color="Color.Success"
+                                           OnClick="() => VerifyPayment(context.Id, true)" title="Konfirmasi Pembayaran" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Cancel" Size="Size.Small" Color="Color.Error"
+                                           OnClick="() => VerifyPayment(context.Id, false)" title="Tolak" />
+                        }
+                        else if (context.Status == "Confirmed")
+                        {
+                            <span class="badge-chip badge-success" style="font-size:0.7rem;">✅ Verified</span>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="pa-4">
+                        Belum ada data pembayaran. Klik <strong>"Generate Tagihan"</strong> untuk membuat tagihan bulanan anggota.
+                    </MudText>
+                </NoRecordsContent>
+                <PagerContent><MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" /></PagerContent>
+            </MudTable>
+        </MudPaper>
+
+        @* --- GENERATE RESULT SUMMARY --- *@
+        @if (_lastGeneratedCount > 0)
+        {
+            <MudAlert Severity="Severity.Success" Class="mt-4" Variant="Variant.Filled" Square="false">
+                ✅ Berhasil membuat <strong>@_lastGeneratedCount</strong> tagihan untuk bulan
+                <strong>@_lastGeneratedPeriod</strong>.
+                @if (_lastSkippedCount > 0)
+                {
+                    <span> (@_lastSkippedCount tagihan sudah ada sebelumnya, dilewati)</span>
+                }
+            </MudAlert>
+        }
+    </MudTabPanel>
+
+    @* ============================================================ *@
+    @* TAB: MEMBERSHIP                                                *@
+    @* ============================================================ *@
+    <MudTabPanel Text="🎫 Membership">
+        <div class="d-flex justify-end mb-4"><MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenMemAdd">Tambah Paket</MudButton></div>
+        <MudGrid>
+            @foreach (var pkg in _packages)
+            {
+                <MudItem xs="12" md="6" lg="4">
+                    <MudPaper Class="pa-4" Elevation="2" Style="@GetMemCardStyle(pkg.IsActive)">
+                        <MudText Typo="Typo.h5" Style="font-weight:700;">@pkg.Name</MudText>
+                        <MudText Typo="Typo.h4" Color="Color.Primary">Rp @pkg.Price.ToString("N0")</MudText>
+                        <span class="badge-chip @(pkg.Type == "Monthly" ? "badge-info" : "badge-success")">@pkg.Type</span>
+                        @if (pkg.DiscountPercent > 0) { <span class="badge-chip badge-warning">-@pkg.DiscountPercent%</span> }
+                        <MudText Typo="Typo.body2" Class="mt-3">@pkg.DurationDays hari · @pkg.MaxReservationsPerMonth reservasi</MudText>
+                        <MudText Typo="Typo.caption">@pkg.Description</MudText>
+                        <div class="mt-3 d-flex justify-center gap-2">
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="() => OpenMemEdit(pkg)" />
+                            <MudIconButton Icon="@(pkg.IsActive ? Icons.Material.Filled.ToggleOff : Icons.Material.Filled.ToggleOn)" Size="Size.Small" Color="Color.Secondary" OnClick="() => ToggleMem(pkg.Id)" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DelMem(pkg.Id)" />
+                        </div>
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+    </MudTabPanel>
+
+    @* ============================================================ *@
+    @* TAB: LAPORAN                                                   *@
+    @* ============================================================ *@
+    <MudTabPanel Text="📊 Laporan">
+        <MudGrid Class="mb-6">
+            <MudItem xs="12" md="4"><MudPaper Class="pa-4" Elevation="2" Style="text-align:center; border-radius:12px; background:linear-gradient(135deg, #1B5E20, #4CAF50); color:white;"><MudText Typo="Typo.caption">Total Pendapatan</MudText><MudText Typo="Typo.h3" Style="font-weight:700;">Rp @_totalRevenue.ToString("N0")</MudText></MudPaper></MudItem>
+            <MudItem xs="12" md="4"><MudPaper Class="pa-4" Elevation="2" Style="text-align:center; border-radius:12px; background:linear-gradient(135deg, #1565C0, #42A5F5); color:white;"><MudText Typo="Typo.caption">Member Aktif</MudText><MudText Typo="Typo.h3" Style="font-weight:700;">@_activeMembers</MudText></MudPaper></MudItem>
+            <MudItem xs="12" md="4"><MudPaper Class="pa-4" Elevation="2" Style="text-align:center; border-radius:12px; background:linear-gradient(135deg, #E65100, #FF9800); color:white;"><MudText Typo="Typo.caption">Pending</MudText><MudText Typo="Typo.h3" Style="font-weight:700;">Rp @_pendingAmount.ToString("N0")</MudText></MudPaper></MudItem>
+        </MudGrid>
+
+        @* --- Monthly Revenue Chart --- *@
+        <MudText Typo="Typo.h6" GutterBottom="true">📈 Pendapatan Per Bulan (@DateTime.Now.Year)</MudText>
+        @if (_monthlyRevenue.Any())
+        {
+            var maxRev = _monthlyRevenue.Max(m => m.Revenue);
+            <div class="mb-6">
+                @foreach (var m in _monthlyRevenue)
+                {
+                    var pct = maxRev > 0 ? (double)(m.Revenue / maxRev) * 100.0 : 0;
+                    <div class="mb-2">
+                        <div class="d-flex justify-space-between align-center">
+                            <MudText Typo="Typo.body2" Style="width:100px;">@m.MonthName</MudText>
+                            <MudText Typo="Typo.body2" Style="font-weight:600;">Rp @m.Revenue.ToString("N0")</MudText>
+                        </div>
+                        <MudProgressLinear Value="@pct" Color="Color.Success" Size="Size.Large" Class="rounded" />
+                    </div>
+                }
+            </div>
+        }
+
+        @* --- Status Distribution --- *@
+        <MudText Typo="Typo.h6" GutterBottom="true">📊 Distribusi Status Pembayaran</MudText>
+        @if (_revenueByStatus.Any())
+        {
+            var max = _revenueByStatus.Max(r => r.Count);
+            @foreach (var item in _revenueByStatus)
+            {
+                var pct = max > 0 ? (double)(item.Count / max) * 100.0 : 0;
+                <div class="mb-2">
+                    <div class="d-flex justify-space-between">
+                        <MudText Typo="Typo.body2">@item.Status</MudText>
+                        <MudText Typo="Typo.body2" Style="font-weight:600;">@item.Count tagihan · Rp @item.Revenue.ToString("N0")</MudText>
+                    </div>
+                    <MudProgressLinear Value="@pct" Color="@GetBarColor(item.Status)" Size="Size.Large" Class="rounded" />
+                </div>
+            }
+        }
+
+        @* --- Recent transactions --- *@
+        <MudText Typo="Typo.h6" GutterBottom="true" Class="mt-6">🕐 Transaksi Terverifikasi Terbaru</MudText>
+        <MudPaper Elevation="1">
+            <MudTable Items="_recentVerified" Hover="true" Dense="true">
+                <HeaderContent><MudTh>Member</MudTh><MudTh>Jumlah</MudTh><MudTh>Tanggal</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd>@GetMemberName(context)</MudTd>
+                    <MudTd>Rp @context.Amount.ToString("N0")</MudTd>
+                    <MudTd>@(context.PaidAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "-")</MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    // ================================================================
+    // PAYMENTS
+    // ================================================================
+    private List<Payment> _payments = new();
+    private IEnumerable<Payment> _filteredPayments = Enumerable.Empty<Payment>();
+    private bool _isPayLoading = true;
+    private string? _payFilterStatus;
+    private int? _payFilterMonth;
+    private int? _payFilterYear;
+    private bool _isGenerating;
+    private int _lastGeneratedCount;
+    private int _lastSkippedCount;
+    private string _lastGeneratedPeriod = "";
+
+    // ================================================================
+    // MEMBERSHIP
+    // ================================================================
+    private List<MembershipPackage> _packages = new();
+
+    // ================================================================
+    // REPORTS
+    // ================================================================
+    private decimal _totalRevenue;
+    private decimal _pendingAmount;
+    private int _activeMembers;
+    private List<RevenueByStatus> _revenueByStatus = new();
+    private List<MonthlyRevenue> _monthlyRevenue = new();
+    private List<Payment> _recentVerified = new();
+
+    private class MonthlyRevenue { public string MonthName { get; set; } = ""; public decimal Revenue { get; set; } }
+    private class RevenueByStatus { public string Status { get; set; } = ""; public decimal Revenue { get; set; } public int Count { get; set; } }
+
+    // ================================================================
+    // LIFECYCLE
+    // ================================================================
+    protected override async Task OnInitializedAsync() => await LoadAll();
+
+    private async Task LoadAll()
+    {
+        _isPayLoading = true;
+        StateHasChanged();
+
+        // Load payments with user info (SQLite-safe)
+        _payments = await Db.Payments.OrderByDescending(p => p.CreatedAt).Take(500).ToListAsync();
+
+        // Membership packages
+        _packages = await Db.MembershipPackages.OrderBy(p => p.Name).ToListAsync();
+
+        // Reports
+        var allPayments = await Db.Payments.ToListAsync();
+        _totalRevenue = allPayments.Where(p => p.Status == "Confirmed").Sum(p => p.Amount);
+        _pendingAmount = allPayments.Where(p => p.Status == "Pending").Sum(p => p.Amount);
+        _activeMembers = (await Db.UserMemberships.Where(m => m.Status == "Active").ToListAsync()).Select(m => m.UserId).Distinct().Count();
+
+        // Revenue by status
+        _revenueByStatus = allPayments
+            .GroupBy(p => p.Status ?? "Unknown")
+            .Select(g => new RevenueByStatus { Status = g.Key, Revenue = g.Sum(p => p.Amount), Count = g.Count() })
+            .OrderByDescending(r => r.Revenue).ToList();
+
+        // Monthly revenue (current year)
+        var thisYear = DateTime.Now.Year;
+        _monthlyRevenue = allPayments
+            .Where(p => p.Status == "Confirmed" && p.CreatedAt.Year == thisYear)
+            .GroupBy(p => p.CreatedAt.Month)
+            .Select(g => new MonthlyRevenue
+            {
+                MonthName = new DateTime(thisYear, g.Key, 1).ToString("MMMM"),
+                Revenue = g.Sum(p => p.Amount)
+            })
+            .OrderBy(m => DateTime.ParseExact(m.MonthName, "MMMM", null).Month)
+            .ToList();
+
+        // Fill in missing months
+        for (int month = 1; month <= 12; month++)
+        {
+            var name = new DateTime(thisYear, month, 1).ToString("MMMM");
+            if (!_monthlyRevenue.Any(m => m.MonthName == name))
+                _monthlyRevenue.Add(new MonthlyRevenue { MonthName = name, Revenue = 0 });
+        }
+        _monthlyRevenue = _monthlyRevenue.OrderBy(m => DateTime.ParseExact(m.MonthName, "MMMM", null).Month).ToList();
+
+        // Recent verified
+        _recentVerified = allPayments.Where(p => p.Status == "Confirmed").OrderByDescending(p => p.PaidAt).Take(10).ToList();
+
+        ApplyPayFilter();
+        _isPayLoading = false;
+        StateHasChanged();
+    }
+
+    // ================================================================
+    // PAYMENT FILTERS
+    // ================================================================
+    private void ApplyPayFilter()
+    {
+        var q = _payments.AsEnumerable();
+        if (!string.IsNullOrEmpty(_payFilterStatus))
+            q = q.Where(p => p.Status == _payFilterStatus);
+        if (_payFilterMonth.HasValue)
+            q = q.Where(p => p.CreatedAt.Month == _payFilterMonth.Value);
+        if (_payFilterYear.HasValue)
+            q = q.Where(p => p.CreatedAt.Year == _payFilterYear.Value);
+        _filteredPayments = q.OrderByDescending(p => p.CreatedAt);
+    }
+
+    // ================================================================
+    // GENERATE MONTHLY PAYMENTS
+    // ================================================================
+    private async Task GenerateMonthlyPayments()
+    {
+        _isGenerating = true;
+        _lastGeneratedCount = 0;
+        _lastSkippedCount = 0;
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            var currentMonth = new DateTime(now.Year, now.Month, 1);
+            _lastGeneratedPeriod = currentMonth.ToString("MMMM yyyy");
+
+            // Get all active memberships
+            var activeMemberships = await Db.UserMemberships
+                .Include(m => m.Package)
+                .Include(m => m.User)
+                .Where(m => m.Status == "Active" && m.EndDate >= now)
+                .ToListAsync();
+
+            // Get existing payment IDs for this month to avoid duplicates
+            var existingPaymentUserIds = await Db.Payments
+                .Where(p => p.CreatedAt.Year == now.Year && p.CreatedAt.Month == now.Month)
+                .Select(p => p.UserId)
+                .Distinct()
+                .ToListAsync();
+
+            int generated = 0;
+            int skipped = 0;
+
+            foreach (var membership in activeMemberships)
+            {
+                // Skip if user already has a payment this month
+                if (existingPaymentUserIds.Contains(membership.UserId))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                var package = membership.Package;
+                if (package == null) continue;
+
+                // Calculate amount (apply discount if any)
+                var amount = package.Price;
+                if (package.DiscountPercent.HasValue && package.DiscountPercent > 0)
+                {
+                    amount = amount * (1 - (package.DiscountPercent.Value / 100m));
+                }
+
+                var payment = new Payment
+                {
+                    UserId = membership.UserId,
+                    ReservationId = 0, // Not linked to a reservation
+                    Amount = amount,
+                    PaymentMethod = "Membership",
+                    Status = "Pending",
+                    TransactionId = $"INV-{currentMonth:yyyyMM}-{membership.UserId[..6].ToUpper()}",
+                    Notes = $"Tagihan membership {package.Name} - {_lastGeneratedPeriod}",
+                    CreatedAt = currentMonth,
+                    PaidAt = currentMonth.AddDays(14) // Due date: 14 days
+                };
+
+                Db.Payments.Add(payment);
+                generated++;
+            }
+
+            await Db.SaveChangesAsync();
+
+            _lastGeneratedCount = generated;
+            _lastSkippedCount = skipped;
+
+            Snackbar.Add($"Berhasil generate {generated} tagihan baru!", Severity.Success);
+            await LoadAll();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Gagal generate tagihan: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isGenerating = false;
+            StateHasChanged();
+        }
+    }
+
+    // ================================================================
+    // VERIFY / REJECT PAYMENT
+    // ================================================================
+    private async Task VerifyPayment(int paymentId, bool approve)
+    {
+        var payment = await Db.Payments.FindAsync(paymentId);
+        if (payment == null) return;
+
+        if (approve)
+        {
+            payment.Status = "Confirmed";
+            payment.PaidAt = DateTime.UtcNow;
+            Snackbar.Add($"Pembayaran {payment.TransactionId} dikonfirmasi! ✅", Severity.Success);
+        }
+        else
+        {
+            payment.Status = "Cancelled";
+            Snackbar.Add($"Pembayaran {payment.TransactionId} ditolak.", Severity.Warning);
+        }
+
+        await Db.SaveChangesAsync();
+        await LoadAll();
+    }
+
+    // ================================================================
+    // HELPERS
+    // ================================================================
+    private string GetMemberName(Payment p)
+    {
+        if (string.IsNullOrEmpty(p.UserId)) return "-";
+        var user = Db.Users.Find(p.UserId);
+        return user?.FullName ?? p.UserId;
+    }
+
+    private string GetPackageName(Payment p)
+    {
+        return p.PaymentMethod == "Membership" ? (p.Notes ?? "Membership") : (p.PaymentMethod ?? "Lainnya");
+    }
+
+    private string GetPeriodLabel(Payment p)
+    {
+        return p.CreatedAt.ToString("MMMM yyyy");
+    }
+
+    private static string GetPayBadge(string? s) => s switch
+    {
+        "Pending" => "badge-warning",
+        "Confirmed" => "badge-success",
+        "Cancelled" => "badge-error",
+        _ => ""
+    };
+
+    private static Color GetBarColor(string s) => s switch
+    {
+        "Confirmed" => Color.Success,
+        "Pending" => Color.Warning,
+        "Cancelled" => Color.Error,
+        _ => Color.Default
+    };
+
+    private static string GetMemCardStyle(bool isActive) =>
+        isActive ? "text-align:center; border-radius:12px;" : "text-align:center; border-radius:12px; opacity:0.6;";
+
+    // ================================================================
+    // MEMBERSHIP CRUD
+    // ================================================================
+    private async void OpenMemAdd()
+    {
+        var d = await DialogService.ShowAsync<MembershipDialog>("Tambah Paket",
+            new DialogParameters { ["IsEdit"] = false },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var r = await d.Result;
+        if (!r.Canceled) { _packages = await Db.MembershipPackages.OrderBy(x => x.Name).ToListAsync(); StateHasChanged(); }
+    }
+    private async void OpenMemEdit(MembershipPackage p)
+    {
+        var d = await DialogService.ShowAsync<MembershipDialog>("Edit Paket",
+            new DialogParameters { ["IsEdit"] = true },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var r = await d.Result;
+        if (!r.Canceled) { _packages = await Db.MembershipPackages.OrderBy(x => x.Name).ToListAsync(); StateHasChanged(); }
+    }
+    private async void ToggleMem(int id)
+    {
+        var p = await Db.MembershipPackages.FindAsync(id);
+        if (p != null) { p.IsActive = !p.IsActive; await Db.SaveChangesAsync(); _packages = await Db.MembershipPackages.OrderBy(x => x.Name).ToListAsync(); StateHasChanged(); }
+    }
+    private async void DelMem(int id)
+    {
+        var p = await Db.MembershipPackages.FindAsync(id);
+        if (p != null) { Db.MembershipPackages.Remove(p); await Db.SaveChangesAsync(); _packages = await Db.MembershipPackages.OrderBy(x => x.Name).ToListAsync(); StateHasChanged(); }
+    }
+
+    // ================================================================
+    // EXPORT
+    // ================================================================
+    private async void ExportPayCsv()
+    {
+        var d = _filteredPayments.Select(p => new {
+            Member = GetMemberName(p), Paket = GetPackageName(p), p.Amount,
+            Periode = GetPeriodLabel(p), p.Status, Tanggal = p.CreatedAt.ToString("yyyy-MM-dd")
+        });
+        await Download(ExportService.ExportToCsv(d), "payments.csv", "text/csv");
+    }
+    private async void ExportPayExcel()
+    {
+        var d = _filteredPayments.Select(p => new {
+            Member = GetMemberName(p), Paket = GetPackageName(p), p.Amount,
+            Periode = GetPeriodLabel(p), p.Status, Tanggal = p.CreatedAt.ToString("yyyy-MM-dd")
+        });
+        await Download(ExportService.ExportToExcel(d), "payments.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+    private async Task Download(byte[] bytes, string fn, string ct)
+    {
+        using var ms = new MemoryStream(bytes);
+        await JS.InvokeVoidAsync("downloadFileFromStream", fn, new DotNetStreamReference(ms));
+    }
+}

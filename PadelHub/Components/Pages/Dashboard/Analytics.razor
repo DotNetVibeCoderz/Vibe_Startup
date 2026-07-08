@@ -1,0 +1,144 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Operator")]
+@page "/analytics/dashboard"
+@inject AppDbContext Db
+
+<PageTitle>Dashboard Analitik - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">📊 Dashboard Analitik</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="6" lg="3"><MudPaper Class="pa-4" Elevation="2" Style="text-align:center;"><MudText Typo="Typo.caption">Reservasi Bulan Ini</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_reservations</MudText></MudPaper></MudItem>
+    <MudItem xs="12" md="6" lg="3"><MudPaper Class="pa-4" Elevation="2" Style="text-align:center;"><MudText Typo="Typo.caption">Pengguna Aktif</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_users</MudText></MudPaper></MudItem>
+    <MudItem xs="12" md="6" lg="3"><MudPaper Class="pa-4" Elevation="2" Style="text-align:center;"><MudText Typo="Typo.caption">Turnamen</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_tournaments</MudText></MudPaper></MudItem>
+    <MudItem xs="12" md="6" lg="3"><MudPaper Class="pa-4" Elevation="2" Style="text-align:center;"><MudText Typo="Typo.caption">Total Match</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_matches</MudText></MudPaper></MudItem>
+</MudGrid>
+
+<MudGrid Class="mt-4">
+    <MudItem xs="12" lg="6">
+        <MudPaper Class="pa-4" Elevation="2" Style="border-radius:12px;">
+            <MudText Typo="Typo.h6" GutterBottom="true">📈 Tren Reservasi (6 Bulan)</MudText>
+            <MudChart T="double" ChartType="ChartType.Line" Labels="_monthLabels" Data="_reservationSeries" Height="260" />
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" lg="6">
+        <MudPaper Class="pa-4" Elevation="2" Style="border-radius:12px;">
+            <MudText Typo="Typo.h6" GutterBottom="true">💰 Tren Pendapatan (6 Bulan)</MudText>
+            <MudChart T="double" ChartType="ChartType.Bar" Labels="_monthLabels" Data="_revenueSeries" Height="260" />
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+<MudGrid Class="mt-4">
+    <MudItem xs="12" lg="6">
+        <MudPaper Class="pa-4" Elevation="2" Style="border-radius:12px;">
+            <MudText Typo="Typo.h6" GutterBottom="true">🏟️ Klub Terpopuler</MudText>
+            <MudTable Items="_topClubs" Dense="true" Hover="true">
+                <HeaderContent><MudTh>Klub</MudTh><MudTh>Reservasi</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Name</MudTd>
+                    <MudTd>@context.TotalReservations</MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" lg="6">
+        <MudPaper Class="pa-4" Elevation="2" Style="border-radius:12px;">
+            <MudText Typo="Typo.h6" GutterBottom="true">🏅 Pemain Top</MudText>
+            <MudTable Items="_topPlayers" Dense="true" Hover="true">
+                <HeaderContent><MudTh>Nama</MudTh><MudTh>Menang</MudTh><MudTh>Level</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Name</MudTd>
+                    <MudTd>@context.Wins</MudTd>
+                    <MudTd>@context.Level</MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private int _reservations;
+    private int _users;
+    private int _tournaments;
+    private int _matches;
+
+    private string[] _monthLabels = Array.Empty<string>();
+    private double[][] _reservationSeries = Array.Empty<double[]>();
+    private double[][] _revenueSeries = Array.Empty<double[]>();
+
+    private List<ClubRow> _topClubs = new();
+    private List<PlayerRow> _topPlayers = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _reservations = await Db.Reservations.CountAsync(r => r.ReservationDate >= DateTime.Today.AddDays(-30));
+        _users = await Db.Users.CountAsync(u => u.IsActive);
+        _tournaments = await Db.Tournaments.CountAsync();
+        _matches = await Db.Matches.CountAsync();
+
+        await LoadChartsAsync();
+        await LoadTablesAsync();
+    }
+
+    private async Task LoadChartsAsync()
+    {
+        var months = Enumerable.Range(0, 6)
+            .Select(i => DateTime.Today.AddMonths(-5 + i))
+            .ToList();
+
+        _monthLabels = months.Select(m => m.ToString("MMM yy")).ToArray();
+
+        var reservationCounts = new List<double>();
+        var revenueTotals = new List<double>();
+
+        foreach (var m in months)
+        {
+            var start = new DateTime(m.Year, m.Month, 1);
+            var end = start.AddMonths(1);
+            reservationCounts.Add(await Db.Reservations.CountAsync(r => r.ReservationDate >= start && r.ReservationDate < end));
+            var revenue = await Db.Payments
+                .Where(p => p.CreatedAt >= start && p.CreatedAt < end && p.Status == "Success")
+                .SumAsync(p => (decimal?)p.Amount) ?? 0m;
+            revenueTotals.Add((double)revenue);
+        }
+
+        _reservationSeries = new[] { reservationCounts.ToArray() };
+        _revenueSeries = new[] { revenueTotals.ToArray() };
+    }
+
+    private async Task LoadTablesAsync()
+    {
+        _topClubs = await Db.Reservations
+            .Include(r => r.Club)
+            .Where(r => r.Club != null)
+            .GroupBy(r => r.Club!.Name)
+            .Select(g => new ClubRow { Name = g.Key, TotalReservations = g.Count() })
+            .OrderByDescending(x => x.TotalReservations)
+            .Take(5)
+            .ToListAsync();
+
+        _topPlayers = await Db.PlayerProfiles.Include(p => p.User)
+            .OrderByDescending(p => p.Wins)
+            .Take(5)
+            .Select(p => new PlayerRow
+            {
+                Name = p.User!.FullName,
+                Wins = p.Wins,
+                Level = p.Level ?? "-"
+            })
+            .ToListAsync();
+    }
+
+    private sealed class ClubRow
+    {
+        public string Name { get; set; } = string.Empty;
+        public int TotalReservations { get; set; }
+    }
+
+    private sealed class PlayerRow
+    {
+        public string Name { get; set; } = string.Empty;
+        public int Wins { get; set; }
+        public string Level { get; set; } = string.Empty;
+    }
+}

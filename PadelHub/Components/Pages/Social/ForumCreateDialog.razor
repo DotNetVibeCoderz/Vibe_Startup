@@ -1,0 +1,28 @@
+@using MudBlazor
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">➕ Buat Topik Baru</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_title" Label="Judul Topik" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudSelect @bind-Value="_category" Label="Kategori" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Teknik")">🎾 Teknik</MudSelectItem>
+            <MudSelectItem Value="@("Peralatan")">🏸 Peralatan</MudSelectItem>
+            <MudSelectItem Value="@("Turnamen")">🏆 Turnamen</MudSelectItem>
+            <MudSelectItem Value="@("Umum")">💬 Umum</MudSelectItem>
+            <MudSelectItem Value="@("Off-Topic")">☕ Off-Topic</MudSelectItem>
+        </MudSelect>
+        <MudTextField @bind-Value="_content" Label="Isi Topik" Variant="Variant.Outlined" Lines="4" Required="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Submit" Disabled="@(string.IsNullOrWhiteSpace(_title) || string.IsNullOrWhiteSpace(_content))">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance? MudDialog { get; set; }
+    private string _title = ""; private string _category = "Umum"; private string _content = "";
+
+    private void Submit() => MudDialog?.Close(DialogResult.Ok(new { Title = _title, Category = _category, Content = _content }));
+    private void Cancel() => MudDialog?.Cancel();
+}

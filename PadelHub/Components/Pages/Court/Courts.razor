@@ -1,0 +1,86 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Operator")]
+@page "/courts"
+@inject AppDbContext Db
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject ExportService ExportService
+
+<PageTitle>Manajemen Lapangan - PadelHub</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">🏟️ Manajemen Lapangan</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="0">
+    <MudGrid>
+        <MudItem xs="12" sm="6" md="4">
+            <MudSelect T="int?" Label="Filter Klub" @bind-Value="_filterClubId" Clearable="true" Variant="Variant.Outlined">
+                @foreach (var c in _clubs) { <MudSelectItem Value="c.Id">@c.Name</MudSelectItem> }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="string" Label="Filter Tipe" @bind-Value="_filterType" Clearable="true" Variant="Variant.Outlined">
+                <MudSelectItem Value="@("Indoor")">Indoor</MudSelectItem>
+                <MudSelectItem Value="@("Outdoor")">Outdoor</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField @bind-Value="_searchText" Placeholder="Cari..." Immediate="true" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2" Class="d-flex gap-2 justify-end align-center">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenAddDialog">Tambah</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.FileDownload" OnClick="ExportCsv">CSV</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.GridOn" OnClick="ExportExcel">Excel</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Elevation="1">
+    <MudTable Items="_filteredCourts" Hover="true" Loading="_isLoading" FixedHeader="true">
+        <HeaderContent><MudTh>ID</MudTh><MudTh>Nama</MudTh><MudTh>Klub</MudTh><MudTh>Tipe</MudTh><MudTh>Permukaan</MudTh><MudTh>Harga</MudTh><MudTh>Peak</MudTh><MudTh>Lamp</MudTh><MudTh>Atap</MudTh><MudTh>Status</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Id</MudTd><MudTd><strong>@context.Name</strong></MudTd><MudTd>@context.Club?.Name</MudTd>
+            <MudTd><span class="badge-chip @(context.Type == "Indoor" ? "badge-info" : "badge-warning")">@context.Type</span></MudTd>
+            <MudTd>@context.SurfaceType</MudTd>
+            <MudTd>Rp @context.PricePerHour.ToString("N0")</MudTd>
+            <MudTd>@(context.PeakPricePerHour.HasValue ? "Rp " + context.PeakPricePerHour.Value.ToString("N0") : "-")</MudTd>
+            <MudTd>@(context.HasLighting ? "✅" : "❌")</MudTd>
+            <MudTd>@(context.HasRoof ? "✅" : "❌")</MudTd>
+            <MudTd><span class="badge-chip @(context.IsActive ? "badge-success" : "badge-error")">@(context.IsActive ? "Aktif" : "Nonaktif")</span></MudTd>
+            <MudTd>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="() => OpenEditDialog(context)" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DelCourt(context.Id)" />
+                <MudIconButton Icon="@(context.IsActive ? Icons.Material.Filled.ToggleOff : Icons.Material.Filled.ToggleOn)" Size="Size.Small" Color="Color.Secondary" OnClick="() => ToggleCourt(context.Id)" />
+            </MudTd>
+        </RowTemplate>
+        <PagerContent><MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" /></PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private List<Court> _courts = new(); private List<Club> _clubs = new(); private IEnumerable<Court> _filteredCourts = Enumerable.Empty<Court>();
+    private bool _isLoading = true; private string _searchText = ""; private int? _filterClubId; private string? _filterType;
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        _courts = await Db.Courts.Include(c => c.Club).ToListAsync();
+        _clubs = await Db.Clubs.Where(c => c.IsActive).OrderBy(c => c.Name).ToListAsync();
+        ApplyFilters(); _isLoading = false;
+    }
+    private void ApplyFilters()
+    {
+        var q = _courts.AsEnumerable();
+        if (_filterClubId.HasValue) q = q.Where(c => c.ClubId == _filterClubId.Value);
+        if (!string.IsNullOrEmpty(_filterType)) q = q.Where(c => c.Type == _filterType);
+        if (!string.IsNullOrEmpty(_searchText)) q = q.Where(c => (c.Name ?? "").Contains(_searchText, StringComparison.OrdinalIgnoreCase) || (c.SurfaceType ?? "").Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+        _filteredCourts = q.OrderBy(c => c.Id);
+    }
+    private async void OpenAddDialog() { var p = new DialogParameters { ["Clubs"] = _clubs, ["IsEdit"] = false }; var d = await DialogService.ShowAsync<CourtDialog>("Tambah Lapangan", p, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true }); var r = await d.Result; if (!r.Canceled) { await LoadData(); Snackbar.Add("Lapangan ditambahkan!", Severity.Success); } }
+    private async void OpenEditDialog(Court c) { var p = new DialogParameters { ["Clubs"] = _clubs, ["IsEdit"] = true }; var d = await DialogService.ShowAsync<CourtDialog>("Edit Lapangan", p, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true }); var r = await d.Result; if (!r.Canceled) { await LoadData(); Snackbar.Add("Lapangan diupdate!", Severity.Success); } }
+    private async void DelCourt(int id) { var c = await Db.Courts.FindAsync(id); if (c != null) { Db.Courts.Remove(c); await Db.SaveChangesAsync(); await LoadData(); Snackbar.Add("Lapangan dihapus!", Severity.Warning); } }
+    private async void ToggleCourt(int id) { var c = await Db.Courts.FindAsync(id); if (c != null) { c.IsActive = !c.IsActive; await Db.SaveChangesAsync(); await LoadData(); } }
+    private async void ExportCsv() { var d = _filteredCourts.Select(c => new { c.Id, c.Name, Klub = c.Club?.Name, c.Type }); var b = ExportService.ExportToCsv(d); await JS.InvokeVoidAsync("downloadFileFromStream", "courts.csv", new DotNetStreamReference(new MemoryStream(b))); }
+    private async void ExportExcel() { var d = _filteredCourts.Select(c => new { c.Id, c.Name, Klub = c.Club?.Name, c.Type }); var b = ExportService.ExportToExcel(d); await JS.InvokeVoidAsync("downloadFileFromStream", "courts.xlsx", new DotNetStreamReference(new MemoryStream(b))); }
+}

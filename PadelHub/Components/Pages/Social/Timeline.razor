@@ -1,0 +1,173 @@
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@attribute [Authorize]
+@page "/social/timeline"
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+@inject UserManager<ApplicationUser> UserManager
+@inject ISnackbar Snackbar
+
+<PageTitle>Timeline - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">📱 Timeline Komunitas</MudText>
+
+@* New Post *@
+<MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius:12px;">
+    <div class="d-flex gap-3">
+        <MudAvatar Style="background:var(--mud-palette-primary);">@_userInitial</MudAvatar>
+        <div style="flex-grow:1;">
+            <MudTextField @bind-Value="_newPostContent" Placeholder="Bagikan momen padelmu..." Variant="Variant.Outlined" Lines="2" Immediate="true" />
+            <div class="d-flex justify-space-between align-center mt-2">
+                <MudSelect T="string" @bind-Value="_newPostType" Variant="Variant.Outlined" Margin="Margin.None" Style="width:150px;">
+                    <MudSelectItem Value="@("General")">📝 Umum</MudSelectItem>
+                    <MudSelectItem Value="@("MatchResult")">🏆 Hasil Match</MudSelectItem>
+                    <MudSelectItem Value="@("Highlight")">🎬 Highlight</MudSelectItem>
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Send" OnClick="CreatePost" Disabled="@(string.IsNullOrWhiteSpace(_newPostContent))">Post</MudButton>
+            </div>
+        </div>
+    </div>
+</MudPaper>
+
+@if (!_posts.Any())
+{
+    <MudPaper Class="pa-6" Elevation="0" Style="text-align:center;">
+        <MudText Typo="Typo.body1" Color="Color.Secondary">Belum ada post. Jadilah yang pertama berbagi! 🎾</MudText>
+    </MudPaper>
+}
+
+@foreach (var post in _posts)
+{
+    <MudPaper Class="pa-4 mb-3" Elevation="1" Style="border-radius:12px;">
+        <div class="d-flex gap-3">
+            <MudAvatar Style="background:var(--mud-palette-secondary);">@GetInitial(post.User?.FullName)</MudAvatar>
+            <div style="flex-grow:1;">
+                <div class="d-flex align-center gap-2 mb-2">
+                    <MudText Typo="Typo.body1" Style="font-weight:600;">@post.User?.FullName</MudText>
+                    @if (!string.IsNullOrEmpty(post.PostType)) { <span class="badge-chip">@post.PostType</span> }
+                    <MudSpacer />
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@post.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</MudText>
+                    @if (post.UserId == _currentUserId)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DelPost(post.Id)" />
+                    }
+                </div>
+                <MudText Typo="Typo.body1" Class="mb-2">@post.Content</MudText>
+                <div class="d-flex gap-2 mt-2">
+                    <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.FavoriteBorder" OnClick="() => LikePost(post)" Color="Color.Secondary">❤️ @post.LikesCount</MudButton>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Comment">💬 @post.CommentsCount</MudButton>
+                </div>
+
+                @if (post.Comments?.Any() == true)
+                {
+                    <MudDivider Class="my-2" />
+                    @foreach (var c in post.Comments.Take(5))
+                    {
+                        <div class="d-flex gap-2 mb-2" style="background:var(--mud-palette-background); padding:8px; border-radius:8px;">
+                            <MudAvatar Size="Size.Small">@GetInitial(c.User?.FullName)</MudAvatar>
+                            <div><MudText Typo="Typo.caption" Style="font-weight:600;">@c.User?.FullName</MudText><MudText Typo="Typo.body2">@c.Content</MudText></div>
+                        </div>
+                    }
+                }
+                <div class="d-flex gap-2 mt-2">
+                    <MudTextField @bind-Value="_commentTexts[post.Id]" Placeholder="Komentar..." Variant="Variant.Outlined" Margin="Margin.None" Style="flex-grow:1;" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Send" Size="Size.Small" Color="Color.Primary" OnClick="() => AddComment(post.Id)" />
+                </div>
+            </div>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private List<TimelinePost> _posts = new();
+    private string _newPostContent = ""; private string _newPostType = "General";
+    private string _currentUserId = ""; private string _userInitial = "?";
+    private Dictionary<int, string> _commentTexts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var claimId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+
+        // Validate that the user actually exists in the database (prevents FK constraint failure)
+        var user = await UserManager.FindByIdAsync(claimId);
+        if (user != null)
+        {
+            _currentUserId = user.Id;
+            _userInitial = (user.FullName?.Length > 0) ? user.FullName[..1].ToUpper() : "?";
+        }
+        else
+        {
+            // Fallback: use first available user to prevent FK errors
+            var firstUser = await Db.Users.FirstOrDefaultAsync();
+            _currentUserId = firstUser?.Id ?? "";
+            _userInitial = (firstUser?.FullName?.Length > 0 == true) ? firstUser.FullName[..1].ToUpper() : "?";
+        }
+
+        await LoadPosts();
+    }
+
+    private async Task LoadPosts()
+    {
+        _posts = await Db.TimelinePosts.Include(p => p.User).Include(p => p.Comments).ThenInclude(c => c.User)
+            .OrderByDescending(p => p.CreatedAt).Take(20).ToListAsync();
+        foreach (var p in _posts) _commentTexts[p.Id] = "";
+    }
+
+    private async Task CreatePost()
+    {
+        if (string.IsNullOrWhiteSpace(_newPostContent) || string.IsNullOrEmpty(_currentUserId)) return;
+        try
+        {
+            Db.TimelinePosts.Add(new TimelinePost
+            {
+                UserId = _currentUserId,
+                Content = _newPostContent.Trim(),
+                PostType = _newPostType,
+                CreatedAt = DateTime.UtcNow
+            });
+            await Db.SaveChangesAsync();
+            _newPostContent = ""; _newPostType = "General";
+            Snackbar.Add("Post berhasil! 🎾", Severity.Success);
+            await LoadPosts(); StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Gagal membuat post: " + ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task LikePost(TimelinePost p) { p.LikesCount++; await Db.SaveChangesAsync(); }
+
+    private async Task AddComment(int postId)
+    {
+        var text = _commentTexts.GetValueOrDefault(postId, "");
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrEmpty(_currentUserId)) return;
+        try
+        {
+            Db.TimelineComments.Add(new TimelineComment
+            {
+                PostId = postId,
+                UserId = _currentUserId,
+                Content = text.Trim(),
+                CreatedAt = DateTime.UtcNow
+            });
+            var post = await Db.TimelinePosts.Include(p => p.Comments).FirstOrDefaultAsync(p => p.Id == postId);
+            if (post != null) post.CommentsCount = post.Comments?.Count ?? 0;
+            await Db.SaveChangesAsync();
+            _commentTexts[postId] = "";
+            await LoadPosts(); StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Gagal menambah komentar: " + ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task DelPost(int id)
+    {
+        var p = await Db.TimelinePosts.FindAsync(id);
+        if (p != null) { Db.TimelinePosts.Remove(p); await Db.SaveChangesAsync(); await LoadPosts(); Snackbar.Add("Post dihapus!", Severity.Warning); StateHasChanged(); }
+    }
+
+    private static string GetInitial(string? n) => string.IsNullOrEmpty(n) ? "?" : n[..1].ToUpper();
+}

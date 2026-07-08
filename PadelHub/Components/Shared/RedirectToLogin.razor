@@ -1,0 +1,23 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Nav
+
+@* 
+  Komponen ini me-redirect user yang belum login ke halaman login.
+  Dipanggil dari AuthorizeRouteView saat user tidak terautentikasi.
+*@
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthenticationStateTask == null) return;
+
+        var authState = await AuthenticationStateTask;
+        if (authState.User.Identity?.IsAuthenticated != true)
+        {
+            var returnUrl = Nav.ToBaseRelativePath(Nav.Uri);
+            Nav.NavigateTo($"/auth/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+        }
+    }
+}

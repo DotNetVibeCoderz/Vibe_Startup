@@ -1,0 +1,36 @@
+@using MudBlazor
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@(_isEdit ? "✏️ Edit Reservasi" : "➕ Tambah Reservasi")</MudText></TitleContent>
+    <DialogContent>
+        <MudSelect @bind-Value="_clubId" Label="Klub" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var c in _clubs) { <MudSelectItem Value="c.Id">@c.Name</MudSelectItem> }
+        </MudSelect>
+        <MudSelect @bind-Value="_courtId" Label="Lapangan" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var c in _filteredCourts) { <MudSelectItem Value="c.Id">@c.Name - @c.Type</MudSelectItem> }
+        </MudSelect>
+        <MudDatePicker @bind-Date="_date" Label="Tanggal" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_startHour" Label="Jam Mulai (0-23)" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_duration" Label="Durasi (jam)" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_notes" Label="Catatan" Variant="Variant.Outlined" Lines="2" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Submit">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance? MudDialog { get; set; }
+    [Parameter] public List<Club> Clubs { get; set; } = new();
+    [Parameter] public List<Court> Courts { get; set; } = new();
+    [Parameter] public bool IsEdit { get; set; }
+    private bool _isEdit => IsEdit;
+    private List<Club> _clubs = new(); private List<Court> _filteredCourts = new(); private List<Court> _allCourts = new();
+    private int _clubId; private int _courtId; private DateTime? _date = DateTime.Today;
+    private string _startHour = "8"; private string _duration = "1"; private string _notes = "";
+
+    protected override void OnParametersSet() { _clubs = Clubs; _allCourts = Courts; _filteredCourts = _clubId > 0 ? Courts.Where(c => c.ClubId == _clubId).ToList() : Courts; }
+    private void Submit() => MudDialog?.Close(DialogResult.Ok(new { ClubId = _clubId, CourtId = _courtId, Date = _date, StartHour = _startHour, Duration = _duration, Notes = _notes }));
+    private void Cancel() => MudDialog?.Cancel();
+}

@@ -1,0 +1,338 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Operator")]
+@page "/tournaments"
+@inject AppDbContext Db
+@inject ExportService ExportService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Turnamen - PadelHub</PageTitle>
+
+@* Header *@
+<div class="d-flex align-center justify-space-between mb-4">
+    <MudText Typo="Typo.h4">🏆 Turnamen & Liga</MudText>
+    <div class="d-flex gap-2">
+        <MudIconButton Icon="@(_tableView ? Icons.Material.Filled.GridView : Icons.Material.Filled.ViewList)"
+                        Color="Color.Primary" OnClick="ToggleView" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                    OnClick="OpenAddDialog">Tambah</MudButton>
+        <MudTooltip Text="Export CSV">
+            <MudIconButton Icon="@Icons.Material.Filled.FileDownload" Color="Color.Secondary" OnClick="ExportToCsv" />
+        </MudTooltip>
+        <MudTooltip Text="Export Excel">
+            <MudIconButton Icon="@Icons.Material.Filled.GridOn" Color="Color.Tertiary" OnClick="ExportToExcel" />
+        </MudTooltip>
+    </div>
+</div>
+
+@* Filter Bar *@
+<MudPaper Class="pa-4 mb-4" Elevation="0">
+    <MudGrid>
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField T="string" Placeholder="Cari turnamen..." Immediate="true"
+                           @bind-Value="_searchQuery"
+                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="string" Label="Status" Clearable="true" @bind-Value="_filterStatus"
+                        AnchorOrigin="Origin.BottomCenter">
+                <MudSelectItem Value="@("All")">Semua</MudSelectItem>
+                <MudSelectItem Value="@("Upcoming")">Upcoming</MudSelectItem>
+                <MudSelectItem Value="@("Registration")">Registration</MudSelectItem>
+                <MudSelectItem Value="@("InProgress")">In Progress</MudSelectItem>
+                <MudSelectItem Value="@("Completed")">Completed</MudSelectItem>
+                <MudSelectItem Value="@("Cancelled")">Cancelled</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="string" Label="Level" Clearable="true" @bind-Value="_filterLevel"
+                        AnchorOrigin="Origin.BottomCenter">
+                <MudSelectItem Value="@("All")">Semua</MudSelectItem>
+                <MudSelectItem Value="@("Open")">Open</MudSelectItem>
+                <MudSelectItem Value="@("Beginner")">Beginner</MudSelectItem>
+                <MudSelectItem Value="@("Intermediate")">Intermediate</MudSelectItem>
+                <MudSelectItem Value="@("Advanced")">Advanced</MudSelectItem>
+                <MudSelectItem Value="@("Professional")">Professional</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="string" Label="Tipe" Clearable="true" @bind-Value="_filterType"
+                        AnchorOrigin="Origin.BottomCenter">
+                <MudSelectItem Value="@("All")">Semua</MudSelectItem>
+                <MudSelectItem Value="@("Single")">Single</MudSelectItem>
+                <MudSelectItem Value="@("Double")">Double</MudSelectItem>
+                <MudSelectItem Value="@("Mixed")">Mixed</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (!_tableView)
+{
+    @* Card Grid View *@
+    <MudGrid>
+        @foreach (var t in _filteredTournaments)
+        {
+            <MudItem xs="12" md="6" lg="4">
+                <MudPaper Class="pa-0 fade-in" Elevation="2" Style="border-radius:12px; overflow:hidden;">
+                    <div style="height:100px; @GetGradientByStatus(t.Status); display:flex; align-items:center; padding:16px;">
+                        <MudText Typo="Typo.h5" Style="color:white; font-weight:700;">@t.Name</MudText>
+                    </div>
+                    <MudCardContent>
+                        <div class="d-flex align-center gap-2 mb-2">
+                            <span class="@GetStatusBadgeClass(t.Status)">@t.Status</span>
+                            <span class="badge-chip badge-primary">@t.Type</span>
+                            <span class="badge-chip badge-info">@t.Format</span>
+                        </div>
+                        @if (!string.IsNullOrEmpty(t.Level))
+                        {
+                            <span class="badge-chip badge-primary mb-2" style="display:inline-block;">@t.Level</span>
+                        }
+                        <MudText Typo="Typo.body2" Class="mt-2">
+                            📅 @t.StartDate.ToString("dd MMM yyyy") - @t.EndDate.ToString("dd MMM yyyy")
+                        </MudText>
+                        <MudText Typo="Typo.body2">👥 Max: @t.MaxParticipants peserta</MudText>
+                        <MudText Typo="Typo.body1" Color="Color.Primary" Style="font-weight:600;">
+                            💰 Biaya: Rp @t.EntryFee.ToString("N0") | Hadiah: Rp @(t.PrizeMoney?.ToString("N0") ?? "0")
+                        </MudText>
+                        @if (t.Club != null)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">📍 @t.Club.Name</MudText>
+                        }
+                        <div class="d-flex gap-2 mt-3">
+                            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
+                                        OnClick="() => OpenEditDialog(t.Id)">Edit</MudButton>
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
+                                        OnClick="() => DeleteTournament(t.Id)">Hapus</MudButton>
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary"
+                                        OnClick="() => ViewBracket(t.Id)">Bracket</MudButton>
+                        </div>
+                    </MudCardContent>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+}
+else
+{
+    @* Table View *@
+    <MudPaper Elevation="1">
+        <MudTable Items="_filteredTournaments" Hover="true" Loading="_isLoading" FixedHeader="true">
+            <HeaderContent>
+                <MudTh Style="cursor:pointer;" OnClick="() => ToggleSort("Name")">
+                    Nama @SortIcon("Name")
+                </MudTh>
+                <MudTh>Klub</MudTh>
+                <MudTh>Tipe</MudTh>
+                <MudTh>Format</MudTh>
+                <MudTh>Level</MudTh>
+                <MudTh Style="cursor:pointer;" OnClick="() => ToggleSort("StartDate")">
+                    Tanggal @SortIcon("StartDate")
+                </MudTh>
+                <MudTh>Peserta</MudTh>
+                <MudTh Style="text-align:right;">Biaya</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh Style="text-align:center;">Aksi</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><strong>@context.Name</strong></MudTd>
+                <MudTd>@context.Club?.Name</MudTd>
+                <MudTd><span class="badge-chip badge-primary">@context.Type</span></MudTd>
+                <MudTd>@context.Format</MudTd>
+                <MudTd>@context.Level</MudTd>
+                <MudTd>@context.StartDate.ToString("dd MMM yyyy")</MudTd>
+                <MudTd>@context.Registrations.Count/@context.MaxParticipants</MudTd>
+                <MudTd Style="text-align:right;">Rp @context.EntryFee.ToString("N0")</MudTd>
+                <MudTd><span class="@GetStatusBadgeClass(context.Status)">@context.Status</span></MudTd>
+                <MudTd Style="text-align:center; white-space:nowrap;">
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary"
+                                    OnClick="() => OpenEditDialog(context.Id)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                                    OnClick="() => DeleteTournament(context.Id)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" Color="Color.Secondary"
+                                    OnClick="() => ViewBracket(context.Id)" />
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Typo="Typo.body1" Color="Color.Secondary" Class="pa-4">Tidak ada data turnamen.</MudText>
+            </NoRecordsContent>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+            </PagerContent>
+        </MudTable>
+    </MudPaper>
+}
+
+@code {
+    private List<Tournament> _tournaments = new();
+    private IEnumerable<Tournament> _filteredTournaments = Enumerable.Empty<Tournament>();
+    private bool _isLoading = true;
+    private bool _tableView;
+
+    private string? _searchQuery;
+    private string? _filterStatus;
+    private string? _filterLevel;
+    private string? _filterType;
+
+    private string _sortBy = "StartDate";
+    private SortDirection _sortDir = SortDirection.Descending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isLoading = true;
+        _tournaments = await Db.Tournaments
+            .Include(t => t.Club)
+            .Include(t => t.Registrations)
+            .OrderByDescending(t => t.StartDate)
+            .ToListAsync();
+        ApplyFilters();
+        _isLoading = false;
+    }
+
+    protected override void OnParametersSet()
+    {
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        var q = _tournaments.AsEnumerable();
+        if (!string.IsNullOrEmpty(_searchQuery))
+            q = q.Where(t => t.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)
+                           || (t.Description ?? "").Contains(_searchQuery, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(_filterStatus) && _filterStatus != "All")
+            q = q.Where(t => t.Status == _filterStatus);
+        if (!string.IsNullOrEmpty(_filterLevel) && _filterLevel != "All")
+            q = q.Where(t => t.Level == _filterLevel);
+        if (!string.IsNullOrEmpty(_filterType) && _filterType != "All")
+            q = q.Where(t => t.Type == _filterType);
+
+        q = (_sortBy, _sortDir) switch
+        {
+            ("Name", SortDirection.Ascending) => q.OrderBy(t => t.Name),
+            ("Name", SortDirection.Descending) => q.OrderByDescending(t => t.Name),
+            ("StartDate", SortDirection.Ascending) => q.OrderBy(t => t.StartDate),
+            ("StartDate", SortDirection.Descending) => q.OrderByDescending(t => t.StartDate),
+            _ => q.OrderByDescending(t => t.StartDate)
+        };
+
+        _filteredTournaments = q.ToList();
+    }
+
+    private void ToggleView() => _tableView = !_tableView;
+
+    private void ToggleSort(string field)
+    {
+        if (_sortBy == field)
+            _sortDir = _sortDir == SortDirection.Ascending ? SortDirection.Descending : SortDirection.Ascending;
+        else
+        {
+            _sortBy = field;
+            _sortDir = SortDirection.Ascending;
+        }
+        ApplyFilters();
+    }
+
+    private string SortIcon(string field)
+    {
+        if (_sortBy != field) return "↕️";
+        return _sortDir == SortDirection.Ascending ? "↑" : "↓";
+    }
+
+    private static string GetGradientByStatus(string status) => status switch
+    {
+        "Upcoming" => "background: linear-gradient(135deg, #1565C0, #42A5F5);",
+        "Registration" => "background: linear-gradient(135deg, #6A1B9A, #AB47BC);",
+        "InProgress" => "background: linear-gradient(135deg, #E65100, #FF9800);",
+        "Completed" => "background: linear-gradient(135deg, #1B5E20, #4CAF50);",
+        "Cancelled" => "background: linear-gradient(135deg, #B71C1C, #EF5350);",
+        _ => "background: linear-gradient(135deg, #37474F, #78909C);"
+    };
+
+    private static string GetStatusBadgeClass(string s) => s switch
+    {
+        "Upcoming" => "badge-chip badge-info",
+        "Registration" => "badge-chip badge-primary",
+        "InProgress" => "badge-chip badge-warning",
+        "Completed" => "badge-chip badge-success",
+        "Cancelled" => "badge-chip badge-error",
+        _ => "badge-chip"
+    };
+
+    private void ViewBracket(int id) => Nav.NavigateTo($"/tournaments/brackets/{id}");
+
+    private async Task OpenAddDialog()
+    {
+        var clubs = await Db.Clubs.Where(c => c.IsActive).OrderBy(c => c.Name).ToListAsync();
+        var parameters = new DialogParameters { ["Clubs"] = clubs, ["IsEdit"] = false };
+        var dialog = await DialogService.ShowAsync<TournamentDialog>("Tambah Turnamen", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+        if (!result.Canceled) await RefreshData();
+    }
+
+    private async Task OpenEditDialog(int id)
+    {
+        var tournament = _tournaments.FirstOrDefault(t => t.Id == id);
+        if (tournament == null) return;
+        var clubs = await Db.Clubs.Where(c => c.IsActive).OrderBy(c => c.Name).ToListAsync();
+        var parameters = new DialogParameters { ["Clubs"] = clubs, ["IsEdit"] = true, ["Tournament"] = tournament };
+        var dialog = await DialogService.ShowAsync<TournamentDialog>("Edit Turnamen", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+        if (!result.Canceled) await RefreshData();
+    }
+
+    private async Task DeleteTournament(int id)
+    {
+        var tournament = await Db.Tournaments.FindAsync(id);
+        if (tournament == null) return;
+        Db.Tournaments.Remove(tournament);
+        await Db.SaveChangesAsync();
+        Snackbar.Add("Turnamen dihapus!", Severity.Warning);
+        await RefreshData();
+    }
+
+    private async Task RefreshData()
+    {
+        _isLoading = true;
+        _tournaments = await Db.Tournaments
+            .Include(t => t.Club)
+            .Include(t => t.Registrations)
+            .OrderByDescending(t => t.StartDate)
+            .ToListAsync();
+        ApplyFilters();
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task ExportToCsv()
+    {
+        var data = _filteredTournaments.Select(t => new {
+            Nama = t.Name, Klub = t.Club?.Name, t.Type, t.Format, t.Level,
+            Mulai = t.StartDate.ToString("yyyy-MM-dd"), Selesai = t.EndDate.ToString("yyyy-MM-dd"),
+            MaksPeserta = t.MaxParticipants, Biaya = t.EntryFee, Hadiah = t.PrizeMoney, t.Status
+        });
+        var bytes = ExportService.ExportToCsv(data);
+        await DownloadFile(bytes, "tournaments.csv", "text/csv");
+    }
+
+    private async Task ExportToExcel()
+    {
+        var data = _filteredTournaments.Select(t => new {
+            Nama = t.Name, Klub = t.Club?.Name, t.Type, t.Format, t.Level,
+            Mulai = t.StartDate.ToString("yyyy-MM-dd"), Selesai = t.EndDate.ToString("yyyy-MM-dd"),
+            MaksPeserta = t.MaxParticipants, Biaya = t.EntryFee, Hadiah = t.PrizeMoney, t.Status
+        });
+        var bytes = ExportService.ExportToExcel(data, "Tournaments");
+        await DownloadFile(bytes, "tournaments.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    private async Task DownloadFile(byte[] bytes, string fileName, string contentType)
+    {
+        using var ms = new MemoryStream(bytes);
+        await JS.InvokeVoidAsync("downloadFileFromStream", fileName, new DotNetStreamReference(ms));
+    }
+}

@@ -1,0 +1,452 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@page "/admin/master-data"
+@inject AppDbContext Db
+@inject ISnackbar Snackbar
+
+<PageTitle>Master Data - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">🗄️ Master Data</MudText>
+
+<MudTabs Elevation="1" Class="rounded-lg">
+    <MudTabPanel Text="🏢 Klub">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Class="mb-3" OnClick="OpenAddClub">Tambah Klub</MudButton>
+        <MudTable Items="_clubs" Hover="true" Dense="true">
+            <HeaderContent><MudTh>ID</MudTh><MudTh>Nama</MudTh><MudTh>Kota</MudTh><MudTh>Lapangan</MudTh><MudTh>Status</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Id</MudTd>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>@context.City</MudTd>
+                <MudTd>@context.Courts?.Count</MudTd>
+                <MudTd>@(context.IsActive ? "✅" : "❌")</MudTd>
+                <MudTd>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="() => EditClub(context)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteClub(context.Id)" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudTabPanel>
+
+    <MudTabPanel Text="🏟️ Lapangan">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Class="mb-3" OnClick="OpenAddCourt">Tambah Lapangan</MudButton>
+        <MudTable Items="_courts" Hover="true" Dense="true">
+            <HeaderContent><MudTh>ID</MudTh><MudTh>Nama</MudTh><MudTh>Klub</MudTh><MudTh>Tipe</MudTh><MudTh>Harga</MudTh><MudTh>Status</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Id</MudTd>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>@context.Club?.Name</MudTd>
+                <MudTd>@context.Type</MudTd>
+                <MudTd>Rp @context.PricePerHour.ToString("N0")</MudTd>
+                <MudTd>@(context.IsActive ? "✅" : "❌")</MudTd>
+                <MudTd>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="() => EditCourt(context)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteCourt(context.Id)" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudTabPanel>
+
+    <MudTabPanel Text="💎 Membership">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Class="mb-3" OnClick="OpenAddPackage">Tambah Paket</MudButton>
+        <MudTable Items="_packages" Hover="true" Dense="true">
+            <HeaderContent><MudTh>ID</MudTh><MudTh>Nama</MudTh><MudTh>Tipe</MudTh><MudTh>Harga</MudTh><MudTh>Max Booking</MudTh><MudTh>Status</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Id</MudTd>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>@context.Type</MudTd>
+                <MudTd>Rp @context.Price.ToString("N0")</MudTd>
+                <MudTd>@context.MaxReservationsPerMonth</MudTd>
+                <MudTd>@(context.IsActive ? "✅" : "❌")</MudTd>
+                <MudTd>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="() => EditPackage(context)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeletePackage(context.Id)" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudTabPanel>
+
+    <MudTabPanel Text="🏅 Badge">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Class="mb-3" OnClick="OpenAddBadge">Tambah Badge</MudButton>
+        <MudTable Items="_badges" Hover="true" Dense="true">
+            <HeaderContent><MudTh>ID</MudTh><MudTh>Nama</MudTh><MudTh>Kategori</MudTh><MudTh>Deskripsi</MudTh><MudTh>Poin</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Id</MudTd>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>@context.Category</MudTd>
+                <MudTd>@context.Description</MudTd>
+                <MudTd>@context.PointsRequired</MudTd>
+                <MudTd>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="() => EditBadge(context)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteBadge(context.Id)" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudTabPanel>
+</MudTabs>
+
+@* Dialog Klub *@
+<MudDialog @bind-Visible="_showClubDialog">
+    <TitleContent><MudText Typo="Typo.h6">@(_editingClubId > 0 ? "✏️ Edit Klub" : "➕ Tambah Klub")</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_clubName" Label="Nama" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudTextField @bind-Value="_clubCity" Label="Kota" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_clubAddress" Label="Alamat" Variant="Variant.Outlined" Lines="2" Class="mb-3" />
+        <MudSwitch @bind-Value="_clubIsActive" Color="Color.Success" Label="Aktif" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => _showClubDialog = false">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveClub">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@* Dialog Lapangan *@
+<MudDialog @bind-Visible="_showCourtDialog">
+    <TitleContent><MudText Typo="Typo.h6">@(_editingCourtId > 0 ? "✏️ Edit Lapangan" : "➕ Tambah Lapangan")</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_courtName" Label="Nama" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudSelect @bind-Value="_courtClubId" Label="Klub" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var c in _clubs)
+            {
+                <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField @bind-Value="_courtType" Label="Tipe" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_courtPrice" Label="Harga per Jam" Variant="Variant.Outlined" Class="mb-3" />
+        <MudSwitch @bind-Value="_courtIsActive" Color="Color.Success" Label="Aktif" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => _showCourtDialog = false">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveCourt">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@* Dialog Membership *@
+<MudDialog @bind-Visible="_showPackageDialog">
+    <TitleContent><MudText Typo="Typo.h6">@(_editingPackageId > 0 ? "✏️ Edit Paket" : "➕ Tambah Paket")</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_packageName" Label="Nama" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudSelect @bind-Value="_packageType" Label="Tipe" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Monthly")">Monthly</MudSelectItem>
+            <MudSelectItem Value="@("Yearly")">Yearly</MudSelectItem>
+        </MudSelect>
+        <MudTextField @bind-Value="_packagePrice" Label="Harga" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_packageDuration" Label="Durasi (hari)" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_packageMax" Label="Max Booking/Bulan" Variant="Variant.Outlined" Class="mb-3" />
+        <MudSwitch @bind-Value="_packageIsActive" Color="Color.Success" Label="Aktif" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => _showPackageDialog = false">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SavePackage">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@* Dialog Badge *@
+<MudDialog @bind-Visible="_showBadgeDialog">
+    <TitleContent><MudText Typo="Typo.h6">@(_editingBadgeId > 0 ? "✏️ Edit Badge" : "➕ Tambah Badge")</MudText></TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_badgeName" Label="Nama" Variant="Variant.Outlined" Required="true" Class="mb-3" />
+        <MudTextField @bind-Value="_badgeCategory" Label="Kategori" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_badgeDescription" Label="Deskripsi" Variant="Variant.Outlined" Lines="2" Class="mb-3" />
+        <MudTextField @bind-Value="_badgePoints" Label="Poin" Variant="Variant.Outlined" Class="mb-3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => _showBadgeDialog = false">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveBadge">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<Club> _clubs = new();
+    private List<Court> _courts = new();
+    private List<MembershipPackage> _packages = new();
+    private List<Badge> _badges = new();
+
+    private bool _showClubDialog;
+    private int _editingClubId;
+    private string _clubName = "";
+    private string _clubCity = "";
+    private string _clubAddress = "";
+    private bool _clubIsActive = true;
+
+    private bool _showCourtDialog;
+    private int _editingCourtId;
+    private string _courtName = "";
+    private int _courtClubId;
+    private string _courtType = "";
+    private string _courtPrice = "";
+    private bool _courtIsActive = true;
+
+    private bool _showPackageDialog;
+    private int _editingPackageId;
+    private string _packageName = "";
+    private string _packageType = "Monthly";
+    private string _packagePrice = "";
+    private string _packageDuration = "30";
+    private string _packageMax = "8";
+    private bool _packageIsActive = true;
+
+    private bool _showBadgeDialog;
+    private int _editingBadgeId;
+    private string _badgeName = "";
+    private string _badgeCategory = "";
+    private string _badgeDescription = "";
+    private string _badgePoints = "0";
+
+    protected override async Task OnInitializedAsync() => await ReloadData();
+
+    private async Task ReloadData()
+    {
+        _clubs = await Db.Clubs.Include(c => c.Courts).ToListAsync();
+        _courts = await Db.Courts.Include(c => c.Club).ToListAsync();
+        _packages = await Db.MembershipPackages.ToListAsync();
+        _badges = await Db.Badges.ToListAsync();
+        if (_clubs.Any()) _courtClubId = _clubs[0].Id;
+    }
+
+    private void OpenAddClub()
+    {
+        _editingClubId = 0;
+        _clubName = "";
+        _clubCity = "";
+        _clubAddress = "";
+        _clubIsActive = true;
+        _showClubDialog = true;
+    }
+
+    private void EditClub(Club club)
+    {
+        _editingClubId = club.Id;
+        _clubName = club.Name;
+        _clubCity = club.City ?? "";
+        _clubAddress = club.Address ?? "";
+        _clubIsActive = club.IsActive;
+        _showClubDialog = true;
+    }
+
+    private async Task SaveClub()
+    {
+        if (string.IsNullOrWhiteSpace(_clubName)) return;
+        Club club;
+        if (_editingClubId > 0)
+        {
+            club = (await Db.Clubs.FindAsync(_editingClubId))!;
+        }
+        else
+        {
+            club = new Club { CreatedAt = DateTime.UtcNow };
+            Db.Clubs.Add(club);
+        }
+
+        club.Name = _clubName.Trim();
+        club.City = _clubCity.Trim();
+        club.Address = _clubAddress.Trim();
+        club.IsActive = _clubIsActive;
+
+        await Db.SaveChangesAsync();
+        _showClubDialog = false;
+        await ReloadData();
+        Snackbar.Add("Data klub tersimpan!", Severity.Success);
+    }
+
+    private async Task DeleteClub(int id)
+    {
+        var club = await Db.Clubs.Include(c => c.Courts).FirstOrDefaultAsync(c => c.Id == id);
+        if (club == null) return;
+        if (club.Courts.Any())
+        {
+            club.IsActive = false;
+            await Db.SaveChangesAsync();
+            Snackbar.Add("Klub punya lapangan. Status dinonaktifkan.", Severity.Warning);
+        }
+        else
+        {
+            Db.Clubs.Remove(club);
+            await Db.SaveChangesAsync();
+            Snackbar.Add("Klub dihapus.", Severity.Warning);
+        }
+        await ReloadData();
+    }
+
+    private void OpenAddCourt()
+    {
+        _editingCourtId = 0;
+        _courtName = "";
+        _courtType = "";
+        _courtPrice = "";
+        _courtIsActive = true;
+        if (_clubs.Any()) _courtClubId = _clubs[0].Id;
+        _showCourtDialog = true;
+    }
+
+    private void EditCourt(Court court)
+    {
+        _editingCourtId = court.Id;
+        _courtName = court.Name;
+        _courtClubId = court.ClubId;
+        _courtType = court.Type ?? "";
+        _courtPrice = court.PricePerHour.ToString("N0").Replace(",", "");
+        _courtIsActive = court.IsActive;
+        _showCourtDialog = true;
+    }
+
+    private async Task SaveCourt()
+    {
+        if (string.IsNullOrWhiteSpace(_courtName) || _courtClubId == 0) return;
+        Court court;
+        if (_editingCourtId > 0)
+        {
+            court = (await Db.Courts.FindAsync(_editingCourtId))!;
+        }
+        else
+        {
+            court = new Court { CreatedAt = DateTime.UtcNow };
+            Db.Courts.Add(court);
+        }
+
+        court.Name = _courtName.Trim();
+        court.ClubId = _courtClubId;
+        court.Type = _courtType.Trim();
+        court.PricePerHour = decimal.TryParse(_courtPrice, out var p) ? p : 0;
+        court.IsActive = _courtIsActive;
+
+        await Db.SaveChangesAsync();
+        _showCourtDialog = false;
+        await ReloadData();
+        Snackbar.Add("Lapangan tersimpan!", Severity.Success);
+    }
+
+    private async Task DeleteCourt(int id)
+    {
+        var court = await Db.Courts.FindAsync(id);
+        if (court == null) return;
+        var hasReservation = await Db.Reservations.AnyAsync(r => r.CourtId == id);
+        if (hasReservation)
+        {
+            court.IsActive = false;
+            await Db.SaveChangesAsync();
+            Snackbar.Add("Lapangan memiliki reservasi. Status dinonaktifkan.", Severity.Warning);
+        }
+        else
+        {
+            Db.Courts.Remove(court);
+            await Db.SaveChangesAsync();
+            Snackbar.Add("Lapangan dihapus.", Severity.Warning);
+        }
+        await ReloadData();
+    }
+
+    private void OpenAddPackage()
+    {
+        _editingPackageId = 0;
+        _packageName = "";
+        _packageType = "Monthly";
+        _packagePrice = "";
+        _packageDuration = "30";
+        _packageMax = "8";
+        _packageIsActive = true;
+        _showPackageDialog = true;
+    }
+
+    private void EditPackage(MembershipPackage package)
+    {
+        _editingPackageId = package.Id;
+        _packageName = package.Name;
+        _packageType = package.Type;
+        _packagePrice = package.Price.ToString("N0").Replace(",", "");
+        _packageDuration = package.DurationDays.ToString();
+        _packageMax = package.MaxReservationsPerMonth.ToString();
+        _packageIsActive = package.IsActive;
+        _showPackageDialog = true;
+    }
+
+    private async Task SavePackage()
+    {
+        if (string.IsNullOrWhiteSpace(_packageName)) return;
+        MembershipPackage package;
+        if (_editingPackageId > 0)
+        {
+            package = (await Db.MembershipPackages.FindAsync(_editingPackageId))!;
+        }
+        else
+        {
+            package = new MembershipPackage { CreatedAt = DateTime.UtcNow };
+            Db.MembershipPackages.Add(package);
+        }
+
+        package.Name = _packageName.Trim();
+        package.Type = _packageType;
+        package.Price = decimal.TryParse(_packagePrice, out var price) ? price : 0;
+        package.DurationDays = int.TryParse(_packageDuration, out var duration) ? duration : 30;
+        package.MaxReservationsPerMonth = int.TryParse(_packageMax, out var max) ? max : 8;
+        package.IsActive = _packageIsActive;
+
+        await Db.SaveChangesAsync();
+        _showPackageDialog = false;
+        await ReloadData();
+        Snackbar.Add("Paket tersimpan!", Severity.Success);
+    }
+
+    private async Task DeletePackage(int id)
+    {
+        var package = await Db.MembershipPackages.FindAsync(id);
+        if (package == null) return;
+        package.IsActive = false;
+        await Db.SaveChangesAsync();
+        await ReloadData();
+        Snackbar.Add("Paket dinonaktifkan.", Severity.Warning);
+    }
+
+    private void OpenAddBadge()
+    {
+        _editingBadgeId = 0;
+        _badgeName = "";
+        _badgeCategory = "";
+        _badgeDescription = "";
+        _badgePoints = "0";
+        _showBadgeDialog = true;
+    }
+
+    private void EditBadge(Badge badge)
+    {
+        _editingBadgeId = badge.Id;
+        _badgeName = badge.Name;
+        _badgeCategory = badge.Category ?? "";
+        _badgeDescription = badge.Description ?? "";
+        _badgePoints = badge.PointsRequired.ToString();
+        _showBadgeDialog = true;
+    }
+
+    private async Task SaveBadge()
+    {
+        if (string.IsNullOrWhiteSpace(_badgeName)) return;
+        Badge badge;
+        if (_editingBadgeId > 0)
+        {
+            badge = (await Db.Badges.FindAsync(_editingBadgeId))!;
+        }
+        else
+        {
+            badge = new Badge { CreatedAt = DateTime.UtcNow };
+            Db.Badges.Add(badge);
+        }
+
+        badge.Name = _badgeName.Trim();
+        badge.Category = _badgeCategory.Trim();
+        badge.Description = _badgeDescription.Trim();
+        badge.PointsRequired = int.TryParse(_badgePoints, out var pts) ? pts : 0;
+
+        await Db.SaveChangesAsync();
+        _showBadgeDialog = false;
+        await ReloadData();
+        Snackbar.Add("Badge tersimpan!", Severity.Success);
+    }
+
+    private async Task DeleteBadge(int id)
+    {
+        var badge = await Db.Badges.FindAsync(id);
+        if (badge == null) return;
+        Db.Badges.Remove(badge);
+        await Db.SaveChangesAsync();
+        await ReloadData();
+        Snackbar.Add("Badge dihapus.", Severity.Warning);
+    }
+}

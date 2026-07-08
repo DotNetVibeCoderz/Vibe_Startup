@@ -1,0 +1,83 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Operator")]
+@page "/players/checkin"
+@inject AppDbContext Db
+@inject ISnackbar Snackbar
+
+<PageTitle>Check-in Pemain - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">📱 Check-in Pemain</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="2" Style="border-radius:12px;">
+    <MudGrid>
+        <MudItem xs="12" md="8">
+            <MudTextField @bind-Value="_memberInput" Placeholder="Scan QR atau masukkan nomor member..." Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.QrCodeScanner" OnKeyDown="HandleEnter" />
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Size="Size.Large" StartIcon="@Icons.Material.Filled.Check" OnClick="DoCheckIn" Disabled="@(string.IsNullOrWhiteSpace(_memberInput))">Check-in</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_lastCheckin != null)
+{
+    <MudAlert Severity="Severity.Success" Class="mb-4" Variant="Variant.Filled" Square="false">
+        ✅ **@_lastCheckin.User?.FullName** berhasil check-in! <br/> 📅 @_lastCheckin.ReservationDate.ToString("dddd, dd MMM yyyy") · ⏰ @_lastCheckin.StartTime.ToString(@"hh\:mm") - @_lastCheckin.EndTime.ToString(@"hh\:mm") · 🏟️ @_lastCheckin.Court?.Name
+    </MudAlert>
+}
+
+<MudText Typo="Typo.h6" GutterBottom="true">📋 Check-in Hari Ini</MudText>
+<MudPaper Elevation="1">
+    <MudTable Items="_todayCheckins" Hover="true" Dense="true">
+        <HeaderContent><MudTh>Waktu</MudTh><MudTh>Pemain</MudTh><MudTh>No. Member</MudTh><MudTh>Lapangan</MudTh><MudTh>Status</MudTh></HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.CreatedAt.ToLocalTime().ToString("HH:mm")</MudTd>
+            <MudTd>@context.User?.FullName</MudTd>
+            <MudTd>@context.User?.MemberNumber</MudTd>
+            <MudTd>@context.Court?.Name</MudTd>
+            <MudTd><span class="badge-chip @(context.Status == "Confirmed" ? "badge-success" : "badge-warning")">@context.Status</span></MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private string? _memberInput;
+    private List<Reservation> _todayCheckins = new();
+    private Reservation? _lastCheckin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // SQLite doesn't support ORDER BY TimeSpan → sort in memory
+        var list = await Db.Reservations
+            .Include(r => r.User).Include(r => r.Court)
+            .Where(r => r.ReservationDate == DateTime.UtcNow.Date && r.Status == "Confirmed")
+            .ToListAsync();
+        _todayCheckins = list.OrderBy(r => r.StartTime).ToList();
+    }
+
+    private async Task HandleEnter(KeyboardEventArgs e) { if (e.Key == "Enter") await DoCheckIn(); }
+
+    private async Task DoCheckIn()
+    {
+        if (string.IsNullOrWhiteSpace(_memberInput)) return;
+        var memberNo = _memberInput.Trim().Replace("PADELHUB:MEMBER:", "").Split(':').FirstOrDefault() ?? _memberInput.Trim();
+
+        var user = await Db.Users.FirstOrDefaultAsync(u => u.MemberNumber == memberNo);
+        if (user == null) { Snackbar.Add("Member tidak ditemukan!", Severity.Error); return; }
+
+        var reservation = await Db.Reservations.Include(r => r.User).Include(r => r.Court)
+            .FirstOrDefaultAsync(r => r.UserId == user.Id && r.ReservationDate == DateTime.UtcNow.Date && r.Status == "Confirmed");
+
+        if (reservation == null) { Snackbar.Add("Tidak ada reservasi hari ini untuk member ini.", Severity.Warning); return; }
+
+        _lastCheckin = reservation;
+        Snackbar.Add($"Check-in berhasil! Selamat bermain, {user.FullName}! 🎾", Severity.Success);
+        _memberInput = "";
+
+        // Refresh list — sort in memory to avoid SQLite TimeSpan bug
+        var list = await Db.Reservations.Include(r => r.User).Include(r => r.Court)
+            .Where(r => r.ReservationDate == DateTime.UtcNow.Date && r.Status == "Confirmed")
+            .ToListAsync();
+        _todayCheckins = list.OrderBy(r => r.StartTime).ToList();
+        StateHasChanged();
+    }
+}

@@ -1,0 +1,317 @@
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Operator")]
+@page "/reservations"
+@inject AppDbContext Db
+@inject ExportService ExportService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<PageTitle>Reservasi Lapangan - PadelHub</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">📅 Reservasi Lapangan</MudText>
+
+@* Filter Bar *@
+<MudPaper Class="pa-4 mb-4" Elevation="0">
+    <MudGrid>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="int?" Label="Klub" Clearable="true" @bind-Value="_filterClubId"
+                        AnchorOrigin="Origin.BottomCenter">
+                @foreach (var c in _clubsList)
+                {
+                    <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudDateRangePicker @bind-DateRange="_filterDateRange" Label="Rentang Tanggal" Clearable="true" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="string" Label="Status" Clearable="true" @bind-Value="_filterStatus"
+                        AnchorOrigin="Origin.BottomCenter">
+                <MudSelectItem Value="@("All")">Semua</MudSelectItem>
+                <MudSelectItem Value="@("Confirmed")">Confirmed</MudSelectItem>
+                <MudSelectItem Value="@("Pending")">Pending</MudSelectItem>
+                <MudSelectItem Value="@("Cancelled")">Cancelled</MudSelectItem>
+                <MudSelectItem Value="@("Completed")">Completed</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2" Class="d-flex align-center justify-end gap-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                        OnClick="OpenAddDialog">Tambah</MudButton>
+            <MudTooltip Text="Export CSV">
+                <MudIconButton Icon="@Icons.Material.Filled.FileDownload" Color="Color.Secondary" OnClick="ExportToCsv" />
+            </MudTooltip>
+            <MudTooltip Text="Export Excel">
+                <MudIconButton Icon="@Icons.Material.Filled.GridOn" Color="Color.Tertiary" OnClick="ExportToExcel" />
+            </MudTooltip>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@* Table *@
+<MudPaper Elevation="1">
+    <MudTable Items="_filteredReservations" Hover="true" Loading="_isLoading" FixedHeader="true">
+        <HeaderContent>
+            <MudTh Style="cursor:pointer;" OnClick="() => ToggleSort("Id")">
+                ID @SortIcon("Id")
+            </MudTh>
+            <MudTh Style="cursor:pointer;" OnClick="() => ToggleSort("ClubName")">
+                Klub @SortIcon("ClubName")
+            </MudTh>
+            <MudTh Style="cursor:pointer;" OnClick="() => ToggleSort("CourtName")">
+                Lapangan @SortIcon("CourtName")
+            </MudTh>
+            <MudTh Style="cursor:pointer;" OnClick="() => ToggleSort("ReservationDate")">
+                Tanggal @SortIcon("ReservationDate")
+            </MudTh>
+            <MudTh Style="cursor:pointer;" OnClick="() => ToggleSort("StartTime")">
+                Jam @SortIcon("StartTime")
+            </MudTh>
+            <MudTh>Pemain</MudTh>
+            <MudTh Style="text-align:right;">Harga</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh Style="text-align:center;">Aksi</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>#@context.Id</MudTd>
+            <MudTd>@context.Club?.Name</MudTd>
+            <MudTd>@context.Court?.Name</MudTd>
+            <MudTd>@context.ReservationDate.ToString("dd MMM yyyy")</MudTd>
+            <MudTd>@FormatTime(context.StartTime) - @FormatTime(context.EndTime)</MudTd>
+            <MudTd>@context.User?.FullName</MudTd>
+            <MudTd Style="text-align:right;">Rp @context.TotalPrice.ToString("N0")</MudTd>
+            <MudTd><span class="@GetStatusBadgeClass(context.Status)">@context.Status</span></MudTd>
+            <MudTd Style="text-align:center; white-space:nowrap;">
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary"
+                                OnClick="() => OpenEditDialog(context.Id)" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                                OnClick="() => DeleteReservation(context.Id)" />
+                @if (context.Status == "Pending")
+                {
+                    <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Color="Color.Success"
+                                    OnClick="() => ConfirmReservation(context.Id)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Cancel" Size="Size.Small" Color="Color.Warning"
+                                    OnClick="() => CancelReservation(context.Id)" />
+                }
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body1" Color="Color.Secondary" Class="pa-4">Tidak ada data reservasi.</MudText>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private List<Reservation> _reservations = new();
+    private IEnumerable<Reservation> _filteredReservations = Enumerable.Empty<Reservation>();
+    private List<Club> _clubsList = new();
+    private List<Court> _courtsList = new();
+    private bool _isLoading = true;
+
+    // Filters (use properties to auto-trigger ApplyFilters)
+    private int? _filterClubId { get; set; }
+    private DateRange? _filterDateRange { get; set; }
+    private string? _filterStatus { get; set; }
+
+    // Sorting
+    private string _sortBy = "Id";
+    private SortDirection _sortDir = SortDirection.Descending;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Re-apply filters when any filter property changes (detected implicitly by Blazor)
+        ApplyFilters();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isLoading = true;
+        _clubsList = await Db.Clubs.Where(c => c.IsActive).OrderBy(c => c.Name).ToListAsync();
+        _courtsList = await Db.Courts.Where(c => c.IsActive).OrderBy(c => c.Name).ToListAsync();
+
+        var raw = await Db.Reservations
+            .Include(r => r.Court)
+            .Include(r => r.Club)
+            .Include(r => r.User)
+            .OrderByDescending(r => r.CreatedAt)
+            .ToListAsync();
+        _reservations = raw.OrderByDescending(r => r.StartTime).ToList();
+        ApplyFilters();
+        _isLoading = false;
+    }
+
+    private void ApplyFilters()
+    {
+        var q = _reservations.AsEnumerable();
+        if (_filterClubId.HasValue)
+            q = q.Where(r => r.ClubId == _filterClubId.Value);
+        if (_filterDateRange?.Start.HasValue == true)
+            q = q.Where(r => r.ReservationDate >= _filterDateRange.Start.Value);
+        if (_filterDateRange?.End.HasValue == true)
+            q = q.Where(r => r.ReservationDate <= _filterDateRange.End.Value);
+        if (!string.IsNullOrEmpty(_filterStatus) && _filterStatus != "All")
+            q = q.Where(r => r.Status == _filterStatus);
+
+        q = (_sortBy, _sortDir) switch
+        {
+            ("Id", SortDirection.Ascending) => q.OrderBy(r => r.Id),
+            ("Id", SortDirection.Descending) => q.OrderByDescending(r => r.Id),
+            ("ClubName", SortDirection.Ascending) => q.OrderBy(r => r.Club?.Name),
+            ("ClubName", SortDirection.Descending) => q.OrderByDescending(r => r.Club?.Name),
+            ("CourtName", SortDirection.Ascending) => q.OrderBy(r => r.Court?.Name),
+            ("CourtName", SortDirection.Descending) => q.OrderByDescending(r => r.Court?.Name),
+            ("ReservationDate", SortDirection.Ascending) => q.OrderBy(r => r.ReservationDate),
+            ("ReservationDate", SortDirection.Descending) => q.OrderByDescending(r => r.ReservationDate),
+            ("StartTime", SortDirection.Ascending) => q.OrderBy(r => r.StartTime),
+            ("StartTime", SortDirection.Descending) => q.OrderByDescending(r => r.StartTime),
+            _ => q.OrderByDescending(r => r.Id)
+        };
+
+        _filteredReservations = q.ToList();
+    }
+
+    private void ToggleSort(string field)
+    {
+        if (_sortBy == field)
+            _sortDir = _sortDir == SortDirection.Ascending ? SortDirection.Descending : SortDirection.Ascending;
+        else
+        {
+            _sortBy = field;
+            _sortDir = SortDirection.Ascending;
+        }
+        ApplyFilters();
+    }
+
+    private string SortIcon(string field)
+    {
+        if (_sortBy != field) return "↕️";
+        return _sortDir == SortDirection.Ascending ? "↑" : "↓";
+    }
+
+    private static string FormatTime(TimeSpan ts) => ts.ToString(@"hh\:mm");
+
+    private static string GetStatusBadgeClass(string s) => s switch
+    {
+        "Confirmed" => "badge-chip badge-success",
+        "Pending" => "badge-chip badge-warning",
+        "Cancelled" => "badge-chip badge-error",
+        "Completed" => "badge-chip badge-info",
+        _ => "badge-chip"
+    };
+
+    // Dialog CRUD
+    private async Task OpenAddDialog()
+    {
+        var parameters = new DialogParameters
+        {
+            ["Clubs"] = _clubsList,
+            ["Courts"] = _courtsList,
+            ["IsEdit"] = false
+        };
+        var dialog = await DialogService.ShowAsync<ReservationDialog>("Tambah Reservasi", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+        if (!result.Canceled)
+            await RefreshData();
+    }
+
+    private async Task OpenEditDialog(int id)
+    {
+        var reservation = _reservations.FirstOrDefault(r => r.Id == id);
+        if (reservation == null) return;
+
+        var parameters = new DialogParameters
+        {
+            ["Clubs"] = _clubsList,
+            ["Courts"] = _courtsList,
+            ["IsEdit"] = true,
+            ["Reservation"] = reservation
+        };
+        var dialog = await DialogService.ShowAsync<ReservationDialog>("Edit Reservasi", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+        if (!result.Canceled)
+            await RefreshData();
+    }
+
+    private async Task DeleteReservation(int id)
+    {
+        var reservation = await Db.Reservations.FindAsync(id);
+        if (reservation == null) return;
+        Db.Reservations.Remove(reservation);
+        await Db.SaveChangesAsync();
+        Snackbar.Add("Reservasi dihapus!", Severity.Warning);
+        await RefreshData();
+    }
+
+    private async Task ConfirmReservation(int id)
+    {
+        var reservation = await Db.Reservations.FindAsync(id);
+        if (reservation == null) return;
+        reservation.Status = "Confirmed";
+        await Db.SaveChangesAsync();
+        Snackbar.Add("Reservasi dikonfirmasi!", Severity.Success);
+        await RefreshData();
+    }
+
+    private async Task CancelReservation(int id)
+    {
+        var reservation = await Db.Reservations.FindAsync(id);
+        if (reservation == null) return;
+        reservation.Status = "Cancelled";
+        reservation.CancelledAt = DateTime.UtcNow;
+        await Db.SaveChangesAsync();
+        Snackbar.Add("Reservasi dibatalkan!", Severity.Warning);
+        await RefreshData();
+    }
+
+    private async Task RefreshData()
+    {
+        _isLoading = true;
+        var raw = await Db.Reservations
+            .Include(r => r.Court)
+            .Include(r => r.Club)
+            .Include(r => r.User)
+            .OrderByDescending(r => r.CreatedAt)
+            .ToListAsync();
+        _reservations = raw.OrderByDescending(r => r.StartTime).ToList();
+        ApplyFilters();
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task ExportToCsv()
+    {
+        var data = _filteredReservations.Select(r => new
+        {
+            r.Id, Klub = r.Club?.Name, Lapangan = r.Court?.Name,
+            Tanggal = r.ReservationDate.ToString("yyyy-MM-dd"),
+            Mulai = FormatTime(r.StartTime), Selesai = FormatTime(r.EndTime),
+            Pemain = r.User?.FullName, Harga = r.TotalPrice, r.Status
+        });
+        var bytes = ExportService.ExportToCsv(data);
+        await DownloadFile(bytes, "reservations.csv", "text/csv");
+    }
+
+    private async Task ExportToExcel()
+    {
+        var data = _filteredReservations.Select(r => new
+        {
+            r.Id, Klub = r.Club?.Name, Lapangan = r.Court?.Name,
+            Tanggal = r.ReservationDate.ToString("yyyy-MM-dd"),
+            Mulai = FormatTime(r.StartTime), Selesai = FormatTime(r.EndTime),
+            Pemain = r.User?.FullName, Harga = r.TotalPrice, r.Status
+        });
+        var bytes = ExportService.ExportToExcel(data, "Reservations");
+        await DownloadFile(bytes, "reservations.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    private async Task DownloadFile(byte[] bytes, string fileName, string contentType)
+    {
+        using var ms = new MemoryStream(bytes);
+        await JS.InvokeVoidAsync("downloadFileFromStream", fileName, new DotNetStreamReference(ms));
+    }
+}

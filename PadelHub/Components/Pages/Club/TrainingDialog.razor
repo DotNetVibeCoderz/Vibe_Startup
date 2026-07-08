@@ -1,0 +1,49 @@
+@using MudBlazor
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@(_isEdit ? "✏️ Edit Sesi Latihan" : "➕ Tambah Sesi")</MudText></TitleContent>
+    <DialogContent>
+        <MudSelect @bind-Value="_coachId" Label="Coach" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var c in _coaches) { <MudSelectItem Value="c.Id">@c.User?.FullName</MudSelectItem> }
+        </MudSelect>
+        <MudSelect @bind-Value="_studentId" Label="Siswa" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var u in _users) { <MudSelectItem Value="u.Id">@u.FullName</MudSelectItem> }
+        </MudSelect>
+        <MudSelect @bind-Value="_courtId" Label="Lapangan" Variant="Variant.Outlined" Class="mb-3">
+            @foreach (var c in _courts) { <MudSelectItem Value="c.Id">@c.Name</MudSelectItem> }
+        </MudSelect>
+        <MudDatePicker @bind-Date="_date" Label="Tanggal" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_startHour" Label="Jam Mulai (0-23)" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_endHour" Label="Jam Selesai (0-23)" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_price" Label="Harga" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_notes" Label="Catatan" Variant="Variant.Outlined" Lines="2" Class="mb-3" />
+        <MudSelect @bind-Value="_status" Label="Status" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Scheduled")">Scheduled</MudSelectItem>
+            <MudSelectItem Value="@("InProgress")">In Progress</MudSelectItem>
+            <MudSelectItem Value="@("Completed")">Completed</MudSelectItem>
+            <MudSelectItem Value="@("Cancelled")">Cancelled</MudSelectItem>
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Batal</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Submit">Simpan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance? MudDialog { get; set; }
+    [Parameter] public List<Coach> Coaches { get; set; } = new();
+    [Parameter] public List<ApplicationUser> Users { get; set; } = new();
+    [Parameter] public List<Court> Courts { get; set; } = new();
+    [Parameter] public bool IsEdit { get; set; }
+    private bool _isEdit => IsEdit;
+
+    private List<Coach> _coaches = new(); private List<ApplicationUser> _users = new(); private List<Court> _courts = new();
+    private int _coachId; private string _studentId = ""; private int _courtId;
+    private DateTime? _date = DateTime.Today; private string _startHour = "8"; private string _endHour = "10";
+    private string _price = "250000"; private string _notes = ""; private string _status = "Scheduled";
+
+    protected override void OnParametersSet() { _coaches = Coaches; _users = Users; _courts = Courts; }
+    private void Submit() => MudDialog?.Close(DialogResult.Ok(new { CoachId = _coachId, StudentId = _studentId, CourtId = _courtId, Date = _date, StartHour = _startHour, EndHour = _endHour, Price = _price, Notes = _notes, Status = _status }));
+    private void Cancel() => MudDialog?.Cancel();
+}
