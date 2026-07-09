@@ -1,0 +1,101 @@
+# ============================================
+# FUELSTATION - Docker Compose
+# ============================================
+
+services:
+  # ---- FuelStation App ----
+  fuelstation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fuelstation-app
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      # Database - pilih salah satu
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/FuelStation.db
+      - Database__Provider=SQLite
+      # ChatBot
+      - ChatBot__Provider=OpenAI
+      - ChatBot__Model=gpt-4o
+      - ChatBot__ApiKey=${CHATBOT_API_KEY:-}
+      # Simulator
+      - Simulator__Enabled=false
+      - IoTSimulator__Enabled=false
+    volumes:
+      - fuelstation-data:/app/data
+      - fuelstation-uploads:/app/uploads
+      - fuelstation-receipts:/app/receipts
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - fuelstation-net
+
+  # ---- PostgreSQL (Optional) ----
+  # Uncomment untuk menggunakan PostgreSQL sebagai database
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: fuelstation-postgres
+  #   environment:
+  #     - POSTGRES_DB=FuelStation
+  #     - POSTGRES_USER=fuelstation
+  #     - POSTGRES_PASSWORD=${DB_PASSWORD:-FuelStation123!}
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   networks:
+  #     - fuelstation-net
+
+  # ---- MySQL (Optional) ----
+  # Uncomment untuk menggunakan MySQL sebagai database
+  # mysql:
+  #   image: mysql:8.0
+  #   container_name: fuelstation-mysql
+  #   environment:
+  #     - MYSQL_ROOT_PASSWORD=${DB_PASSWORD:-FuelStation123!}
+  #     - MYSQL_DATABASE=FuelStation
+  #     - MYSQL_USER=fuelstation
+  #     - MYSQL_PASSWORD=${DB_PASSWORD:-FuelStation123!}
+  #   volumes:
+  #     - mysql-data:/var/lib/mysql
+  #   ports:
+  #     - "3306:3306"
+  #   networks:
+  #     - fuelstation-net
+
+  # ---- MinIO (Optional) ----
+  # Uncomment untuk storage S3-compatible local
+  # minio:
+  #   image: minio/minio:latest
+  #   container_name: fuelstation-minio
+  #   command: server /data --console-address ":9001"
+  #   environment:
+  #     - MINIO_ROOT_USER=${MINIO_USER:-minioadmin}
+  #     - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD:-minioadmin}
+  #   volumes:
+  #     - minio-data:/data
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   networks:
+  #     - fuelstation-net
+
+networks:
+  fuelstation-net:
+    driver: bridge
+
+volumes:
+  fuelstation-data:
+  fuelstation-uploads:
+  fuelstation-receipts:
+  # postgres-data:
+  # mysql-data:
+  # minio-data:

@@ -1,0 +1,6 @@
+MemberCode,Name,Phone,Email,Tier,Points,TotalSpent,Visits
+MEM-003,Bambang Hermanto,0814-5678-9012,bambang@email.com,Platinum,2500,45000000,200
+MEM-001,Andi Wijaya,0812-3456-7890,andi@email.com,Gold,1500,25000000,120
+MEM-005,Eko Prasetyo,0816-7890-1234,eko@email.com,Gold,1200,18000000,85
+MEM-002,Siti Nurhaliza,0813-4567-8901,siti@email.com,Silver,800,12000000,60
+MEM-004,Dewi Lestari,0815-6789-0123,dewi@email.com,Regular,300,3500000,15

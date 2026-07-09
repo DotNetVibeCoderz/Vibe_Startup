@@ -1,0 +1,72 @@
+@page "/register"
+@attribute [AllowAnonymous]
+@using Microsoft.AspNetCore.WebUtilities
+@inject NavigationManager Navigation
+
+<PageTitle>Register - FuelStation</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="auth-title">📝 Registrasi Akun</div>
+        <div class="auth-subtitle">Buat akun baru untuk mengakses sistem</div>
+
+        @if (!string.IsNullOrEmpty(_message))
+        {
+            <div class="alert @(_isSuccess ? "alert-success" : "alert-danger")">@_message</div>
+        }
+
+        <form method="post" action="/account/register">
+            <AntiforgeryToken />
+            <input type="hidden" name="returnUrl" value="@_returnUrl" />
+
+            <div class="mb-1">
+                <label class="form-label">Nama Lengkap</label>
+                <input name="fullName" class="form-input" placeholder="Nama lengkap" />
+            </div>
+
+            <div class="mb-1">
+                <label class="form-label">Email</label>
+                <input name="email" class="form-input" placeholder="name@fuelstation.com" />
+            </div>
+
+            <div class="mb-1">
+                <label class="form-label">Password</label>
+                <input type="password" name="password" class="form-input" placeholder="Minimal 6 karakter" />
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label">Konfirmasi Password</label>
+                <input type="password" name="confirmPassword" class="form-input" placeholder="Ulangi password" />
+            </div>
+
+            <button class="btn btn-primary" type="submit" style="width:100%;">✅ Daftar</button>
+        </form>
+
+        <div class="auth-footer">
+            Sudah punya akun? <a href="/login"><strong>Login di sini</strong></a>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string? _message;
+    private bool _isSuccess;
+    private string _returnUrl = "/";
+
+    protected override void OnInitialized()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+
+        if (query.TryGetValue("error", out var err) && !string.IsNullOrEmpty(err))
+        {
+            _isSuccess = false;
+            _message = err.ToString();
+        }
+
+        if (query.TryGetValue("returnUrl", out var ret))
+        {
+            _returnUrl = ret.ToString();
+        }
+    }
+}

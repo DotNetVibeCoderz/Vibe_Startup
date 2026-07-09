@@ -1,0 +1,63 @@
+#blazor-error-ui {
+    color-scheme: light only;
+    background: lightyellow;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    box-sizing: border-box;
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+    #blazor-error-ui .dismiss {
+        cursor: pointer;
+        position: absolute;
+        right: 0.75rem;
+        top: 0.5rem;
+    }
+
+/* === Navigation Badge (Notification Count) === */
+.nav-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    background: #e05555;
+    color: white;
+    border-radius: 11px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    margin-left: auto;
+    border: 2px solid rgba(0,0,0,0.3);
+    animation: badge-pop-in 0.3s ease-out;
+    white-space: nowrap;
+}
+
+.nav-badge-wide {
+    min-width: 28px;
+    padding: 0 7px;
+}
+
+@keyframes badge-pop-in {
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+    60% {
+        transform: scale(1.2);
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Sidebar collapsed: hide badge */
+.sidebar.collapsed .nav-badge {
+    display: none;
+}

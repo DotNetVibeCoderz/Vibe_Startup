@@ -1,0 +1,243 @@
+@page "/reports"
+@using FuelStation.Data
+@using FuelStation.Models
+@using Microsoft.EntityFrameworkCore
+@using System.Text
+@inject AppDbContext Db
+@inject IJSRuntime JS
+
+<PageTitle>Laporan - FuelStation</PageTitle>
+
+<h2 class="mb-2" style="font-weight:800;">📈 Laporan Keuangan</h2>
+
+<!-- Period Filter -->
+<div class="card mb-2">
+    <div class="flex-center gap-2" style="flex-wrap:wrap;">
+        <button class="btn @(_period == "daily" ? "btn-primary" : "")" @onclick='() => SetPeriodAsync("daily")'>📅 Harian</button>
+        <button class="btn @(_period == "weekly" ? "btn-primary" : "")" @onclick='() => SetPeriodAsync("weekly")'>📆 Mingguan</button>
+        <button class="btn @(_period == "monthly" ? "btn-primary" : "")" @onclick='() => SetPeriodAsync("monthly")'>🗓️ Bulanan</button>
+
+        <input type="date" class="form-input" style="width:180px;" value="@_filterDate"
+               @onchange="@(e => _filterDate = (string?)e.Value ?? "")" />
+
+        <select class="form-select" style="width:200px;" @bind="_filterStation">
+            <option value="">Semua Stasiun</option>
+            @foreach (var s in _stations)
+            {
+                <option value="@s.Id.ToString()">@s.Name</option>
+            }
+        </select>
+
+        <button class="btn btn-primary" @onclick="LoadReport">🔄 Refresh</button>
+        <button class="btn btn-sm" @onclick="ExportReport">📥 Export CSV</button>
+    </div>
+</div>
+
+<!-- Summary Stats -->
+<div class="stats-grid mb-2">
+    <div class="stat-card">
+        <div class="stat-value">@_reportData.TotalTransactions</div>
+        <div class="stat-label">Total Transaksi</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">Rp @_reportData.TotalRevenue.ToString("N0")</div>
+        <div class="stat-label">Total Pendapatan</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">Rp @_reportData.TotalCost.ToString("N0")</div>
+        <div class="stat-label">Total Biaya</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color:@(_reportData.Profit >= 0 ? "var(--success)" : "var(--danger)")">
+            Rp @_reportData.Profit.ToString("N0")
+        </div>
+        <div class="stat-label">Profit</div>
+    </div>
+</div>
+
+<div class="grid-2">
+    <!-- Revenue Chart -->
+    <div class="card">
+        <div class="card-header"><span class="card-title">💹 Grafik Pendapatan</span></div>
+        <div style="display:flex;align-items:flex-end;gap:6px;height:220px;padding:16px 0;">
+            @{
+                var maxRevenue = _dailyBreakdown.Any() ? _dailyBreakdown.Max(d => d.Revenue) : 1;
+                var colors = new[] { "var(--accent)", "var(--success)", "var(--info)", "var(--warning)", "#e8a838", "#7eb356", "#5b9bd5" };
+            }
+            @for (int i = 0; i < _dailyBreakdown.Count; i++)
+            {
+                var day = _dailyBreakdown[i];
+                var heightPct = maxRevenue > 0 ? (double)(day.Revenue / maxRevenue * 100) : 0;
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;">
+                    <span style="font-weight:700;font-size:0.7rem;">Rp @(day.Revenue > 1000000 ? $"{(day.Revenue/1000000):F1}M" : $"{(day.Revenue/1000):F0}K")</span>
+                    <div style="flex:1;width:100%;background:var(--bg-secondary);border-radius:4px 4px 0 0;border:2px solid var(--border-bold);border-bottom:none;display:flex;align-items:flex-end;overflow:hidden;">
+                        <div style="width:100%;height:@heightPct%;background:@colors[i % colors.Length];border-radius:2px 2px 0 0;transition:height 0.5s;"></div>
+                    </div>
+                    <span style="font-size:0.7rem;font-weight:600;">@day.Label</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Payment Method Breakdown -->
+    <div class="card">
+        <div class="card-header"><span class="card-title">💳 Metode Pembayaran</span></div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Metode</th>
+                    <th class="text-right">Jumlah</th>
+                    <th class="text-right">Total</th>
+                    <th class="text-right">%</th>
+                </tr>
+            </thead>
+            <tbody>
+                @{
+                    var totalPayment = _paymentBreakdown.Any() ? _paymentBreakdown.Sum(p => p.Total) : 1;
+                }
+                @foreach (var pmt in _paymentBreakdown)
+                {
+                    var pct = (double)(pmt.Total / totalPayment * 100);
+                    <tr>
+                        <td style="font-weight:600;">@pmt.Method</td>
+                        <td class="text-right">@pmt.Count</td>
+                        <td class="text-right" style="font-weight:700;">Rp @pmt.Total.ToString("N0")</td>
+                        <td class="text-right">
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <div style="flex:1;height:8px;background:var(--bg-secondary);border-radius:4px;overflow:hidden;">
+                                    <div style="width:@pct%;height:100%;background:var(--accent);"></div>
+                                </div>
+                                @pct.ToString("F1")%
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Detailed Table -->
+<div class="card mt-2">
+    <div class="card-header"><span class="card-title">📋 Detail Transaksi</span></div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Tanggal</th>
+                <th>Stasiun</th>
+                <th>Produk</th>
+                <th class="text-right">Liter</th>
+                <th class="text-right">Harga/L</th>
+                <th class="text-right">Total</th>
+                <th>Pembayaran</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var tx in _detailTransactions)
+            {
+                <tr>
+                    <td>@tx.TransactionDate.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                    <td>@tx.FuelStation?.Name</td>
+                    <td>@tx.TransactionDetails.FirstOrDefault()?.FuelProduct?.Name</td>
+                    <td class="text-right">@tx.TransactionDetails.Sum(d => d.Liters).ToString("N1") L</td>
+                    <td class="text-right">Rp @tx.TransactionDetails.FirstOrDefault()?.PricePerLiter.ToString("N0")</td>
+                    <td class="text-right" style="font-weight:700;">Rp @tx.GrandTotal.ToString("N0")</td>
+                    <td>@tx.PaymentMethod</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private string _period = "daily";
+    private string _filterDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
+    private string _filterStation = "";
+    private List<FuelStationLocation> _stations = new();
+
+    private (int TotalTransactions, decimal TotalRevenue, decimal TotalCost, decimal Profit) _reportData;
+    private List<(string Label, decimal Revenue)> _dailyBreakdown = new();
+    private List<(string Method, int Count, decimal Total)> _paymentBreakdown = new();
+    private List<Transaction> _detailTransactions = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stations = await Db.FuelStations.ToListAsync();
+        await LoadReport();
+    }
+
+    private async Task SetPeriodAsync(string period)
+    {
+        _period = period;
+        await LoadReport();
+    }
+
+    private async Task LoadReport()
+    {
+        var date = DateTime.TryParse(_filterDate, out var d) ? d.Date : DateTime.UtcNow.Date;
+        DateTime from, to;
+
+        switch (_period)
+        {
+            case "weekly":
+                from = date.AddDays(-(int)date.DayOfWeek);
+                to = from.AddDays(7);
+                break;
+            case "monthly":
+                from = new DateTime(date.Year, date.Month, 1);
+                to = from.AddMonths(1);
+                break;
+            default: // daily
+                from = date;
+                to = date.AddDays(1);
+                break;
+        }
+
+        var query = Db.Transactions
+            .Include(t => t.FuelStation)
+            .Include(t => t.TransactionDetails).ThenInclude(d => d.FuelProduct)
+            .Where(t => t.TransactionDate >= from && t.TransactionDate < to && t.Status == "Completed");
+
+        if (!string.IsNullOrEmpty(_filterStation) && Guid.TryParse(_filterStation, out var stationId))
+            query = query.Where(t => t.FuelStationId == stationId);
+
+        var transactions = await query.ToListAsync();
+
+        _reportData = (
+            transactions.Count,
+            transactions.Sum(t => t.GrandTotal),
+            transactions.Sum(t => t.TransactionDetails.Sum(d => d.Liters * (d.FuelProduct?.CostPerLiter ?? 0))),
+            transactions.Sum(t => t.GrandTotal) - transactions.Sum(t => t.TransactionDetails.Sum(d => d.Liters * (d.FuelProduct?.CostPerLiter ?? 0)))
+        );
+
+        // Daily breakdown
+        _dailyBreakdown = transactions
+            .GroupBy(t => t.TransactionDate.Date)
+            .Select(g => (g.Key.ToString("dd/MM"), g.Sum(t => t.GrandTotal)))
+            .OrderBy(x => x.Item1)
+            .ToList();
+
+        // Payment breakdown
+        _paymentBreakdown = transactions
+            .GroupBy(t => t.PaymentMethod)
+            .Select(g => (g.Key, g.Count(), g.Sum(t => t.GrandTotal)))
+            .OrderByDescending(x => x.Item3)
+            .ToList();
+
+        _detailTransactions = transactions.OrderByDescending(t => t.TransactionDate).Take(50).ToList();
+    }
+
+    private async Task ExportReport()
+    {
+        var csv = "Date,Station,Product,Liters,Price,Total,Payment\n" +
+            string.Join("\n", _detailTransactions.Select(tx =>
+                $"{tx.TransactionDate:yyyy-MM-dd HH:mm},{tx.FuelStation?.Name},{tx.TransactionDetails.FirstOrDefault()?.FuelProduct?.Name},{tx.TransactionDetails.Sum(d => d.Liters)},{tx.TransactionDetails.FirstOrDefault()?.PricePerLiter},{tx.GrandTotal},{tx.PaymentMethod}"));
+        await DownloadFileAsync("report.csv", "text/csv;charset=utf-8", csv);
+    }
+
+    private async Task DownloadFileAsync(string fileName, string contentType, string content)
+    {
+        var base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(content));
+        await JS.InvokeVoidAsync("fileDownloader.downloadFileFromBase64", fileName, contentType, base64);
+    }
+}

@@ -1,0 +1,169 @@
+@using Microsoft.AspNetCore.Identity
+@using FuelStation.Data
+@using Microsoft.AspNetCore.Http
+@inherits LayoutComponentBase
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+@inject IHttpContextAccessor HttpContextAccessor
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="app-shell @(_isDarkMode ? "dark" : "light")">
+    <!-- Sidebar -->
+    <aside class="sidebar @(_sidebarCollapsed ? "collapsed" : "") @(_isMobileMenuOpen ? "mobile-open" : "")">
+        <div class="sidebar-header">
+            <h1 class="logo" @onclick="() => _sidebarCollapsed = !_sidebarCollapsed">
+                <span class="logo-icon">⛽</span>
+                <span class="logo-text">FuelStation</span>
+            </h1>
+        </div>
+
+        <AuthorizeView>
+            <Authorized>
+                <nav class="sidebar-nav">
+                    <NavItem Href="/" Icon="📊" Text="Dashboard" />
+
+                    <AuthorizeView Roles="Admin,Supervisor,Operator" Context="roleContext">
+                        <NavItem Href="/pos" Icon="🏪" Text="POS Kasir" />
+                        <NavItem Href="/transactions" Icon="🧾" Text="Transaksi" />
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="Admin,Supervisor" Context="reportContext">
+                        <NavItem Href="/reports" Icon="📈" Text="Laporan" />
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="Admin" Context="adminContext">
+                        <NavItem Href="/master-data" Icon="📋" Text="Master Data" />
+                        <NavItem Href="/marketplace" Icon="🛒" Text="Marketplace" />
+                        <NavItem Href="/customers" Icon="👥" Text="Pelanggan" />
+                        <NavItem Href="/shifts" Icon="🕐" Text="Shift" />
+                        <NavItem Href="/attendance" Icon="📋" Text="Attendance" />
+                        <NavItem Href="/notifications" Icon="🔔" Text="Notifikasi" Badge="@_unreadCount" />
+                        <NavItem Href="/iot" Icon="📡" Text="IoT Monitor" />
+                        <NavItem Href="/simulator" Icon="🚗" Text="Simulator" />
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="Admin,Supervisor,Operator" Context="generalContext">
+                        <NavItem Href="/chat" Icon="💬" Text="Chat AI" />
+                        <NavItem Href="/profile" Icon="👤" Text="Profile" />
+                    </AuthorizeView>
+                </nav>
+            </Authorized>
+            <NotAuthorized>
+                <nav class="sidebar-nav">
+                    <NavItem Href="/login" Icon="🔐" Text="Login" />
+                    <NavItem Href="/register" Icon="📝" Text="Register" />
+                </nav>
+            </NotAuthorized>
+        </AuthorizeView>
+
+        <div class="sidebar-footer">
+            <button class="theme-toggle" @onclick="ToggleTheme">
+                @(_isDarkMode ? "☀️ Light" : "🌙 Dark")
+            </button>
+
+            @if (currentUser != null)
+            {
+                <div class="user-info">
+                    <span class="user-avatar">👤</span>
+                    <span class="user-name">@currentUser.FullName</span>
+                    <button type="button" class="btn-logout" @onclick='() => Nav.NavigateTo("/logout")'>🚪</button>
+                </div>
+            }
+            else
+            {
+                <button class="btn btn-sm" @onclick='() => Nav.NavigateTo("/login")'>Login</button>
+            }
+        </div>
+    </aside>
+
+    @if (_isMobileMenuOpen)
+    {
+        <div class="mobile-overlay" @onclick="CloseMobileMenu"></div>
+    }
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <header class="top-bar">
+            <button class="menu-toggle" @onclick="ToggleMenu">☰</button>
+            <span class="page-title">@PageTitle</span>
+            <div class="top-bar-actions">
+                <span class="clock">@_currentTime.ToString("HH:mm:ss")</span>
+            </div>
+        </header>
+
+        <div class="content-area">
+            @Body
+        </div>
+    </main>
+</div>
+
+<!-- Toast Notification Container -->
+<div id="toast-container" style="position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:400px;"></div>
+
+@code {
+    private bool _sidebarCollapsed = false;
+    private bool _isDarkMode = false;
+    private DateTime _currentTime = DateTime.Now;
+    private ApplicationUser? currentUser;
+    private string PageTitle = "Dashboard";
+    private int _unreadCount;
+    private bool _isMobileMenuOpen;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = HttpContextAccessor.HttpContext?.User;
+        if (user != null && SignInManager.IsSignedIn(user))
+        {
+            currentUser = await UserManager.GetUserAsync(user);
+        }
+
+        // Timer for clock
+        var timer = new System.Timers.Timer(1000);
+        timer.Elapsed += (_, _) =>
+        {
+            _currentTime = DateTime.Now;
+            InvokeAsync(StateHasChanged);
+        };
+        timer.Start();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Init SignalR notification client for badge updates
+            await JS.InvokeVoidAsync("eval", @"
+                if (window.notificationClient && window.notificationClient.initLayout) {
+                    window.notificationClient.initLayout();
+                }
+            ");
+        }
+    }
+
+    [JSInvokable]
+    public void OnNotificationReceivedForBadge(int unreadCount)
+    {
+        _unreadCount = unreadCount;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+    }
+
+    private void ToggleMenu()
+    {
+        _isMobileMenuOpen = !_isMobileMenuOpen;
+        if (!_isMobileMenuOpen)
+        {
+            _sidebarCollapsed = false;
+        }
+    }
+
+    private void CloseMobileMenu()
+    {
+        _isMobileMenuOpen = false;
+    }
+}

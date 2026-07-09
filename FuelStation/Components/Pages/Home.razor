@@ -1,0 +1,180 @@
+@page "/"
+@using FuelStation.Models
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject SimulatorService Simulator
+
+<PageTitle>Dashboard - FuelStation</PageTitle>
+
+<div class="mb-2">
+    <h2 style="font-size:1.8rem;font-weight:800;letter-spacing:-1px;">📊 Dashboard Monitoring</h2>
+    <p class="text-muted">Ringkasan operasional SPBU Mini hari ini</p>
+</div>
+
+@if (_isLoading)
+{
+    <div class="loading-block text-center mt-2">⏳ Memuat data...</div>
+}
+else
+{
+    <div class="stats-grid">
+        <div class="stat-card"><div class="flex-between"><div><div class="stat-value">@_todayStats.TotalTransactions</div><div class="stat-label">Transaksi Hari Ini</div></div><div class="stat-icon">🧾</div></div></div>
+        <div class="stat-card"><div class="flex-between"><div><div class="stat-value">Rp @_todayStats.TotalRevenue.ToString("N0")</div><div class="stat-label">Pendapatan Hari Ini</div></div><div class="stat-icon">💰</div></div></div>
+        <div class="stat-card"><div class="flex-between"><div><div class="stat-value">@_todayStats.TotalLiters.ToString("N1") L</div><div class="stat-label">Total Liter Terjual</div></div><div class="stat-icon">⛽</div></div></div>
+        <div class="stat-card"><div class="flex-between"><div><div class="stat-value">@_alertCount</div><div class="stat-label">⚠️ Peringatan Aktif</div></div><div class="stat-icon">🔔</div></div></div>
+    </div>
+
+    <div class="grid-2">
+        <div class="card">
+            <div class="card-header"><span class="card-title">🛢️ Status Tangki BBM</span><a href="/iot" class="btn btn-sm">Detail →</a></div>
+            @foreach (var tank in _tanks.Take(6))
+            {
+                var pct = Math.Round((double)(tank.CurrentVolumeLiters / tank.CapacityLiters * 100), 1);
+                var barColor = pct < 20 ? "var(--danger)" : pct < 40 ? "var(--warning)" : "var(--success)";
+                <div class="mb-1">
+                    <div class="flex-between mb-1">
+                        <span style="font-weight:600;font-size:0.85rem;">@tank.Name @(tank.IsLeakDetected ? "⚠️" : "")</span>
+                        <span style="font-weight:700;">@tank.CurrentVolumeLiters.ToString("N0") / @tank.CapacityLiters.ToString("N0") L (@pct%)</span>
+                    </div>
+                    <div style="height:18px;background:var(--bg-secondary);border-radius:9px;border:2px solid var(--border-bold);overflow:hidden;">
+                        <div style="height:100%;width:@pct%;background:@barColor;border-radius:0 7px 7px 0;transition:width 0.5s;"></div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="card">
+            <div class="card-header"><span class="card-title">🧾 Transaksi Terbaru</span><a href="/transactions" class="btn btn-sm">Lihat Semua →</a></div>
+            <div class="table-responsive">
+                <table class="data-table" style="font-size:0.85rem;">
+                    <thead><tr><th>No</th><th>Waktu</th><th>Produk</th><th class="text-right">Total</th><th>Bayar</th></tr></thead>
+                    <tbody>
+                        @foreach (var tx in _recentTransactions)
+                        {
+                            <tr>
+                                <td style="font-family:var(--font-mono);font-size:0.75rem;">@tx.TransactionNumber</td>
+                                <td>@tx.TransactionDate.ToLocalTime().ToString("HH:mm")</td>
+                                <td>@(tx.TransactionDetails.FirstOrDefault()?.FuelProduct?.Name ?? "-")</td>
+                                <td class="text-right" style="font-weight:700;">Rp @tx.GrandTotal.ToString("N0")</td>
+                                <td><span class="badge badge-accent">@tx.PaymentMethod</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><span class="card-title">📈 Penjualan 7 Hari Terakhir</span></div>
+            <div style="display:flex;align-items:flex-end;gap:8px;height:180px;padding:8px 0;">
+                @foreach (var day in _weeklySales)
+                {
+                    var maxVal = _weeklySales.Any() ? _weeklySales.Max(d => d.Value) : 1;
+                    var heightPct = maxVal > 0 ? (day.Value / maxVal * 100) : 0;
+                    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;">
+                        <span style="font-weight:700;font-size:0.75rem;">Rp @(day.Value > 1000000 ? $"{(day.Value/1000000):F1}M" : $"{(day.Value/1000):F0}K")</span>
+                        <div style="flex:1;width:100%;background:var(--bg-secondary);border-radius:4px 4px 0 0;border:2px solid var(--border-bold);border-bottom:none;display:flex;align-items:flex-end;overflow:hidden;">
+                            <div style="width:100%;height:@heightPct%;background:var(--accent);border-radius:2px 2px 0 0;transition:height 0.5s;"></div>
+                        </div>
+                        <span style="font-size:0.7rem;font-weight:600;">@day.Label</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><span class="card-title">🔔 Peringatan & Alert</span></div>
+            @if (_alerts.Any())
+            {
+                foreach (var alert in _alerts.Take(5))
+                {
+                    <div class="alert @(alert.AlertType == "Critical" ? "alert-danger" : alert.AlertType == "Warning" ? "alert-warning" : "alert-success")">
+                        <strong>@alert.AlertType:</strong> @alert.Message
+                        <small class="text-muted"> - @alert.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</small>
+                    </div>
+                }
+            }
+            else { <p class="text-muted">✅ Tidak ada peringatan aktif</p> }
+        </div>
+    </div>
+
+    @if (Simulator.IsRunning)
+    {
+        <div class="card mt-2">
+            <div class="card-header"><span class="card-title">🚗 Simulator Running</span></div>
+            <div class="flex-between"><span>Transaksi Simulasi: <strong>@Simulator.TotalTransactions</strong></span><span>Kendaraan Aktif: <strong>@Simulator.Vehicles.Count</strong></span></div>
+        </div>
+    }
+}
+
+@code {
+    private bool _isLoading = true;
+    private int _alertCount;
+    private List<Tank> _tanks = new();
+    private List<Transaction> _recentTransactions = new();
+    private List<EmergencyAlert> _alerts = new();
+    private List<(string Label, decimal Value)> _weeklySales = new();
+    private (int TotalTransactions, decimal TotalRevenue, decimal TotalLiters) _todayStats;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        _isLoading = false;
+    }
+
+    private async Task LoadData()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var today = DateTime.UtcNow.Date;
+        var tomorrow = today.AddDays(1);
+        var weekAgo = today.AddDays(-6);
+
+        var todayTx = await db.Transactions
+            .Where(t => t.TransactionDate >= today && t.TransactionDate < tomorrow && t.Status == "Completed")
+            .ToListAsync();
+
+        _todayStats = (
+            todayTx.Count,
+            todayTx.Sum(t => t.GrandTotal),
+            todayTx.Sum(t => t.TransactionDetails.Sum(d => d.Liters))
+        );
+
+        // SQLite tidak mendukung ORDER BY expression bertipe decimal di level SQL.
+        // Ambil data dulu, lalu urutkan di memory agar aman.
+        var tankData = await db.Tanks
+            .Include(t => t.FuelProduct)
+            .Where(t => t.IsActive)
+            .ToListAsync();
+
+        _tanks = tankData
+            .OrderBy(t => t.CapacityLiters == 0 ? 0 : (double)t.CurrentVolumeLiters / (double)t.CapacityLiters)
+            .ToList();
+
+        _recentTransactions = await db.Transactions
+            .Include(t => t.TransactionDetails)
+            .ThenInclude(d => d.FuelProduct)
+            .OrderByDescending(t => t.TransactionDate)
+            .Take(10)
+            .ToListAsync();
+
+        _alerts = await db.EmergencyAlerts
+            .Where(a => !a.IsResolved)
+            .OrderByDescending(a => a.CreatedAt)
+            .Take(10)
+            .ToListAsync();
+
+        _alertCount = _alerts.Count;
+
+        var dayNames = new[] { "Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab" };
+        _weeklySales = new();
+        for (int i = 6; i >= 0; i--)
+        {
+            var day = today.AddDays(-i);
+            var daySales = await db.Transactions
+                .Where(t => t.TransactionDate >= day && t.TransactionDate < day.AddDays(1) && t.Status == "Completed")
+                .SumAsync(t => t.GrandTotal);
+
+            _weeklySales.Add((dayNames[(int)day.DayOfWeek], daySales));
+        }
+    }
+}

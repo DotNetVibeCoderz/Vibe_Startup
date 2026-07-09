@@ -1,0 +1,51 @@
+No,Date,Station,Product,Liters,Total,Payment,Status
+TRX-20260709-0024,2026-07-08 00:36,SPBU Mini - Cabang Utama,Dexlite,25.2,347130,Cash,Completed
+TRX-20260709-0048,2026-07-07 13:32,SPBU Mini - Cabang Selatan,Pertamax,21.75,281662.5,EWallet,Completed
+TRX-20260709-0023,2026-07-06 22:42,SPBU Mini - Cabang Selatan,Pertamax Turbo,33.59,483696,DebitCard,Completed
+TRX-20260709-0009,2026-07-06 01:11,SPBU Mini - Cabang Utama,Pertamax Turbo,8.75,126000,QRIS,Completed
+TRX-20260709-0046,2026-07-05 08:58,SPBU Mini - Cabang Timur,Bio Solar,7.11,48348,DebitCard,Completed
+TRX-20260709-0020,2026-07-05 06:19,SPBU Mini - Cabang Utama,Pertamax,12.33,159673.5,EWallet,Completed
+TRX-20260709-0035,2026-07-03 22:17,SPBU Mini - Cabang Selatan,Pertamax Turbo,6.77,92613.6,Cash,Completed
+TRX-20260709-0001,2026-07-03 20:47,SPBU Mini - Cabang Timur,Pertamax,10.02,129759,QRIS,Completed
+TRX-20260709-0027,2026-07-03 10:32,SPBU Mini - Cabang Selatan,Bio Solar,42.38,288184,QRIS,Completed
+TRX-20260709-0029,2026-07-03 10:23,SPBU Mini - Cabang Utama,Bio Solar,17.71,114406.6,EWallet,Completed
+TRX-20260709-0039,2026-07-03 07:17,SPBU Mini - Cabang Utama,Pertamax,37.49,485495.5,EWallet,Completed
+TRX-20260709-0012,2026-07-03 05:47,SPBU Mini - Cabang Timur,Pertamax,9.29,114290.22,Cash,Completed
+TRX-20260709-0016,2026-06-30 20:37,SPBU Mini - Cabang Selatan,Pertalite,17.55,166725,QRIS,Completed
+TRX-20260709-0008,2026-06-30 14:31,SPBU Mini - Cabang Timur,Bio Solar,31.88,216784,QRIS,Completed
+TRX-20260709-0007,2026-06-29 11:20,SPBU Mini - Cabang Timur,Pertamax,40.27,521496.5,EWallet,Completed
+TRX-20260709-0002,2026-06-28 00:24,SPBU Mini - Cabang Utama,Pertamax,37.57,486531.5,DebitCard,Completed
+TRX-20260709-0006,2026-06-27 13:27,SPBU Mini - Cabang Selatan,Dexlite,42.16,611320,EWallet,Completed
+TRX-20260709-0033,2026-06-27 09:54,SPBU Mini - Cabang Utama,Pertamax,10.7,138565,BankTransfer,Completed
+TRX-20260709-0017,2026-06-27 06:25,SPBU Mini - Cabang Selatan,Dexlite,28.72,416440,EWallet,Completed
+TRX-20260709-0005,2026-06-26 02:42,SPBU Mini - Cabang Selatan,Pertamax,33.73,414963.32,DebitCard,Completed
+TRX-20260709-0032,2026-06-24 12:20,SPBU Mini - Cabang Selatan,Pertamax Turbo,25.52,367488,EWallet,Completed
+TRX-20260709-0043,2026-06-23 05:46,SPBU Mini - Cabang Utama,Bio Solar,31.18,201422.8,EWallet,Completed
+TRX-20260709-0034,2026-06-22 16:31,SPBU Mini - Cabang Selatan,Pertalite,33.85,338500,QRIS,Completed
+TRX-20260709-0021,2026-06-22 12:05,SPBU Mini - Cabang Utama,Pertamax,36.62,474229,DebitCard,Completed
+TRX-20260709-0011,2026-06-22 11:22,SPBU Mini - Cabang Timur,Pertamax,16.79,217430.5,BankTransfer,Completed
+TRX-20260709-0003,2026-06-21 09:29,SPBU Mini - Cabang Utama,Pertamax,6.66,81934.65,DebitCard,Completed
+TRX-20260709-0037,2026-06-20 18:25,SPBU Mini - Cabang Selatan,Pertalite,11.19,111900,Cash,Completed
+TRX-20260709-0004,2026-06-20 00:27,SPBU Mini - Cabang Selatan,Pertalite,35.9,341050,QRIS,Completed
+TRX-20260709-0019,2026-06-19 14:11,SPBU Mini - Cabang Utama,Pertalite,13.74,137400,EWallet,Completed
+TRX-20260709-0010,2026-06-19 13:18,SPBU Mini - Cabang Timur,Dexlite,16.18,234610,Cash,Completed
+TRX-20260709-0018,2026-06-19 05:12,SPBU Mini - Cabang Selatan,Dexlite,21.44,310880,EWallet,Completed
+TRX-20260709-0050,2026-06-18 23:47,SPBU Mini - Cabang Selatan,Bio Solar,13.55,87533,EWallet,Completed
+TRX-20260709-0041,2026-06-18 12:40,SPBU Mini - Cabang Utama,Dexlite,43.55,599901.25,DebitCard,Completed
+TRX-20260709-0040,2026-06-18 03:08,SPBU Mini - Cabang Utama,Pertamax,12.1,156695,EWallet,Completed
+TRX-20260709-0049,2026-06-17 10:17,SPBU Mini - Cabang Selatan,Pertamax,35.89,464775.5,QRIS,Completed
+TRX-20260709-0047,2026-06-16 10:31,SPBU Mini - Cabang Selatan,Pertamax,5.43,70318.5,BankTransfer,Completed
+TRX-20260709-0015,2026-06-14 18:59,SPBU Mini - Cabang Utama,Pertamax Turbo,33.33,455954.4,Cash,Completed
+TRX-20260709-0013,2026-06-14 10:13,SPBU Mini - Cabang Utama,Pertamax Turbo,29.64,426816,QRIS,Completed
+TRX-20260709-0025,2026-06-14 09:06,SPBU Mini - Cabang Utama,Pertamax,14.42,186739,Cash,Completed
+TRX-20260709-0014,2026-06-14 06:44,SPBU Mini - Cabang Timur,Bio Solar,8.27,56236,QRIS,Completed
+TRX-20260709-0036,2026-06-14 01:56,SPBU Mini - Cabang Selatan,Pertamax Turbo,31.86,458784,Cash,Completed
+TRX-20260709-0028,2026-06-13 19:39,SPBU Mini - Cabang Utama,Dexlite,41.72,574693,Cash,Completed
+TRX-20260709-0031,2026-06-12 23:53,SPBU Mini - Cabang Timur,Bio Solar,40.59,262211.4,Cash,Completed
+TRX-20260709-0044,2026-06-12 17:28,SPBU Mini - Cabang Utama,Bio Solar,11.73,79764,Cash,Completed
+TRX-20260709-0042,2026-06-12 15:17,SPBU Mini - Cabang Utama,Pertamax,37.62,462820.05,EWallet,Completed
+TRX-20260709-0030,2026-06-12 05:37,SPBU Mini - Cabang Utama,Pertamax Turbo,6.76,92476.8,EWallet,Completed
+TRX-20260709-0026,2026-06-11 11:37,SPBU Mini - Cabang Utama,Bio Solar,25.95,176460,DebitCard,Completed
+TRX-20260709-0038,2026-06-11 08:02,SPBU Mini - Cabang Timur,Pertalite,28.48,270560,BankTransfer,Completed
+TRX-20260709-0022,2026-06-09 15:39,SPBU Mini - Cabang Selatan,Pertamax Turbo,35.06,504864,EWallet,Completed
+TRX-20260709-0045,2026-06-09 11:41,SPBU Mini - Cabang Timur,Dexlite,41.39,600155,DebitCard,Completed

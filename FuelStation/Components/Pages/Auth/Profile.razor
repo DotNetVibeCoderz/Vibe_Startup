@@ -1,0 +1,113 @@
+@page "/profile"
+@using System.ComponentModel.DataAnnotations
+@using FuelStation.Data
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Profil - FuelStation</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card" style="max-width:520px;">
+        <div class="auth-title">👤 Profil Pengguna</div>
+        <div class="auth-subtitle">Kelola informasi akun kamu</div>
+
+        @if (!string.IsNullOrEmpty(_message))
+        {
+            <div class="alert @(_isSuccess ? "alert-success" : "alert-danger")">@_message</div>
+        }
+
+        <EditForm Model="_input" OnValidSubmit="SaveProfile">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+
+            <div class="mb-1">
+                <label class="form-label">Nama Lengkap</label>
+                <InputText class="form-input" @bind-Value="_input.FullName" />
+            </div>
+
+            <div class="mb-1">
+                <label class="form-label">Email</label>
+                <InputText class="form-input" @bind-Value="_input.Email" disabled />
+            </div>
+
+            <div class="mb-1">
+                <label class="form-label">No. Telepon</label>
+                <InputText class="form-input" @bind-Value="_input.PhoneNumber" placeholder="08xxxxxxxx" />
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label">Tema</label>
+                <InputSelect class="form-select" @bind-Value="_input.ThemePreference">
+                    <option value="Light">Light</option>
+                    <option value="Dark">Dark</option>
+                </InputSelect>
+            </div>
+
+            <button class="btn btn-primary" type="submit" style="width:100%;">💾 Simpan</button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private readonly ProfileInput _input = new();
+    private string? _message;
+    private bool _isSuccess;
+    private ApplicationUser? _user;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (authState.User.Identity?.IsAuthenticated != true)
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        _user = await UserManager.GetUserAsync(authState.User);
+        if (_user == null)
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        _input.FullName = _user.FullName ?? string.Empty;
+        _input.Email = _user.Email ?? string.Empty;
+        _input.PhoneNumber = _user.PhoneNumber ?? string.Empty;
+        _input.ThemePreference = _user.ThemePreference ?? "Light";
+    }
+
+    private async Task SaveProfile()
+    {
+        if (_user == null)
+            return;
+
+        _user.FullName = _input.FullName;
+        _user.PhoneNumber = _input.PhoneNumber;
+        _user.ThemePreference = _input.ThemePreference;
+
+        var result = await UserManager.UpdateAsync(_user);
+        if (!result.Succeeded)
+        {
+            _isSuccess = false;
+            _message = string.Join("\n", result.Errors.Select(e => e.Description));
+            return;
+        }
+
+        _isSuccess = true;
+        _message = "✅ Profil berhasil diperbarui.";
+    }
+
+    private sealed class ProfileInput
+    {
+        [Required, MinLength(3)]
+        public string FullName { get; set; } = string.Empty;
+
+        public string Email { get; set; } = string.Empty;
+
+        public string PhoneNumber { get; set; } = string.Empty;
+
+        [Required]
+        public string ThemePreference { get; set; } = "Light";
+    }
+}

@@ -1,0 +1,60 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.WebUtilities
+@inject NavigationManager Navigation
+
+<PageTitle>Login - FuelStation</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="auth-title">🔐 Login</div>
+        <div class="auth-subtitle">Masuk untuk melanjutkan ke dashboard</div>
+
+        @if (_showError)
+        {
+            <div class="alert alert-danger">❌ Email atau password salah.</div>
+        }
+
+        <form method="post" action="/account/login">
+            <AntiforgeryToken />
+            <input type="hidden" name="returnUrl" value="@_returnUrl" />
+
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input name="email" class="form-input" placeholder="name@fuelstation.com" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" name="password" class="form-input" placeholder="••••••" />
+            </div>
+
+            <div class="flex-between">
+                <label style="display:flex;align-items:center;gap:6px;">
+                    <input type="checkbox" name="rememberMe" /> Ingat saya
+                </label>
+                <a href="/reset-password" class="text-muted">Lupa password?</a>
+            </div>
+
+            <button class="btn btn-primary" type="submit" style="width:100%;">🚀 Masuk</button>
+        </form>
+
+        <div class="auth-footer">
+            Belum punya akun? <a href="/register"><strong>Daftar di sini</strong></a>
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool _showError;
+    private string _returnUrl = "/";
+
+    protected override void OnInitialized()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        _showError = query.TryGetValue("error", out var err) && err == "1";
+        _returnUrl = query.TryGetValue("returnUrl", out var ret) ? ret.ToString() : "/";
+    }
+}

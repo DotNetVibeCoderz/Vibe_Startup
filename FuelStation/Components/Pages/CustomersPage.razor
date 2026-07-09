@@ -1,0 +1,535 @@
+@page "/customers"
+@using FuelStation.Data
+@using FuelStation.Models
+@using Microsoft.EntityFrameworkCore
+@using System.Text
+@inject AppDbContext Db
+@inject IJSRuntime JS
+
+<PageTitle>Pelanggan - FuelStation</PageTitle>
+
+<h2 class="mb-2" style="font-weight:800;">👥 Manajemen Pelanggan</h2>
+
+<div class="stats-grid mb-2">
+    <div class="stat-card">
+        <div class="stat-value">@_customers.Count</div>
+        <div class="stat-label">Total Pelanggan</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">@_customers.Count(c => c.MembershipTier == "Platinum")</div>
+        <div class="stat-label">Platinum</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">@_customers.Count(c => c.MembershipTier == "Gold")</div>
+        <div class="stat-label">Gold</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">@_customers.Sum(c => c.LoyaltyPoints).ToString("N0")</div>
+        <div class="stat-label">Total Poin Loyalitas</div>
+    </div>
+</div>
+
+<div class="flex-between mb-2">
+    <input class="form-input" style="width:300px;" placeholder="🔍 Cari pelanggan..." @bind-value="_searchTerm" @bind-value:event="oninput" />
+    <div class="flex-center gap-1">
+        <button class="btn btn-sm" @onclick="ExportCsv">📥 CSV</button>
+        <button class="btn btn-sm" @onclick="OpenFeedbackModal">⭐ Tambah Feedback</button>
+        <button class="btn btn-primary btn-sm" @onclick="OpenAddCustomer">➕ Tambah</button>
+    </div>
+</div>
+
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Member</th>
+            <th>Nama</th>
+            <th>Kontak</th>
+            <th>Tier</th>
+            <th class="text-right">Poin</th>
+            <th class="text-right">Total Belanja</th>
+            <th class="text-right">Kunjungan</th>
+            <th>Aksi</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var c in FilteredCustomers)
+        {
+            <tr>
+                <td style="font-family:var(--font-mono);">@c.MemberCode</td>
+                <td style="font-weight:600;">@c.Name</td>
+                <td>
+                    <div>@c.Phone</div>
+                    <div style="font-size:0.8rem;color:var(--text-secondary);">@c.Email</div>
+                </td>
+                <td>
+                    <span class="badge @(c.MembershipTier switch {
+                        "Platinum" => "badge-info",
+                        "Gold" => "badge-accent",
+                        "Silver" => "badge-warning",
+                        _ => "badge-success"
+                    })">@c.MembershipTier</span>
+                </td>
+                <td class="text-right" style="font-weight:700;">@c.LoyaltyPoints.ToString("N0")</td>
+                <td class="text-right">Rp @c.TotalSpent.ToString("N0")</td>
+                <td class="text-right">@c.VisitCount</td>
+                <td>
+                    <button class="btn btn-sm" @onclick="() => ViewCustomer(c)">👁️</button>
+                    <button class="btn btn-sm" @onclick="() => OpenEditCustomer(c)">✏️</button>
+                    <button class="btn btn-sm btn-danger" @onclick="() => ConfirmDeleteCustomer(c)">🗑️</button>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<!-- Feedback Section -->
+<div class="card mt-2">
+    <div class="card-header"><span class="card-title">⭐ Feedback & Rating</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));gap:12px;">
+        @foreach (var fb in _feedbacks)
+        {
+            <div class="card" style="padding:14px;">
+                <div class="flex-between mb-1">
+                    <span style="font-weight:700;">@fb.Customer?.Name</span>
+                    <span>
+                        @for (int i = 0; i < 5; i++)
+                        {
+                            <span>@(i < fb.Rating ? "⭐" : "☆")</span>
+                        }
+                    </span>
+                </div>
+                <div>@fb.Comment</div>
+                <div style="font-size:0.75rem;color:var(--text-secondary);">@fb.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy")</div>
+            </div>
+        }
+    </div>
+</div>
+
+@if (_showCustomerModal)
+{
+    <div class="modal-overlay" @onclick="CloseCustomerModal">
+        <div class="modal-content card" style="max-width:720px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header">
+                <span class="card-title">@(_editingCustomer != null ? "✏️ Edit Pelanggan" : "➕ Tambah Pelanggan")</span>
+                <button class="btn btn-sm btn-danger" @onclick="CloseCustomerModal">✕</button>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label class="form-label">Nama</label>
+                    <input class="form-input" @bind="_customerForm.Name" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Member Code</label>
+                    <input class="form-input" @bind="_customerForm.MemberCode" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input class="form-input" @bind="_customerForm.Email" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Telepon</label>
+                    <input class="form-input" @bind="_customerForm.Phone" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Alamat</label>
+                    <input class="form-input" @bind="_customerForm.Address" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Tier</label>
+                    <select class="form-select" @bind="_customerForm.MembershipTier">
+                        <option value="Regular">Regular</option>
+                        <option value="Silver">Silver</option>
+                        <option value="Gold">Gold</option>
+                        <option value="Platinum">Platinum</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Poin</label>
+                    <input class="form-input" type="number" @bind="_customerForm.LoyaltyPoints" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Total Belanja</label>
+                    <input class="form-input" type="number" step="0.01" @bind="_customerForm.TotalSpent" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Kunjungan</label>
+                    <input class="form-input" type="number" @bind="_customerForm.VisitCount" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" @bind="_customerForm.IsActive" /> Aktif
+                    </label>
+                </div>
+            </div>
+            <div class="flex-between mt-2">
+                <button class="btn btn-danger" @onclick="CloseCustomerModal">Batal</button>
+                <button class="btn btn-primary" @onclick="SaveCustomer">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showDeleteConfirm && _deleteTarget != null)
+{
+    <div class="modal-overlay" @onclick="CloseDeleteConfirm">
+        <div class="modal-content card" style="max-width:420px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header">
+                <span class="card-title">🗑️ Konfirmasi Hapus</span>
+                <button class="btn btn-sm btn-danger" @onclick="CloseDeleteConfirm">✕</button>
+            </div>
+            <p>Yakin ingin menghapus pelanggan <strong>@_deleteTarget.Name</strong>?</p>
+            <div class="flex-between mt-2">
+                <button class="btn btn-danger" @onclick="CloseDeleteConfirm">Batal</button>
+                <button class="btn btn-primary" @onclick="DeleteCustomer">Hapus</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showDetailModal && _selectedCustomer != null)
+{
+    <div class="modal-overlay" @onclick="CloseDetailModal">
+        <div class="modal-content card" style="max-width:720px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header">
+                <span class="card-title">👤 Detail Pelanggan</span>
+                <button class="btn btn-sm btn-danger" @onclick="CloseDetailModal">✕</button>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label class="form-label">Nama</label>
+                    <div style="font-weight:700;">@_selectedCustomer.Name</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Member Code</label>
+                    <div style="font-family:var(--font-mono);">@_selectedCustomer.MemberCode</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <div>@_selectedCustomer.Email</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Telepon</label>
+                    <div>@_selectedCustomer.Phone</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Tier</label>
+                    <div>@_selectedCustomer.MembershipTier</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Poin Loyalti</label>
+                    <div>@_selectedCustomer.LoyaltyPoints.ToString("N0")</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Total Belanja</label>
+                    <div>Rp @_selectedCustomer.TotalSpent.ToString("N0")</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Total Kunjungan</label>
+                    <div>@_selectedCustomer.VisitCount</div>
+                </div>
+            </div>
+
+            <div class="card mt-2" style="box-shadow:none;">
+                <div class="card-header"><span class="card-title">📝 Feedback Terbaru</span></div>
+                @if (_selectedFeedbacks.Any())
+                {
+                    <div style="display:grid;gap:8px;">
+                        @foreach (var fb in _selectedFeedbacks)
+                        {
+                            <div style="border:2px solid var(--border-color);border-radius:10px;padding:10px;">
+                                <div style="font-weight:700;">@fb.Category</div>
+                                <div>
+                                    @for (int i = 0; i < 5; i++)
+                                    {
+                                        <span>@(i < fb.Rating ? "⭐" : "☆")</span>
+                                    }
+                                </div>
+                                <div>@fb.Comment</div>
+                                <div style="font-size:0.75rem;color:var(--text-secondary);">@fb.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="text-muted">Belum ada feedback.</div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showFeedbackModal)
+{
+    <div class="modal-overlay" @onclick="CloseFeedbackModal">
+        <div class="modal-content card" style="max-width:640px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header">
+                <span class="card-title">⭐ Tambah Feedback</span>
+                <button class="btn btn-sm btn-danger" @onclick="CloseFeedbackModal">✕</button>
+            </div>
+            <div class="grid-2">
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label class="form-label">Pelanggan</label>
+                    <select class="form-select" @bind="_feedbackCustomerId">
+                        <option value="">-- Pilih Pelanggan --</option>
+                        @foreach (var c in _customers)
+                        {
+                            <option value="@c.Id">@c.Name (@c.MemberCode)</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Kategori</label>
+                    <select class="form-select" @bind="_feedbackForm.Category">
+                        <option value="General">General</option>
+                        <option value="Service">Service</option>
+                        <option value="Product">Product</option>
+                        <option value="Facility">Facility</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Rating</label>
+                    <select class="form-select" @bind="_feedbackForm.Rating">
+                        <option value="5">5 ⭐</option>
+                        <option value="4">4 ⭐</option>
+                        <option value="3">3 ⭐</option>
+                        <option value="2">2 ⭐</option>
+                        <option value="1">1 ⭐</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label class="form-label">Komentar</label>
+                    <textarea class="form-input" rows="4" @bind="_feedbackForm.Comment"></textarea>
+                </div>
+            </div>
+            <div class="flex-between mt-2">
+                <button class="btn btn-danger" @onclick="CloseFeedbackModal">Batal</button>
+                <button class="btn btn-primary" @onclick="SaveFeedback">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Customer> _customers = new();
+    private List<Feedback> _feedbacks = new();
+    private string _searchTerm = "";
+    private bool _showDetailModal;
+    private bool _showFeedbackModal;
+    private Customer? _selectedCustomer;
+    private List<Feedback> _selectedFeedbacks = new();
+    private Feedback _feedbackForm = new();
+    private string _feedbackCustomerId = "";
+
+    private bool _showCustomerModal;
+    private Customer? _editingCustomer;
+    private Customer _customerForm = new();
+
+    private bool _showDeleteConfirm;
+    private Customer? _deleteTarget;
+
+    private List<Customer> FilteredCustomers => _customers
+        .Where(c => string.IsNullOrEmpty(_searchTerm) ||
+            c.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ||
+            (c.MemberCode?.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (c.Phone?.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ?? false))
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _customers = await Db.Customers.Where(c => !c.IsDeleted).OrderByDescending(c => c.LoyaltyPoints).ToListAsync();
+        _feedbacks = await Db.Feedbacks
+            .Include(f => f.Customer)
+            .OrderByDescending(f => f.CreatedAt)
+            .Take(12)
+            .ToListAsync();
+    }
+
+    private async Task ViewCustomer(Customer customer)
+    {
+        _selectedCustomer = await Db.Customers.FirstOrDefaultAsync(c => c.Id == customer.Id);
+        _selectedFeedbacks = await Db.Feedbacks
+            .Where(f => f.CustomerId == customer.Id)
+            .OrderByDescending(f => f.CreatedAt)
+            .Take(5)
+            .ToListAsync();
+        _showDetailModal = true;
+    }
+
+    private void CloseDetailModal()
+    {
+        _showDetailModal = false;
+        _selectedCustomer = null;
+        _selectedFeedbacks = new();
+    }
+
+    private void OpenFeedbackModal()
+    {
+        _feedbackCustomerId = "";
+        _feedbackForm = new Feedback { Rating = 5, Category = "General" };
+        _showFeedbackModal = true;
+    }
+
+    private void CloseFeedbackModal()
+    {
+        _showFeedbackModal = false;
+    }
+
+    private async Task SaveFeedback()
+    {
+        if (!Guid.TryParse(_feedbackCustomerId, out var customerId)) return;
+        if (string.IsNullOrWhiteSpace(_feedbackForm.Comment)) return;
+
+        var feedback = new Feedback
+        {
+            Id = Guid.NewGuid(),
+            CustomerId = customerId,
+            Rating = _feedbackForm.Rating,
+            Comment = _feedbackForm.Comment,
+            Category = _feedbackForm.Category,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        Db.Feedbacks.Add(feedback);
+        await Db.SaveChangesAsync();
+        _showFeedbackModal = false;
+        await LoadData();
+    }
+
+    private void OpenAddCustomer()
+    {
+        _editingCustomer = null;
+        _customerForm = new Customer
+        {
+            Name = "",
+            MemberCode = "",
+            Email = "",
+            Phone = "",
+            Address = "",
+            MembershipTier = "Regular",
+            LoyaltyPoints = 0,
+            TotalSpent = 0,
+            VisitCount = 0,
+            IsActive = true
+        };
+        _showCustomerModal = true;
+    }
+
+    private void OpenEditCustomer(Customer customer)
+    {
+        _editingCustomer = customer;
+        _customerForm = new Customer
+        {
+            Name = customer.Name,
+            MemberCode = customer.MemberCode,
+            Email = customer.Email,
+            Phone = customer.Phone,
+            Address = customer.Address,
+            MembershipTier = customer.MembershipTier,
+            LoyaltyPoints = customer.LoyaltyPoints,
+            TotalSpent = customer.TotalSpent,
+            VisitCount = customer.VisitCount,
+            IsActive = customer.IsActive
+        };
+        _showCustomerModal = true;
+    }
+
+    private async Task SaveCustomer()
+    {
+        if (string.IsNullOrWhiteSpace(_customerForm.Name)) return;
+
+        if (_editingCustomer != null)
+        {
+            var existing = await Db.Customers.FindAsync(_editingCustomer.Id);
+            if (existing != null)
+            {
+                existing.Name = _customerForm.Name;
+                existing.MemberCode = _customerForm.MemberCode;
+                existing.Email = _customerForm.Email;
+                existing.Phone = _customerForm.Phone;
+                existing.Address = _customerForm.Address;
+                existing.MembershipTier = _customerForm.MembershipTier;
+                existing.LoyaltyPoints = _customerForm.LoyaltyPoints;
+                existing.TotalSpent = _customerForm.TotalSpent;
+                existing.VisitCount = _customerForm.VisitCount;
+                existing.IsActive = _customerForm.IsActive;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+        else
+        {
+            var newCustomer = new Customer
+            {
+                Id = Guid.NewGuid(),
+                Name = _customerForm.Name,
+                MemberCode = _customerForm.MemberCode,
+                Email = _customerForm.Email,
+                Phone = _customerForm.Phone,
+                Address = _customerForm.Address,
+                MembershipTier = _customerForm.MembershipTier,
+                LoyaltyPoints = _customerForm.LoyaltyPoints,
+                TotalSpent = _customerForm.TotalSpent,
+                VisitCount = _customerForm.VisitCount,
+                IsActive = _customerForm.IsActive,
+                CreatedAt = DateTime.UtcNow
+            };
+            Db.Customers.Add(newCustomer);
+        }
+
+        await Db.SaveChangesAsync();
+        _showCustomerModal = false;
+        await LoadData();
+    }
+
+    private void CloseCustomerModal()
+    {
+        _showCustomerModal = false;
+        _editingCustomer = null;
+    }
+
+    private void ConfirmDeleteCustomer(Customer customer)
+    {
+        _deleteTarget = customer;
+        _showDeleteConfirm = true;
+    }
+
+    private void CloseDeleteConfirm()
+    {
+        _showDeleteConfirm = false;
+        _deleteTarget = null;
+    }
+
+    private async Task DeleteCustomer()
+    {
+        if (_deleteTarget == null) return;
+        var existing = await Db.Customers.FindAsync(_deleteTarget.Id);
+        if (existing != null)
+        {
+            existing.IsDeleted = true;
+            existing.IsActive = false;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await Db.SaveChangesAsync();
+        }
+        _showDeleteConfirm = false;
+        _deleteTarget = null;
+        await LoadData();
+    }
+
+    private async Task ExportCsv()
+    {
+        var csv = "MemberCode,Name,Phone,Email,Tier,Points,TotalSpent,Visits\n" +
+            string.Join("\n", FilteredCustomers.Select(c => $"{c.MemberCode},{c.Name},{c.Phone},{c.Email},{c.MembershipTier},{c.LoyaltyPoints},{c.TotalSpent},{c.VisitCount}"));
+        await DownloadFileAsync("customers.csv", "text/csv;charset=utf-8", csv);
+    }
+
+    private async Task DownloadFileAsync(string fileName, string contentType, string content)
+    {
+        var base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(content));
+        await JS.InvokeVoidAsync("fileDownloader.downloadFileFromBase64", fileName, contentType, base64);
+    }
+}

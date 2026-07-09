@@ -1,0 +1,347 @@
+@page "/attendance"
+@using FuelStation.Data
+@using FuelStation.Models
+@using Microsoft.EntityFrameworkCore
+@using System.Text
+@implements IDisposable
+@inject IJSRuntime JS
+
+<PageTitle>Attendance - FuelStation</PageTitle>
+
+<h2 class="mb-2" style="font-weight:800;">📋 Attendance Tracking</h2>
+
+<div class="stats-grid mb-2">
+    <div class="stat-card"><div class="stat-value">@_todayStats.TotalShifts</div><div class="stat-label">Shift Hari Ini</div></div>
+    <div class="stat-card"><div class="stat-value" style="color:var(--success);">@_todayStats.Present</div><div class="stat-label">✅ Present</div></div>
+    <div class="stat-card"><div class="stat-value" style="color:var(--warning);">@_todayStats.Late</div><div class="stat-label">⚠️ Late</div></div>
+    <div class="stat-card"><div class="stat-value" style="color:var(--danger);">@_todayStats.Absent</div><div class="stat-label">❌ Absent</div></div>
+    <div class="stat-card"><div class="stat-value">@_todayStats.TotalHours.ToString("F1")h</div><div class="stat-label">Total Jam Kerja</div></div>
+    <div class="stat-card"><div class="stat-value" style="color:var(--danger);">@_todayStats.OvertimeHours.ToString("F1")h</div><div class="stat-label">⏰ Jam Overtime</div></div>
+</div>
+
+<div class="flex-between mb-2" style="flex-wrap:wrap;gap:12px;">
+    <div class="flex-center gap-1" style="flex-wrap:wrap;">
+        <input class="form-input" style="width:160px;" @bind="_filterDate" @bind:event="oninput" placeholder="yyyy-MM-dd" />
+        <span style="font-weight:700;">s/d</span>
+        <input class="form-input" style="width:160px;" @bind="_filterEndDate" @bind:event="oninput" placeholder="yyyy-MM-dd" />
+        <select class="form-select" style="width:200px;" @bind="_filterEmployeeId">
+            <option value="">👤 All Operators</option>
+            @foreach (var emp in _employees) { <option value="@emp.Id">@emp.Name</option> }
+        </select>
+        <select class="form-select" style="width:160px;" @bind="_filterStatus">
+            <option value="">📊 All Status</option>
+            <option value="Present">✅ Present</option><option value="Late">⚠️ Late</option>
+            <option value="Absent">❌ Absent</option><option value="Overtime">⏰ Overtime</option>
+        </select>
+        <button class="btn btn-sm" @onclick="RefreshData">🔄 Refresh</button>
+    </div>
+    <div class="flex-center gap-1">
+        <button class="btn btn-sm" @onclick="ExportCsv">📥 Export CSV</button>
+        <button class="btn btn-primary btn-sm" @onclick="OpenCheckInModal">📝 Check-In Manual</button>
+    </div>
+</div>
+
+<div class="card mb-2">
+    <div class="card-header">
+        <span class="card-title">⚡ Quick Actions - @DateTime.Today.ToString("dd MMM yyyy")</span>
+        <span class="badge @GetClockBadge()">🕐 @_clockNow.ToString("HH:mm:ss")</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:12px;">
+        @foreach (var emp in _employees)
+        {
+            var todayShift = _todayShifts.FirstOrDefault(s => s.EmployeeId == emp.Id);
+            var hasCheckedIn = todayShift != null;
+            var hasCheckedOut = todayShift?.EndTime != null;
+            var status = GetAttendanceStatus(todayShift);
+            var badgeClass = status switch { "Present" => "badge-success", "Late" => "badge-warning", "Overtime" => "badge-info", _ => "" };
+            var badgeText = status switch { "Present" => "✅ Present", "Late" => "⚠️ Late", "Overtime" => "⏰ Overtime", _ => "—" };
+            <div class="card" style="padding:14px;">
+                <div class="flex-between mb-1">
+                    <div><span style="font-weight:700;">@emp.Name</span><div style="font-size:0.7rem;color:var(--text-secondary);">@emp.EmployeeCode</div></div>
+                    @if (hasCheckedIn) { <span class="badge @badgeClass">@badgeText</span> } else { <span class="badge badge-danger">❌ Absent</span> }
+                </div>
+                @if (hasCheckedIn)
+                {
+                    <div style="font-family:var(--font-mono);font-size:0.85rem;">
+                        <div>Check-in: <strong>@todayShift!.StartTime.ToString("HH:mm:ss")</strong></div>
+                        @if (hasCheckedOut)
+                        {
+                            <div>Check-out: <strong>@todayShift.EndTime!.Value.ToString("HH:mm:ss")</strong></div>
+                            var dur = (todayShift.EndTime!.Value - todayShift.StartTime).TotalHours;
+                            <div style="font-weight:700;">Durasi: @dur.ToString("F1")h</div>
+                        }
+                        else { <div style="color:var(--warning);">Belum Check-out</div> }
+                    </div>
+                }
+                else { <div style="color:var(--text-muted);font-size:0.85rem;">Belum check-in hari ini</div> }
+                <div class="flex-center gap-1 mt-1">
+                    @if (!hasCheckedIn) { <button class="btn btn-success btn-sm" @onclick="(() => CheckIn(emp.Id))">✅ Check-In</button> }
+                    else if (!hasCheckedOut) { <button class="btn btn-danger btn-sm" @onclick="(() => CheckOut(todayShift!.Id))">🚪 Check-Out</button> }
+                    @if (hasCheckedIn && hasCheckedOut) { <span style="font-size:0.75rem;color:var(--success);">✔ Selesai</span> }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><span class="card-title">📋 Attendance Log</span><span class="badge badge-accent">@_filteredAttendances.Count records</span></div>
+    <table class="data-table">
+        <thead><tr><th>Tanggal</th><th>Operator</th><th>Stasiun</th><th>Tipe Shift</th><th>Check-In</th><th>Check-Out</th><th>Durasi</th><th>Status</th><th>OT</th><th>Aksi</th></tr></thead>
+        <tbody>
+            @foreach (var item in _filteredAttendances)
+            {
+                var status = GetAttendanceStatus(item);
+                var statusBadge = status switch { "Present" => "badge-success", "Late" => "badge-warning", "Overtime" => "badge-info", _ => "" };
+                var durStr = item.EndTime.HasValue ? (item.EndTime.Value - item.StartTime).TotalHours.ToString("F1") + "h" : "—";
+                var shiftBadge = item.ShiftType switch { "Morning" => "badge-warning", "Afternoon" => "badge-danger", "Night" => "badge-info", _ => "" };
+                <tr>
+                    <td>@item.StartTime.ToString("ddd, dd/MM/yy")</td><td style="font-weight:600;">@item.Employee?.Name</td>
+                    <td>@item.FuelStation?.Name</td><td><span class="badge @shiftBadge">@item.ShiftType</span></td>
+                    <td style="font-family:var(--font-mono);">@item.StartTime.ToString("HH:mm:ss")@(status == "Late" ? " ⚠️" : "")</td>
+                    <td style="font-family:var(--font-mono);">@(item.EndTime?.ToString("HH:mm:ss") ?? "—")</td>
+                    <td style="font-family:var(--font-mono);font-weight:700;">@durStr</td>
+                    <td><span class="badge @statusBadge">@status</span></td><td>@(item.IsOvertime ? "✅" : "—")</td>
+                    <td>
+                        @if (!item.EndTime.HasValue) { <button class="btn btn-sm btn-danger" @onclick="(() => CheckOut(item.Id))">🚪</button> }
+                        <button class="btn btn-sm" @onclick="(() => EditAttendance(item))">✏️</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (_showCheckInModal)
+{
+    <div class="modal-overlay" @onclick="CloseCheckInModal">
+        <div class="modal-content card" style="max-width:500px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header"><span class="card-title">📝 Manual Check-In</span><button class="btn btn-sm btn-danger" @onclick="CloseCheckInModal">✕</button></div>
+            <div class="form-group"><label class="form-label">👤 Operator</label>
+                <select class="form-select" @bind="_checkInEmployeeId">
+                    <option value="">-- Pilih Operator --</option>
+                    @foreach (var emp in _employees) { <option value="@emp.Id">@emp.Name (@emp.EmployeeCode)</option> }
+                </select>
+            </div>
+            <div class="form-group"><label class="form-label">🏢 Stasiun</label>
+                <select class="form-select" @bind="_checkInStationId">
+                    <option value="">-- Pilih Stasiun --</option>
+                    @foreach (var s in _stations) { <option value="@s.Id">@s.Name</option> }
+                </select>
+            </div>
+            <div class="form-group"><label class="form-label">🕐 Tipe Shift</label>
+                <select class="form-select" @bind="_checkInShiftType">
+                    <option value="Morning">☀️ Morning</option><option value="Afternoon">🌤️ Afternoon</option><option value="Night">🌙 Night</option>
+                </select>
+            </div>
+            <div class="form-group"><label class="form-label">📅 Tanggal (yyyy-MM-dd)</label>
+                <input class="form-input" @bind="_checkInDate" @bind:event="oninput" placeholder="yyyy-MM-dd" />
+            </div>
+            <div class="form-group"><label class="form-label">⏰ Jam Check-In (HH:mm)</label>
+                <input class="form-input" @bind="_checkInTime" @bind:event="oninput" placeholder="HH:mm" />
+            </div>
+            <div class="flex-between mt-2">
+                <button class="btn btn-danger" @onclick="CloseCheckInModal">Batal</button>
+                <button class="btn btn-primary" @onclick="ManualCheckIn">✅ Check-In</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showEditModal && _editShift != null)
+{
+    <div class="modal-overlay" @onclick="CloseEditModal">
+        <div class="modal-content card" style="max-width:500px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header"><span class="card-title">✏️ Edit Attendance</span><button class="btn btn-sm btn-danger" @onclick="CloseEditModal">✕</button></div>
+            <div class="form-group"><label class="form-label">👤 Operator</label>
+                <input class="form-input" value="@_editShift.Employee?.Name" readonly disabled />
+            </div>
+            <div class="form-group"><label class="form-label">📅 Tanggal & Check-In (yyyy-MM-ddTHH:mm)</label>
+                <input class="form-input" @bind="_editCheckIn" @bind:event="oninput" placeholder="yyyy-MM-ddTHH:mm" />
+            </div>
+            <div class="form-group"><label class="form-label">⏰ Check-Out (yyyy-MM-ddTHH:mm)</label>
+                <input class="form-input" @bind="_editCheckOut" @bind:event="oninput" placeholder="yyyy-MM-ddTHH:mm" />
+            </div>
+            <div class="form-group"><label class="form-label">📝 Catatan</label>
+                <input class="form-input" @bind="_editNotes" @bind:event="oninput" placeholder="Catatan..." />
+            </div>
+            <div class="form-group">
+                <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" @bind="_editIsOvertime" style="width:18px;height:18px;" /> Lembur (Overtime)
+                </label>
+            </div>
+            <div class="flex-between mt-2">
+                <button class="btn btn-danger" @onclick="CloseEditModal">Batal</button>
+                <button class="btn btn-primary" @onclick="SaveAttendance">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="card mt-2">
+    <div style="display:flex;gap:32px;flex-wrap:wrap;align-items:center;">
+        <div><span style="font-weight:700;">Total Jam Kerja: </span><span style="font-size:1.3rem;font-weight:800;">@GetTotalHours().ToString("F1") h</span></div>
+        <div><span style="font-weight:700;">Total OT: </span><span style="font-size:1.3rem;font-weight:800;color:var(--danger);">@GetTotalOvertimeHours().ToString("F1") h</span></div>
+        <div style="margin-left:auto;">
+            <span class="badge badge-success">✅ Present: @_filteredAttendances.Count(a => GetAttendanceStatus(a) == "Present")</span>
+            <span class="badge badge-warning">⚠️ Late: @_filteredAttendances.Count(a => GetAttendanceStatus(a) == "Late")</span>
+            <span class="badge badge-info">⏰ OT: @_filteredAttendances.Count(a => a.IsOvertime)</span>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Employee> _employees = new();
+    private List<FuelStationLocation> _stations = new();
+    private List<Shift> _todayShifts = new();
+    private List<Shift> _allShifts = new();
+
+    private DateTime _clockNow = DateTime.Now;
+    private string _filterDate = DateTime.Today.ToString("yyyy-MM-dd");
+    private string _filterEndDate = DateTime.Today.ToString("yyyy-MM-dd");
+    private string _filterEmployeeId = "";
+    private string _filterStatus = "";
+
+    private bool _showCheckInModal;
+    private string _checkInEmployeeId = "";
+    private string _checkInStationId = "";
+    private string _checkInShiftType = "Morning";
+    private string _checkInDate = DateTime.Today.ToString("yyyy-MM-dd");
+    private string _checkInTime = DateTime.Now.ToString("HH:mm");
+
+    private bool _showEditModal;
+    private Shift? _editShift;
+    private string _editCheckIn = "";
+    private string _editCheckOut = "";
+    private string _editNotes = "";
+    private bool _editIsOvertime;
+
+    private System.Timers.Timer? _timer;
+
+    [Inject] private IDbContextFactory<AppDbContext> DbFactory { get; set; } = default!;
+
+    private class TodayStats { public int TotalShifts { get; set; } public int Present { get; set; } public int Late { get; set; } public int Absent { get; set; } public double TotalHours { get; set; } public double OvertimeHours { get; set; } }
+    private TodayStats _todayStats = new();
+
+    private List<Shift> _filteredAttendances => _allShifts.Where(s =>
+    {
+        if (!string.IsNullOrEmpty(_filterEmployeeId) && s.EmployeeId.ToString() != _filterEmployeeId) return false;
+        if (!string.IsNullOrEmpty(_filterStatus))
+        {
+            var st = GetAttendanceStatus(s);
+            if (_filterStatus == "Overtime" && !s.IsOvertime) return false;
+            if (_filterStatus != "Overtime" && st != _filterStatus) return false;
+        }
+        if (DateTime.TryParse(_filterDate, out var fd) && DateTime.TryParse(_filterEndDate, out var td))
+            if (s.StartTime.Date < fd.Date || s.StartTime.Date > td.Date) return false;
+        return true;
+    }).OrderByDescending(s => s.StartTime).ToList();
+
+    private string GetClockBadge() => _clockNow.Hour < 14 ? "badge-warning" : _clockNow.Hour < 22 ? "badge-danger" : "badge-info";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+        _timer = new System.Timers.Timer(5000);
+        _timer.Elapsed += async (_, _) => { _clockNow = DateTime.Now; await InvokeAsync(StateHasChanged); };
+        _timer.Start();
+    }
+
+    void IDisposable.Dispose() { _timer?.Stop(); _timer?.Dispose(); }
+
+    private async Task LoadDataAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _employees = await db.Employees.Where(e => e.IsActive).OrderBy(e => e.Name).ToListAsync();
+        _stations = await db.FuelStations.Where(s => s.IsActive).OrderBy(s => s.Name).ToListAsync();
+        var today = DateTime.Today;
+        _todayShifts = await db.Shifts.Include(s => s.Employee).Include(s => s.FuelStation)
+            .Where(s => s.StartTime >= today && s.StartTime < today.AddDays(1)).ToListAsync();
+        if (DateTime.TryParse(_filterDate, out var fd) && DateTime.TryParse(_filterEndDate, out var td))
+            _allShifts = await db.Shifts.Include(s => s.Employee).Include(s => s.FuelStation)
+                .Where(s => s.StartTime >= fd.Date && s.StartTime < td.Date.AddDays(1)).OrderByDescending(s => s.StartTime).ToListAsync();
+        else
+            _allShifts = await db.Shifts.Include(s => s.Employee).Include(s => s.FuelStation)
+                .Where(s => s.StartTime >= today && s.StartTime < today.AddDays(1)).OrderByDescending(s => s.StartTime).ToListAsync();
+        ComputeTodayStats();
+    }
+
+    private void ComputeTodayStats()
+    {
+        var ts = _todayShifts;
+        _todayStats = new TodayStats { TotalShifts = ts.Count, Present = ts.Count(s => GetAttendanceStatus(s) == "Present"), Late = ts.Count(s => GetAttendanceStatus(s) == "Late"), Absent = _employees.Count - ts.Count, TotalHours = ts.Where(s => s.EndTime.HasValue).Sum(s => (s.EndTime!.Value - s.StartTime).TotalHours), OvertimeHours = ts.Where(s => s.IsOvertime && s.EndTime.HasValue).Sum(s => (s.EndTime!.Value - s.StartTime).TotalHours) };
+    }
+
+    private double GetTotalHours() => _filteredAttendances.Where(a => a.EndTime.HasValue).Sum(a => (a.EndTime!.Value - a.StartTime).TotalHours);
+    private double GetTotalOvertimeHours() => _filteredAttendances.Where(a => a.IsOvertime && a.EndTime.HasValue).Sum(a => (a.EndTime!.Value - a.StartTime).TotalHours);
+
+    private string GetAttendanceStatus(Shift? shift)
+    {
+        if (shift == null) return "Absent";
+        var h = shift.ShiftType switch { "Morning" => 6, "Afternoon" => 14, "Night" => 22, _ => 6 };
+        if (shift.IsOvertime && shift.EndTime.HasValue) return "Overtime";
+        if (shift.StartTime > shift.StartTime.Date.AddHours(h).AddMinutes(15)) return "Late";
+        return "Present";
+    }
+
+    private async Task CheckIn(Guid employeeId)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var emp = await db.Employees.FindAsync(employeeId); if (emp == null) return;
+        var now = DateTime.Now;
+        db.Shifts.Add(new Shift { EmployeeId = employeeId, FuelStationId = emp.FuelStationId ?? Guid.Empty, ShiftType = now.Hour < 14 ? "Morning" : now.Hour < 22 ? "Afternoon" : "Night", StartTime = now, CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync(); await LoadDataAsync();
+    }
+
+    private async Task CheckOut(Guid shiftId)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var shift = await db.Shifts.FindAsync(shiftId);
+        if (shift != null && !shift.EndTime.HasValue) { shift.EndTime = DateTime.Now; shift.UpdatedAt = DateTime.UtcNow; if ((shift.EndTime.Value - shift.StartTime).TotalHours > 8.5) shift.IsOvertime = true; await db.SaveChangesAsync(); await LoadDataAsync(); }
+    }
+
+    private void OpenCheckInModal() { _checkInEmployeeId = ""; _checkInStationId = ""; _checkInShiftType = "Morning"; _checkInDate = DateTime.Today.ToString("yyyy-MM-dd"); _checkInTime = DateTime.Now.ToString("HH:mm"); _showCheckInModal = true; }
+    private void CloseCheckInModal() => _showCheckInModal = false;
+
+    private async Task ManualCheckIn()
+    {
+        if (string.IsNullOrEmpty(_checkInEmployeeId)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (!DateOnly.TryParse(_checkInDate, out var d)) return; if (!TimeOnly.TryParse(_checkInTime, out var t)) return;
+        var emp = await db.Employees.FindAsync(Guid.Parse(_checkInEmployeeId));
+        db.Shifts.Add(new Shift { EmployeeId = Guid.Parse(_checkInEmployeeId), FuelStationId = string.IsNullOrEmpty(_checkInStationId) ? (emp?.FuelStationId ?? Guid.Empty) : Guid.Parse(_checkInStationId), ShiftType = _checkInShiftType, StartTime = d.ToDateTime(t), CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync(); _showCheckInModal = false; await LoadDataAsync();
+    }
+
+    private void EditAttendance(Shift shift) { _editShift = shift; _editCheckIn = shift.StartTime.ToString("yyyy-MM-ddTHH:mm"); _editCheckOut = shift.EndTime?.ToString("yyyy-MM-ddTHH:mm") ?? ""; _editNotes = shift.Notes ?? ""; _editIsOvertime = shift.IsOvertime; _showEditModal = true; }
+    private void CloseEditModal() { _showEditModal = false; _editShift = null; }
+
+    private async Task SaveAttendance()
+    {
+        if (_editShift == null) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var shift = await db.Shifts.FindAsync(_editShift.Id); if (shift == null) return;
+        if (DateTime.TryParse(_editCheckIn, out var ci)) shift.StartTime = ci;
+        if (DateTime.TryParse(_editCheckOut, out var co)) shift.EndTime = co; else shift.EndTime = null;
+        shift.Notes = _editNotes; shift.IsOvertime = _editIsOvertime; shift.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(); _showEditModal = false; _editShift = null; await LoadDataAsync();
+    }
+
+    private async Task RefreshData() => await LoadDataAsync();
+
+    private async Task ExportCsv()
+    {
+        var data = _filteredAttendances;
+        var csv = "Date,Employee,Station,ShiftType,CheckIn,CheckOut,DurationHours,Status,IsOvertime,Notes\n" + string.Join("\n", data.Select(a => {
+            var dur = a.EndTime.HasValue ? (a.EndTime.Value - a.StartTime).TotalHours.ToString("F1") : "";
+            return $"\"{a.StartTime:yyyy-MM-dd}\",\"{a.Employee?.Name}\",\"{a.FuelStation?.Name}\",\"{a.ShiftType}\"," + $"\"{a.StartTime:HH:mm:ss}\",\"{(a.EndTime.HasValue ? a.EndTime.Value.ToString("HH:mm:ss") : "")}\"," + $"\"{dur}\",\"{GetAttendanceStatus(a)}\",\"{a.IsOvertime}\",\"{a.Notes}\"";
+        }));
+        await DownloadFileAsync("attendance_export.csv", "text/csv;charset=utf-8", csv);
+    }
+
+    private async Task DownloadFileAsync(string fileName, string contentType, string content)
+    {
+        var base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(content));
+        await JS.InvokeVoidAsync("fileDownloader.downloadFileFromBase64", fileName, contentType, base64);
+    }
+}

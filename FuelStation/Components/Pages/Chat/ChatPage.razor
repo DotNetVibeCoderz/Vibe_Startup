@@ -1,0 +1,215 @@
+@page "/chat"
+@using FuelStation.Services
+@using Markdig
+@inject ChatBotService ChatBot
+@implements IAsyncDisposable
+
+<PageTitle>Chat AI - Bang Jenggo</PageTitle>
+
+<div class="chat-container">
+    <div class="flex-between mb-2">
+        <div>
+            <h2 style="font-weight:800;">💬 Bang Jenggo AI</h2>
+            <span class="text-muted">Asisten Virtual SPBU Mini</span>
+        </div>
+        <div class="flex-center gap-1">
+            <select class="form-select" style="width:140px;" @bind="_selectedModel">
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-4o-mini">GPT-4o Mini</option>
+                <option value="claude-3.5">Claude 3.5</option>
+                <option value="gemini-2.0">Gemini 2.0</option>
+                <option value="llama3">Llama 3</option>
+            </select>
+            <button class="btn btn-sm" @onclick="ResetSession">🔄 Reset</button>
+            <button class="btn btn-sm" @onclick="ToggleAttach">📎 @(_showAttach ? "Sembunyikan" : "Lampiran")</button>
+        </div>
+    </div>
+
+    <!-- Attachment Area -->
+    @if (_showAttach)
+    {
+        <div class="card mb-2" style="padding:12px;">
+            <div class="flex-center gap-1">
+                <input type="file" accept="image/*" @onchange="OnImageSelected" style="display:none;" id="imgUpload" />
+                <label for="imgUpload" class="btn btn-sm">🖼️ Gambar</label>
+
+                <input type="file" accept=".pdf,.doc,.docx,.txt" @onchange="OnDocumentSelected" style="display:none;" id="docUpload" />
+                <label for="docUpload" class="btn btn-sm">📄 Dokumen</label>
+
+                @if (!string.IsNullOrEmpty(_attachedImageUrl))
+                {
+                    <span class="badge badge-info">🖼️ Gambar terlampir</span>
+                }
+                @if (!string.IsNullOrEmpty(_attachedDocUrl))
+                {
+                    <span class="badge badge-info">📄 Dokumen terlampir</span>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Messages -->
+    <div class="chat-messages" @ref="_messagesContainer">
+        @foreach (var msg in _messages)
+        {
+            <div class="chat-message @(msg.IsUser ? "user" : "assistant")">
+                <div style="font-size:0.75rem;font-weight:700;margin-bottom:4px;color:var(--text-secondary);">
+                    @(msg.IsUser ? "👤 Anda" : "🤖 Bang Jenggo")
+                    <span style="font-size:0.7rem;">@msg.Timestamp.ToLocalTime().ToString("HH:mm")</span>
+                </div>
+                @if (msg.IsUser)
+                {
+                    <div>@msg.Content</div>
+                }
+                else
+                {
+                    <div>@((MarkupString)RenderMarkdown(msg.Content))</div>
+                }
+            </div>
+        }
+
+        @if (_isStreaming)
+        {
+            <div class="chat-message assistant">
+                <div style="font-size:0.75rem;font-weight:700;margin-bottom:4px;">🤖 Bang Jenggo</div>
+                <div>@((MarkupString)RenderMarkdown(_streamingContent)) <span class="loading">▍</span></div>
+            </div>
+        }
+    </div>
+
+    <!-- Input -->
+    <div class="chat-input-area">
+        <input class="chat-input"
+               @bind-value="_userInput"
+               @bind-value:event="oninput"
+               @onkeydown="HandleKeyDown"
+               placeholder="Ketik pesan untuk Bang Jenggo..."
+               disabled="@_isStreaming" />
+        <button class="btn btn-primary btn-lg" @onclick="SendMessage" disabled="@(!_canSend)">
+            ➤
+        </button>
+    </div>
+
+    <!-- Suggested Questions -->
+    <div class="flex-center gap-1 mt-1" style="flex-wrap:wrap;">
+        <span class="text-muted" style="font-size:0.8rem;">💡 Coba tanyakan:</span>
+        @foreach (var q in new[] { "Harga BBM hari ini?", "Promo apa yang tersedia?", "Cek poin loyalitas 0812-3456-7890", "Penjualan hari ini?" })
+        {
+            <button class="btn btn-sm" @onclick="() => QuickAsk(q)" style="font-size:0.75rem;">@q</button>
+        }
+    </div>
+</div>
+
+@code {
+    private string _sessionId = Guid.NewGuid().ToString("N")[..8];
+    private string _userInput = "";
+    private string _selectedModel = "gpt-4o";
+    private bool _isStreaming;
+    private string _streamingContent = "";
+    private bool _showAttach;
+    private string? _attachedImageUrl;
+    private string? _attachedDocUrl;
+
+    private List<ChatMessage> _messages = new();
+    private ElementReference _messagesContainer;
+
+    private bool _canSend => !_isStreaming && !string.IsNullOrWhiteSpace(_userInput);
+
+    private class ChatMessage
+    {
+        public string Content { get; set; } = "";
+        public bool IsUser { get; set; }
+        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    }
+
+    private async Task SendMessage()
+    {
+        if (!_canSend) return;
+
+        var userMsg = _userInput.Trim();
+        _messages.Add(new ChatMessage { Content = userMsg, IsUser = true });
+        _userInput = "";
+        _isStreaming = true;
+        _streamingContent = "";
+
+        try
+        {
+            await foreach (var chunk in ChatBot.SendMessageStreamingAsync(
+                _sessionId, userMsg, _attachedImageUrl, _attachedDocUrl))
+            {
+                _streamingContent += chunk;
+                await InvokeAsync(StateHasChanged);
+                await ScrollToBottom();
+            }
+
+            _messages.Add(new ChatMessage { Content = _streamingContent, IsUser = false });
+            _streamingContent = "";
+            _attachedImageUrl = null;
+            _attachedDocUrl = null;
+        }
+        catch (Exception ex)
+        {
+            _messages.Add(new ChatMessage { Content = $"Error: {ex.Message}", IsUser = false });
+        }
+        finally
+        {
+            _isStreaming = false;
+        }
+    }
+
+    private async void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey && !_isStreaming)
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task QuickAsk(string question)
+    {
+        _userInput = question;
+        await SendMessage();
+    }
+
+    private void ResetSession()
+    {
+        _sessionId = Guid.NewGuid().ToString("N")[..8];
+        ChatBot.ResetSession(_sessionId);
+        _messages.Clear();
+        _attachedImageUrl = null;
+        _attachedDocUrl = null;
+    }
+
+    private void ToggleAttach() => _showAttach = !_showAttach;
+
+    private async Task OnImageSelected(ChangeEventArgs e)
+    {
+        // In a real implementation, upload file and get URL
+        _attachedImageUrl = "https://example.com/uploaded-image.jpg";
+        await Task.CompletedTask;
+    }
+
+    private async Task OnDocumentSelected(ChangeEventArgs e)
+    {
+        _attachedDocUrl = "https://example.com/uploaded-doc.pdf";
+        await Task.CompletedTask;
+    }
+
+    private string RenderMarkdown(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        var pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+        return Markdown.ToHtml(text, pipeline);
+    }
+
+    private async Task ScrollToBottom()
+    {
+        // JS interop would scroll the container
+        await Task.CompletedTask;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        ChatBot.ResetSession(_sessionId);
+    }
+}

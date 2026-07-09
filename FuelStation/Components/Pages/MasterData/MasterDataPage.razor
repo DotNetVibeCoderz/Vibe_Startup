@@ -1,0 +1,1098 @@
+@page "/master-data"
+@page "/master-data/{Tab}"
+@using FuelStation.Data
+@using FuelStation.Models
+@using Microsoft.EntityFrameworkCore
+@using ClosedXML.Excel
+@using System.Text
+@inject AppDbContext Db
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Master Data - FuelStation</PageTitle>
+
+<h2 class="mb-2" style="font-weight:800;">📋 Master Data</h2>
+
+<div class="tabs">
+    <button class="tab @(_activeTab == "products" ? "active" : "")" @onclick='() => SetTab("products")'>⛽ Produk BBM</button>
+    <button class="tab @(_activeTab == "stations" ? "active" : "")" @onclick='() => SetTab("stations")'>🏪 Stasiun</button>
+    <button class="tab @(_activeTab == "tanks" ? "active" : "")" @onclick='() => SetTab("tanks")'>🛢️ Tangki</button>
+    <button class="tab @(_activeTab == "nonfuel" ? "active" : "")" @onclick='() => SetTab("nonfuel")'>🛍️ Non-BBM</button>
+    <button class="tab @(_activeTab == "employees" ? "active" : "")" @onclick='() => SetTab("employees")'>👤 Karyawan</button>
+</div>
+
+<!-- ===== FUEL PRODUCTS ===== -->
+@if (_activeTab == "products")
+{
+    <div class="flex-between mb-2">
+        <input class="form-input" style="width:300px;" placeholder="🔍 Cari produk..." @bind-value="_searchTerm" @bind-value:event="oninput" />
+        <div class="flex-center gap-1">
+            <button class="btn btn-sm" @onclick="ExportCsv">📥 CSV</button>
+            <button class="btn btn-sm" @onclick="ExportExcel">📊 Excel</button>
+            <button class="btn btn-primary btn-sm" @onclick="OpenAddProduct">➕ Tambah</button>
+        </div>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th @onclick="() => SortBy(nameof(FuelProduct.Name))">Nama @SortIcon(nameof(FuelProduct.Name))</th>
+                <th @onclick="() => SortBy(nameof(FuelProduct.Code))">Kode @SortIcon(nameof(FuelProduct.Code))</th>
+                <th @onclick="() => SortBy(nameof(FuelProduct.FuelType))">Jenis @SortIcon(nameof(FuelProduct.FuelType))</th>
+                <th @onclick="() => SortBy(nameof(FuelProduct.OctaneRating))">Oktan @SortIcon(nameof(FuelProduct.OctaneRating))</th>
+                <th class="text-right" @onclick="() => SortBy(nameof(FuelProduct.PricePerLiter))">Harga/L @SortIcon(nameof(FuelProduct.PricePerLiter))</th>
+                <th>Status</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in FilterAndSort(_fuelProducts))
+            {
+                <tr>
+                    <td style="font-weight:600;">
+                        <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:@item.ColorCode;margin-right:8px;border:2px solid var(--border-bold);"></span>
+                        @item.Name
+                    </td>
+                    <td><code>@item.Code</code></td>
+                    <td>@item.FuelType</td>
+                    <td>@(item.OctaneRating ?? "-")</td>
+                    <td class="text-right" style="font-weight:700;">Rp @item.PricePerLiter.ToString("N0")</td>
+                    <td><span class="badge @(item.IsActive ? "badge-success" : "badge-danger")">@(item.IsActive ? "Aktif" : "Nonaktif")</span></td>
+                    <td>
+                        <button class="btn btn-sm" @onclick="() => EditProduct(item)">✏️</button>
+                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteProduct(item)">🗑️</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <!-- Pagination -->
+    <div class="flex-center gap-2 mt-2">
+        <button class="btn btn-sm" disabled="@(_currentPage <= 1)" @onclick="() => _currentPage--">←</button>
+        <span>Hal @_currentPage / @_totalPages</span>
+        <button class="btn btn-sm" disabled="@(_currentPage >= _totalPages)" @onclick="() => _currentPage++">→</button>
+    </div>
+}
+
+<!-- ===== STATIONS ===== -->
+@if (_activeTab == "stations")
+{
+    <div class="flex-between mb-2">
+        <span class="text-muted">@_stations.Count stasiun terdaftar</span>
+        <button class="btn btn-primary btn-sm" @onclick="OpenAddStation">➕ Tambah Stasiun</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));gap:16px;">
+        @foreach (var station in _stations)
+        {
+            <div class="card">
+                <div class="flex-between">
+                    <span style="font-weight:800;">🏪 @station.Name</span>
+                    <div class="flex-center gap-1">
+                        <span class="badge @(station.IsActive ? "badge-success" : "badge-danger")">@(station.IsActive ? "Aktif" : "Nonaktif")</span>
+                        <button class="btn btn-sm" @onclick="() => EditStation(station)">✏️</button>
+                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteStation(station)">🗑️</button>
+                    </div>
+                </div>
+                <div class="text-muted" style="font-size:0.85rem;">@station.Code</div>
+                <div style="font-size:0.85rem;">📍 @station.Address</div>
+                <div>📞 @station.Phone</div>
+            </div>
+        }
+    </div>
+}
+
+<!-- ===== TANKS ===== -->
+@if (_activeTab == "tanks")
+{
+    <div class="flex-between mb-2">
+        <span class="text-muted">@_tanks.Count tangki terdaftar</span>
+        <button class="btn btn-primary btn-sm" @onclick="OpenAddTank">➕ Tambah Tangki</button>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Nama</th>
+                <th>Stasiun</th>
+                <th>Produk</th>
+                <th class="text-right">Kapasitas</th>
+                <th class="text-right">Sisa</th>
+                <th class="text-right">%</th>
+                <th>Status</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var tank in _tanks)
+            {
+                var pct = tank.CapacityLiters > 0 ? (double)(tank.CurrentVolumeLiters / tank.CapacityLiters * 100) : 0;
+                <tr>
+                    <td style="font-weight:600;">@tank.Name</td>
+                    <td>@tank.FuelStation?.Name</td>
+                    <td>@tank.FuelProduct?.Name</td>
+                    <td class="text-right">@tank.CapacityLiters.ToString("N0") L</td>
+                    <td class="text-right" style="font-weight:700;">@tank.CurrentVolumeLiters.ToString("N0") L</td>
+                    <td class="text-right">
+                        <span class="badge @(pct < 20 ? "badge-danger" : pct < 40 ? "badge-warning" : "badge-success")">@pct.ToString("F1")%</span>
+                    </td>
+                    <td>
+                        @if (tank.IsLeakDetected) { <span class="badge badge-danger">⚠️ Bocor</span> }
+                    </td>
+                    <td>
+                        <button class="btn btn-sm" @onclick="() => EditTank(tank)">✏️</button>
+                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteTank(tank)">🗑️</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<!-- ===== NON-FUEL PRODUCTS ===== -->
+@if (_activeTab == "nonfuel")
+{
+    <div class="flex-between mb-2">
+        <input class="form-input" style="width:300px;" placeholder="🔍 Cari produk..." @bind-value="_nfSearchTerm" @bind-value:event="oninput" />
+        <button class="btn btn-primary btn-sm" @onclick="OpenAddNonFuel">➕ Tambah Produk</button>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Nama</th>
+                <th>SKU</th>
+                <th>Kategori</th>
+                <th class="text-right">Harga</th>
+                <th class="text-right">Stok</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in _nonFuelProducts.Where(p => string.IsNullOrEmpty(_nfSearchTerm) || p.Name.Contains(_nfSearchTerm, StringComparison.OrdinalIgnoreCase)))
+            {
+                <tr>
+                    <td style="font-weight:600;">@item.Name</td>
+                    <td><code>@item.SKU</code></td>
+                    <td>@item.Category</td>
+                    <td class="text-right" style="font-weight:700;">Rp @item.Price.ToString("N0")</td>
+                    <td class="text-right">
+                        <span class="badge @(item.StockQuantity <= item.MinStockThreshold ? "badge-danger" : "badge-success")">@item.StockQuantity</span>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm" @onclick="() => EditNonFuel(item)">✏️</button>
+                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteNonFuel(item)">🗑️</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<!-- ===== EMPLOYEES ===== -->
+@if (_activeTab == "employees")
+{
+    <div class="flex-between mb-2">
+        <span class="text-muted">@_employees.Count karyawan</span>
+        <button class="btn btn-primary btn-sm" @onclick="OpenAddEmployee">➕ Tambah Karyawan</button>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Nama</th>
+                <th>Kode</th>
+                <th>Role</th>
+                <th>Stasiun</th>
+                <th>Status</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var emp in _employees)
+            {
+                <tr>
+                    <td style="font-weight:600;">@emp.Name</td>
+                    <td><code>@emp.EmployeeCode</code></td>
+                    <td><span class="badge badge-accent">@emp.Role</span></td>
+                    <td>@emp.FuelStation?.Name</td>
+                    <td><span class="badge @(emp.IsActive ? "badge-success" : "badge-danger")">@(emp.IsActive ? "Aktif" : "Nonaktif")</span></td>
+                    <td>
+                        <button class="btn btn-sm" @onclick="() => EditEmployee(emp)">✏️</button>
+                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteEmployee(emp)">🗑️</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (_showAddModal)
+{
+    <div class="modal-overlay" @onclick="CloseProductModal">
+        <div class="modal-content card" style="max-width:700px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header">
+                <span class="card-title">@(_editingProduct != null ? "✏️ Edit Produk BBM" : "➕ Tambah Produk BBM")</span>
+                <button class="btn btn-sm btn-danger" @onclick="CloseProductModal">✕</button>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label class="form-label">Nama Produk</label>
+                    <input class="form-input" @bind="_productForm.Name" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Kode</label>
+                    <input class="form-input" @bind="_productForm.Code" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Jenis</label>
+                    <select class="form-select" @bind="_productForm.FuelType">
+                        <option value="Gasoline">Gasoline</option>
+                        <option value="Diesel">Diesel</option>
+                        <option value="Electric">Electric</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Oktan</label>
+                    <input class="form-input" @bind="_productForm.OctaneRating" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Harga/Liter</label>
+                    <input class="form-input" type="number" step="0.01" @bind="_productForm.PricePerLiter" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Cost/Liter</label>
+                    <input class="form-input" type="number" step="0.01" @bind="_productForm.CostPerLiter" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Warna</label>
+                    <input class="form-input" type="color" @bind="_productForm.ColorCode" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" @bind="_productForm.IsActive" /> Aktif
+                    </label>
+                </div>
+            </div>
+            <div class="flex-between mt-2">
+                <button class="btn btn-danger" @onclick="CloseProductModal">Batal</button>
+                <button class="btn btn-primary" @onclick="SaveProduct">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showStationModal)
+{
+    <div class="modal-overlay" @onclick="CloseStationModal">
+        <div class="modal-content card" style="max-width:700px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header">
+                <span class="card-title">@(_editingStation != null ? "✏️ Edit Stasiun" : "➕ Tambah Stasiun")</span>
+                <button class="btn btn-sm btn-danger" @onclick="CloseStationModal">✕</button>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label class="form-label">Nama Stasiun</label>
+                    <input class="form-input" @bind="_stationForm.Name" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Kode</label>
+                    <input class="form-input" @bind="_stationForm.Code" />
+                </div>
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label class="form-label">Alamat</label>
+                    <input class="form-input" @bind="_stationForm.Address" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Telepon</label>
+                    <input class="form-input" @bind="_stationForm.Phone" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Latitude</label>
+                    <input class="form-input" type="number" step="0.000001" @bind="_stationForm.Latitude" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Longitude</label>
+                    <input class="form-input" type="number" step="0.000001" @bind="_stationForm.Longitude" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" @bind="_stationForm.IsActive" /> Aktif
+                    </label>
+                </div>
+            </div>
+            <div class="flex-between mt-2">
+                <button class="btn btn-danger" @onclick="CloseStationModal">Batal</button>
+                <button class="btn btn-primary" @onclick="SaveStation">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showTankModal)
+{
+    <div class="modal-overlay" @onclick="CloseTankModal">
+        <div class="modal-content card" style="max-width:800px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header">
+                <span class="card-title">@(_editingTank != null ? "✏️ Edit Tangki" : "➕ Tambah Tangki")</span>
+                <button class="btn btn-sm btn-danger" @onclick="CloseTankModal">✕</button>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label class="form-label">Nama Tangki</label>
+                    <input class="form-input" @bind="_tankForm.Name" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nomor Tangki</label>
+                    <input class="form-input" @bind="_tankForm.TankNumber" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Stasiun</label>
+                    <select class="form-select" @bind="_tankStationId">
+                        <option value="">-- Pilih Stasiun --</option>
+                        @foreach (var s in _stations)
+                        {
+                            <option value="@s.Id">@s.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Produk</label>
+                    <select class="form-select" @bind="_tankProductId">
+                        <option value="">-- Pilih Produk --</option>
+                        @foreach (var p in _fuelProducts)
+                        {
+                            <option value="@p.Id">@p.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Kapasitas (L)</label>
+                    <input class="form-input" type="number" step="0.01" @bind="_tankForm.CapacityLiters" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Volume Saat Ini (L)</label>
+                    <input class="form-input" type="number" step="0.01" @bind="_tankForm.CurrentVolumeLiters" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Minimum Threshold (L)</label>
+                    <input class="form-input" type="number" step="0.01" @bind="_tankForm.MinThresholdLiters" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Sensor ID</label>
+                    <input class="form-input" @bind="_tankForm.SensorId" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" @bind="_tankForm.IsLeakDetected" /> Ada Kebocoran
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" @bind="_tankForm.IsActive" /> Aktif
+                    </label>
+                </div>
+            </div>
+            <div class="flex-between mt-2">
+                <button class="btn btn-danger" @onclick="CloseTankModal">Batal</button>
+                <button class="btn btn-primary" @onclick="SaveTank">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showNfModal)
+{
+    <div class="modal-overlay" @onclick="CloseNonFuelModal">
+        <div class="modal-content card" style="max-width:800px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header">
+                <span class="card-title">@(_editingNonFuel != null ? "✏️ Edit Produk Non-BBM" : "➕ Tambah Produk Non-BBM")</span>
+                <button class="btn btn-sm btn-danger" @onclick="CloseNonFuelModal">✕</button>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label class="form-label">Nama Produk</label>
+                    <input class="form-input" @bind="_nonFuelForm.Name" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">SKU</label>
+                    <input class="form-input" @bind="_nonFuelForm.SKU" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Kategori</label>
+                    <input class="form-input" @bind="_nonFuelForm.Category" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Harga</label>
+                    <input class="form-input" type="number" step="0.01" @bind="_nonFuelForm.Price" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Cost</label>
+                    <input class="form-input" type="number" step="0.01" @bind="_nonFuelForm.Cost" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Stok</label>
+                    <input class="form-input" type="number" @bind="_nonFuelForm.StockQuantity" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Min. Stok</label>
+                    <input class="form-input" type="number" @bind="_nonFuelForm.MinStockThreshold" />
+                </div>
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label class="form-label">Deskripsi</label>
+                    <input class="form-input" @bind="_nonFuelForm.Description" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" @bind="_nonFuelForm.IsActive" /> Aktif
+                    </label>
+                </div>
+            </div>
+            <div class="flex-between mt-2">
+                <button class="btn btn-danger" @onclick="CloseNonFuelModal">Batal</button>
+                <button class="btn btn-primary" @onclick="SaveNonFuel">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showEmployeeModal)
+{
+    <div class="modal-overlay" @onclick="CloseEmployeeModal">
+        <div class="modal-content card" style="max-width:800px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header">
+                <span class="card-title">@(_editingEmployee != null ? "✏️ Edit Karyawan" : "➕ Tambah Karyawan")</span>
+                <button class="btn btn-sm btn-danger" @onclick="CloseEmployeeModal">✕</button>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label class="form-label">Nama</label>
+                    <input class="form-input" @bind="_employeeForm.Name" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Kode</label>
+                    <input class="form-input" @bind="_employeeForm.EmployeeCode" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Role</label>
+                    <select class="form-select" @bind="_employeeForm.Role">
+                        <option value="Admin">Admin</option>
+                        <option value="Supervisor">Supervisor</option>
+                        <option value="Operator">Operator</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Stasiun</label>
+                    <select class="form-select" @bind="_employeeStationId">
+                        <option value="">-- Tanpa Stasiun --</option>
+                        @foreach (var s in _stations)
+                        {
+                            <option value="@s.Id">@s.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Telepon</label>
+                    <input class="form-input" @bind="_employeeForm.Phone" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input class="form-input" @bind="_employeeForm.Email" />
+                </div>
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label class="form-label">Catatan</label>
+                    <input class="form-input" @bind="_employeeForm.Notes" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" @bind="_employeeForm.IsActive" /> Aktif
+                    </label>
+                </div>
+            </div>
+            <div class="flex-between mt-2">
+                <button class="btn btn-danger" @onclick="CloseEmployeeModal">Batal</button>
+                <button class="btn btn-primary" @onclick="SaveEmployee">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Tab { get; set; }
+
+    private string _activeTab = "products";
+    private string _searchTerm = "";
+    private string _nfSearchTerm = "";
+    private string _sortColumn = "";
+    private bool _sortAsc = true;
+    private int _currentPage = 1;
+    private int _pageSize = 10;
+    private int _totalPages = 1;
+
+    private bool _showAddModal, _showStationModal, _showTankModal, _showNfModal, _showEmployeeModal;
+
+    private FuelProduct _productForm = new();
+    private FuelProduct? _editingProduct;
+
+    private FuelStationLocation _stationForm = new();
+    private FuelStationLocation? _editingStation;
+
+    private Tank _tankForm = new();
+    private Tank? _editingTank;
+    private string _tankStationId = "";
+    private string _tankProductId = "";
+
+    private NonFuelProduct _nonFuelForm = new();
+    private NonFuelProduct? _editingNonFuel;
+
+    private Employee _employeeForm = new();
+    private Employee? _editingEmployee;
+    private string _employeeStationId = "";
+
+    private List<FuelProduct> _fuelProducts = new();
+    private List<FuelStationLocation> _stations = new();
+    private List<Tank> _tanks = new();
+    private List<NonFuelProduct> _nonFuelProducts = new();
+    private List<Employee> _employees = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(Tab)) _activeTab = Tab;
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _fuelProducts = await Db.FuelProducts.Where(p => !p.IsDeleted).OrderBy(p => p.Name).ToListAsync();
+        _stations = await Db.FuelStations.Where(s => !s.IsDeleted).OrderBy(s => s.Name).ToListAsync();
+        _tanks = await Db.Tanks
+            .Where(t => !t.IsDeleted)
+            .Include(t => t.FuelStation)
+            .Include(t => t.FuelProduct)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+        _nonFuelProducts = await Db.NonFuelProducts.Where(p => !p.IsDeleted).OrderBy(p => p.Name).ToListAsync();
+        _employees = await Db.Employees
+            .Where(e => !e.IsDeleted)
+            .Include(e => e.FuelStation)
+            .OrderBy(e => e.Name)
+            .ToListAsync();
+        _totalPages = Math.Max(1, (int)Math.Ceiling(_fuelProducts.Count / (double)_pageSize));
+    }
+
+    private void SetTab(string tab) { _activeTab = tab; Nav.NavigateTo($"/master-data/{tab}"); }
+
+    private List<FuelProduct> FilterAndSort(List<FuelProduct> items)
+    {
+        var filtered = items.Where(p => string.IsNullOrEmpty(_searchTerm) ||
+            p.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ||
+            (p.Code?.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+
+        if (!string.IsNullOrEmpty(_sortColumn))
+        {
+            filtered = _sortColumn switch
+            {
+                nameof(FuelProduct.Name) => _sortAsc ? filtered.OrderBy(p => p.Name).ToList() : filtered.OrderByDescending(p => p.Name).ToList(),
+                nameof(FuelProduct.Code) => _sortAsc ? filtered.OrderBy(p => p.Code).ToList() : filtered.OrderByDescending(p => p.Code).ToList(),
+                nameof(FuelProduct.PricePerLiter) => _sortAsc ? filtered.OrderBy(p => p.PricePerLiter).ToList() : filtered.OrderByDescending(p => p.PricePerLiter).ToList(),
+                _ => filtered
+            };
+        }
+
+        _totalPages = Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)_pageSize));
+        return filtered.Skip((_currentPage - 1) * _pageSize).Take(_pageSize).ToList();
+    }
+
+    private List<FuelProduct> FilterProductsForExport()
+    {
+        return _fuelProducts.Where(p => string.IsNullOrEmpty(_searchTerm) ||
+            p.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ||
+            (p.Code?.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+    }
+
+    private void SortBy(string column)
+    {
+        if (_sortColumn == column) _sortAsc = !_sortAsc;
+        else { _sortColumn = column; _sortAsc = true; }
+    }
+
+    private string SortIcon(string column) => _sortColumn == column ? (_sortAsc ? "▲" : "▼") : "";
+
+    private async Task ExportCsv()
+    {
+        var products = FilterProductsForExport();
+        var csv = "Name,Code,FuelType,Octane,PricePerLiter,CostPerLiter,Status\n" +
+            string.Join("\n", products.Select(p => $"{p.Name},{p.Code},{p.FuelType},{p.OctaneRating},{p.PricePerLiter},{p.CostPerLiter},{(p.IsActive ? "Aktif" : "Nonaktif")}"));
+        await DownloadFileAsync("export_products.csv", "text/csv;charset=utf-8", csv);
+    }
+
+    private async Task ExportExcel()
+    {
+        var products = FilterProductsForExport();
+        using var workbook = new XLWorkbook();
+        var sheet = workbook.Worksheets.Add("FuelProducts");
+        sheet.Cell(1, 1).Value = "Nama";
+        sheet.Cell(1, 2).Value = "Kode";
+        sheet.Cell(1, 3).Value = "Jenis";
+        sheet.Cell(1, 4).Value = "Oktan";
+        sheet.Cell(1, 5).Value = "Harga/L";
+        sheet.Cell(1, 6).Value = "Cost/L";
+        sheet.Cell(1, 7).Value = "Status";
+
+        var row = 2;
+        foreach (var p in products)
+        {
+            sheet.Cell(row, 1).Value = p.Name;
+            sheet.Cell(row, 2).Value = p.Code;
+            sheet.Cell(row, 3).Value = p.FuelType;
+            sheet.Cell(row, 4).Value = p.OctaneRating;
+            sheet.Cell(row, 5).Value = p.PricePerLiter;
+            sheet.Cell(row, 6).Value = p.CostPerLiter;
+            sheet.Cell(row, 7).Value = p.IsActive ? "Aktif" : "Nonaktif";
+            row++;
+        }
+
+        sheet.Columns().AdjustToContents();
+        await using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        await DownloadBytesAsync("export_products.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", stream.ToArray());
+    }
+
+    private async Task DownloadFileAsync(string fileName, string contentType, string content)
+    {
+        var base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(content));
+        await JS.InvokeVoidAsync("fileDownloader.downloadFileFromBase64", fileName, contentType, base64);
+    }
+
+    private async Task DownloadBytesAsync(string fileName, string contentType, byte[] content)
+    {
+        var base64 = Convert.ToBase64String(content);
+        await JS.InvokeVoidAsync("fileDownloader.downloadFileFromBase64", fileName, contentType, base64);
+    }
+
+    private void OpenAddProduct()
+    {
+        _editingProduct = null;
+        _productForm = new FuelProduct
+        {
+            Name = "",
+            Code = "",
+            FuelType = "Gasoline",
+            OctaneRating = "",
+            PricePerLiter = 0,
+            CostPerLiter = 0,
+            ColorCode = "#4f46e5",
+            IsActive = true
+        };
+        _showAddModal = true;
+    }
+
+    private void EditProduct(FuelProduct product)
+    {
+        _editingProduct = product;
+        _productForm = new FuelProduct
+        {
+            Name = product.Name,
+            Code = product.Code,
+            FuelType = product.FuelType,
+            OctaneRating = product.OctaneRating,
+            PricePerLiter = product.PricePerLiter,
+            CostPerLiter = product.CostPerLiter,
+            ColorCode = product.ColorCode,
+            IsActive = product.IsActive
+        };
+        _showAddModal = true;
+    }
+
+    private async Task SaveProduct()
+    {
+        if (string.IsNullOrWhiteSpace(_productForm.Name)) return;
+        if (_editingProduct != null)
+        {
+            var existing = await Db.FuelProducts.FindAsync(_editingProduct.Id);
+            if (existing != null)
+            {
+                existing.Name = _productForm.Name;
+                existing.Code = _productForm.Code;
+                existing.FuelType = _productForm.FuelType;
+                existing.OctaneRating = _productForm.OctaneRating;
+                existing.PricePerLiter = _productForm.PricePerLiter;
+                existing.CostPerLiter = _productForm.CostPerLiter;
+                existing.ColorCode = _productForm.ColorCode;
+                existing.IsActive = _productForm.IsActive;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+        else
+        {
+            var newProduct = new FuelProduct
+            {
+                Id = Guid.NewGuid(),
+                Name = _productForm.Name,
+                Code = _productForm.Code,
+                FuelType = _productForm.FuelType,
+                OctaneRating = _productForm.OctaneRating,
+                PricePerLiter = _productForm.PricePerLiter,
+                CostPerLiter = _productForm.CostPerLiter,
+                ColorCode = _productForm.ColorCode,
+                IsActive = _productForm.IsActive,
+                CreatedAt = DateTime.UtcNow
+            };
+            Db.FuelProducts.Add(newProduct);
+        }
+
+        await Db.SaveChangesAsync();
+        _showAddModal = false;
+        await LoadData();
+    }
+
+    private void CloseProductModal() => _showAddModal = false;
+
+    private async Task DeleteProduct(FuelProduct product)
+    {
+        var existing = await Db.FuelProducts.FindAsync(product.Id);
+        if (existing != null)
+        {
+            existing.IsDeleted = true;
+            existing.IsActive = false;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await Db.SaveChangesAsync();
+            await LoadData();
+        }
+    }
+
+    private void OpenAddStation()
+    {
+        _editingStation = null;
+        _stationForm = new FuelStationLocation { IsActive = true };
+        _showStationModal = true;
+    }
+
+    private void EditStation(FuelStationLocation station)
+    {
+        _editingStation = station;
+        _stationForm = new FuelStationLocation
+        {
+            Name = station.Name,
+            Code = station.Code,
+            Address = station.Address,
+            Phone = station.Phone,
+            Latitude = station.Latitude,
+            Longitude = station.Longitude,
+            IsActive = station.IsActive
+        };
+        _showStationModal = true;
+    }
+
+    private async Task SaveStation()
+    {
+        if (string.IsNullOrWhiteSpace(_stationForm.Name)) return;
+        if (_editingStation != null)
+        {
+            var existing = await Db.FuelStations.FindAsync(_editingStation.Id);
+            if (existing != null)
+            {
+                existing.Name = _stationForm.Name;
+                existing.Code = _stationForm.Code;
+                existing.Address = _stationForm.Address;
+                existing.Phone = _stationForm.Phone;
+                existing.Latitude = _stationForm.Latitude;
+                existing.Longitude = _stationForm.Longitude;
+                existing.IsActive = _stationForm.IsActive;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+        else
+        {
+            var newStation = new FuelStationLocation
+            {
+                Id = Guid.NewGuid(),
+                Name = _stationForm.Name,
+                Code = _stationForm.Code,
+                Address = _stationForm.Address,
+                Phone = _stationForm.Phone,
+                Latitude = _stationForm.Latitude,
+                Longitude = _stationForm.Longitude,
+                IsActive = _stationForm.IsActive,
+                CreatedAt = DateTime.UtcNow
+            };
+            Db.FuelStations.Add(newStation);
+        }
+
+        await Db.SaveChangesAsync();
+        _showStationModal = false;
+        await LoadData();
+    }
+
+    private void CloseStationModal() => _showStationModal = false;
+
+    private async Task DeleteStation(FuelStationLocation station)
+    {
+        var existing = await Db.FuelStations.FindAsync(station.Id);
+        if (existing != null)
+        {
+            existing.IsDeleted = true;
+            existing.IsActive = false;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await Db.SaveChangesAsync();
+            await LoadData();
+        }
+    }
+
+    private void OpenAddTank()
+    {
+        _editingTank = null;
+        _tankForm = new Tank { IsActive = true };
+        _tankStationId = "";
+        _tankProductId = "";
+        _showTankModal = true;
+    }
+
+    private void EditTank(Tank tank)
+    {
+        _editingTank = tank;
+        _tankForm = new Tank
+        {
+            Name = tank.Name,
+            TankNumber = tank.TankNumber,
+            CapacityLiters = tank.CapacityLiters,
+            CurrentVolumeLiters = tank.CurrentVolumeLiters,
+            MinThresholdLiters = tank.MinThresholdLiters,
+            SensorId = tank.SensorId,
+            IsLeakDetected = tank.IsLeakDetected,
+            IsActive = tank.IsActive
+        };
+        _tankStationId = tank.FuelStationId.ToString();
+        _tankProductId = tank.FuelProductId.ToString();
+        _showTankModal = true;
+    }
+
+    private async Task SaveTank()
+    {
+        if (string.IsNullOrWhiteSpace(_tankForm.Name)) return;
+        if (!Guid.TryParse(_tankStationId, out var stationId)) return;
+        if (!Guid.TryParse(_tankProductId, out var productId)) return;
+
+        if (_editingTank != null)
+        {
+            var existing = await Db.Tanks.FindAsync(_editingTank.Id);
+            if (existing != null)
+            {
+                existing.Name = _tankForm.Name;
+                existing.TankNumber = _tankForm.TankNumber;
+                existing.FuelStationId = stationId;
+                existing.FuelProductId = productId;
+                existing.CapacityLiters = _tankForm.CapacityLiters;
+                existing.CurrentVolumeLiters = _tankForm.CurrentVolumeLiters;
+                existing.MinThresholdLiters = _tankForm.MinThresholdLiters;
+                existing.SensorId = _tankForm.SensorId;
+                existing.IsLeakDetected = _tankForm.IsLeakDetected;
+                existing.IsActive = _tankForm.IsActive;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+        else
+        {
+            var newTank = new Tank
+            {
+                Id = Guid.NewGuid(),
+                Name = _tankForm.Name,
+                TankNumber = _tankForm.TankNumber,
+                FuelStationId = stationId,
+                FuelProductId = productId,
+                CapacityLiters = _tankForm.CapacityLiters,
+                CurrentVolumeLiters = _tankForm.CurrentVolumeLiters,
+                MinThresholdLiters = _tankForm.MinThresholdLiters,
+                SensorId = _tankForm.SensorId,
+                IsLeakDetected = _tankForm.IsLeakDetected,
+                IsActive = _tankForm.IsActive,
+                CreatedAt = DateTime.UtcNow
+            };
+            Db.Tanks.Add(newTank);
+        }
+
+        await Db.SaveChangesAsync();
+        _showTankModal = false;
+        await LoadData();
+    }
+
+    private void CloseTankModal() => _showTankModal = false;
+
+    private async Task DeleteTank(Tank tank)
+    {
+        var existing = await Db.Tanks.FindAsync(tank.Id);
+        if (existing != null)
+        {
+            existing.IsDeleted = true;
+            existing.IsActive = false;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await Db.SaveChangesAsync();
+            await LoadData();
+        }
+    }
+
+    private void OpenAddNonFuel()
+    {
+        _editingNonFuel = null;
+        _nonFuelForm = new NonFuelProduct { IsActive = true, Category = "General" };
+        _showNfModal = true;
+    }
+
+    private void EditNonFuel(NonFuelProduct product)
+    {
+        _editingNonFuel = product;
+        _nonFuelForm = new NonFuelProduct
+        {
+            Name = product.Name,
+            SKU = product.SKU,
+            Category = product.Category,
+            Price = product.Price,
+            Cost = product.Cost,
+            StockQuantity = product.StockQuantity,
+            MinStockThreshold = product.MinStockThreshold,
+            Description = product.Description,
+            IsActive = product.IsActive
+        };
+        _showNfModal = true;
+    }
+
+    private async Task SaveNonFuel()
+    {
+        if (string.IsNullOrWhiteSpace(_nonFuelForm.Name)) return;
+        if (_editingNonFuel != null)
+        {
+            var existing = await Db.NonFuelProducts.FindAsync(_editingNonFuel.Id);
+            if (existing != null)
+            {
+                existing.Name = _nonFuelForm.Name;
+                existing.SKU = _nonFuelForm.SKU;
+                existing.Category = _nonFuelForm.Category;
+                existing.Price = _nonFuelForm.Price;
+                existing.Cost = _nonFuelForm.Cost;
+                existing.StockQuantity = _nonFuelForm.StockQuantity;
+                existing.MinStockThreshold = _nonFuelForm.MinStockThreshold;
+                existing.Description = _nonFuelForm.Description;
+                existing.IsActive = _nonFuelForm.IsActive;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+        else
+        {
+            var newProduct = new NonFuelProduct
+            {
+                Id = Guid.NewGuid(),
+                Name = _nonFuelForm.Name,
+                SKU = _nonFuelForm.SKU,
+                Category = _nonFuelForm.Category,
+                Price = _nonFuelForm.Price,
+                Cost = _nonFuelForm.Cost,
+                StockQuantity = _nonFuelForm.StockQuantity,
+                MinStockThreshold = _nonFuelForm.MinStockThreshold,
+                Description = _nonFuelForm.Description,
+                IsActive = _nonFuelForm.IsActive,
+                CreatedAt = DateTime.UtcNow
+            };
+            Db.NonFuelProducts.Add(newProduct);
+        }
+
+        await Db.SaveChangesAsync();
+        _showNfModal = false;
+        await LoadData();
+    }
+
+    private void CloseNonFuelModal() => _showNfModal = false;
+
+    private async Task DeleteNonFuel(NonFuelProduct product)
+    {
+        var existing = await Db.NonFuelProducts.FindAsync(product.Id);
+        if (existing != null)
+        {
+            existing.IsDeleted = true;
+            existing.IsActive = false;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await Db.SaveChangesAsync();
+            await LoadData();
+        }
+    }
+
+    private void OpenAddEmployee()
+    {
+        _editingEmployee = null;
+        _employeeForm = new Employee { IsActive = true, Role = "Operator" };
+        _employeeStationId = "";
+        _showEmployeeModal = true;
+    }
+
+    private void EditEmployee(Employee employee)
+    {
+        _editingEmployee = employee;
+        _employeeForm = new Employee
+        {
+            Name = employee.Name,
+            EmployeeCode = employee.EmployeeCode,
+            Role = employee.Role,
+            Phone = employee.Phone,
+            Email = employee.Email,
+            Notes = employee.Notes,
+            IsActive = employee.IsActive
+        };
+        _employeeStationId = employee.FuelStationId?.ToString() ?? "";
+        _showEmployeeModal = true;
+    }
+
+    private async Task SaveEmployee()
+    {
+        if (string.IsNullOrWhiteSpace(_employeeForm.Name)) return;
+        Guid? stationId = Guid.TryParse(_employeeStationId, out var sid) ? sid : null;
+
+        if (_editingEmployee != null)
+        {
+            var existing = await Db.Employees.FindAsync(_editingEmployee.Id);
+            if (existing != null)
+            {
+                existing.Name = _employeeForm.Name;
+                existing.EmployeeCode = _employeeForm.EmployeeCode;
+                existing.Role = _employeeForm.Role;
+                existing.Phone = _employeeForm.Phone;
+                existing.Email = _employeeForm.Email;
+                existing.Notes = _employeeForm.Notes;
+                existing.IsActive = _employeeForm.IsActive;
+                existing.FuelStationId = stationId;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+        else
+        {
+            var newEmployee = new Employee
+            {
+                Id = Guid.NewGuid(),
+                Name = _employeeForm.Name,
+                EmployeeCode = _employeeForm.EmployeeCode,
+                Role = _employeeForm.Role,
+                Phone = _employeeForm.Phone,
+                Email = _employeeForm.Email,
+                Notes = _employeeForm.Notes,
+                IsActive = _employeeForm.IsActive,
+                FuelStationId = stationId,
+                CreatedAt = DateTime.UtcNow
+            };
+            Db.Employees.Add(newEmployee);
+        }
+
+        await Db.SaveChangesAsync();
+        _showEmployeeModal = false;
+        await LoadData();
+    }
+
+    private void CloseEmployeeModal() => _showEmployeeModal = false;
+
+    private async Task DeleteEmployee(Employee employee)
+    {
+        var existing = await Db.Employees.FindAsync(employee.Id);
+        if (existing != null)
+        {
+            existing.IsDeleted = true;
+            existing.IsActive = false;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await Db.SaveChangesAsync();
+            await LoadData();
+        }
+    }
+}

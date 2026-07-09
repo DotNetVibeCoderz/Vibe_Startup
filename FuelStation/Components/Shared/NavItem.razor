@@ -1,0 +1,17 @@
+<NavLink href="@Href" class="nav-item" ActiveClass="active" Match="@MatchMode">
+    <span class="nav-icon">@Icon</span>
+    <span class="nav-text">@Text</span>
+    @if (Badge.HasValue && Badge.Value > 0)
+    {
+        <span class="nav-badge">@(Badge.Value > 99 ? "99+" : Badge.Value.ToString())</span>
+    }
+</NavLink>
+
+@code {
+    [Parameter] public string Href { get; set; } = "/";
+    [Parameter] public string Icon { get; set; } = "📄";
+    [Parameter] public string Text { get; set; } = "Menu";
+    [Parameter] public int? Badge { get; set; }
+
+    private NavLinkMatch MatchMode => Href == "/" ? NavLinkMatch.All : NavLinkMatch.Prefix;
+}

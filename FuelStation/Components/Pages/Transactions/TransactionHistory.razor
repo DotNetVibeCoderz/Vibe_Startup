@@ -1,0 +1,193 @@
+@page "/transactions"
+@using FuelStation.Data
+@using FuelStation.Models
+@using Microsoft.EntityFrameworkCore
+@using ClosedXML.Excel
+@using System.Text
+@inject AppDbContext Db
+@inject IJSRuntime JS
+
+<PageTitle>Riwayat Transaksi - FuelStation</PageTitle>
+
+<h2 class="mb-2" style="font-weight:800;">🧾 Riwayat Transaksi</h2>
+
+<div class="card mb-2">
+    <div class="flex-between gap-2" style="flex-wrap:wrap;">
+        <div class="flex-center gap-1">
+            <label class="form-label" style="margin:0;">Dari:</label>
+            <input type="date" class="form-input" style="width:180px;" value="@_filterFrom"
+                   @onchange="@(e => _filterFrom = (string?)e.Value ?? "")" />
+            <label class="form-label" style="margin:0;">Sampai:</label>
+            <input type="date" class="form-input" style="width:180px;" value="@_filterTo"
+                   @onchange="@(e => _filterTo = (string?)e.Value ?? "")" />
+        </div>
+        <div class="flex-center gap-1">
+            <select class="form-select" style="width:160px;" @bind="_filterPayment">
+                <option value="">Semua Pembayaran</option>
+                <option value="Cash">Cash</option>
+                <option value="QRIS">QRIS</option>
+                <option value="EWallet">E-Wallet</option>
+                <option value="DebitCard">Debit</option>
+                <option value="BankTransfer">Transfer</option>
+            </select>
+            <select class="form-select" style="width:160px;" @bind="_filterStation">
+                <option value="">Semua Stasiun</option>
+                @foreach (var s in _stations)
+                {
+                    <option value="@s.Id.ToString()">@s.Name</option>
+                }
+            </select>
+            <input class="form-input" style="width:200px;" placeholder="🔍 Cari no transaksi..." @bind-value="_searchTerm" />
+            <button class="btn btn-primary btn-sm" @onclick="LoadTransactions">🔍 Filter</button>
+        </div>
+    </div>
+</div>
+
+<!-- Summary -->
+<div class="stats-grid mb-2">
+    <div class="stat-card">
+        <div class="stat-value">@_filteredTransactions.Count</div>
+        <div class="stat-label">Transaksi</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">Rp @_filteredTransactions.Sum(t => t.GrandTotal).ToString("N0")</div>
+        <div class="stat-label">Total Nilai</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">@_filteredTransactions.Sum(t => t.TransactionDetails.Sum(d => d.Liters)).ToString("N1") L</div>
+        <div class="stat-label">Total Liter</div>
+    </div>
+</div>
+
+<div class="flex-between mb-2">
+    <span class="text-muted">Menampilkan @_filteredTransactions.Count transaksi</span>
+    <div class="flex-center gap-1">
+        <button class="btn btn-sm" @onclick="ExportCsv">📥 CSV</button>
+        <button class="btn btn-sm" @onclick="ExportExcel">📊 Excel</button>
+    </div>
+</div>
+
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>No. Transaksi</th>
+            <th>Tanggal</th>
+            <th>Stasiun</th>
+            <th>Produk</th>
+            <th class="text-right">Liter</th>
+            <th class="text-right">Total</th>
+            <th>Pembayaran</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var tx in _filteredTransactions)
+        {
+            <tr>
+                <td style="font-family:var(--font-mono);font-size:0.8rem;">@tx.TransactionNumber</td>
+                <td>@tx.TransactionDate.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                <td>@tx.FuelStation?.Name</td>
+                <td>@(tx.TransactionDetails.FirstOrDefault()?.FuelProduct?.Name ?? "-")</td>
+                <td class="text-right">@tx.TransactionDetails.Sum(d => d.Liters).ToString("N2") L</td>
+                <td class="text-right" style="font-weight:700;">Rp @tx.GrandTotal.ToString("N0")</td>
+                <td><span class="badge badge-accent">@tx.PaymentMethod</span></td>
+                <td><span class="badge @(tx.Status == "Completed" ? "badge-success" : tx.Status == "Pending" ? "badge-warning" : "badge-danger")">@tx.Status</span></td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private List<FuelStationLocation> _stations = new();
+    private List<Transaction> _allTransactions = new();
+    private List<Transaction> _filteredTransactions = new();
+
+    private string _filterFrom = DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
+    private string _filterTo = DateTime.UtcNow.ToString("yyyy-MM-dd");
+    private string _filterPayment = "";
+    private string _filterStation = "";
+    private string _searchTerm = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stations = await Db.FuelStations.Where(s => s.IsActive).ToListAsync();
+        await LoadTransactions();
+    }
+
+    private async Task LoadTransactions()
+    {
+        var from = DateTime.TryParse(_filterFrom, out var f) ? f.Date : DateTime.UtcNow.AddDays(-30).Date;
+        var to = DateTime.TryParse(_filterTo, out var t) ? t.Date.AddDays(1) : DateTime.UtcNow.Date.AddDays(1);
+
+        var query = Db.Transactions
+            .Include(tx => tx.FuelStation)
+            .Include(tx => tx.TransactionDetails).ThenInclude(d => d.FuelProduct)
+            .Where(tx => tx.TransactionDate >= from && tx.TransactionDate < to);
+
+        if (!string.IsNullOrEmpty(_filterPayment))
+            query = query.Where(tx => tx.PaymentMethod == _filterPayment);
+
+        if (!string.IsNullOrEmpty(_filterStation) && Guid.TryParse(_filterStation, out var stationId))
+            query = query.Where(tx => tx.FuelStationId == stationId);
+
+        if (!string.IsNullOrEmpty(_searchTerm))
+            query = query.Where(tx => tx.TransactionNumber.Contains(_searchTerm));
+
+        _allTransactions = await query.OrderByDescending(tx => tx.TransactionDate).Take(200).ToListAsync();
+        _filteredTransactions = _allTransactions;
+    }
+
+    private async Task ExportCsv()
+    {
+        var csv = "No,Date,Station,Product,Liters,Total,Payment,Status\n" +
+            string.Join("\n", _filteredTransactions.Select(tx =>
+                $"{tx.TransactionNumber},{tx.TransactionDate:yyyy-MM-dd HH:mm},{tx.FuelStation?.Name},{tx.TransactionDetails.FirstOrDefault()?.FuelProduct?.Name},{tx.TransactionDetails.Sum(d => d.Liters)},{tx.GrandTotal},{tx.PaymentMethod},{tx.Status}"));
+        await DownloadFileAsync("export_transactions.csv", "text/csv;charset=utf-8", csv);
+    }
+
+    private async Task ExportExcel()
+    {
+        using var workbook = new XLWorkbook();
+        var sheet = workbook.Worksheets.Add("Transactions");
+        sheet.Cell(1, 1).Value = "No Transaksi";
+        sheet.Cell(1, 2).Value = "Tanggal";
+        sheet.Cell(1, 3).Value = "Stasiun";
+        sheet.Cell(1, 4).Value = "Produk";
+        sheet.Cell(1, 5).Value = "Liter";
+        sheet.Cell(1, 6).Value = "Total";
+        sheet.Cell(1, 7).Value = "Pembayaran";
+        sheet.Cell(1, 8).Value = "Status";
+
+        var row = 2;
+        foreach (var tx in _filteredTransactions)
+        {
+            sheet.Cell(row, 1).Value = tx.TransactionNumber;
+            sheet.Cell(row, 2).Value = tx.TransactionDate.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+            sheet.Cell(row, 3).Value = tx.FuelStation?.Name;
+            sheet.Cell(row, 4).Value = tx.TransactionDetails.FirstOrDefault()?.FuelProduct?.Name;
+            sheet.Cell(row, 5).Value = tx.TransactionDetails.Sum(d => d.Liters);
+            sheet.Cell(row, 6).Value = tx.GrandTotal;
+            sheet.Cell(row, 7).Value = tx.PaymentMethod;
+            sheet.Cell(row, 8).Value = tx.Status;
+            row++;
+        }
+
+        sheet.Columns().AdjustToContents();
+
+        await using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        await DownloadBytesAsync("export_transactions.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", stream.ToArray());
+    }
+
+    private async Task DownloadFileAsync(string fileName, string contentType, string content)
+    {
+        var base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(content));
+        await JS.InvokeVoidAsync("fileDownloader.downloadFileFromBase64", fileName, contentType, base64);
+    }
+
+    private async Task DownloadBytesAsync(string fileName, string contentType, byte[] content)
+    {
+        var base64 = Convert.ToBase64String(content);
+        await JS.InvokeVoidAsync("fileDownloader.downloadFileFromBase64", fileName, contentType, base64);
+    }
+}

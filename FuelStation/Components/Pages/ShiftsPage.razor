@@ -1,0 +1,268 @@
+@page "/shifts"
+@using FuelStation.Data
+@using FuelStation.Models
+@using Microsoft.EntityFrameworkCore
+
+<PageTitle>Shift Management - FuelStation</PageTitle>
+
+<h2 class="mb-2" style="font-weight:800;">🕐 Shift Management</h2>
+
+<div class="stats-grid mb-2">
+    <div class="stat-card"><div class="stat-value">@_weeklyShifts.Count</div><div class="stat-label">Total Shift Minggu Ini</div></div>
+    <div class="stat-card"><div class="stat-value">@_weeklyShifts.Count(s => s.ShiftType == "Morning")</div><div class="stat-label" style="color:#e8a838;">☀️ Morning (06-14)</div></div>
+    <div class="stat-card"><div class="stat-value">@_weeklyShifts.Count(s => s.ShiftType == "Afternoon")</div><div class="stat-label" style="color:#e05555;">🌤️ Afternoon (14-22)</div></div>
+    <div class="stat-card"><div class="stat-value">@_weeklyShifts.Count(s => s.ShiftType == "Night")</div><div class="stat-label" style="color:#5b9bd5;">🌙 Night (22-06)</div></div>
+</div>
+
+<div class="flex-between mb-2">
+    <div class="flex-center gap-1">
+        <button class="btn btn-sm" @onclick="PrevWeek">◀ Prev</button>
+        <span style="font-weight:800;font-size:1.1rem;min-width:200px;text-align:center;">
+            @_weekStart.ToString("dd MMM") - @_weekStart.AddDays(6).ToString("dd MMM yyyy")
+        </span>
+        <button class="btn btn-sm" @onclick="NextWeek">Next ▶</button>
+        <button class="btn btn-sm" @onclick="GoToToday">📅 Today</button>
+    </div>
+    <div class="flex-center gap-1">
+        <select class="form-select" style="width:200px;" @bind="_filterStationId">
+            <option value="">🏢 All Stations</option>
+            @foreach (var s in _stations) { <option value="@s.Id">@s.Name</option> }
+        </select>
+        <button class="btn btn-primary btn-sm" @onclick="OpenAddModal">➕ Tambah Shift</button>
+    </div>
+</div>
+
+<div class="card mb-2" style="overflow-x:auto;">
+    <table class="data-table" style="min-width:900px;">
+        <thead>
+            <tr>
+                <th style="width:160px;">Operator</th>
+                @for (int d = 0; d < 7; d++)
+                {
+                    var day = _weekStart.AddDays(d);
+                    var isToday = day.Date == DateTime.Today;
+                    <th style="text-align:center;@(isToday ? "background:var(--accent-light);" : "")">
+                        <div style="font-weight:800;">@day.ToString("ddd")</div>
+                        <div style="font-size:0.75rem;color:var(--text-secondary);">@day.ToString("dd/MM")</div>
+                    </th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var emp in _employees)
+            {
+                <tr>
+                    <td style="font-weight:600;"><div>@emp.Name</div><div style="font-size:0.7rem;color:var(--text-secondary);">@emp.EmployeeCode</div></td>
+                    @for (int d = 0; d < 7; d++)
+                    {
+                        var day = _weekStart.AddDays(d);
+                        var dayShifts = _weeklyShifts.Where(s => s.EmployeeId == emp.Id && s.StartTime.Date == day.Date).ToList();
+                        <td style="padding:4px;text-align:center;">
+                            @foreach (var shift in dayShifts)
+                            {
+                                var bgColor = shift.ShiftType switch { "Morning" => "var(--warning-light)", "Afternoon" => "var(--danger-light)", "Night" => "var(--info-light)", _ => "var(--bg-secondary)" };
+                                var borderColor = shift.ShiftType switch { "Morning" => "#e8a838", "Afternoon" => "#e05555", "Night" => "#5b9bd5", _ => "var(--border-color)" };
+                                var titleText = shift.ShiftType + ": " + shift.StartTime.ToString("HH:mm") + " - " + (shift.EndTime?.ToString("HH:mm") ?? "?");
+                                <div style="background:@bgColor;border:2px solid @borderColor;border-radius:6px;
+                                            padding:4px 6px;margin:2px 0;font-size:0.7rem;font-weight:700;cursor:pointer;
+                                            box-shadow:2px 2px 0px var(--border-bold);"
+                                     @onclick="(() => OpenEditModal(shift))" title="@titleText">
+                                    @shift.ShiftType[..3]<br />@shift.StartTime.ToString("HH:mm")
+                                </div>
+                            }
+                            @if (!dayShifts.Any()) { <span style="color:var(--text-muted);font-size:0.7rem;">-</span> }
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="card-header"><span class="card-title">📋 Daftar Shift (Minggu Ini)</span><span class="badge badge-accent">@_weeklyShifts.Count shifts</span></div>
+    <table class="data-table">
+        <thead>
+            <tr><th>Operator</th><th>Stasiun</th><th>Tanggal</th><th>Tipe</th><th>Start</th><th>End</th><th>Durasi</th><th>OT</th><th>Catatan</th><th>Aksi</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var shift in FilteredShifts)
+            {
+                var shiftColor = shift.ShiftType switch { "Morning" => "badge-warning", "Afternoon" => "badge-danger", "Night" => "badge-info", _ => "" };
+                var durHours = shift.EndTime.HasValue ? (shift.EndTime.Value - shift.StartTime).TotalHours : 0;
+                var duration = shift.EndTime.HasValue ? durHours.ToString("F1") + "h" : "—";
+                <tr>
+                    <td style="font-weight:600;">@shift.Employee?.Name</td><td>@shift.FuelStation?.Name</td>
+                    <td>@shift.StartTime.ToString("ddd, dd/MM/yy")</td><td><span class="badge @shiftColor">@shift.ShiftType</span></td>
+                    <td style="font-family:var(--font-mono);">@shift.StartTime.ToString("HH:mm")</td>
+                    <td style="font-family:var(--font-mono);">@(shift.EndTime?.ToString("HH:mm") ?? "—")</td>
+                    <td style="font-family:var(--font-mono);font-weight:700;">@duration</td>
+                    <td>@(shift.IsOvertime ? "⚠️ OT" : "—")</td>
+                    <td style="font-size:0.8rem;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@shift.Notes</td>
+                    <td>
+                        <button class="btn btn-sm" @onclick="(() => OpenEditModal(shift))">✏️</button>
+                        <button class="btn btn-sm btn-danger" @onclick="(() => DeleteShift(shift))">🗑️</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (_showModal)
+{
+    <div class="modal-overlay" @onclick="CloseModal">
+        <div class="modal-content card" style="max-width:600px;width:100%;" @onclick:stopPropagation>
+            <div class="card-header">
+                <span class="card-title">@(_editingShift != null ? "✏️ Edit Shift" : "➕ Tambah Shift Baru")</span>
+                <button class="btn btn-sm btn-danger" @onclick="CloseModal">✕</button>
+            </div>
+            <div class="grid-2">
+                <div class="form-group"><label class="form-label">👤 Operator</label>
+                    <select class="form-select" @bind="_formEmployeeId">
+                        <option value="">-- Pilih Operator --</option>
+                        @foreach (var emp in _employees) { <option value="@emp.Id">@emp.Name (@emp.EmployeeCode)</option> }
+                    </select>
+                </div>
+                <div class="form-group"><label class="form-label">🏢 Stasiun</label>
+                    <select class="form-select" @bind="_formStationId">
+                        <option value="">-- Pilih Stasiun --</option>
+                        @foreach (var s in _stations) { <option value="@s.Id">@s.Name</option> }
+                    </select>
+                </div>
+                <div class="form-group"><label class="form-label">🕐 Tipe Shift</label>
+                    <select class="form-select" @bind="_formShiftType">
+                        <option value="Morning">☀️ Morning (06:00 - 14:00)</option>
+                        <option value="Afternoon">🌤️ Afternoon (14:00 - 22:00)</option>
+                        <option value="Night">🌙 Night (22:00 - 06:00)</option>
+                    </select>
+                </div>
+                <div class="form-group"><label class="form-label">📅 Tanggal Mulai</label>
+                    <input class="form-input" @bind="_formDate" @bind:event="oninput" />
+                </div>
+                <div class="form-group"><label class="form-label">⏰ Jam Mulai</label>
+                    <input class="form-input" @bind="_formStartTime" @bind:event="oninput" />
+                </div>
+                <div class="form-group"><label class="form-label">⏰ Jam Selesai</label>
+                    <input class="form-input" @bind="_formEndTime" @bind:event="oninput" />
+                </div>
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label class="form-label">📝 Catatan</label>
+                    <input class="form-input" @bind="_formNotes" @bind:event="oninput" placeholder="Catatan shift..." />
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" @bind="_formIsOvertime" style="width:18px;height:18px;" /> Lembur (Overtime)
+                    </label>
+                </div>
+            </div>
+            <div class="flex-between mt-2">
+                <button class="btn btn-danger" @onclick="CloseModal">Batal</button>
+                <button class="btn btn-primary" @onclick="SaveShift">@(_editingShift != null ? "💾 Update Shift" : "💾 Simpan Shift")</button>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="card mt-2">
+    <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;">
+        <span style="font-weight:700;">Legenda:</span>
+        <span class="badge badge-warning">☀️ Morning (06-14)</span>
+        <span class="badge badge-danger">🌤️ Afternoon (14-22)</span>
+        <span class="badge badge-info">🌙 Night (22-06)</span>
+        <span style="font-size:0.8rem;color:var(--text-secondary);">⚠️ OT = Overtime</span>
+    </div>
+</div>
+
+@code {
+    private List<Employee> _employees = new();
+    private List<FuelStationLocation> _stations = new();
+    private List<Shift> _weeklyShifts = new();
+    private DateTime _weekStart;
+    private string _filterStationId = "";
+    private bool _showModal;
+    private Shift? _editingShift;
+
+    private string _formEmployeeId = "";
+    private string _formStationId = "";
+    private string _formShiftType = "Morning";
+    private string _formDate = DateTime.Today.ToString("yyyy-MM-dd");
+    private string _formStartTime = "06:00";
+    private string _formEndTime = "14:00";
+    private string _formNotes = "";
+    private bool _formIsOvertime;
+
+    [Inject] private IDbContextFactory<AppDbContext> DbFactory { get; set; } = default!;
+
+    private List<Shift> FilteredShifts => _weeklyShifts
+        .Where(s => string.IsNullOrEmpty(_filterStationId) || s.FuelStationId.ToString() == _filterStationId)
+        .OrderBy(s => s.StartTime).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _weekStart = DateTime.Today.AddDays(-(int)DateTime.Today.DayOfWeek + 1);
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _employees = await db.Employees.Where(e => e.IsActive).OrderBy(e => e.Name).ToListAsync();
+        _stations = await db.FuelStations.Where(s => s.IsActive).OrderBy(s => s.Name).ToListAsync();
+        var weekEnd = _weekStart.AddDays(7);
+        _weeklyShifts = await db.Shifts.Include(s => s.Employee).Include(s => s.FuelStation)
+            .Where(s => s.StartTime >= _weekStart && s.StartTime < weekEnd).OrderBy(s => s.StartTime).ToListAsync();
+    }
+
+    private void PrevWeek() { _weekStart = _weekStart.AddDays(-7); _ = LoadDataAsync(); }
+    private void NextWeek() { _weekStart = _weekStart.AddDays(7); _ = LoadDataAsync(); }
+    private void GoToToday() { _weekStart = DateTime.Today.AddDays(-(int)DateTime.Today.DayOfWeek + 1); _ = LoadDataAsync(); }
+
+    private void OpenAddModal()
+    {
+        _editingShift = null; _formEmployeeId = ""; _formStationId = ""; _formShiftType = "Morning";
+        _formDate = DateTime.Today.ToString("yyyy-MM-dd"); _formStartTime = "06:00"; _formEndTime = "14:00";
+        _formNotes = ""; _formIsOvertime = false; _showModal = true;
+    }
+
+    private void OpenEditModal(Shift shift)
+    {
+        _editingShift = shift; _formEmployeeId = shift.EmployeeId.ToString(); _formStationId = shift.FuelStationId.ToString();
+        _formShiftType = shift.ShiftType; _formDate = shift.StartTime.ToString("yyyy-MM-dd");
+        _formStartTime = shift.StartTime.ToString("HH:mm"); _formEndTime = shift.EndTime?.ToString("HH:mm") ?? "";
+        _formNotes = shift.Notes ?? ""; _formIsOvertime = shift.IsOvertime; _showModal = true;
+    }
+
+    private void CloseModal() { _showModal = false; _editingShift = null; }
+
+    private async Task SaveShift()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (!DateOnly.TryParse(_formDate, out var dateOnly)) return;
+        if (!TimeOnly.TryParse(_formStartTime, out var startTime)) return;
+        var startDateTime = dateOnly.ToDateTime(startTime);
+        DateTime? endDateTime = null;
+        if (TimeOnly.TryParse(_formEndTime, out var endTime))
+        {
+            endDateTime = dateOnly.ToDateTime(endTime);
+            if (endDateTime <= startDateTime) endDateTime = endDateTime.Value.AddDays(1);
+        }
+        if (_editingShift != null)
+        {
+            var shift = await db.Shifts.FindAsync(_editingShift.Id);
+            if (shift != null) { shift.EmployeeId = Guid.Parse(_formEmployeeId); shift.FuelStationId = Guid.TryParse(_formStationId, out var sid) ? sid : Guid.Empty; shift.ShiftType = _formShiftType; shift.StartTime = startDateTime; shift.EndTime = endDateTime; shift.Notes = _formNotes; shift.IsOvertime = _formIsOvertime; shift.UpdatedAt = DateTime.UtcNow; }
+        }
+        else
+        {
+            db.Shifts.Add(new Shift { EmployeeId = Guid.Parse(_formEmployeeId), FuelStationId = Guid.TryParse(_formStationId, out var sid) ? sid : Guid.Empty, ShiftType = _formShiftType, StartTime = startDateTime, EndTime = endDateTime, Notes = _formNotes, IsOvertime = _formIsOvertime, CreatedAt = DateTime.UtcNow });
+        }
+        await db.SaveChangesAsync(); CloseModal(); await LoadDataAsync();
+    }
+
+    private async Task DeleteShift(Shift shift)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = await db.Shifts.FindAsync(shift.Id);
+        if (existing != null) { db.Shifts.Remove(existing); await db.SaveChangesAsync(); await LoadDataAsync(); }
+    }
+}

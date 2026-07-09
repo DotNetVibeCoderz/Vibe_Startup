@@ -1,0 +1,19 @@
+@page "/logout"
+@attribute [AllowAnonymous]
+@inject NavigationManager Navigation
+
+<PageTitle>Logout - FuelStation</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card" style="text-align:center;">
+        <div class="auth-title">🚪 Logout</div>
+        <div class="auth-subtitle">Sedang memproses logout...</div>
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Navigation.NavigateTo("/account/logout", forceLoad: true);
+    }
+}

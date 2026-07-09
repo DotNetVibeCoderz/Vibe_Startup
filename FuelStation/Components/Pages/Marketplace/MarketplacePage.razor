@@ -1,0 +1,195 @@
+@page "/marketplace"
+@using FuelStation.Data
+@using FuelStation.Models
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+@inject Services.IPrinterService PrinterService
+
+<PageTitle>Marketplace - FuelStation</PageTitle>
+
+<h2 class="mb-2" style="font-weight:800;">🛒 Marketplace Non-BBM</h2>
+
+<div class="grid-2">
+    <!-- Products -->
+    <div class="card">
+        <div class="card-header"><span class="card-title">🛍️ Katalog Produk</span></div>
+        <div class="mb-2">
+            <input class="form-input" placeholder="🔍 Cari produk..." @bind-value="_searchTerm" @bind-value:event="oninput" />
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));gap:12px;max-height:500px;overflow-y:auto;">
+            @foreach (var product in _products.Where(p => string.IsNullOrEmpty(_searchTerm) || p.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)))
+            {
+                <div class="card product-card" style="cursor:pointer;padding:16px;" @onclick="() => AddToCart(product)">
+                    <div style="font-size:2rem;text-align:center;">🛍️</div>
+                    <div style="font-weight:700;">@product.Name</div>
+                    <div style="font-size:0.8rem;color:var(--text-secondary);">@product.Category</div>
+                    <div class="product-price" style="font-weight:700;color:var(--accent);">Rp @product.Price.ToString("N0")</div>
+                    <div class="product-stock" style="font-size:0.75rem;">
+                        Stok: <span class="badge badge-sm @(product.StockQuantity <= product.MinStockThreshold ? "badge-danger" : "badge-success")">@product.StockQuantity</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Cart -->
+    <div class="card" style="display:flex;flex-direction:column;">
+        <div class="card-header">
+            <span class="card-title">🛒 Keranjang (@_cartItems.Sum(i => i.Quantity) item)</span>
+            <button class="btn btn-sm" @onclick="ClearCart">🗑️ Clear</button>
+        </div>
+
+        <div style="flex:1;overflow-y:auto;max-height:400px;">
+            @if (_cartItems.Any())
+            {
+                <table class="data-table">
+                    <thead><tr><th>Produk</th><th class="text-right">Qty</th><th class="text-right">Harga</th><th class="text-right">Subtotal</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var item in _cartItems)
+                        {
+                            <tr>
+                                <td>@item.Product.Name</td>
+                                <td class="text-right">
+                                    <button class="btn btn-sm" @onclick="() => UpdateQty(item, -1)">-</button>
+                                    <span style="margin:0 8px;">@item.Quantity</span>
+                                    <button class="btn btn-sm" @onclick="() => UpdateQty(item, 1)">+</button>
+                                </td>
+                                <td class="text-right">Rp @item.Product.Price.ToString("N0")</td>
+                                <td class="text-right" style="font-weight:700;">Rp @((item.Quantity * item.Product.Price).ToString("N0"))</td>
+                                <td><button class="btn btn-sm btn-danger" @onclick="() => RemoveFromCart(item)">✕</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <p class="text-center text-muted mt-2">Keranjang kosong</p>
+            }
+        </div>
+
+        <!-- Cart Total -->
+        <div style="border-top:3px solid var(--border-bold);padding-top:16px;margin-top:auto;">
+            <div style="display:flex;justify-content:space-between;font-size:1.5rem;font-weight:800;">
+                <span>Total:</span>
+                <span>Rp @_cartItems.Sum(i => i.Quantity * i.Product.Price).ToString("N0")</span>
+            </div>
+
+            <div class="flex-center gap-1 mt-2">
+                <select class="form-select" @bind="_cartPayment">
+                    <option value="Cash">💵 Cash</option>
+                    <option value="QRIS">📱 QRIS</option>
+                    <option value="EWallet">💳 E-Wallet</option>
+                </select>
+            </div>
+
+            <button class="btn btn-success btn-lg mt-2" style="width:100%;padding:16px;"
+                    @onclick="Checkout" disabled="@(!_cartItems.Any())">
+                ✅ Checkout - Rp @_cartItems.Sum(i => i.Quantity * i.Product.Price).ToString("N0")
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Orders -->
+<div class="card mt-2">
+    <div class="card-header"><span class="card-title">📦 Order Terbaru</span></div>
+    <table class="data-table">
+        <thead><tr><th>No Order</th><th>Tanggal</th><th>Item</th><th class="text-right">Total</th><th>Status</th></tr></thead>
+        <tbody>
+            @foreach (var order in _recentOrders)
+            {
+                <tr>
+                    <td style="font-family:var(--font-mono);">@order.OrderNumber</td>
+                    <td>@order.OrderDate.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                    <td>@order.Items.Sum(i => i.Quantity) item</td>
+                    <td class="text-right" style="font-weight:700;">Rp @order.GrandTotal.ToString("N0")</td>
+                    <td><span class="badge badge-success">@order.Status</span></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private List<NonFuelProduct> _products = new();
+    private List<MarketplaceOrder> _recentOrders = new();
+    private List<CartItem> _cartItems = new();
+    private string _searchTerm = "";
+    private string _cartPayment = "Cash";
+
+    private class CartItem
+    {
+        public NonFuelProduct Product { get; set; } = null!;
+        public int Quantity { get; set; } = 1;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _products = await Db.NonFuelProducts.Where(p => p.IsActive && p.StockQuantity > 0).ToListAsync();
+        _recentOrders = await Db.MarketplaceOrders
+            .Include(o => o.Items)
+            .OrderByDescending(o => o.OrderDate)
+            .Take(10)
+            .ToListAsync();
+    }
+
+    private void AddToCart(NonFuelProduct product)
+    {
+        var existing = _cartItems.FirstOrDefault(i => i.Product.Id == product.Id);
+        if (existing != null)
+            existing.Quantity++;
+        else
+            _cartItems.Add(new CartItem { Product = product, Quantity = 1 });
+    }
+
+    private void UpdateQty(CartItem item, int delta)
+    {
+        item.Quantity += delta;
+        if (item.Quantity <= 0) _cartItems.Remove(item);
+    }
+
+    private void RemoveFromCart(CartItem item) => _cartItems.Remove(item);
+    private void ClearCart() => _cartItems.Clear();
+
+    private async Task Checkout()
+    {
+        if (!_cartItems.Any()) return;
+
+        var total = _cartItems.Sum(i => i.Quantity * i.Product.Price);
+        var order = new MarketplaceOrder
+        {
+            Id = Guid.NewGuid(),
+            OrderNumber = $"ORD-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..20],
+            OrderDate = DateTime.UtcNow,
+            TotalAmount = total,
+            GrandTotal = total,
+            PaymentMethod = _cartPayment,
+            Status = "Completed"
+        };
+
+        foreach (var item in _cartItems)
+        {
+            order.Items.Add(new MarketplaceOrderItem
+            {
+                Id = Guid.NewGuid(),
+                OrderId = order.Id,
+                ProductId = item.Product.Id,
+                Quantity = item.Quantity,
+                UnitPrice = item.Product.Price,
+                Subtotal = item.Quantity * item.Product.Price
+            });
+
+            // Update stock
+            var product = _products.First(p => p.Id == item.Product.Id);
+            product.StockQuantity -= item.Quantity;
+        }
+
+        Db.MarketplaceOrders.Add(order);
+        await Db.SaveChangesAsync();
+
+        _cartItems.Clear();
+        _products = await Db.NonFuelProducts.Where(p => p.IsActive).ToListAsync();
+        _recentOrders = await Db.MarketplaceOrders.Include(o => o.Items).OrderByDescending(o => o.OrderDate).Take(10).ToListAsync();
+    }
+}

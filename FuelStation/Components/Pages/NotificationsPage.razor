@@ -1,0 +1,195 @@
+@page "/notifications"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using FuelStation.Data
+@inject NotificationService NotificationService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject IJSRuntime JS
+
+<PageTitle>Notifications - FuelStation</PageTitle>
+
+<div class="notifications-page">
+    <div class="card mb-2">
+        <div class="flex-between">
+            <div class="flex-center gap-2">
+                <h2 class="notification-title">🔔 Notifications</h2>
+                @if (_unreadCount > 0) { <span class="badge badge-danger unread-badge">@_unreadCount unread</span> }
+            </div>
+            <div class="flex-center gap-2">
+                @if (_unreadCount > 0) { <button class="btn btn-sm btn-primary" @onclick="MarkAllAsRead">✅ Mark All Read</button> }
+                <button class="btn btn-sm" @onclick="RefreshNotifications">🔄 Refresh</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="tabs">
+        @foreach (var filter in _filters)
+        {
+            <button class="tab @(filter == _activeFilter ? "active" : "")" @onclick="() => SetFilter(filter)">
+                @filter @if (filter == _activeFilter) { <span class="tab-count">(@_totalCount)</span> }
+            </button>
+        }
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="card text-center loading" style="padding: 40px;"><p>Loading notifications...</p></div>
+    }
+    else if (_notifications.Count == 0)
+    {
+        <div class="card text-center" style="padding: 60px 40px;"><div style="font-size: 3rem; margin-bottom: 12px;">📭</div><h3>No notifications</h3><p class="text-muted">You're all caught up!</p></div>
+    }
+    else
+    {
+        <div class="notification-list">
+            @foreach (var notification in _notifications)
+            {
+                <div class="notification-item @(!notification.IsRead ? "unread" : "")" @onclick="() => MarkAsRead(notification.Id)">
+                    <div class="notification-icon">@GetTypeIcon(notification.Type)</div>
+                    <div class="notification-body">
+                        <div class="notification-header">
+                            <span class="notification-title-text">@notification.Title</span>
+                            <span class="badge @GetTypeBadgeClass(notification.Type)">@notification.Type</span>
+                        </div>
+                        <p class="notification-message">@notification.Message</p>
+                        <div class="notification-meta">
+                            <span class="text-muted">@FormatTimeAgo(notification.SentAt)</span>
+                            @if (!notification.IsRead) { <span class="unread-dot">●</span> }
+                            else if (notification.ReadAt.HasValue) { <span class="text-muted"> · Read @FormatTimeAgo(notification.ReadAt)</span> }
+                        </div>
+                    </div>
+                    <div class="notification-actions">
+                        @if (!notification.IsRead)
+                        {
+                            <button class="btn btn-sm btn-success" @onclick="(() => MarkAsRead(notification.Id))">✓</button>
+                        }
+                        @if (!string.IsNullOrEmpty(notification.ActionUrl))
+                        {
+                            <a href="@notification.ActionUrl" class="btn btn-sm btn-info">→</a>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (_totalPages > 1)
+        {
+            <div class="pagination flex-center gap-2 mt-2">
+                <button class="btn btn-sm" disabled="@(_currentPage <= 1)" @onclick="() => GoToPage(_currentPage - 1)">← Prev</button>
+                <span class="text-muted">Page @_currentPage of @_totalPages</span>
+                <button class="btn btn-sm" disabled="@(_currentPage >= _totalPages)" @onclick="() => GoToPage(_currentPage + 1)">Next →</button>
+            </div>
+        }
+    }
+
+    <div class="toast-container">
+        @foreach (var toast in _toasts)
+        {
+            <div class="toast @GetToastClass(toast.Type)" @onclick="() => DismissToast(toast.Id)">
+                <div class="toast-icon">@GetTypeIcon(toast.Type)</div>
+                <div class="toast-body"><strong>@toast.Title</strong><p>@Truncate(toast.Message, 80)</p></div>
+                <button class="toast-close" @onclick="(() => DismissToast(toast.Id))">✕</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<Notification> _notifications = new();
+    private int _unreadCount;
+    private int _totalCount;
+    private int _currentPage = 1;
+    private int _totalPages = 1;
+    private bool _isLoading = true;
+    private string _activeFilter = "All";
+    private Guid _currentUserId;
+    private bool _isInitialized;
+
+    private readonly string[] _filters = { "All", "Promo", "Transaction", "System", "Alert" };
+    private readonly List<ToastNotification> _toasts = new();
+    private int _toastIdCounter;
+    private const int PageSize = 15;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user != null) _currentUserId = user.Id;
+        await LoadNotifications();
+        _isInitialized = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await JS.InvokeVoidAsync("fuelStationNotifications.init", DotNetObjectReference.Create(this));
+    }
+
+    private async Task LoadNotifications()
+    {
+        _isLoading = true; StateHasChanged();
+        try
+        {
+            var (items, totalCount) = await NotificationService.GetNotificationsAsync(_currentUserId, _activeFilter, _currentPage, PageSize);
+            _notifications = items; _totalCount = totalCount;
+            _totalPages = Math.Max(1, (int)Math.Ceiling((double)totalCount / PageSize));
+            _unreadCount = await NotificationService.GetUnreadCountAsync(_currentUserId);
+        }
+        catch (Exception ex) { Console.WriteLine($"Error loading notifications: {ex.Message}"); }
+        finally { _isLoading = false; StateHasChanged(); }
+    }
+
+    private async Task SetFilter(string filter) { _activeFilter = filter; _currentPage = 1; await LoadNotifications(); }
+    private async Task GoToPage(int page) { _currentPage = page; await LoadNotifications(); }
+    private async Task RefreshNotifications() { _currentPage = 1; await LoadNotifications(); }
+
+    private async Task MarkAsRead(Guid notificationId)
+    {
+        await NotificationService.MarkAsReadAsync(notificationId);
+        var notification = _notifications.FirstOrDefault(n => n.Id == notificationId);
+        if (notification != null) { notification.IsRead = true; notification.ReadAt = DateTime.UtcNow; }
+        _unreadCount = await NotificationService.GetUnreadCountAsync(_currentUserId);
+        StateHasChanged();
+    }
+
+    private async Task MarkAllAsRead()
+    {
+        await NotificationService.MarkAllAsReadAsync(_currentUserId);
+        foreach (var n in _notifications) { n.IsRead = true; n.ReadAt = DateTime.UtcNow; }
+        _unreadCount = 0; StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnNotificationReceived(Notification notification)
+    {
+        var toast = new ToastNotification { Id = ++_toastIdCounter, Title = notification.Title, Message = notification.Message, Type = notification.Type };
+        _toasts.Insert(0, toast);
+        _ = Task.Run(async () => { await Task.Delay(5000); await InvokeAsync(() => DismissToast(toast.Id)); });
+        while (_toasts.Count > 3) _toasts.RemoveAt(_toasts.Count - 1);
+        _unreadCount = await NotificationService.GetUnreadCountAsync(_currentUserId);
+        if (_currentPage == 1) { _notifications.Insert(0, notification); if (_notifications.Count > PageSize) _notifications.RemoveAt(_notifications.Count - 1); }
+        StateHasChanged();
+    }
+
+    private void DismissToast(int toastId) { _toasts.RemoveAll(t => t.Id == toastId); StateHasChanged(); }
+
+    private static string GetTypeIcon(string type) => type switch { "Promo" => "🎉", "Transaction" => "🧾", "System" => "⚙️", "Alert" => "⚠️", _ => "🔔" };
+    private static string GetTypeBadgeClass(string type) => type switch { "Promo" => "badge-accent", "Transaction" => "badge-info", "System" => "badge-warning", "Alert" => "badge-danger", _ => "badge-info" };
+    private static string GetToastClass(string type) => type switch { "Alert" => "toast-danger", "Promo" => "toast-accent", _ => "toast-default" };
+
+    private static string FormatTimeAgo(DateTime? dateTime)
+    {
+        if (!dateTime.HasValue) return "—";
+        var span = DateTime.UtcNow - dateTime.Value;
+        if (span.TotalSeconds < 60) return "Just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        if (span.TotalDays < 7) return $"{(int)span.TotalDays}d ago";
+        return dateTime.Value.ToString("dd MMM yyyy");
+    }
+
+    private static string Truncate(string text, int maxLength) => string.IsNullOrEmpty(text) || text.Length <= maxLength ? text : text[..maxLength] + "...";
+
+    private class ToastNotification { public int Id { get; set; } public string Title { get; set; } = ""; public string Message { get; set; } = ""; public string Type { get; set; } = "System"; }
+}

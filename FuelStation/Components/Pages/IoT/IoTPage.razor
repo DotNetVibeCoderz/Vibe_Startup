@@ -1,0 +1,139 @@
+@page "/iot"
+@using FuelStation.Data
+@using FuelStation.Models
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+
+<PageTitle>IoT Monitor - FuelStation</PageTitle>
+
+<h2 class="mb-2" style="font-weight:800;">📡 IoT Sensor Monitor</h2>
+
+<div class="grid-2 mb-2">
+    <!-- Tank Visualization -->
+    <div class="card">
+        <div class="card-header"><span class="card-title">🛢️ Visualisasi Tangki (Real-Time)</span></div>
+        <div style="display:flex;flex-direction:column;gap:20px;">
+            @foreach (var tank in _tanks)
+            {
+                var pct = tank.CapacityLiters > 0 ? (double)(tank.CurrentVolumeLiters / tank.CapacityLiters * 100) : 0;
+                var color = tank.IsLeakDetected ? "var(--danger)" : pct < 20 ? "var(--danger)" : pct < 40 ? "var(--warning)" : "var(--success)";
+
+                <div>
+                    <div class="flex-between mb-1">
+                        <span style="font-weight:700;">@tank.FuelProduct?.Name (@tank.TankNumber)</span>
+                        <span style="font-weight:700;">@tank.CurrentVolumeLiters.ToString("N0") L / @tank.CapacityLiters.ToString("N0") L</span>
+                    </div>
+                    <!-- Tank visual -->
+                    <div style="position:relative;height:80px;background:var(--bg-secondary);border:3px solid var(--border-bold);border-radius:8px;overflow:hidden;">
+                        <div style="position:absolute;bottom:0;left:0;right:0;height:@pct%;background:@color;transition:all 0.5s ease;border-radius:0 0 5px 5px;opacity:0.7;"></div>
+                        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-weight:800;font-size:1.2rem;text-shadow:0 0 4px white;">
+                            @pct.ToString("F1")%
+                        </div>
+                        <!-- Low threshold line -->
+                        @{
+                            var thresholdPct = tank.CapacityLiters > 0 ? (double)(tank.MinThresholdLiters / tank.CapacityLiters * 100) : 0;
+                        }
+                        <div style="position:absolute;bottom:@thresholdPct%;left:0;right:0;border-top:2px dashed var(--danger);pointer-events:none;"></div>
+                    </div>
+                    <div class="flex-between" style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">
+                        <span>🌡️ @(tank.TemperatureCelsius?.ToString("F1") ?? "--")°C</span>
+                        <span>📊 @(tank.PressureBar?.ToString("F2") ?? "--") bar</span>
+                        <span>🕐 @(tank.LastSensorReading?.ToLocalTime().ToString("HH:mm:ss") ?? "--")</span>
+                        @if (tank.IsLeakDetected) { <span style="color:var(--danger);font-weight:700;">⚠️ BOCOR!</span> }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Alert & Emergency -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">🚨 Emergency Alerts</span>
+            <span class="badge @(_alerts.Any(a => a.AlertType == "Critical") ? "badge-danger" : "badge-success")">
+                @_alerts.Count(a => !a.IsResolved) Aktif
+            </span>
+        </div>
+        <div style="max-height:500px;overflow-y:auto;">
+            @if (_alerts.Any())
+            {
+                foreach (var alert in _alerts.Take(20))
+                {
+                    <div class="alert @(alert.AlertType switch { "Critical" => "alert-danger", "Fire" => "alert-danger", "Leak" => "alert-danger", "Warning" => "alert-warning", _ => "alert-success" })"
+                         style="display:flex;justify-content:space-between;align-items:center;">
+                        <div>
+                            <strong>@alert.AlertType:</strong> @alert.Message
+                            <div style="font-size:0.75rem;">@alert.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm:ss")</div>
+                        </div>
+                        @if (!alert.IsResolved)
+                        {
+                            <button class="btn btn-sm btn-success" @onclick="() => ResolveAlert(alert)">✅ Resolve</button>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <p class="text-center text-muted mt-2">✅ Semua aman! Tidak ada alert.</p>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Tank Readings History -->
+<div class="card">
+    <div class="card-header"><span class="card-title">📊 Riwayat Pembacaan Sensor</span></div>
+    <div style="display:flex;align-items:flex-end;gap:4px;height:200px;padding:16px 0;">
+        @{
+            var maxVol = _readings.Any() ? (double)_readings.Max(r => r.VolumeLiters) : 1;
+        }
+        @foreach (var reading in _readings.Take(50).Reverse())
+        {
+            var hPct = maxVol > 0 ? (double)(reading.VolumeLiters / (decimal)maxVol * 100) : 0;
+            var barColor = reading.IsLeakDetected ? "var(--danger)" : "var(--accent)";
+            <div style="flex:1;height:100%;display:flex;align-items:flex-end;"
+                 title="@reading.ReadingTime.ToLocalTime(): @reading.VolumeLiters.ToString("N0")L">
+                <div style="width:100%;height:@hPct%;background:@barColor;border-radius:2px 2px 0 0;min-height:2px;opacity:0.8;"></div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<Tank> _tanks = new();
+    private List<EmergencyAlert> _alerts = new();
+    private List<TankReading> _readings = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _tanks = await Db.Tanks
+            .Include(t => t.FuelProduct)
+            .Include(t => t.FuelStation)
+            .Where(t => t.IsActive)
+            .ToListAsync();
+
+        _alerts = await Db.EmergencyAlerts
+            .OrderByDescending(a => a.CreatedAt)
+            .Take(50)
+            .ToListAsync();
+
+        _readings = await Db.TankReadings
+            .OrderByDescending(r => r.ReadingTime)
+            .Take(100)
+            .ToListAsync();
+    }
+
+    private async Task ResolveAlert(EmergencyAlert alert)
+    {
+        alert.IsResolved = true;
+        alert.ResolvedAt = DateTime.UtcNow;
+        alert.ResolutionNote = "Resolved by operator";
+        await Db.SaveChangesAsync();
+        await LoadData();
+    }
+}
