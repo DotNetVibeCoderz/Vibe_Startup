@@ -1,0 +1,115 @@
+@using MudBlazor
+@using Microsoft.AspNetCore.Components.Authorization
+@implements IDisposable
+@inject AuthenticationStateProvider AuthStateProvider
+
+<MudNavMenu Class="nav-menu">
+    <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Beranda</MudNavLink>
+
+    <MudNavGroup Title="Properti" Icon="@Icons.Material.Filled.Search" Expanded="true">
+        <MudNavLink Href="/property/search" Icon="@Icons.Material.Filled.ManageSearch">Cari Properti</MudNavLink>
+        <MudNavLink Href="/property/map" Icon="@Icons.Material.Filled.Map">Peta Interaktif</MudNavLink>
+        <MudNavLink Href="/property/featured" Icon="@Icons.Material.Filled.Star">Properti Unggulan</MudNavLink>
+    </MudNavGroup>
+
+    <MudNavLink Href="/kpr" Icon="@Icons.Material.Filled.Calculate">Simulasi KPR</MudNavLink>
+
+    <MudNavGroup Title="Akun Saya" Icon="@Icons.Material.Filled.Person">
+        <MudNavLink Href="/user/profile" Icon="@Icons.Material.Filled.ManageAccounts">Profil</MudNavLink>
+        <MudNavLink Href="/user/wishlist" Icon="@Icons.Material.Filled.Favorite">Wishlist</MudNavLink>
+        <MudNavLink Href="/user/bookings" Icon="@Icons.Material.Filled.CalendarMonth">Booking</MudNavLink>
+        <MudNavLink Href="/user/chat" Icon="@Icons.Material.Filled.Chat">Pesan</MudNavLink>
+    </MudNavGroup>
+
+    <MudNavLink Href="/chat" Icon="@Icons.Material.Filled.SmartToy" Class="nav-chatbot">Tante Rita AI</MudNavLink>
+
+    <MudDivider Class="my-2" />
+
+    @if (_isAgent || _isAdmin)
+    {
+        <MudText Typo="Typo.caption" Class="px-4 mud-text-secondary" Style="text-transform:uppercase;letter-spacing:1px;font-weight:700;">
+            Agen / Pemilik
+        </MudText>
+        <MudNavLink Href="/agent/dashboard" Icon="@Icons.Material.Filled.Dashboard">Dashboard Agen</MudNavLink>
+        <MudNavLink Href="/agent/listings" Icon="@Icons.Material.Filled.ListAlt">Listing Properti</MudNavLink>
+        <MudNavLink Href="/agent/leads" Icon="@Icons.Material.Filled.Groups">CRM Leads</MudNavLink>
+        <MudNavLink Href="/agent/contracts" Icon="@Icons.Material.Filled.Description">Kontrak</MudNavLink>
+        <MudNavLink Href="/agent/ads" Icon="@Icons.Material.Filled.Campaign">Iklan & Promosi</MudNavLink>
+        <MudDivider Class="my-2" />
+    }
+
+    @if (_isAdmin)
+    {
+        <MudText Typo="Typo.caption" Class="px-4 mud-text-secondary" Style="text-transform:uppercase;letter-spacing:1px;font-weight:700;">
+            Admin
+        </MudText>
+        <MudNavLink Href="/admin/dashboard" Icon="@Icons.Material.Filled.AdminPanelSettings">Dashboard Admin</MudNavLink>
+        <MudNavLink Href="/admin/users" Icon="@Icons.Material.Filled.People">Manajemen User</MudNavLink>
+        <MudNavLink Href="/admin/properties" Icon="@Icons.Material.Filled.Verified">Verifikasi Properti</MudNavLink>
+        <MudNavLink Href="/admin/transactions" Icon="@Icons.Material.Filled.ReceiptLong">Monitoring Transaksi</MudNavLink>
+        <MudNavLink Href="/admin/reports" Icon="@Icons.Material.Filled.Analytics">Laporan & Analitik</MudNavLink>
+        <MudDivider Class="my-2" />
+    }
+
+    @if (!_isLoggedIn)
+    {
+        <MudNavLink Href="/login" Icon="@Icons.Material.Filled.Login">Login / Daftar</MudNavLink>
+    }
+    else
+    {
+        <MudNavLink Href="/logout" Icon="@Icons.Material.Filled.Logout">Logout</MudNavLink>
+    }
+
+    <MudDivider Class="my-2" />
+    <MudNavLink Href="/api/docs" Icon="@Icons.Material.Filled.Api" Target="_blank">API Swagger</MudNavLink>
+</MudNavMenu>
+
+@code {
+    [Parameter] public EventCallback OnNavClicked { get; set; }
+
+    private bool _isLoggedIn;
+    private bool _isAdmin;
+    private bool _isAgent;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Subscribe to auth state changes so menu updates reactively
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+
+        // Read current auth state immediately
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        UpdateRoleFromState(state);
+    }
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            var state = await task;
+            UpdateRoleFromState(state);
+            StateHasChanged();
+        });
+    }
+
+    private void UpdateRoleFromState(AuthenticationState state)
+    {
+        var user = state.User;
+        _isLoggedIn = user.Identity?.IsAuthenticated == true;
+        if (_isLoggedIn)
+        {
+            var role = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
+            _isAdmin = role == "Admin";
+            _isAgent = role is "Agent" or "Owner" or "Admin";
+        }
+        else
+        {
+            _isAdmin = false;
+            _isAgent = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}

@@ -1,0 +1,93 @@
+@page "/agent/dashboard"
+@using EstateHub.Models
+@inject PropertyService PropertyService
+@inject LeadService LeadService
+
+<PageTitle>Dashboard Agen - EstateHub</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-4">
+    <MudText Typo="Typo.h4" Style="font-weight:700;" Class="mb-2">Dashboard Agen</MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">
+        Selamat datang kembali! Berikut performa properti Anda.
+    </MudText>
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="2" Class="pa-4 stat-card" Style="border-radius:16px;">
+                <MudText Typo="Typo.caption">Total Properti</MudText>
+                <MudText Typo="Typo.h4" Style="font-weight:800;">12</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="2" Class="pa-4 stat-card" Style="border-radius:16px;">
+                <MudText Typo="Typo.caption">Total Views</MudText>
+                <MudText Typo="Typo.h4" Style="font-weight:800;">3,450</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="2" Class="pa-4 stat-card" Style="border-radius:16px;">
+                <MudText Typo="Typo.caption">Leads Aktif</MudText>
+                <MudText Typo="Typo.h4" Style="font-weight:800;">28</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Elevation="2" Class="pa-4 stat-card" Style="border-radius:16px;">
+                <MudText Typo="Typo.caption">Terjual/Disewa</MudText>
+                <MudText Typo="Typo.h4" Style="font-weight:800;">5</MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudPaper Elevation="1" Class="pa-4 mb-4" Style="border-radius:16px;">
+        <div class="d-flex align-center justify-space-between mb-3">
+            <MudText Typo="Typo.h6" Style="font-weight:700;">Properti Saya</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" 
+                       StartIcon="@Icons.Material.Filled.Add" Href="/agent/listings" Style="border-radius:12px;">
+                Tambah Properti
+            </MudButton>
+        </div>
+        <MudTable Items="@_myProperties" Hover="true" Dense="true" Striped="true">
+            <HeaderContent>
+                <MudTh>Properti</MudTh>
+                <MudTh>Tipe</MudTh>
+                <MudTh>Harga</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh>Views</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Title</MudTd>
+                <MudTd>@context.PropertyType</MudTd>
+                <MudTd>Rp @context.Price.ToString("N0")</MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Color="@(context.Status == "Available" ? Color.Success : Color.Default)">@context.Status</MudChip></MudTd>
+                <MudTd>@context.ViewCount</MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+
+    <MudPaper Elevation="1" Class="pa-4" Style="border-radius:16px;">
+        <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Leads Terbaru</MudText>
+        <MudTable Items="@_leads" Hover="true" Dense="true">
+            <HeaderContent>
+                <MudTh>Nama</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh>Follow-up</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.ProspectName</MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small">@context.Status</MudChip></MudTd>
+                <MudTd>@(context.FollowUpDate?.ToString("dd/MM/yyyy") ?? "-")</MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private List<Property> _myProperties = new();
+    private List<Lead> _leads = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _myProperties = await PropertyService.GetByOwnerAsync("agent-001");
+        _leads = await LeadService.GetAgentLeadsAsync("agent-001");
+    }
+}

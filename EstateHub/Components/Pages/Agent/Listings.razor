@@ -1,0 +1,114 @@
+@page "/agent/listings"
+@using EstateHub.Models
+@inject PropertyService PropertyService
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<PageTitle>Listing Properti - EstateHub</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-4">
+    <div class="d-flex align-center justify-space-between mb-4">
+        <div><MudText Typo="Typo.h4" Style="font-weight:700;">🏠 Listing Properti</MudText><MudText Typo="Typo.body1" Color="Color.Secondary">Kelola semua properti Anda</MudText></div>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenAddDialog" Style="border-radius:12px;">Tambah Properti</MudButton>
+    </div>
+
+    <MudPaper Elevation="1" Class="pa-4" Style="border-radius:16px;">
+        <MudTable Items="@_properties" Hover="true" Dense="true" Striped="true" Class="rounded-lg">
+            <HeaderContent><MudTh>Gambar</MudTh><MudTh>Properti</MudTh><MudTh>Tipe</MudTh><MudTh>Harga</MudTh><MudTh>Status</MudTh><MudTh>Views</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd><img src="@GetFirstImage(context)" style="width:60px; height:45px; object-fit:cover; border-radius:6px;" alt="thumb" /></MudTd>
+                <MudTd>@context.Title</MudTd>
+                <MudTd>@context.PropertyType / @context.ListingType</MudTd>
+                <MudTd>Rp @context.Price.ToString("N0")</MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Color="@(context.Status == "Available" ? Color.Success : Color.Error)">@context.Status</MudChip></MudTd>
+                <MudTd>@context.ViewCount</MudTd>
+                <MudTd><MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="() => EditProperty(context)" /><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteProperty(context.Id)" /></MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+</MudContainer>
+
+@if (_dialogVisible)
+{
+    <MudOverlay Visible="true" OnClick="CloseDialog" DarkBackground="true" />
+    <MudPaper Class="pa-6" Style="border-radius:16px; max-width:760px; width:94%; max-height:90vh; overflow-y:auto; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10000;">
+        <MudText Typo="Typo.h5" Style="font-weight:700;" Class="mb-4">@(_isEditing ? "Edit" : "Tambah") Properti</MudText>
+        <MudGrid>
+            <MudItem xs="12"><MudTextField @bind-Value="_form.Title" Label="Judul Properti" Variant="Variant.Outlined" Class="mb-2" /></MudItem>
+            <MudItem xs="6" md="4"><MudSelect T="string" @bind-Value="_form.PropertyType" Label="Tipe Properti" Variant="Variant.Outlined" Class="mb-2"><MudSelectItem Value="@("House")">🏠 Rumah</MudSelectItem><MudSelectItem Value="@("Apartment")">🏢 Apartemen</MudSelectItem><MudSelectItem Value="@("ShopHouse")">🏪 Ruko</MudSelectItem><MudSelectItem Value="@("Villa")">🏡 Villa</MudSelectItem><MudSelectItem Value="@("Land")">🌳 Tanah</MudSelectItem><MudSelectItem Value="@("Office")">🏬 Kantor</MudSelectItem></MudSelect></MudItem>
+            <MudItem xs="6" md="4"><MudSelect T="string" @bind-Value="_form.ListingType" Label="Jenis Listing" Variant="Variant.Outlined" Class="mb-2"><MudSelectItem Value="@("Sale")">💰 Dijual</MudSelectItem><MudSelectItem Value="@("Rent")">🔑 Disewakan</MudSelectItem></MudSelect></MudItem>
+            <MudItem xs="6" md="4"><MudSelect T="string" @bind-Value="_form.Status" Label="Status" Variant="Variant.Outlined" Class="mb-2"><MudSelectItem Value="@("Available")">✅ Tersedia</MudSelectItem><MudSelectItem Value="@("Sold")">🔴 Terjual</MudSelectItem><MudSelectItem Value="@("Rented")">🟡 Disewa</MudSelectItem><MudSelectItem Value="@("Pending")">⏳ Pending</MudSelectItem></MudSelect></MudItem>
+            <MudItem xs="6" md="4"><MudNumericField @bind-Value="_priceDecimal" Label="Harga (Rp)" Variant="Variant.Outlined" Class="mb-2" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="_form.Description" Label="Deskripsi" Variant="Variant.Outlined" Lines="3" Class="mb-2" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="_form.Address" Label="Alamat Lengkap" Variant="Variant.Outlined" Class="mb-2" /></MudItem>
+            <MudItem xs="6"><MudTextField @bind-Value="_form.City" Label="Kota" Variant="Variant.Outlined" Class="mb-2" /></MudItem>
+            <MudItem xs="6"><MudTextField @bind-Value="_form.District" Label="Kecamatan" Variant="Variant.Outlined" Class="mb-2" /></MudItem>
+            <MudItem xs="6" md="3"><MudNumericField @bind-Value="_landArea" Label="Luas Tanah (m²)" Variant="Variant.Outlined" Class="mb-2" /></MudItem>
+            <MudItem xs="6" md="3"><MudNumericField @bind-Value="_buildingArea" Label="Luas Bangunan (m²)" Variant="Variant.Outlined" Class="mb-2" /></MudItem>
+            <MudItem xs="6" md="3"><MudNumericField @bind-Value="_bedrooms" Label="Kamar Tidur" Variant="Variant.Outlined" Class="mb-2" /></MudItem>
+            <MudItem xs="6" md="3"><MudNumericField @bind-Value="_bathrooms" Label="Kamar Mandi" Variant="Variant.Outlined" Class="mb-2" /></MudItem>
+            <MudItem xs="12"><MudTextField @bind-Value="_form.Facilities" Label="Fasilitas (pisahkan dengan koma)" Variant="Variant.Outlined" Class="mb-2" /></MudItem>
+            <MudItem xs="12">
+                <MudText Typo="Typo.subtitle2" Style="font-weight:600;" Class="mb-2">📷 Foto Properti</MudText>
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    @if (_uploadedImages.Count > 0){ @foreach (var img in _uploadedImages){<div style="position:relative; width:90px; height:70px; border-radius:8px; overflow:hidden; border:2px solid var(--mud-palette-divider);"><img src="@img" style="width:100%;height:100%;object-fit:cover;" /><MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="position:absolute; top:0; right:0; background:rgba(0,0,0,0.5); color:white; padding:0;" OnClick="() => RemoveImage(img)" /></div>} }
+                    <div style="width:90px; height:70px; border:2px dashed var(--mud-palette-divider); border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer;" @onclick="TriggerImageInput"><MudIcon Icon="@Icons.Material.Filled.AddPhotoAlternate" Color="Color.Secondary" /></div>
+                </div>
+                <InputFile id="listing-image-input" OnChange="OnImagesSelected" accept="image/*" multiple Style="display:none;" />
+            </MudItem>
+        </MudGrid>
+        <div class="d-flex justify-end gap-2 mt-3"><MudButton Variant="Variant.Text" OnClick="CloseDialog">Batal</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveProperty" Style="border-radius:12px;">@(_isEditing ? "Update" : "Simpan")</MudButton></div>
+    </MudPaper>
+}
+
+@code {
+    private List<Property> _properties = new();
+    private bool _dialogVisible; private bool _isEditing;
+    private Property _form = new();
+    private decimal _priceDecimal; private double _landArea; private double _buildingArea; private int _bedrooms; private int _bathrooms;
+    private List<string> _uploadedImages = new();
+
+    protected override async Task OnInitializedAsync() => _properties = await PropertyService.GetByOwnerAsync("agent-001");
+
+    private string GetFirstImage(Property p){
+        if (!string.IsNullOrEmpty(p.MainImageUrl)) return p.MainImageUrl;
+        if (!string.IsNullOrEmpty(p.ImageUrls)){ try { var urls = System.Text.Json.JsonSerializer.Deserialize<List<string>>(p.ImageUrls); if (urls != null && urls.Count > 0) return urls[0]; } catch {} }
+        return "https://placehold.co/600x400/2563EB/FFFFFF?text=No+Image";
+    }
+
+    private void OpenAddDialog(){
+        _isEditing = false; _uploadedImages = new();
+        _form = new Property { Status = "Available", ListingType = "Sale", PropertyType = "House", OwnerId = "agent-001" };
+        _priceDecimal = 0; _landArea = 0; _buildingArea = 0; _bedrooms = 0; _bathrooms = 0; _dialogVisible = true;
+    }
+    private void EditProperty(Property p){
+        _isEditing = true;
+        _form = new Property { Id = p.Id, Title = p.Title, Description = p.Description, PropertyType = p.PropertyType, ListingType = p.ListingType, Status = p.Status, Price = p.Price, Address = p.Address, City = p.City, District = p.District, Facilities = p.Facilities, OwnerId = p.OwnerId, MainImageUrl = p.MainImageUrl, ImageUrls = p.ImageUrls };
+        _priceDecimal = p.Price; _landArea = p.LandArea; _buildingArea = p.BuildingArea; _bedrooms = p.Bedrooms; _bathrooms = p.Bathrooms;
+        _uploadedImages = new();
+        if (!string.IsNullOrEmpty(p.ImageUrls)){ try { var urls = System.Text.Json.JsonSerializer.Deserialize<List<string>>(p.ImageUrls); if (urls != null) _uploadedImages = urls; } catch {} }
+        if (!string.IsNullOrEmpty(p.MainImageUrl) && !_uploadedImages.Contains(p.MainImageUrl)) _uploadedImages.Insert(0, p.MainImageUrl);
+        _dialogVisible = true;
+    }
+
+    private async Task TriggerImageInput() => await JS.InvokeVoidAsync("triggerClick", "listing-image-input");
+
+    private async Task OnImagesSelected(InputFileChangeEventArgs e){
+        foreach (var file in e.GetMultipleFiles(5)){
+            var buffer = new byte[file.Size]; await file.OpenReadStream(3 * 1024 * 1024).ReadAsync(buffer);
+            _uploadedImages.Add($"data:{file.ContentType};base64,{Convert.ToBase64String(buffer)}");
+        }
+    }
+    private void RemoveImage(string url) => _uploadedImages.Remove(url);
+
+    private async Task SaveProperty(){
+        _form.Price = _priceDecimal; _form.LandArea = _landArea; _form.BuildingArea = _buildingArea; _form.Bedrooms = _bedrooms; _form.Bathrooms = _bathrooms;
+        _form.MainImageUrl = _uploadedImages.Count > 0 ? _uploadedImages[0] : null;
+        _form.ImageUrls = _uploadedImages.Count > 1 ? System.Text.Json.JsonSerializer.Serialize(_uploadedImages) : null;
+        if (_isEditing) await PropertyService.UpdateAsync(_form); else await PropertyService.CreatePropertyAsync(_form);
+        _dialogVisible = false; _properties = await PropertyService.GetByOwnerAsync("agent-001");
+        Snackbar.Add(_isEditing ? "Properti diupdate!" : "Properti ditambahkan!", Severity.Success);
+    }
+    private async Task DeleteProperty(int id) { await PropertyService.DeleteAsync(id); _properties = await PropertyService.GetByOwnerAsync("agent-001"); Snackbar.Add("Properti dihapus", Severity.Info); }
+    private void CloseDialog() => _dialogVisible = false;
+}

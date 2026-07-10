@@ -1,0 +1,159 @@
+@page "/user/chat"
+@using EstateHub.Models
+@inject ChatService ChatService
+@inject AppDbContext Db
+@inject ISnackbar Snackbar
+
+<PageTitle>Pesan - EstateHub</PageTitle>
+
+<div style="display:flex; height:calc(100vh - 64px - 90px); border-radius:16px; overflow:hidden; background:var(--mud-palette-surface); box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+    <!-- Conversation List -->
+    <div style="width:320px; border-right:1px solid var(--mud-palette-divider); display:flex; flex-direction:column; background:var(--mud-palette-background);">
+        <div style="padding:16px; border-bottom:1px solid var(--mud-palette-divider);">
+            <MudText Typo="Typo.h6" Style="font-weight:700;">💬 Pesan</MudText>
+            <MudTextField T="string" @bind-Value="_searchText" Placeholder="Cari percakapan..." Variant="Variant.Outlined"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true" Margin="Margin.Dense" Style="margin-top:8px;" />
+        </div>
+        <div style="flex:1; overflow-y:auto;">
+            @if (_filteredConversations.Count == 0)
+            {
+                <div class="text-center py-8">
+                    <MudIcon Icon="@Icons.Material.Filled.ChatBubbleOutline" Size="Size.Large" Color="Color.Secondary" />
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">Belum ada percakapan</MudText>
+                </div>
+            }
+            @foreach (var convo in _filteredConversations)
+            {
+                var other = convo.SenderId == _currentUserId ? convo.Receiver : convo.Sender;
+                var isSelected = _selectedUser?.Id == other?.Id;
+                var isUnread = !convo.IsRead && convo.ReceiverId == _currentUserId;
+                <div class="convo-item" style="padding:12px 16px; cursor:pointer; transition:background 0.15s;
+                    background:@(isSelected ? "var(--mud-palette-primary-hover)" : "transparent");
+                    border-left:3px solid @(isSelected ? "var(--mud-palette-primary)" : "transparent");
+                    @(isUnread ? "font-weight:600;" : "")"
+                    @onclick="() => SelectConversation(other)">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <div style="position:relative;">
+                            <MudAvatar Color="Color.Primary" Size="Size.Small">@(other?.FullName?.FirstOrDefault().ToString() ?? "?")</MudAvatar>
+                            @if (isUnread)
+                            {
+                                <div style="position:absolute; top:-2px; right:-2px; width:10px; height:10px; border-radius:50%; background:var(--mud-palette-primary); border:2px solid var(--mud-palette-background);"></div>
+                            }
+                        </div>
+                        <div style="flex:1; min-width:0;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <MudText Typo="Typo.body2" Style="font-weight:600;">@(other?.FullName ?? "Unknown")</MudText>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@convo.SentAt.ToString("HH:mm")</MudText>
+                            </div>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary" Style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                                @(convo.TextContent?.Length > 40 ? convo.TextContent[..40] + "..." : convo.TextContent)
+                            </MudText>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div style="flex:1; display:flex; flex-direction:column;">
+        @if (_selectedUser == null)
+        {
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;">
+                <div style="width:80px; height:80px; border-radius:50%; background:var(--mud-palette-primary-hover); display:flex; align-items:center; justify-content:center;">
+                    <MudIcon Icon="@Icons.Material.Filled.Chat" Size="Size.Large" Color="Color.Primary" />
+                </div>
+                <MudText Typo="Typo.h5" Style="font-weight:700;">Pesan Anda</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Pilih percakapan dari daftar di samping</MudText>
+            </div>
+        }
+        else
+        {
+            <div style="padding:12px 20px; border-bottom:1px solid var(--mud-palette-divider); display:flex; align-items:center; gap:12px; background:var(--mud-palette-surface);">
+                <MudAvatar Color="Color.Primary" Size="Size.Small">@(_selectedUser.FullName?.FirstOrDefault().ToString() ?? "?")</MudAvatar>
+                <div>
+                    <MudText Typo="Typo.body1" Style="font-weight:600;">@_selectedUser.FullName</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@(_selectedUser.Role == "Agent" ? "Agen Properti" : "Pengguna")</MudText>
+                </div>
+                <MudSpacer />
+                <MudIconButton Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" />
+            </div>
+
+            <div style="flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:8px; background:var(--mud-palette-background);">
+                @if (_messages.Count == 0)
+                {
+                    <div class="text-center py-4"><MudText Typo="Typo.body2" Color="Color.Secondary">Belum ada pesan. Mulai percakapan!</MudText></div>
+                }
+                @foreach (var msg in _messages)
+                {
+                    var isMe = msg.SenderId == _currentUserId;
+                    <div style="display:flex; @(isMe ? "justify-content:flex-end;" : "justify-content:flex-start;")">
+                        <div style="max-width:72%; padding:10px 16px; border-radius:18px; @(isMe
+                            ? "background:var(--mud-palette-primary); color:white; border-bottom-right-radius:6px;"
+                            : "background:var(--mud-palette-surface); border:1px solid var(--mud-palette-divider); border-bottom-left-radius:6px;")">
+                            <MudText Typo="Typo.body2" Style="white-space:pre-wrap; word-break:break-word;">@msg.TextContent</MudText>
+                            <div style="display:flex; align-items:center; gap:4px; margin-top:4px; justify-content:flex-end;">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@msg.SentAt.ToString("HH:mm")</MudText>
+                                @if (isMe)
+                                {
+                                    <MudIcon Icon="@(msg.IsRead ? Icons.Material.Filled.DoneAll : Icons.Material.Filled.Done)" Size="Size.Small" Style="font-size:14px;" />
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div style="padding:12px 16px; border-top:1px solid var(--mud-palette-divider); background:var(--mud-palette-surface);">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <MudIconButton Icon="@Icons.Material.Filled.AttachFile" Size="Size.Small" />
+                    <MudTextField T="string" @bind-Value="_newMessage" Placeholder="Ketik pesan Anda..."
+                                  Variant="Variant.Outlined" Immediate="true" Style="flex:1;"
+                                  Lines="1" OnKeyDown="HandleKeyDown" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Send" Color="Color.Primary"
+                                   OnClick="SendMessageToUser" Disabled="string.IsNullOrWhiteSpace(_newMessage)" />
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string _currentUserId = "buyer-001";
+    private List<ChatMessage> _conversations = new();
+    private List<ChatMessage> _messages = new();
+    private ApplicationUser? _selectedUser;
+    private string _newMessage = "";
+    private string _searchText = "";
+
+    private List<ChatMessage> _filteredConversations => _conversations
+        .Where(c => string.IsNullOrWhiteSpace(_searchText) ||
+                    (c.Receiver?.FullName?.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (c.Sender?.FullName?.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (c.TextContent?.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+        .ToList();
+
+    protected override async Task OnInitializedAsync() => _conversations = await ChatService.GetUserInboxAsync(_currentUserId);
+
+    private async Task SelectConversation(ApplicationUser? user)
+    {
+        if (user == null) return;
+        _selectedUser = user;
+        _messages = await ChatService.GetConversationAsync(_currentUserId, user.Id);
+        await ChatService.MarkAsReadAsync(user.Id, _currentUserId);
+        _conversations = await ChatService.GetUserInboxAsync(_currentUserId);
+    }
+
+    private async Task SendMessageToUser()
+    {
+        if (string.IsNullOrWhiteSpace(_newMessage) || _selectedUser == null) return;
+        await ChatService.SendMessageAsync(new ChatMessage { SenderId = _currentUserId, ReceiverId = _selectedUser.Id, TextContent = _newMessage.Trim(), MessageType = "text", SentAt = DateTime.UtcNow });
+        _newMessage = "";
+        _messages = await ChatService.GetConversationAsync(_currentUserId, _selectedUser.Id);
+        _conversations = await ChatService.GetUserInboxAsync(_currentUserId);
+        Snackbar.Add("Pesan terkirim ✅", Severity.Success);
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey) await SendMessageToUser(); }
+}

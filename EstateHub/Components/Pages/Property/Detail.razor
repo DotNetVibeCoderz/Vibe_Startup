@@ -1,0 +1,183 @@
+@page "/property/{Id:int}"
+@using EstateHub.Models
+@inject PropertyService PropertyService
+@inject ReviewService ReviewService
+@inject BookingService BookingService
+@inject ChatService ChatService
+@inject AppDbContext Db
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>@(_property?.Title ?? "Detail Properti") - EstateHub</PageTitle>
+
+@if (_isLoading) { <MudProgressLinear Indeterminate="true" Class="my-4" /> }
+else if (_property == null)
+{
+    <MudContainer MaxWidth="MaxWidth.Large" Class="py-8 text-center">
+        <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Size="Size.Large" Color="Color.Error" />
+        <MudText Typo="Typo.h5" Class="mt-3">Properti tidak ditemukan</MudText>
+    </MudContainer>
+}
+else
+{
+    <MudContainer MaxWidth="MaxWidth.Large" Class="py-4">
+        <MudGrid>
+            <MudItem xs="12" md="8">
+                <MudPaper Elevation="1" Class="mb-4" Style="border-radius:16px; overflow:hidden;">
+                    <img src="@(_property.MainImageUrl ?? "https://placehold.co/800x500/2563EB/FFFFFF?text=Property")"
+                         style="width:100%; height:400px; object-fit:cover;" alt="@_property.Title" />
+                </MudPaper>
+                <MudPaper Elevation="1" Class="pa-6 mb-4" Style="border-radius:16px;">
+                    <div class="d-flex align-center justify-space-between mb-4">
+                        <div>
+                            <MudChip T="string" Size="Size.Small" Color="@(_property.ListingType == "Sale" ? Color.Primary : Color.Tertiary)">
+                                @(_property.ListingType == "Sale" ? "DIJUAL" : "DISEWA")</MudChip>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Class="ml-2">@_property.Status</MudChip>
+                        </div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">👁 @_property.ViewCount views</MudText>
+                    </div>
+                    <MudText Typo="Typo.h4" Style="font-weight:800;">@_property.Title</MudText>
+                    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-3"><MudIcon Icon="@Icons.Material.Filled.LocationOn" Size="Size.Small" /> @_property.Address, @_property.City</MudText>
+                    <MudText Typo="Typo.h4" Color="Color.Primary" Style="font-weight:800;">Rp @_property.Price.ToString("N0")@if (_property.ListingType == "Rent"){<MudText Typo="Typo.caption" Style="display:inline;">/bulan</MudText>}</MudText>
+                </MudPaper>
+                <MudPaper Elevation="1" Class="pa-6 mb-4" Style="border-radius:16px;">
+                    <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Spesifikasi</MudText>
+                    <MudGrid>
+                        <MudItem xs="4" Class="text-center"><MudIcon Icon="@Icons.Material.Filled.Bed" Color="Color.Primary" /><MudText Typo="Typo.h6">@_property.Bedrooms</MudText><MudText Typo="Typo.caption">KT</MudText></MudItem>
+                        <MudItem xs="4" Class="text-center"><MudIcon Icon="@Icons.Material.Filled.Bathtub" Color="Color.Primary" /><MudText Typo="Typo.h6">@_property.Bathrooms</MudText><MudText Typo="Typo.caption">KM</MudText></MudItem>
+                        <MudItem xs="4" Class="text-center"><MudIcon Icon="@Icons.Material.Filled.SquareFoot" Color="Color.Primary" /><MudText Typo="Typo.h6">@_property.BuildingArea m²</MudText><MudText Typo="Typo.caption">Bangunan</MudText></MudItem>
+                        <MudItem xs="4" Class="text-center"><MudIcon Icon="@Icons.Material.Filled.OutdoorGrill" Color="Color.Primary" /><MudText Typo="Typo.h6">@_property.LandArea m²</MudText><MudText Typo="Typo.caption">Tanah</MudText></MudItem>
+                        <MudItem xs="4" Class="text-center"><MudIcon Icon="@Icons.Material.Filled.Stairs" Color="Color.Primary" /><MudText Typo="Typo.h6">@_property.Floors</MudText><MudText Typo="Typo.caption">Lantai</MudText></MudItem>
+                        <MudItem xs="4" Class="text-center"><MudIcon Icon="@Icons.Material.Filled.CalendarMonth" Color="Color.Primary" /><MudText Typo="Typo.h6">@(_property.YearBuilt?.ToString() ?? "-")</MudText><MudText Typo="Typo.caption">Tahun</MudText></MudItem>
+                    </MudGrid>
+                </MudPaper>
+                <MudPaper Elevation="1" Class="pa-6 mb-4" Style="border-radius:16px;"><MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Deskripsi</MudText><MudText Typo="Typo.body1">@_property.Description</MudText></MudPaper>
+                @if (!string.IsNullOrEmpty(_property.Facilities))
+                {
+                    <MudPaper Elevation="1" Class="pa-6 mb-4" Style="border-radius:16px;">
+                        <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Fasilitas</MudText>
+                        <div class="d-flex flex-wrap gap-2">@foreach (var fac in _property.Facilities.Split(',')){<MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">@fac.Trim()</MudChip>}</div>
+                    </MudPaper>
+                }
+                <MudPaper Elevation="1" Class="pa-6 mb-4" Style="border-radius:16px;">
+                    <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Ulasan (@_reviews.Count) ⭐ @_avgRating.ToString("F1")</MudText>
+                    <MudPaper Elevation="0" Class="pa-3 mb-3" Style="background:var(--mud-palette-background-gray); border-radius:12px;">
+                        <MudText Typo="Typo.subtitle2" Style="font-weight:600;" Class="mb-2">Tulis Ulasan</MudText>
+                        <div class="d-flex align-center gap-3 mb-2"><MudText Typo="Typo.caption">Rating:</MudText><MudRating @bind-SelectedValue="_newRating" Size="Size.Small" /></div>
+                        <MudTextField @bind-Value="_newComment" Label="Komentar" Variant="Variant.Outlined" Lines="2" Class="mb-2" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="SubmitReview" Style="border-radius:8px;">Kirim Ulasan</MudButton>
+                    </MudPaper>
+                    @foreach (var r in _reviews){
+                        <div class="pa-3 mb-2" style="background:var(--mud-palette-background); border-radius:12px;">
+                            <div class="d-flex justify-space-between mb-1"><MudText Typo="Typo.body2" Style="font-weight:600;">@(r.User?.FullName ?? "Pengguna")</MudText><MudRating SelectedValue="r.Rating" ReadOnly="true" Size="Size.Small" /></div>
+                            <MudText Typo="Typo.body2">@r.Comment</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@r.CreatedAt.ToString("dd MMM yyyy")</MudText>
+                        </div>
+                    }
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" md="4">
+                <MudPaper Elevation="2" Class="pa-4 mb-4" Style="border-radius:16px;">
+                    <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Kontak Agen</MudText>
+                    <div class="d-flex align-center mb-3"><MudAvatar Color="Color.Primary" Size="Size.Large">@(_property.Owner?.FullName?.FirstOrDefault().ToString() ?? "A")</MudAvatar><div class="ml-3"><MudText Typo="Typo.body1" Style="font-weight:600;">@(_property.Owner?.FullName ?? "Agen")</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">Agen Properti</MudText></div></div>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.CalendarMonth" OnClick="OpenBookingDialog" Style="border-radius:12px;" Class="mb-2">Buat Janji Temu</MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.Phone" Style="border-radius:12px;" Href="https://wa.me/6281234567890" Target="_blank" Class="mb-2">Chat WhatsApp</MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Tertiary" FullWidth="true" StartIcon="@Icons.Material.Filled.Chat" OnClick="SendChatMessage" Style="border-radius:12px;">Chat via Aplikasi</MudButton>
+                </MudPaper>
+                <MudPaper Elevation="1" Class="pa-4 mb-4" Style="border-radius:16px;"><MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Quick KPR</MudText><MudText Typo="Typo.h6" Color="Color.Primary" Style="font-weight:800;">~Rp @((_property.Price * 0.8m * 0.009m).ToString("N0"))/bulan</MudText><MudButton Variant="Variant.Text" Color="Color.Primary" Href="/kpr" Class="mt-2">Simulasi Lengkap</MudButton></MudPaper>
+                <MudPaper Elevation="1" Class="pa-4" Style="border-radius:16px;"><MudButton Variant="Variant.Outlined" FullWidth="true" OnClick="ToggleWishlist" Color="@(_inWishlist ? Color.Error : Color.Default)" StartIcon="@(_inWishlist ? Icons.Material.Filled.Favorite : Icons.Material.Filled.FavoriteBorder)" Style="border-radius:12px;">@(_inWishlist ? "Hapus dari Wishlist" : "Simpan ke Wishlist")</MudButton></MudPaper>
+            </MudItem>
+        </MudGrid>
+    </MudContainer>
+}
+
+@if (_bookingDialogVisible){
+    <MudOverlay Visible="true" OnClick="() => _bookingDialogVisible = false" DarkBackground="true" />
+    <MudPaper Elevation="16" Class="pa-6" Style="border-radius:16px; max-width:440px; width:90%; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10000;">
+        <MudText Typo="Typo.h5" Style="font-weight:700;" Class="mb-3">Buat Janji Temu</MudText>
+        <MudTextField @bind-Value="_bookingDate" Label="Tanggal (yyyy-MM-dd)" Variant="Variant.Outlined" Class="mb-3" />
+        <MudSelect T="string" @bind-Value="_bookingTimeSlot" Label="Waktu" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Morning")">Pagi (09:00 - 12:00)</MudSelectItem>
+            <MudSelectItem Value="@("Afternoon")">Siang (13:00 - 16:00)</MudSelectItem>
+            <MudSelectItem Value="@("Evening")">Sore (16:00 - 18:00)</MudSelectItem>
+        </MudSelect>
+        <MudTextField @bind-Value="_bookingNotes" Label="Catatan" Variant="Variant.Outlined" Lines="2" Class="mb-3" />
+        <div class="d-flex justify-end gap-2"><MudButton Variant="Variant.Text" OnClick="() => _bookingDialogVisible = false">Batal</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SubmitBooking" Style="border-radius:12px;">Buat Booking</MudButton></div>
+    </MudPaper>
+}
+
+@if (_chatDialogVisible){
+    <MudOverlay Visible="true" OnClick="() => _chatDialogVisible = false" DarkBackground="true" />
+    <MudPaper Elevation="16" Class="pa-6" Style="border-radius:16px; max-width:440px; width:90%; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10000;">
+        <MudText Typo="Typo.h5" Style="font-weight:700;" Class="mb-3">Kirim Pesan ke Agen</MudText>
+        <MudTextField @bind-Value="_chatMessage" Label="Pesan" Variant="Variant.Outlined" Lines="3" Class="mb-3" />
+        <div class="d-flex justify-end gap-2"><MudButton Variant="Variant.Text" OnClick="() => _chatDialogVisible = false">Batal</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SubmitChatMessage" Style="border-radius:12px;">Kirim</MudButton></div>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private Property? _property;
+    private List<Review> _reviews = new();
+    private double _avgRating;
+    private bool _isLoading = true;
+    private bool _inWishlist;
+    private int _newRating = 5;
+    private string _newComment = "";
+    private bool _bookingDialogVisible; private string _bookingDate = ""; private string _bookingTimeSlot = "Morning"; private string _bookingNotes = "";
+    private bool _chatDialogVisible; private string _chatMessage = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _property = await PropertyService.GetByIdAsync(Id);
+        if (_property != null)
+        {
+            await PropertyService.IncrementViewCountAsync(Id);
+            _reviews = await ReviewService.GetPropertyReviewsAsync(Id);
+            _avgRating = await ReviewService.GetAverageRatingAsync(Id);
+            _inWishlist = await Db.WishlistItems.AnyAsync(w => w.UserId == "buyer-001" && w.PropertyId == Id);
+        }
+        _isLoading = false;
+    }
+
+    private async Task ToggleWishlist()
+    {
+        var existing = await Db.WishlistItems.FirstOrDefaultAsync(w => w.UserId == "buyer-001" && w.PropertyId == Id);
+        if (existing != null) { Db.WishlistItems.Remove(existing); _inWishlist = false; Snackbar.Add("Dihapus dari wishlist", Severity.Info); }
+        else { Db.WishlistItems.Add(new WishlistItem { UserId = "buyer-001", PropertyId = Id, AddedAt = DateTime.UtcNow }); _inWishlist = true; Snackbar.Add("Disimpan ke wishlist ❤️", Severity.Success); }
+        await Db.SaveChangesAsync();
+    }
+    private void OpenBookingDialog() => _bookingDialogVisible = true;
+    private async Task SubmitBooking()
+    {
+        if (string.IsNullOrWhiteSpace(_bookingDate)) return;
+        if (!DateTime.TryParse(_bookingDate, out var dt)) { Snackbar.Add("Format tanggal tidak valid", Severity.Error); return; }
+        await BookingService.CreateBookingAsync(new Booking { PropertyId = Id, UserId = "buyer-001", ScheduledDate = dt, TimeSlot = _bookingTimeSlot, Notes = _bookingNotes, Status = "Pending", CreatedAt = DateTime.UtcNow });
+        _bookingDialogVisible = false; Snackbar.Add("✅ Janji temu berhasil dibuat!", Severity.Success);
+    }
+    private void SendChatMessage() => _chatDialogVisible = true;
+    private async Task SubmitChatMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_chatMessage)) return;
+        var ownerId = _property?.OwnerId ?? "agent-001";
+        var propTitle = _property?.Title ?? "properti ini";
+        var content = $"Halo, saya tertarik dengan properti **{propTitle}**. {_chatMessage}";
+        await ChatService.SendMessageAsync(new ChatMessage { SenderId = "buyer-001", ReceiverId = ownerId, TextContent = content, MessageType = "text", SentAt = DateTime.UtcNow, PropertyId = Id });
+        // Auto-create lead — extract variable before EF lambda
+        var oid = ownerId; var pid = Id;
+        var exists = await Db.Leads.AnyAsync(l => l.AgentId == oid && l.ProspectPhone == "083333333333" && l.PropertyId == pid);
+        if (!exists)
+        {
+            Db.Leads.Add(new Lead { AgentId = ownerId, ProspectName = "Siti Pembeli", ProspectPhone = "083333333333", PropertyId = Id, Status = "New", Notes = "Dari chat properti", CreatedAt = DateTime.UtcNow });
+            await Db.SaveChangesAsync();
+        }
+        _chatDialogVisible = false; _chatMessage = ""; Snackbar.Add("✅ Pesan terkirim ke agen!", Severity.Success);
+    }
+    private async Task SubmitReview()
+    {
+        if (string.IsNullOrWhiteSpace(_newComment)) return;
+        await ReviewService.AddReviewAsync(new Review { PropertyId = Id, UserId = "buyer-001", Rating = _newRating, Comment = _newComment, CreatedAt = DateTime.UtcNow });
+        _reviews = await ReviewService.GetPropertyReviewsAsync(Id); _avgRating = await ReviewService.GetAverageRatingAsync(Id);
+        _newComment = ""; _newRating = 5; Snackbar.Add("✅ Ulasan berhasil ditambahkan!", Severity.Success);
+    }
+}

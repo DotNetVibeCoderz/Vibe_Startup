@@ -1,0 +1,115 @@
+@page "/agent/ads"
+@using EstateHub.Models
+@using Microsoft.EntityFrameworkCore
+@inject AdvertisingService AdService
+@inject AppDbContext Db
+@inject ISnackbar Snackbar
+
+<PageTitle>Iklan & Promosi - EstateHub</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-4">
+    <div class="d-flex align-center justify-space-between mb-4">
+        <div><MudText Typo="Typo.h4" Style="font-weight:700;">Iklan & Promosi</MudText><MudText Typo="Typo.body1" Color="Color.Secondary">Tingkatkan visibilitas properti Anda</MudText></div>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" StartIcon="@Icons.Material.Filled.Campaign" OnClick="OpenAddDialog" Style="border-radius:12px;">Promosikan</MudButton>
+    </div>
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" md="4"><MudPaper Elevation="2" Class="pa-4" Style="border-radius:16px; background:linear-gradient(135deg, #F59E0B, #EF4444); color:white;"><MudText Typo="Typo.h5" Style="font-weight:800;">Premium</MudText><MudText Typo="Typo.body2">Tampil di halaman utama</MudText><MudText Typo="Typo.h6">Rp 299rb/30 hari</MudText></MudPaper></MudItem>
+        <MudItem xs="12" md="4"><MudPaper Elevation="2" Class="pa-4" Style="border-radius:16px; background:linear-gradient(135deg, #2563EB, #3B82F6); color:white;"><MudText Typo="Typo.h5" Style="font-weight:800;">Featured</MudText><MudText Typo="Typo.body2">Urutan teratas + analytics</MudText><MudText Typo="Typo.h6">Rp 499rb/30 hari</MudText></MudPaper></MudItem>
+        <MudItem xs="12" md="4"><MudPaper Elevation="2" Class="pa-4" Style="border-radius:16px; background:linear-gradient(135deg, #059669, #10B981); color:white;"><MudText Typo="Typo.h5" Style="font-weight:800;">Ultimate</MudText><MudText Typo="Typo.body2">Semua fitur + marketplace</MudText><MudText Typo="Typo.h6">Rp 999rb/30 hari</MudText></MudPaper></MudItem>
+    </MudGrid>
+
+    <MudPaper Elevation="1" Class="pa-4" Style="border-radius:16px;">
+        <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Iklan Aktif (@_ads.Count)</MudText>
+        <MudTable Items="@_ads" Hover="true" Dense="true" Striped="true">
+            <HeaderContent><MudTh>ID</MudTh><MudTh>Properti</MudTh><MudTh>Paket</MudTh><MudTh>Harga</MudTh><MudTh>Periode</MudTh><MudTh>Status</MudTh><MudTh>Impr.</MudTh><MudTh>Clicks</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>#@context.Id</MudTd>
+                <MudTd>@(_propNames.ContainsKey(context.PropertyId) ? _propNames[context.PropertyId] : $"#{context.PropertyId}")</MudTd>
+                <MudTd>@context.PackageType</MudTd>
+                <MudTd>Rp @context.Price.ToString("N0")</MudTd>
+                <MudTd>@context.StartDate.ToString("dd/MM") - @context.EndDate.ToString("dd/MM")</MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Color="@(context.Status == "Active" ? Color.Success : Color.Error)">@context.Status</MudChip></MudTd>
+                <MudTd>@context.Impressions</MudTd>
+                <MudTd>@context.Clicks</MudTd>
+                <MudTd>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary" OnClick="() => EditAd(context)" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAd(context.Id)" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+</MudContainer>
+
+@if (_dialogVisible)
+{
+    <MudOverlay Visible="true" OnClick="() => _dialogVisible = false" DarkBackground="true" />
+    <MudPaper Class="pa-6" Style="border-radius:16px; max-width:480px; width:90%; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10000;">
+        <MudText Typo="Typo.h5" Style="font-weight:700;" Class="mb-3">@(_isEditing ? "Edit" : "Promosikan") Properti</MudText>
+        <MudSelect T="int" @bind-Value="_adPropId" Label="Pilih Properti" Variant="Variant.Outlined" Class="mb-3" ToStringFunc="GetPropName">
+            @foreach (var kv in _propNames) { <MudSelectItem Value="kv.Key">@kv.Value</MudSelectItem> }
+        </MudSelect>
+        <MudSelect T="string" @bind-Value="_adPackage" Label="Pilih Paket" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Basic")">Basic — Gratis</MudSelectItem>
+            <MudSelectItem Value="@("Premium")">Premium — Rp 299.000</MudSelectItem>
+            <MudSelectItem Value="@("Featured")">Featured — Rp 499.000</MudSelectItem>
+            <MudSelectItem Value="@("Ultimate")">Ultimate — Rp 999.000</MudSelectItem>
+        </MudSelect>
+        <div class="d-flex justify-end gap-2">
+            <MudButton Variant="Variant.Text" OnClick="() => _dialogVisible = false">Batal</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAd" Style="border-radius:12px;">@(_isEditing ? "Update" : "Aktifkan")</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private List<Advertisement> _ads = new();
+    private Dictionary<int, string> _propNames = new();
+    private bool _dialogVisible;
+    private bool _isEditing;
+    private long _editAdId;
+    private int _adPropId;
+    private string _adPackage = "Premium";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var props = await Db.Properties.Where(p => p.OwnerId == "agent-001").ToListAsync();
+        _propNames = props.ToDictionary(p => p.Id, p => $"{p.Title} ({p.City})");
+        var propIds = props.Select(p => p.Id).ToList();
+        _ads = new List<Advertisement>();
+        foreach (var pid in propIds) _ads.AddRange(await AdService.GetPropertyAdsAsync(pid));
+    }
+
+    private void OpenAddDialog() { _isEditing = false; _adPropId = _propNames.Keys.FirstOrDefault(); _adPackage = "Premium"; _dialogVisible = true; }
+    private void EditAd(Advertisement ad) { _isEditing = true; _editAdId = ad.Id; _adPropId = ad.PropertyId; _adPackage = ad.PackageType; _dialogVisible = true; }
+
+    private async Task SaveAd()
+    {
+        var prices = new Dictionary<string, decimal> { ["Basic"] = 0, ["Premium"] = 299000, ["Featured"] = 499000, ["Ultimate"] = 999000 };
+        if (_isEditing)
+        {
+            var ad = await Db.Advertisements.FindAsync(_editAdId);
+            if (ad != null) { ad.PackageType = _adPackage; ad.Price = prices.GetValueOrDefault(_adPackage, 0); await Db.SaveChangesAsync(); }
+            Snackbar.Add("✅ Iklan diupdate!", Severity.Success);
+        }
+        else
+        {
+            await AdService.CreateAdvertisementAsync(new Advertisement { PropertyId = _adPropId, PackageType = _adPackage, Price = prices.GetValueOrDefault(_adPackage, 0), StartDate = DateTime.UtcNow, EndDate = DateTime.UtcNow.AddDays(30), Status = "Active" });
+            Snackbar.Add("✅ Iklan aktif!", Severity.Success);
+        }
+        _dialogVisible = false;
+        var propIds = await Db.Properties.Where(p => p.OwnerId == "agent-001").Select(p => p.Id).ToListAsync();
+        _ads.Clear(); foreach (var x in propIds) _ads.AddRange(await AdService.GetPropertyAdsAsync(x));
+    }
+
+    private async Task DeleteAd(long id)
+    {
+        var ad = await Db.Advertisements.FindAsync(id);
+        if (ad != null) { Db.Advertisements.Remove(ad); await Db.SaveChangesAsync(); }
+        var propIds = await Db.Properties.Where(p => p.OwnerId == "agent-001").Select(p => p.Id).ToListAsync();
+        _ads.Clear(); foreach (var x in propIds) _ads.AddRange(await AdService.GetPropertyAdsAsync(x));
+        Snackbar.Add("Iklan dihapus", Severity.Info);
+    }
+
+    private string GetPropName(int id) => _propNames.ContainsKey(id) ? _propNames[id] : $"#{id}";
+}

@@ -1,0 +1,69 @@
+@page "/property/map"
+@inject PropertyService PropertyService
+
+<PageTitle>Peta Interaktif - EstateHub</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-4">
+    <MudText Typo="Typo.h4" Style="font-weight:700;" Class="mb-2">🗺️ Peta Interaktif</MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-4">Jelajahi properti di peta — klik pin untuk melihat detail</MudText>
+    <MudGrid>
+        <MudItem xs="12" md="3">
+            <MudPaper Elevation="1" Class="pa-4 mb-4" Style="border-radius:16px;">
+                <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Filter Peta</MudText>
+                <MudSelect T="string" @bind-Value="_filterType" Label="Tipe Properti" Variant="Variant.Outlined" Class="mb-3">
+                    <MudSelectItem T="string" Value="@null">Semua Tipe</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("House")">🏠 Rumah</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Apartment")">🏢 Apartemen</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("ShopHouse")">🏪 Ruko</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Villa")">🏡 Villa</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Land")">🌳 Tanah</MudSelectItem>
+                </MudSelect>
+                <MudSelect T="string" @bind-Value="_filterListing" Label="Jual / Sewa" Variant="Variant.Outlined" Class="mb-3">
+                    <MudSelectItem T="string" Value="@null">Semua</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Sale")">💰 Dijual</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Rent")">🔑 Disewakan</MudSelectItem>
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="LoadMarkers" Style="border-radius:12px;">🔄 Terapkan</MudButton>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="9">
+            <MudPaper Elevation="2" Style="border-radius:16px; height:600px;">
+                <div id="map" style="width:100%;height:100%;border-radius:16px;"></div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    @if (_selectedProperty != null)
+    {
+        <MudOverlay Visible="true" OnClick="() => _selectedProperty = null" DarkBackground="true" />
+        <MudPaper Elevation="16" Style="position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:10000; width:500px; max-width:92vw; border-radius:16px;">
+            <div class="pa-4">
+                <div class="d-flex justify-space-between align-start mb-2"><MudText Typo="Typo.h6" Style="font-weight:700;">@_selectedProperty.Title</MudText><MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="() => _selectedProperty = null" /></div>
+                <MudChip T="string" Size="Size.Small" Color="@(_selectedProperty.ListingType == "Sale" ? Color.Primary : Color.Tertiary)" Class="mb-2">@(_selectedProperty.ListingType == "Sale" ? "DIJUAL" : "DISEWA") — Rp @_selectedProperty.Price.ToString("N0")</MudChip>
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">📍 @_selectedProperty.Address, @_selectedProperty.City<br/>🛏️ @_selectedProperty.Bedrooms KT | 🛁 @_selectedProperty.Bathrooms KM | 📐 @_selectedProperty.BuildingArea m²</MudText>
+                @{ var url = $"/property/{_selectedProperty.Id}"; }
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Href="@url" Style="border-radius:12px;">Lihat Detail Lengkap →</MudButton>
+            </div>
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    private string? _filterType; private string? _filterListing;
+    private List<EstateHub.Models.Property> _mapProperties = new();
+    private EstateHub.Models.Property? _selectedProperty;
+
+    protected override async Task OnInitializedAsync() => _mapProperties = await PropertyService.GetFeaturedAsync(100);
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) await LoadMarkers(); }
+
+    private async Task LoadMarkers()
+    {
+        _mapProperties = await PropertyService.SearchAsync(type: _filterType, listingType: _filterListing, page: 1, pageSize: 100);
+        await JSRuntime.InvokeVoidAsync("clearMarkers");
+        await JSRuntime.InvokeVoidAsync("initMap", -6.2088, 106.8456, 12);
+        foreach (var p in _mapProperties)
+            await JSRuntime.InvokeVoidAsync("addMarker", p.Latitude, p.Longitude, p.Title, p.ListingType == "Rent" ? $"Rp {p.Price:N0}/bln" : $"Rp {p.Price:N0}", p.Id);
+    }
+
+    [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
+}

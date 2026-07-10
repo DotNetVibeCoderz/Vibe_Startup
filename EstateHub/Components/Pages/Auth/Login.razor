@@ -1,0 +1,144 @@
+@page "/login"
+@page "/register"
+@layout EstateHub.Components.Layout.AuthLayout
+@using EstateHub.Models
+@inject AuthService AuthService
+@inject EstateHubAuthStateProvider AuthState
+@inject NavigationManager Navigation
+
+<PageTitle>@(_isRegister ? "Daftar" : "Login") - EstateHub</PageTitle>
+
+<div class="auth-card fade-in">
+    <div class="auth-header text-center mb-6">
+        <MudIcon Icon="@Icons.Material.Filled.RealEstateAgent" Size="Size.Large" Color="Color.Primary" />
+        <MudText Typo="Typo.h4" Style="font-weight:800;" Class="mt-2">
+            Estate<span style="color: var(--mud-palette-primary);">Hub</span>
+        </MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            @(_isRegister ? "Buat akun baru" : "Masuk ke akun Anda")
+        </MudText>
+    </div>
+
+    <MudPaper Elevation="2" Class="pa-6" Style="border-radius:16px;">
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-4" Style="border-radius:12px;">@_errorMessage</MudAlert>
+        }
+        @if (!string.IsNullOrEmpty(_successMessage))
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-4" Style="border-radius:12px;">@_successMessage</MudAlert>
+        }
+
+        @if (_isRegister)
+        {
+            <MudTextField @bind-Value="_regName" Label="Nama Lengkap" Variant="Variant.Outlined" Class="mb-3" />
+            <MudTextField @bind-Value="_regEmail" Label="Email" Variant="Variant.Outlined" Class="mb-3" />
+            <MudTextField @bind-Value="_regPhone" Label="No. Telepon" Variant="Variant.Outlined" Class="mb-3" />
+            <MudTextField @bind-Value="_regPassword" Label="Password" Variant="Variant.Outlined"
+                          InputType="InputType.Password" Class="mb-3" />
+            <MudTextField @bind-Value="_regConfirm" Label="Konfirmasi Password" Variant="Variant.Outlined"
+                          InputType="InputType.Password" Class="mb-3" />
+            <MudSelect T="string" @bind-Value="_regRole" Label="Daftar Sebagai" Variant="Variant.Outlined" Class="mb-4">
+                <MudSelectItem T="string" Value="@("Buyer")">Pembeli</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Tenant")">Penyewa</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Agent")">Agen Properti</MudSelectItem>
+            </MudSelect>
+        }
+        else
+        {
+            <MudTextField T="string" @bind-Value="_loginEmail" Label="Email / Username"
+                          Variant="Variant.Outlined" Class="mb-3"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person"
+                          HelperText="Ketik: admin, agent, buyer, atau tenant" />
+            <MudTextField T="string" @bind-Value="_loginPassword" Label="Password"
+                          Variant="Variant.Outlined" InputType="InputType.Password" Class="mb-3"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Lock" />
+        }
+
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                   Size="Size.Large" OnClick="HandleSubmit"
+                   Style="border-radius:12px; font-weight:600; height:48px;" Disabled="_isLoading">
+            @if (_isLoading) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Inherit" Class="mr-2" /> }
+            @(_isRegister ? "Daftar Sekarang" : "Masuk")
+        </MudButton>
+
+        <MudDivider Class="my-4" />
+        <div class="text-center">
+            @if (_isRegister)
+            {
+                <MudText Typo="Typo.body2">Sudah punya akun? <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="ToggleMode">Login di sini</MudButton></MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Class="mb-2">Belum punya akun? <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="ToggleMode">Daftar sekarang</MudButton></MudText>
+                <MudButton Variant="Variant.Text" Color="Color.Secondary" OnClick="ShowResetPassword">Lupa password?</MudButton>
+            }
+        </div>
+
+        @if (!_isRegister)
+        {
+            <MudDivider Class="my-4" />
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2 text-center">🔑 Demo Accounts:</MudText>
+            <div class="d-flex flex-wrap gap-2 justify-center">
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" OnClick="LoginAsAdmin">Admin</MudChip>
+                <MudChip T="string" Size="Size.Small" Color="Color.Tertiary" Variant="Variant.Outlined" OnClick="LoginAsAgent">Agent</MudChip>
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" OnClick="LoginAsBuyer">Buyer</MudChip>
+                <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Outlined" OnClick="LoginAsTenant">Tenant</MudChip>
+            </div>
+        }
+    </MudPaper>
+</div>
+
+@code {
+    private bool _isRegister;
+    private bool _isLoading;
+    private string? _errorMessage;
+    private string? _successMessage;
+    private string _loginEmail = "";
+    private string _loginPassword = "";
+    private string _regName = "";
+    private string _regEmail = "";
+    private string _regPhone = "";
+    private string _regPassword = "";
+    private string _regConfirm = "";
+    private string _regRole = "Buyer";
+
+    protected override void OnInitialized() => _isRegister = Navigation.Uri.Contains("/register");
+
+    private async Task HandleSubmit()
+    {
+        _errorMessage = null; _successMessage = null;
+        _isLoading = true; StateHasChanged();
+        try
+        {
+            if (_isRegister)
+            {
+                if (_regPassword != _regConfirm) { _errorMessage = "Password tidak cocok."; _isLoading = false; return; }
+                var model = new RegisterModel { FullName = _regName, Email = _regEmail, PhoneNumber = _regPhone, Password = _regPassword, ConfirmPassword = _regConfirm, Role = _regRole };
+                var user = await AuthService.RegisterAsync(model);
+                await AuthState.MarkUserAsAuthenticated(user);
+                Navigation.NavigateTo("/", forceLoad: true);
+            }
+            else
+            {
+                var user = await AuthService.LoginAsync(_loginEmail, _loginPassword);
+                if (user != null)
+                {
+                    await AuthState.MarkUserAsAuthenticated(user);
+                    Navigation.NavigateTo("/", forceLoad: true);
+                }
+                else { _errorMessage = "Login gagal. Gunakan: admin, agent, buyer, atau tenant."; }
+            }
+        }
+        catch (Exception ex) { _errorMessage = "Error: " + ex.Message; }
+        finally { _isLoading = false; StateHasChanged(); }
+    }
+
+    private async Task LoginAsAdmin()   { _loginEmail = "admin";  _loginPassword = "demo"; await HandleSubmit(); }
+    private async Task LoginAsAgent()   { _loginEmail = "agent";  _loginPassword = "demo"; await HandleSubmit(); }
+    private async Task LoginAsBuyer()   { _loginEmail = "buyer";  _loginPassword = "demo"; await HandleSubmit(); }
+    private async Task LoginAsTenant()  { _loginEmail = "tenant"; _loginPassword = "demo"; await HandleSubmit(); }
+
+    private void ToggleMode() { _isRegister = !_isRegister; _errorMessage = null; _successMessage = null; Navigation.NavigateTo(_isRegister ? "/register" : "/login", forceLoad: false); }
+    private void ShowResetPassword() => Navigation.NavigateTo("/reset-password");
+}

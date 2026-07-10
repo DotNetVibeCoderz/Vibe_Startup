@@ -1,0 +1,141 @@
+@page "/agent/contracts"
+@using EstateHub.Models
+@using Microsoft.EntityFrameworkCore
+@inject ContractService ContractService
+@inject AppDbContext Db
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<PageTitle>Kontrak Digital - EstateHub</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-4">
+    <div class="d-flex align-center justify-space-between mb-4">
+        <div><MudText Typo="Typo.h4" Style="font-weight:700;">📄 Kontrak Digital</MudText><MudText Typo="Typo.body1" Color="Color.Secondary">Kelola kontrak jual-beli & sewa dengan e-signature</MudText></div>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" StartIcon="@Icons.Material.Filled.Add" OnClick="() => _dialogVisible = true" Style="border-radius:12px;">Buat Kontrak</MudButton>
+    </div>
+
+    <MudPaper Elevation="1" Class="pa-4" Style="border-radius:16px;">
+        <MudTable Items="@_contracts" Hover="true" Dense="true" Striped="true" Class="rounded-lg">
+            <HeaderContent><MudTh>ID</MudTh><MudTh>Properti</MudTh><MudTh>Tipe</MudTh><MudTh>Harga</MudTh><MudTh>Status</MudTh><MudTh>Tanggal</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>#@context.Id</MudTd>
+                <MudTd>@(context.Property?.Title ?? "N/A")</MudTd>
+                <MudTd>@context.ContractType</MudTd>
+                <MudTd>Rp @context.Price.ToString("N0")</MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@GetStatusColor(context.Status)">@context.Status</MudChip></MudTd>
+                <MudTd>@context.CreatedAt.ToString("dd/MM")</MudTd>
+                <MudTd>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => ViewContract(context)">Lihat</MudButton>
+                    @if (context.Status == "Draft") { <MudButton Variant="Variant.Text" Color="Color.Success" Size="Size.Small" OnClick="() => SignContract(context)">✍️ Tanda Tangan</MudButton> }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+</MudContainer>
+
+@if (_dialogVisible)
+{
+    <MudOverlay Visible="true" OnClick="() => _dialogVisible = false" DarkBackground="true" />
+    <MudPaper Class="pa-6" Style="border-radius:16px; max-width:520px; width:92%; max-height:85vh; overflow-y:auto; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10000;">
+        <MudText Typo="Typo.h5" Style="font-weight:700;" Class="mb-3">Buat Kontrak Baru</MudText>
+        <MudSelect T="string" @bind-Value="_newContractType" Label="Tipe Kontrak" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem Value="@("Sale")">💰 Jual Beli</MudSelectItem>
+            <MudSelectItem Value="@("Rent")">🔑 Sewa</MudSelectItem>
+        </MudSelect>
+        <MudSelect T="int" @bind-Value="_newPropertyId" Label="Pilih Properti" Variant="Variant.Outlined" Class="mb-3" ToStringFunc="GetPropName">
+            @foreach (var kv in _propNames) { <MudSelectItem Value="kv.Key">@kv.Value</MudSelectItem> }
+        </MudSelect>
+        <MudSelect T="string" @bind-Value="_newBuyerId" Label="Pilih Buyer" Variant="Variant.Outlined" Class="mb-3" ToStringFunc="GetBuyerName">
+            @foreach (var kv in _buyerNames) { <MudSelectItem Value="@kv.Key">@kv.Value</MudSelectItem> }
+        </MudSelect>
+        <MudTextField @bind-Value="_newPriceStr" Label="Harga (Rp)" Variant="Variant.Outlined" Class="mb-3" />
+        @if (_generatedContent != null)
+        {
+            <MudText Typo="Typo.subtitle1" Style="font-weight:600;" Class="mb-1">📋 Preview Kontrak:</MudText>
+            <div style="max-height:220px; overflow-y:auto; background:var(--mud-palette-background); padding:14px; border-radius:12px; border:1px solid var(--mud-palette-divider);">
+                @((MarkupString)RenderMarkdown(_generatedContent))
+            </div>
+        }
+        <div class="d-flex justify-end gap-2 mt-3">
+            <MudButton Variant="Variant.Text" OnClick="() => _dialogVisible = false">Batal</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="GeneratePreview">👁 Preview</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateContract" Style="border-radius:12px;">✅ Buat Kontrak</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@if (_viewDialogVisible && _viewContract != null)
+{
+    <MudOverlay Visible="true" OnClick="() => _viewDialogVisible = false" DarkBackground="true" />
+    <MudPaper Class="pa-6" Style="border-radius:16px; max-width:750px; width:92%; max-height:82vh; overflow-y:auto; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10000;">
+        <div class="d-flex justify-space-between align-start mb-3">
+            <div><MudChip T="string" Size="Size.Small">Kontrak #@_viewContract.Id</MudChip><MudText Typo="Typo.h5" Style="font-weight:700;" Class="mt-2">@(_viewContract.ContractType == "Sale" ? "Jual Beli" : "Sewa")</MudText></div>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" OnClick="DownloadWord" StartIcon="@Icons.Material.Filled.Download" Style="border-radius:10px;">📥 Download Word</MudButton>
+        </div>
+        @if (_viewContract.ContractContent != null) { @((MarkupString)RenderMarkdown(_viewContract.ContractContent)) } else { <MudText>Konten kontrak belum tersedia.</MudText> }
+        <div class="d-flex justify-end mt-3"><MudButton Variant="Variant.Text" OnClick="() => _viewDialogVisible = false">Tutup</MudButton></div>
+    </MudPaper>
+}
+
+@code {
+    private List<Contract> _contracts = new();
+    private Dictionary<int, string> _propNames = new();
+    private Dictionary<string, string> _buyerNames = new();
+    private bool _dialogVisible, _viewDialogVisible;
+    private Contract? _viewContract;
+    private string _newContractType = "Sale";
+    private int _newPropertyId;
+    private string _newBuyerId = "";
+    private string _newPriceStr = "";
+    private string? _generatedContent;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _contracts = await ContractService.GetUserContractsAsync("agent-001");
+        var props = await Db.Properties.Where(p => p.OwnerId == "agent-001").ToListAsync();
+        _propNames = props.ToDictionary(p => p.Id, p => $"{p.Title} ({p.City})");
+        if (_propNames.Any()) _newPropertyId = _propNames.Keys.First();
+        var buyers = await Db.Users.Where(u => u.Role == "Buyer" || u.Role == "Tenant").ToListAsync();
+        _buyerNames = buyers.ToDictionary(u => u.Id, u => $"{u.FullName} ({u.Role})");
+        if (_buyerNames.Any()) _newBuyerId = _buyerNames.Keys.First();
+    }
+
+    private async Task GeneratePreview()
+    {
+        if (!decimal.TryParse(_newPriceStr, out _)) return;
+        var prop = await Db.Properties.FindAsync(_newPropertyId);
+        var buyer = await Db.Users.FindAsync(_newBuyerId);
+        var seller = await Db.Users.FindAsync("agent-001");
+        if (prop != null && buyer != null && seller != null)
+            _generatedContent = await ContractService.GenerateContractContentAsync(prop, buyer, seller, _newContractType);
+    }
+
+    private async Task CreateContract()
+    {
+        if (!decimal.TryParse(_newPriceStr, out var price)) return;
+        await ContractService.CreateContractAsync(new Contract { PropertyId = _newPropertyId, ContractType = _newContractType, Price = price, BuyerId = _newBuyerId, SellerId = "agent-001", Status = "Draft", StartDate = DateTime.UtcNow, ContractContent = _generatedContent });
+        _dialogVisible = false; _contracts = await ContractService.GetUserContractsAsync("agent-001");
+        Snackbar.Add("✅ Kontrak berhasil dibuat!", Severity.Success);
+    }
+
+    private void ViewContract(Contract c) { _viewContract = c; _viewDialogVisible = true; }
+    private async Task SignContract(Contract c) { c.Status = "Signed"; c.SignedAt = DateTime.UtcNow; await ContractService.UpdateContractAsync(c); _contracts = await ContractService.GetUserContractsAsync("agent-001"); Snackbar.Add("✅ Kontrak ditandatangani!", Severity.Success); }
+
+    private async Task DownloadWord()
+    {
+        if (_viewContract?.ContractContent == null) return;
+        // Convert markdown to HTML, wrap in basic HTML doc
+        var html = RenderMarkdown(_viewContract.ContractContent);
+        var fullDoc = $@"<html><head><meta charset=""utf-8""><style>body{{font-family:'Segoe UI',sans-serif;padding:20px;line-height:1.6;}}h1,h2{{color:#1e293b;}}</style></head><body>{html}</body></html>";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(fullDoc);
+        var base64 = Convert.ToBase64String(bytes);
+        // Trigger download via JS — browser recognizes .doc extension and prompts download
+        await JS.InvokeVoidAsync("triggerDownload", base64, $"kontrak-{_viewContract.Id}.doc", "application/msword");
+        Snackbar.Add("✅ Dokumen sedang didownload!", Severity.Success);
+    }
+
+    private string GetPropName(int id) => _propNames.ContainsKey(id) ? _propNames[id] : $"#{id}";
+    private string GetBuyerName(string id) => _buyerNames.ContainsKey(id) ? _buyerNames[id] : id;
+    private static Color GetStatusColor(string s) => s switch { "Draft" => Color.Warning, "Signed" => Color.Primary, "Active" => Color.Success, "Cancelled" => Color.Error, _ => Color.Default };
+    private string RenderMarkdown(string t) => Markdig.Markdown.ToHtml(t, new Markdig.MarkdownPipelineBuilder().Build());
+}

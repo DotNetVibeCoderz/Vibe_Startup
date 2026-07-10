@@ -1,0 +1,70 @@
+@page "/user/bookings"
+@using EstateHub.Models
+@inject BookingService BookingService
+@inject ISnackbar Snackbar
+
+<PageTitle>Booking & Janji Temu - EstateHub</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-4">
+    <div class="d-flex align-center justify-space-between mb-4">
+        <div><MudText Typo="Typo.h4" Style="font-weight:800;">📅 Booking & Janji Temu</MudText><MudText Typo="Typo.body1" Color="Color.Secondary">Kelola jadwal kunjungan properti Anda</MudText></div>
+    </div>
+
+    @if (_upcoming.Any())
+    {
+        <MudText Typo="Typo.subtitle1" Style="font-weight:700;" Class="mb-3"><MudIcon Icon="@Icons.Material.Filled.EventAvailable" Size="Size.Small" Color="Color.Primary" /> Mendatang</MudText>
+        <MudGrid Class="mb-4">
+            @foreach (var b in _upcoming)
+            {
+                <MudItem xs="12" md="6" lg="4">
+                    <MudPaper Elevation="2" Class="pa-4" Style="border-radius:16px; border-left:4px solid var(--mud-palette-primary); position:relative; overflow:hidden;">
+                        <div style="position:absolute; top:-20px; right:-20px; opacity:0.06;"><MudIcon Icon="@Icons.Material.Filled.CalendarMonth" Size="Size.Large" Style="font-size:120px;" /></div>
+                        <div style="position:relative;">
+                            <div class="d-flex justify-space-between align-start mb-2"><MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@GetStatusColor(b.Status)">@b.Status</MudChip></div>
+                            <MudText Typo="Typo.body1" Style="font-weight:700;" Class="mb-1">@(b.Property?.Title ?? "Properti")</MudText>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Secondary" Class="mb-2">@(b.Property?.PropertyType ?? "")</MudChip>
+                            <div class="d-flex align-center gap-3 mb-2" style="color:var(--mud-palette-text-secondary);">
+                                <div class="d-flex align-center gap-1"><MudIcon Icon="@Icons.Material.Filled.Today" Size="Size.Small" /><MudText Typo="Typo.caption">@b.ScheduledDate.ToString("dd MMM yyyy")</MudText></div>
+                                <div class="d-flex align-center gap-1"><MudIcon Icon="@Icons.Material.Filled.AccessTime" Size="Size.Small" /><MudText Typo="Typo.caption">@(b.TimeSlot switch { "Morning" => "Pagi 09-12", "Afternoon" => "Siang 13-16", "Evening" => "Sore 16-18", _ => b.TimeSlot ?? "-" })</MudText></div>
+                            </div>
+                            @if (b.Status == "Pending"){<MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" OnClick="() => CancelBooking(b.Id)" Style="border-radius:10px;">Batalkan</MudButton>}
+                        </div>
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+
+    <MudPaper Elevation="1" Class="pa-4" Style="border-radius:16px;">
+        <div class="d-flex align-center justify-space-between mb-3">
+            <MudText Typo="Typo.subtitle1" Style="font-weight:700;"><MudIcon Icon="@Icons.Material.Filled.History" Size="Size.Small" /> Riwayat Booking</MudText>
+            <MudSelect T="string" @bind-Value="_filterStatus" Placeholder="Filter Status" Variant="Variant.Outlined" Style="width:200px; margin-left:24px;" Margin="Margin.Dense">
+                <MudSelectItem T="string" Value="@null">Semua Status</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Pending")">⏳ Pending</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Confirmed")">✅ Dikonfirmasi</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Completed")">🎉 Selesai</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Cancelled")">❌ Dibatalkan</MudSelectItem>
+            </MudSelect>
+        </div>
+        <MudTable Items="@_filteredBookings" Hover="true" Dense="true" Striped="true" Class="rounded-lg">
+            <HeaderContent><MudTh>Properti</MudTh><MudTh>Tanggal</MudTh><MudTh>Waktu</MudTh><MudTh>Status</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@(context.Property?.Title ?? "N/A")</MudTd>
+                <MudTd>@context.ScheduledDate.ToString("dd MMM yyyy")</MudTd>
+                <MudTd>@context.TimeSlot</MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@GetStatusColor(context.Status)">@context.Status</MudChip></MudTd>
+                <MudTd>@if (context.Status == "Pending"){<MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small" OnClick="() => CancelBooking(context.Id)">Batalkan</MudButton>}</MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private List<Booking> _bookings = new();
+    private string? _filterStatus;
+    private List<Booking> _upcoming => _bookings.Where(b => b.ScheduledDate >= DateTime.Today && b.Status != "Cancelled").OrderBy(b => b.ScheduledDate).ToList();
+    private List<Booking> _filteredBookings => _bookings.Where(b => string.IsNullOrEmpty(_filterStatus) || b.Status == _filterStatus).OrderByDescending(b => b.ScheduledDate).ToList();
+    protected override async Task OnInitializedAsync() => _bookings = await BookingService.GetUserBookingsAsync("buyer-001");
+    private async Task CancelBooking(int id) { await BookingService.UpdateBookingStatusAsync(id, "Cancelled"); _bookings = await BookingService.GetUserBookingsAsync("buyer-001"); Snackbar.Add("Booking dibatalkan", Severity.Info); }
+    private static Color GetStatusColor(string s) => s switch { "Pending" => Color.Warning, "Confirmed" => Color.Primary, "Completed" => Color.Success, "Cancelled" => Color.Error, _ => Color.Default };
+}

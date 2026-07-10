@@ -1,0 +1,121 @@
+@page "/agent/leads"
+@using EstateHub.Models
+@using Microsoft.EntityFrameworkCore
+@inject LeadService LeadService
+@inject AppDbContext Db
+@inject ISnackbar Snackbar
+
+<PageTitle>CRM Leads - EstateHub</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-4">
+    <div class="d-flex align-center justify-space-between mb-4">
+        <div><MudText Typo="Typo.h4" Style="font-weight:700;">📊 CRM Leads</MudText><MudText Typo="Typo.body1" Color="Color.Secondary">Manajemen prospek — otomatis dari booking & chat</MudText></div>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenAddDialog" Style="border-radius:12px;">Tambah Lead</MudButton>
+    </div>
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="6" md="3"><MudPaper Elevation="1" Class="pa-4 text-center" Style="border-radius:12px;"><MudText Typo="Typo.h6" Style="font-weight:700; color:var(--mud-palette-primary);">@_newCount</MudText><MudText Typo="Typo.caption">Baru</MudText></MudPaper></MudItem>
+        <MudItem xs="6" md="3"><MudPaper Elevation="1" Class="pa-4 text-center" Style="border-radius:12px;"><MudText Typo="Typo.h6" Style="font-weight:700; color:var(--mud-palette-warning);">@_contactedCount</MudText><MudText Typo="Typo.caption">Dihubungi</MudText></MudPaper></MudItem>
+        <MudItem xs="6" md="3"><MudPaper Elevation="1" Class="pa-4 text-center" Style="border-radius:12px;"><MudText Typo="Typo.h6" Style="font-weight:700; color:var(--mud-palette-success);">@_wonCount</MudText><MudText Typo="Typo.caption">Berhasil</MudText></MudPaper></MudItem>
+        <MudItem xs="6" md="3"><MudPaper Elevation="1" Class="pa-4 text-center" Style="border-radius:12px;"><MudText Typo="Typo.h6" Style="font-weight:700; color:var(--mud-palette-error);">@_lostCount</MudText><MudText Typo="Typo.caption">Gagal</MudText></MudPaper></MudItem>
+    </MudGrid>
+
+    <MudPaper Elevation="1" Class="pa-4" Style="border-radius:16px;">
+        <MudTable Items="@_leads" Hover="true" Dense="true" Striped="true" Class="rounded-lg">
+            <HeaderContent><MudTh>Nama</MudTh><MudTh>Telepon</MudTh><MudTh>Properti</MudTh><MudTh>Status</MudTh><MudTh>Follow-up</MudTh><MudTh>Aksi</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.ProspectName</MudTd>
+                <MudTd>@context.ProspectPhone</MudTd>
+                <MudTd>@GetPropDisplay(context.PropertyId)</MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@GetStatusColor(context.Status)">@context.Status</MudChip></MudTd>
+                <MudTd>@(context.FollowUpDate?.ToString("dd/MM HH:mm") ?? "-")</MudTd>
+                <MudTd>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => ChangeStatus(context, 1)">Hubungi</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Success" Size="Size.Small" OnClick="() => ChangeStatus(context, 2)">Won</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small" OnClick="() => ChangeStatus(context, 3)">Lost</MudButton>
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="() => DeleteLead(context)" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+</MudContainer>
+
+@if (_dialogVisible)
+{
+    <MudOverlay Visible="true" OnClick="() => _dialogVisible = false" DarkBackground="true" />
+    <MudPaper Class="pa-6" Style="border-radius:16px; max-width:480px; width:92%; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10000;">
+        <MudText Typo="Typo.h5" Style="font-weight:700;" Class="mb-3">Tambah Lead Baru</MudText>
+        <MudTextField @bind-Value="_newName" Label="Nama Prospek" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_newPhone" Label="Telepon" Variant="Variant.Outlined" Class="mb-3" />
+
+        <!-- Property lookup dropdown -->
+        <MudSelect T="int?" @bind-Value="_newPropId" Label="Pilih Properti (opsional)" Variant="Variant.Outlined" Class="mb-3" ToStringFunc="GetPropLookupName">
+            <MudSelectItem T="int?" Value="@null">-- Tanpa Properti --</MudSelectItem>
+            @foreach (var kv in _propNames) { <MudSelectItem T="int?" Value="kv.Key">@kv.Value</MudSelectItem> }
+        </MudSelect>
+
+        <MudTextField @bind-Value="_newNotes" Label="Catatan" Variant="Variant.Outlined" Lines="2" Class="mb-3" />
+        <div class="d-flex justify-end gap-2">
+            <MudButton Variant="Variant.Text" OnClick="() => _dialogVisible = false">Batal</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddLead" Style="border-radius:12px;">Simpan</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private List<Lead> _leads = new();
+    private int _newCount, _contactedCount, _wonCount, _lostCount;
+    private bool _dialogVisible;
+    private string _newName = "", _newPhone = "", _newNotes = "";
+    private int? _newPropId;
+    private Dictionary<int, string> _propNames = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load property names for lookup
+        var props = await Db.Properties.Where(p => p.OwnerId == "agent-001").ToListAsync();
+        _propNames = props.ToDictionary(p => p.Id, p => $"{p.Title} ({p.City})");
+
+        // Auto-generate leads from bookings
+        var agentPropIds = props.Select(p => p.Id).ToList();
+        var bookings = await Db.Bookings.Include(b => b.User).Where(b => agentPropIds.Contains(b.PropertyId) && b.Status != "Cancelled").ToListAsync();
+        foreach (var booking in bookings)
+        {
+            var exists = await Db.Leads.AnyAsync(l => l.AgentId == "agent-001" && l.ProspectPhone == booking.User!.PhoneNumber && l.PropertyId == booking.PropertyId);
+            if (!exists && booking.User != null)
+            {
+                Db.Leads.Add(new Lead { AgentId = "agent-001", ProspectName = booking.User.FullName, ProspectPhone = booking.User.PhoneNumber, PropertyId = booking.PropertyId, Status = "New", Notes = $"Auto dari booking {booking.ScheduledDate:dd/MM}", CreatedAt = DateTime.UtcNow });
+            }
+        }
+        await Db.SaveChangesAsync();
+        _leads = await LeadService.GetAgentLeadsAsync("agent-001");
+        RefreshCounts();
+    }
+
+    private void RefreshCounts()
+    {
+        _newCount = _leads.Count(l => l.Status == "New"); _contactedCount = _leads.Count(l => l.Status == "Contacted");
+        _wonCount = _leads.Count(l => l.Status == "Won"); _lostCount = _leads.Count(l => l.Status == "Lost");
+    }
+
+    private async Task ChangeStatus(Lead lead, int action)
+    {
+        var status = action switch { 1 => "Contacted", 2 => "Won", 3 => "Lost", _ => lead.Status };
+        await LeadService.UpdateLeadStatusAsync(lead.Id, status); lead.Status = status; RefreshCounts();
+    }
+
+    private async Task DeleteLead(Lead lead) { Db.Leads.Remove(lead); await Db.SaveChangesAsync(); _leads = await LeadService.GetAgentLeadsAsync("agent-001"); RefreshCounts(); Snackbar.Add("Lead dihapus", Severity.Info); }
+    private void OpenAddDialog() { _newPropId = null; _dialogVisible = true; }
+
+    private async Task AddLead()
+    {
+        var lead = new Lead { AgentId = "agent-001", ProspectName = _newName, ProspectPhone = _newPhone, PropertyId = _newPropId, Status = "New", Notes = _newNotes, CreatedAt = DateTime.UtcNow };
+        await LeadService.CreateLeadAsync(lead);
+        _dialogVisible = false; _leads = await LeadService.GetAgentLeadsAsync("agent-001"); RefreshCounts();
+        Snackbar.Add("✅ Lead ditambahkan!", Severity.Success);
+    }
+
+    private string GetPropDisplay(int? id) => id.HasValue && _propNames.ContainsKey(id.Value) ? _propNames[id.Value] : "-";
+    private string GetPropLookupName(int? id) => id.HasValue && _propNames.ContainsKey(id.Value) ? _propNames[id.Value] : "-- Tanpa Properti --";
+    private static Color GetStatusColor(string s) => s switch { "New" => Color.Primary, "Contacted" => Color.Warning, "Negotiating" => Color.Tertiary, "Won" => Color.Success, "Lost" => Color.Error, _ => Color.Default };
+}

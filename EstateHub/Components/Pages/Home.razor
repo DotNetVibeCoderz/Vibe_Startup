@@ -1,0 +1,187 @@
+@page "/"
+@using EstateHub.Models
+@inject PropertyService PropertyService
+@inject NavigationManager Navigation
+
+<PageTitle>EstateHub - Platform Manajemen Properti</PageTitle>
+
+<section class="hero-section">
+    <MudContainer MaxWidth="MaxWidth.Large">
+        <MudGrid>
+            <MudItem xs="12" md="7" Class="hero-content">
+                <MudText Typo="Typo.h2" Class="hero-title mb-4" Style="font-weight:800; line-height:1.2;">
+                    Temukan <span style="color: var(--mud-palette-primary);">Properti Impian</span> Anda dengan Mudah
+                </MudText>
+                <MudText Typo="Typo.body1" Class="hero-subtitle mb-6" Color="Color.Secondary">
+                    Platform properti terlengkap dengan AI, virtual tour, simulasi KPR, dan integrasi peta interaktif.
+                </MudText>
+                <div class="hero-actions">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
+                               StartIcon="@Icons.Material.Filled.Search" Href="/property/search"
+                               Style="border-radius:12px; padding:12px 32px; font-weight:600;">
+                        Cari Properti
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Large"
+                               StartIcon="@Icons.Material.Filled.Calculate" Href="/kpr"
+                               Style="border-radius:12px; padding:12px 32px; font-weight:600; margin-left:16px;">
+                        Simulasi KPR
+                    </MudButton>
+                </div>
+                <div class="hero-stats mt-6">
+                    <div class="hero-stat">
+                        <MudText Typo="Typo.h5" Style="font-weight:700;">@_propertyCount+</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Properti Tersedia</MudText>
+                    </div>
+                    <div class="hero-stat">
+                        <MudText Typo="Typo.h5" Style="font-weight:700;">@_cityCount+</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Kota</MudText>
+                    </div>
+                    <div class="hero-stat">
+                        <MudText Typo="Typo.h5" Style="font-weight:700;">@_userCount+</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Pengguna</MudText>
+                    </div>
+                </div>
+            </MudItem>
+            <MudItem xs="12" md="5" Class="hero-image-col">
+                <div class="hero-image">
+                    <div class="hero-image-card"><MudIcon Icon="@Icons.Material.Filled.Home" Color="Color.Primary" Size="Size.Large" /><MudText Typo="Typo.h6" Style="font-weight:700;">Rumah</MudText></div>
+                    <div class="hero-image-card"><MudIcon Icon="@Icons.Material.Filled.Apartment" Color="Color.Tertiary" Size="Size.Large" /><MudText Typo="Typo.h6" Style="font-weight:700;">Apartemen</MudText></div>
+                    <div class="hero-image-card"><MudIcon Icon="@Icons.Material.Filled.Store" Color="Color.Warning" Size="Size.Large" /><MudText Typo="Typo.h6" Style="font-weight:700;">Ruko</MudText></div>
+                    <div class="hero-image-card"><MudIcon Icon="@Icons.Material.Filled.HolidayVillage" Color="Color.Error" Size="Size.Large" /><MudText Typo="Typo.h6" Style="font-weight:700;">Villa</MudText></div>
+                </div>
+            </MudItem>
+        </MudGrid>
+    </MudContainer>
+</section>
+
+<section class="search-section">
+    <MudContainer MaxWidth="MaxWidth.Large">
+        <MudPaper Elevation="3" Class="pa-6" Style="border-radius:16px;">
+            <MudGrid>
+                <MudItem xs="12" sm="6" md="4">
+                    <MudTextField @bind-Value="_searchKeyword" Placeholder="Cari lokasi atau judul..."
+                                  Immediate="true" Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Search" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="6" sm="3" md="2">
+                    <MudTextField @bind-Value="_searchType" Placeholder="Tipe (House/Apartment...)" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="6" sm="3" md="2">
+                    <MudTextField @bind-Value="_searchListingType" Placeholder="Sale/Rent" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="6" sm="4" md="2">
+                    <MudNumericField @bind-Value="_searchMinPrice" Placeholder="Harga Min (Rp)" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="6" sm="4" md="1">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                               OnClick="SearchProperties" Style="height:48px; border-radius:12px; font-weight:600;">Cari</MudButton>
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+    </MudContainer>
+</section>
+
+<section class="featured-section">
+    <MudContainer MaxWidth="MaxWidth.Large">
+        <div class="section-header">
+            <MudText Typo="Typo.h4" Style="font-weight:700;">Properti Unggulan</MudText>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" Href="/property/search">Lihat Semua</MudButton>
+        </div>
+        <MudGrid>
+            @if (_featuredProperties == null || _featuredProperties.Count == 0)
+            {
+                <MudItem xs="12"><MudAlert Severity="Severity.Info">Memuat properti unggulan...</MudAlert></MudItem>
+            }
+            else
+            {
+                @foreach (var prop in _featuredProperties)
+                {
+                    <MudItem xs="12" sm="6" md="4" lg="3">
+                        <PropertyCard PropertyData="prop" />
+                    </MudItem>
+                }
+            }
+        </MudGrid>
+    </MudContainer>
+</section>
+
+<section class="features-section">
+    <MudContainer MaxWidth="MaxWidth.Large">
+        <MudText Typo="Typo.h4" Align="Align.Center" Style="font-weight:700;" Class="mb-8">Kenapa EstateHub?</MudText>
+        <MudGrid>
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="1" Class="feature-card pa-4" Style="border-radius:16px; text-align:center;">
+                    <MudIcon Icon="@Icons.Material.Filled.SmartToy" Color="Color.Primary" Size="Size.Large" Class="mb-3" />
+                    <MudText Typo="Typo.h6" Style="font-weight:700;">AI Tante Rita</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Chatbot pintar bantu cari properti 24/7.</MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="1" Class="feature-card pa-4" Style="border-radius:16px; text-align:center;">
+                    <MudIcon Icon="@Icons.Material.Filled.Map" Color="Color.Tertiary" Size="Size.Large" Class="mb-3" />
+                    <MudText Typo="Typo.h6" Style="font-weight:700;">Peta Interaktif</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Lihat properti di peta dengan radius pencarian.</MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="1" Class="feature-card pa-4" Style="border-radius:16px; text-align:center;">
+                    <MudIcon Icon="@Icons.Material.Filled.Calculate" Color="Color.Warning" Size="Size.Large" Class="mb-3" />
+                    <MudText Typo="Typo.h6" Style="font-weight:700;">Simulasi KPR</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Kalkulator cicilan lengkap dengan rekomendasi AI.</MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudPaper Elevation="1" Class="feature-card pa-4" Style="border-radius:16px; text-align:center;">
+                    <MudIcon Icon="@Icons.Material.Filled.Description" Color="Color.Error" Size="Size.Large" Class="mb-3" />
+                    <MudText Typo="Typo.h6" Style="font-weight:700;">Kontrak Digital</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Generate kontrak otomatis & e-signature.</MudText>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    </MudContainer>
+</section>
+
+<section class="cta-section">
+    <MudContainer MaxWidth="MaxWidth.Medium" Class="text-center">
+        <MudText Typo="Typo.h3" Style="font-weight:800;" Color="Color.Inherit" Class="mb-4">Siap Temukan Properti Impian?</MudText>
+        <MudText Typo="Typo.body1" Color="Color.Inherit" Class="mb-6">
+            Daftar sekarang dan dapatkan akses ke ribuan properti, AI rekomendasi, dan konsultasi gratis!
+        </MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Inherit" Size="Size.Large" Href="/register"
+                   Style="border-radius:12px; padding:12px 40px; font-weight:700; color:var(--mud-palette-primary);">
+            Daftar Gratis
+        </MudButton>
+    </MudContainer>
+</section>
+
+@code {
+    private List<EstateHub.Models.Property> _featuredProperties = new();
+    private int _propertyCount;
+    private int _cityCount;
+    private int _userCount;
+    private string? _searchKeyword;
+    private string? _searchType;
+    private string? _searchListingType;
+    private decimal? _searchMinPrice;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _featuredProperties = await PropertyService.GetFeaturedAsync(8);
+        _propertyCount = await PropertyService.SearchCountAsync();
+        var cities = await PropertyService.GetCitiesAsync();
+        _cityCount = cities.Count;
+        _userCount = 500;
+    }
+
+    private async Task SearchProperties()
+    {
+        var queryParams = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_searchKeyword)) queryParams.Add($"keyword={Uri.EscapeDataString(_searchKeyword)}");
+        if (!string.IsNullOrWhiteSpace(_searchType)) queryParams.Add($"type={Uri.EscapeDataString(_searchType)}");
+        if (!string.IsNullOrWhiteSpace(_searchListingType)) queryParams.Add($"listingType={Uri.EscapeDataString(_searchListingType)}");
+        if (_searchMinPrice.HasValue) queryParams.Add($"minPrice={_searchMinPrice}");
+        var url = "/property/search";
+        if (queryParams.Count > 0) url += "?" + string.Join("&", queryParams);
+        Navigation.NavigateTo(url);
+    }
+}

@@ -1,0 +1,176 @@
+@page "/chat"
+@inject ChatBotService ChatBotService
+@inject IJSRuntime JS
+
+<PageTitle>Tante Rita AI - EstateHub</PageTitle>
+
+<div style="display:flex; height:calc(100vh - 64px - 90px); border-radius:16px; overflow:hidden; background:var(--mud-palette-surface); box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+    <!-- Sidebar Sesi -->
+    <div style="width:300px; border-right:1px solid var(--mud-palette-divider); display:flex; flex-direction:column; background:var(--mud-palette-background);">
+        <div style="padding:14px 16px; border-bottom:1px solid var(--mud-palette-divider); display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:8px;"><div style="width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg, var(--mud-palette-primary), #7C3AED); display:flex; align-items:center; justify-content:center;"><MudIcon Icon="@Icons.Material.Filled.SmartToy" Style="color:white; font-size:20px;" /></div><div><MudText Typo="Typo.body2" Style="font-weight:700;">Tante Rita</MudText><MudText Typo="Typo.caption" Color="Color.Success">🟢 Online</MudText></div></div>
+            <MudIconButton Icon="@Icons.Material.Filled.AddComment" Size="Size.Small" OnClick="NewSession" Style="color:var(--mud-palette-primary);" />
+        </div>
+        <div style="flex:1; overflow-y:auto;">
+            @if (_sessions.Count == 0) { <div class="text-center py-8"><MudIcon Icon="@Icons.Material.Filled.ChatBubbleOutline" Size="Size.Large" Color="Color.Secondary" /><MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">Belum ada sesi chat</MudText></div> }
+            @foreach (var session in _sessions)
+            {
+                var isActive = _currentSessionId == session.Id;
+                <div style="padding:12px 16px; cursor:pointer; background:@(isActive ? "var(--mud-palette-primary-hover)" : "transparent"); border-left:3px solid @(isActive ? "var(--mud-palette-primary)" : "transparent");" @onclick="() => SelectSession(session.Id)">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;"><div style="flex:1; min-width:0;"><MudText Typo="Typo.body2" Style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">@session.Title</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@(session.LastMessageAt?.ToString("dd/MM HH:mm") ?? session.CreatedAt.ToString("dd/MM HH:mm"))</MudText></div><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="(e) => DeleteSession(session.Id, e)" Style="opacity:0.5;" /></div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Chat Main -->
+    <div style="flex:1; display:flex; flex-direction:column;">
+        @if (_currentSessionId == 0 && !_quickSending)
+        {
+            <!-- Welcome Screen -->
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; text-align:center; gap:24px; background:var(--mud-palette-background);">
+                <div style="width:100px; height:100px; border-radius:50%; background:linear-gradient(135deg, var(--mud-palette-primary), #7C3AED); display:flex; align-items:center; justify-content:center; box-shadow:0 8px 32px rgba(37,99,235,0.3);"><MudIcon Icon="@Icons.Material.Filled.SmartToy" Style="font-size:48px; color:white;" /></div>
+                <div><MudText Typo="Typo.h3" Style="font-weight:800; background:linear-gradient(135deg, var(--mud-palette-primary), #7C3AED); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">Halo! Saya Tante Rita 👋</MudText><MudText Typo="Typo.body1" Color="Color.Secondary" Class="mt-2">Klik salah satu topik di bawah atau ketik pertanyaanmu langsung!</MudText></div>
+
+                <MudGrid Style="max-width:620px; width:100%;">
+                    <MudItem xs="6" sm="3">
+                        <div @onclick="QuickSendCari" style="cursor:pointer;">
+                            <MudPaper Elevation="2" Class="pa-3" Style="text-align:center; border-radius:14px; transition:transform 0.15s,box-shadow 0.15s; pointer-events:none;">
+                                <MudIcon Icon="@Icons.Material.Filled.HomeWork" Color="Color.Primary" Size="Size.Large" />
+                                <MudText Typo="Typo.caption" Style="font-weight:600; margin-top:4px;">Cari Properti</MudText>
+                            </MudPaper>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="6" sm="3">
+                        <div @onclick="QuickSendKpr" style="cursor:pointer;">
+                            <MudPaper Elevation="2" Class="pa-3" Style="text-align:center; border-radius:14px; transition:transform 0.15s,box-shadow 0.15s; pointer-events:none;">
+                                <MudIcon Icon="@Icons.Material.Filled.Calculate" Color="Color.Tertiary" Size="Size.Large" />
+                                <MudText Typo="Typo.caption" Style="font-weight:600; margin-top:4px;">Simulasi KPR</MudText>
+                            </MudPaper>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="6" sm="3">
+                        <div @onclick="QuickSendPajak" style="cursor:pointer;">
+                            <MudPaper Elevation="2" Class="pa-3" Style="text-align:center; border-radius:14px; transition:transform 0.15s,box-shadow 0.15s; pointer-events:none;">
+                                <MudIcon Icon="@Icons.Material.Filled.AccountBalance" Color="Color.Warning" Size="Size.Large" />
+                                <MudText Typo="Typo.caption" Style="font-weight:600; margin-top:4px;">Info Pajak</MudText>
+                            </MudPaper>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="6" sm="3">
+                        <div @onclick="QuickSendTips" style="cursor:pointer;">
+                            <MudPaper Elevation="2" Class="pa-3" Style="text-align:center; border-radius:14px; transition:transform 0.15s,box-shadow 0.15s; pointer-events:none;">
+                                <MudIcon Icon="@Icons.Material.Filled.TipsAndUpdates" Color="Color.Error" Size="Size.Large" />
+                                <MudText Typo="Typo.caption" Style="font-weight:600; margin-top:4px;">Tips Properti</MudText>
+                            </MudPaper>
+                        </div>
+                    </MudItem>
+                </MudGrid>
+            </div>
+        }
+        else if (_quickSending)
+        {
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--mud-palette-background);">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+                <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mt-3">Tante Rita sedang berpikir...</MudText>
+            </div>
+        }
+        else
+        {
+            <!-- Active Chat -->
+            <div style="padding:10px 20px; border-bottom:1px solid var(--mud-palette-divider); display:flex; align-items:center; gap:12px; background:var(--mud-palette-surface);"><div style="width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg, var(--mud-palette-primary), #7C3AED); display:flex; align-items:center; justify-content:center;"><MudIcon Icon="@Icons.Material.Filled.SmartToy" Style="color:white; font-size:16px;" /></div><MudText Typo="Typo.body1" Style="font-weight:600;">Tante Rita</MudText><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success">AI Assistant</MudChip><MudSpacer /><MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Size="Size.Small" OnClick="ResetSession" /></div>
+            <div style="flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px; background:var(--mud-palette-background);" @ref="_messagesContainer">
+                @foreach (var msg in _messages)
+                {
+                    var isAssistant = msg.Role == "assistant";
+                    <div style="display:flex; gap:10px; @(isAssistant ? "justify-content:flex-start;" : "justify-content:flex-end;")">
+                        @if (isAssistant){<div style="width:34px; height:34px; border-radius:50%; background:linear-gradient(135deg, var(--mud-palette-primary), #7C3AED); display:flex; align-items:center; justify-content:center; flex-shrink:0;"><MudIcon Icon="@Icons.Material.Filled.SmartToy" Style="color:white; font-size:18px;" /></div>}
+                        <div style="max-width:75%;"><div style="padding:12px 18px; border-radius:20px; @(isAssistant ? "background:var(--mud-palette-surface); border:1px solid var(--mud-palette-divider); border-top-left-radius:6px;" : "background:var(--mud-palette-primary); color:white; border-top-right-radius:6px;")">@if (!string.IsNullOrEmpty(msg.Content)){@((MarkupString)RenderMarkdown(msg.Content))}@if (msg.ContentType == "image" && !string.IsNullOrEmpty(msg.AttachmentUrl)){<img src="@msg.AttachmentUrl" style="max-width:280px; border-radius:12px; margin-top:8px;" />}</div><MudText Typo="Typo.caption" Color="Color.Secondary" Style="margin:2px 12px 0;">@msg.CreatedAt.ToString("HH:mm")</MudText></div>
+                        @if (!isAssistant){<div style="width:34px; height:34px; border-radius:50%; background:var(--mud-palette-tertiary); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:white; font-weight:700; font-size:14px;">U</div>}
+                    </div>
+                }
+                @if (_isTyping){<div style="display:flex; gap:10px;"><div style="width:34px; height:34px; border-radius:50%; background:linear-gradient(135deg, var(--mud-palette-primary), #7C3AED); display:flex; align-items:center; justify-content:center;"><MudIcon Icon="@Icons.Material.Filled.SmartToy" Style="color:white; font-size:18px;" /></div><div style="padding:14px 20px; border-radius:20px; border-top-left-radius:6px; background:var(--mud-palette-surface); border:1px solid var(--mud-palette-divider); display:flex; gap:5px;"><span class="typing-dot" style="animation-delay:0s;"></span><span class="typing-dot" style="animation-delay:0.2s;"></span><span class="typing-dot" style="animation-delay:0.4s;"></span></div></div>}
+            </div>
+        }
+        <!-- Input Bar -->
+        <div style="padding:14px 20px; border-top:1px solid var(--mud-palette-divider); background:var(--mud-palette-surface);">
+            @if (_pendingImageUrl != null){<MudChip T="string" Size="Size.Small" OnClose="RemoveImage" Class="mb-2" Color="Color.Primary">📷 Gambar terlampir</MudChip>}
+            <div style="display:flex; align-items:center; gap:6px;">
+                <MudIconButton Icon="@Icons.Material.Filled.AttachFile" Size="Size.Small" OnClick="OpenFilePicker" />
+                <MudIconButton Icon="@Icons.Material.Filled.Image" Size="Size.Small" OnClick="OpenImagePicker" />
+                <InputFile id="chat-file-input" OnChange="OnFileUploaded" accept=".pdf,.doc,.docx,.txt" Style="display:none;" />
+                <InputFile id="chat-image-input" OnChange="OnImageUploaded" accept="image/*" Style="display:none;" />
+                <MudTextField T="string" @bind-Value="_messageInput" Placeholder="Tanya Tante Rita..." Variant="Variant.Outlined" Immediate="true" Style="flex:1;" Lines="1" OnKeyDown="HandleKeyDown" />
+                <MudIconButton Icon="@Icons.Material.Filled.Send" Color="Color.Primary" OnClick="SendMessage" Disabled="@(string.IsNullOrWhiteSpace(_messageInput) && _pendingImageUrl == null)" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Hover effect on the wrapper div that contains MudPaper */
+    div[onclick] > .mud-paper:hover { transform: translateY(-3px); box-shadow: 0 6px 24px rgba(0,0,0,0.15) !important; }
+    .typing-dot { width:8px; height:8px; border-radius:50%; background:var(--mud-palette-text-secondary); animation: bounce 1.4s infinite alternate; }
+    @@keyframes bounce { 0%,100%{transform:translateY(0);opacity:0.4} 50%{transform:translateY(-6px);opacity:1} }
+</style>
+
+@code {
+    private List<ChatSession> _sessions = new();
+    private List<ChatHistory> _messages = new();
+    private int _currentSessionId;
+    private string _messageInput = string.Empty;
+    private string? _pendingImageUrl;
+    private bool _isTyping;
+    private bool _quickSending;
+    private ElementReference _messagesContainer;
+
+    protected override async Task OnInitializedAsync() => _sessions = await ChatBotService.GetSessionsAsync("buyer-001");
+    private async Task NewSession() { _currentSessionId = 0; _messages.Clear(); _pendingImageUrl = null; _quickSending = false; StateHasChanged(); }
+    private async Task SelectSession(int id) { _currentSessionId = id; _quickSending = false; _messages = await ChatBotService.GetSessionHistoryAsync(id); }
+
+    private async Task QuickSendCari() => await QuickSend("Rekomendasi rumah di Jakarta Selatan budget 1M");
+    private async Task QuickSendKpr() => await QuickSend("Hitung KPR untuk rumah 1.5M dengan DP 20% tenor 15 tahun");
+    private async Task QuickSendPajak() => await QuickSend("Bagaimana cara menghitung pajak properti?");
+    private async Task QuickSendTips() => await QuickSend("Tips membeli rumah pertama untuk keluarga muda");
+
+    private async Task QuickSend(string text)
+    {
+        _quickSending = true; StateHasChanged();
+        _messageInput = text;
+        await SendMessage();
+        _quickSending = false;
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_messageInput) && _pendingImageUrl == null) return;
+        var text = _messageInput.Trim(); _messageInput = string.Empty;
+        _isTyping = true; StateHasChanged();
+        try
+        {
+            var response = await ChatBotService.SendMessageAsync(text, _currentSessionId == 0 ? null : _currentSessionId, _pendingImageUrl);
+            _currentSessionId = response.SessionId; _pendingImageUrl = null;
+            _messages = await ChatBotService.GetSessionHistoryAsync(response.SessionId);
+            if (!_sessions.Any(s => s.Id == response.SessionId)) _sessions = await ChatBotService.GetSessionsAsync("buyer-001");
+            else { var s = _sessions.First(x => x.Id == response.SessionId); s.Title = response.SessionTitle; s.LastMessageAt = DateTime.UtcNow; }
+        }
+        finally { _isTyping = false; StateHasChanged(); }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e) { if (e.Key == "Enter" && !e.ShiftKey) await SendMessage(); }
+    private async Task DeleteSession(int id, MouseEventArgs e) { await ChatBotService.DeleteSessionAsync(id); if (_currentSessionId == id) { _currentSessionId = 0; _messages.Clear(); } _sessions = await ChatBotService.GetSessionsAsync("buyer-001"); }
+    private async Task ResetSession() { if (_currentSessionId > 0) { await ChatBotService.ResetSessionAsync(_currentSessionId); _messages.Clear(); } }
+
+    private async Task OpenFilePicker() => await JS.InvokeVoidAsync("triggerClick", "chat-file-input");
+    private async Task OpenImagePicker() => await JS.InvokeVoidAsync("triggerClick", "chat-image-input");
+
+    private void OnFileUploaded(InputFileChangeEventArgs e) { if (e.File != null) _messageInput += $"\n[📎 {e.File.Name}]"; }
+    private async Task OnImageUploaded(InputFileChangeEventArgs e)
+    {
+        if (e.File == null) return;
+        var buffer = new byte[e.File.Size]; await e.File.OpenReadStream(5 * 1024 * 1024).ReadAsync(buffer);
+        _pendingImageUrl = $"data:{e.File.ContentType};base64,{Convert.ToBase64String(buffer)}";
+    }
+    private void RemoveImage() => _pendingImageUrl = null;
+    private string RenderMarkdown(string text) => Markdig.Markdown.ToHtml(text, new Markdig.MarkdownPipelineBuilder().Build());
+}

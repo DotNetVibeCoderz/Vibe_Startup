@@ -1,0 +1,56 @@
+@using EstateHub.Models
+@using System.Text.Json
+@inject AppDbContext Db
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<MudCard Class="property-card fade-in" Elevation="2" Style="cursor:pointer; border-radius:14px; overflow:hidden;">
+    <MudCardContent Class="pa-0">
+        <div style="position:relative;" @onclick="NavigateToDetail">
+            <img src="@GetDisplayImage()" alt="@PropertyData.Title" style="width:100%;height:200px;object-fit:cover;" />
+            <div class="property-badge">
+                <MudChip T="string" Size="Size.Small" Color="@(PropertyData.ListingType == "Sale" ? Color.Primary : Color.Tertiary)" Style="font-weight:600;">
+                    @(PropertyData.ListingType == "Sale" ? "DIJUAL" : "DISEWA")
+                </MudChip>
+                @if (PropertyData.IsPremium){<MudChip T="string" Size="Size.Small" Color="Color.Warning" Style="font-weight:600;">PREMIUM</MudChip>}
+            </div>
+        </div>
+        <div class="pa-4" @onclick="NavigateToDetail">
+            <MudText Typo="Typo.h6" Style="font-weight:700; line-height:1.3;">@(PropertyData.Title.Length > 40 ? PropertyData.Title[..40] + "..." : PropertyData.Title)</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="my-1"><MudIcon Icon="@Icons.Material.Filled.LocationOn" Size="Size.Small" /> @PropertyData.City, @PropertyData.District</MudText>
+            <MudText Typo="Typo.h6" Color="Color.Primary" Style="font-weight:800;">Rp @PropertyData.Price.ToString("N0")@if (PropertyData.ListingType == "Rent"){<MudText Typo="Typo.caption" Color="Color.Secondary" Style="display:inline;">/bulan</MudText>}</MudText>
+        </div>
+    </MudCardContent>
+    <MudCardActions>
+        <MudText Typo="Typo.caption" Color="Color.Secondary">@PropertyData.Bedrooms KT | @PropertyData.Bathrooms KM | @PropertyData.BuildingArea m²</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@(_isLiked ? Icons.Material.Filled.Favorite : Icons.Material.Filled.FavoriteBorder)" Size="Size.Small" Color="Color.Error" OnClick="ToggleWishlist" />
+    </MudCardActions>
+</MudCard>
+
+@code {
+    [Parameter, EditorRequired] public Property PropertyData { get; set; } = default!;
+    private bool _isLiked;
+
+    protected override async Task OnInitializedAsync() => _isLiked = await Db.WishlistItems.AnyAsync(w => w.UserId == "buyer-001" && w.PropertyId == PropertyData.Id);
+
+    private string GetDisplayImage()
+    {
+        if (!string.IsNullOrEmpty(PropertyData.MainImageUrl)) return PropertyData.MainImageUrl;
+        if (!string.IsNullOrEmpty(PropertyData.ImageUrls))
+        {
+            try { var urls = JsonSerializer.Deserialize<List<string>>(PropertyData.ImageUrls); if (urls != null && urls.Count > 0) return urls[0]; } catch { }
+        }
+        return "https://placehold.co/600x400/2563EB/FFFFFF?text=Property";
+    }
+
+    private async Task ToggleWishlist()
+    {
+        var existing = await Db.WishlistItems.FirstOrDefaultAsync(w => w.UserId == "buyer-001" && w.PropertyId == PropertyData.Id);
+        if (existing != null) { Db.WishlistItems.Remove(existing); _isLiked = false; Snackbar.Add("Dihapus dari wishlist", Severity.Info); }
+        else { Db.WishlistItems.Add(new WishlistItem { UserId = "buyer-001", PropertyId = PropertyData.Id, AddedAt = DateTime.UtcNow }); _isLiked = true; Snackbar.Add("Disimpan ke wishlist ❤️", Severity.Success); }
+        await Db.SaveChangesAsync();
+    }
+
+    private void NavigateToDetail() => Navigation.NavigateTo($"/property/{PropertyData.Id}");
+}

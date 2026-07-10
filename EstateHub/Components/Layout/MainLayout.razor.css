@@ -1,0 +1,7 @@
+/* EstateHub - MainLayout component styles (scoped) */
+.drawer-logo {
+    display: flex;
+    align-items: center;
+    padding: 14px 16px;
+    min-height: 60px;
+}

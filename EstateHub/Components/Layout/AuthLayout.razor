@@ -1,0 +1,27 @@
+@inherits LayoutComponentBase
+
+<MudThemeProvider Theme="_theme" />
+<MudPopoverProvider />
+
+<div class="auth-page" style="min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background: linear-gradient(135deg, var(--mud-palette-background) 0%, var(--mud-palette-primary-hover) 100%);">
+    <div style="width:100%; max-width:440px; padding:16px;">
+        @Body
+    </div>
+</div>
+
+@code {
+    private MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#2563EB", Secondary = "#475569", Tertiary = "#059669",
+            Background = "#F8FAFC", Surface = "#FFFFFF",
+        },
+        PaletteDark = new PaletteDark
+        {
+            Primary = "#60A5FA", Secondary = "#94A3B8", Tertiary = "#34D399",
+            Background = "#0F172A", Surface = "#1E293B",
+        }
+    };
+}

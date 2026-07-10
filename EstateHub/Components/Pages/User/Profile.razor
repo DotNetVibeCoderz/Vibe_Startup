@@ -1,0 +1,117 @@
+@page "/user/profile"
+@using EstateHub.Models
+@inject AuthService AuthService
+@inject EstateHubAuthStateProvider AuthState
+@inject NavigationManager Navigation
+
+<PageTitle>Profil Saya - EstateHub</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="py-4">
+    <MudText Typo="Typo.h4" Style="font-weight:700;" Class="mb-2">Profil Saya</MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">Kelola informasi akun dan preferensi Anda</MudText>
+
+    @if (_user == null)
+    {
+        <MudAlert Severity="Severity.Warning" Style="border-radius:12px;">
+            Silakan <MudButton Variant="Variant.Text" Color="Color.Primary" Href="/login">login</MudButton> untuk melihat profil.
+        </MudAlert>
+    }
+    else
+    {
+        @if (_saved) { <MudAlert Severity="Severity.Success" Class="mb-4" Style="border-radius:12px;">✅ Profil berhasil disimpan!</MudAlert> }
+
+        <MudGrid>
+            <MudItem xs="12" md="4">
+                <MudPaper Elevation="1" Class="pa-4 text-center" Style="border-radius:16px;">
+                    <div style="position:relative; display:inline-block; cursor:pointer;" @onclick="TriggerFileUpload">
+                        @if (!string.IsNullOrEmpty(_avatarUrl))
+                        {
+                            <img src="@_avatarUrl" style="width:110px;height:110px;border-radius:50%;object-fit:cover;border:3px solid var(--mud-palette-primary);" alt="Avatar" />
+                        }
+                        else
+                        {
+                            <MudAvatar Color="Color.Primary" Size="Size.Large" Style="width:110px;height:110px;font-size:3rem;">
+                                @_user.FullName[..1]
+                            </MudAvatar>
+                        }
+                        <div style="position:absolute; bottom:0; right:0; background:var(--mud-palette-primary); color:white; border-radius:50%; width:32px;height:32px; display:flex; align-items:center; justify-content:center;">
+                            <MudIcon Icon="@Icons.Material.Filled.CameraAlt" Size="Size.Small" />
+                        </div>
+                    </div>
+                    <InputFile id="avatarInput" OnChange="OnAvatarUploaded" accept="image/*" Style="display:none;" />
+                    <MudText Typo="Typo.caption" Color="Color.Primary" Class="mt-1">Klik untuk ganti foto</MudText>
+
+                    <MudText Typo="Typo.h5" Style="font-weight:700;" Class="mt-3">@_user.FullName</MudText>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Class="mt-1">@_user.Role</MudChip>
+                    <MudDivider Class="my-3" />
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">📅 Bergabung: @_user.CreatedAt.ToString("dd MMM yyyy")</MudText>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" Href="/logout" Class="mt-3" Style="border-radius:12px;">Logout</MudButton>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" md="8">
+                <MudPaper Elevation="1" Class="pa-6" Style="border-radius:16px;">
+                    <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-4">Informasi Pribadi</MudText>
+                    <MudGrid>
+                        <MudItem xs="12"><MudTextField @bind-Value="_profileModel.FullName" Label="Nama Lengkap" Variant="Variant.Outlined" Class="mb-3" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="_profileModel.PhoneNumber" Label="No. Telepon" Variant="Variant.Outlined" Class="mb-3" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="_profileModel.Address" Label="Alamat" Variant="Variant.Outlined" Class="mb-3" /></MudItem>
+                    </MudGrid>
+                    <MudDivider Class="my-4" />
+                    <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Preferensi Properti</MudText>
+                    <MudGrid>
+                        <MudItem xs="12" md="4"><MudTextField @bind-Value="_profileModel.PreferredLocation" Label="Lokasi Favorit" Variant="Variant.Outlined" Class="mb-3" /></MudItem>
+                        <MudItem xs="12" md="4"><MudTextField @bind-Value="_profileModel.PreferredType" Label="Tipe Favorit" Variant="Variant.Outlined" Class="mb-3" /></MudItem>
+                        <MudItem xs="6" md="2"><MudNumericField @bind-Value="_profileModel.MinBudget" Label="Budget Min" Variant="Variant.Outlined" Class="mb-3" /></MudItem>
+                        <MudItem xs="6" md="2"><MudNumericField @bind-Value="_profileModel.MaxBudget" Label="Budget Max" Variant="Variant.Outlined" Class="mb-3" /></MudItem>
+                    </MudGrid>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
+                               OnClick="SaveProfile" Style="border-radius:12px; font-weight:600; margin-top:16px;">💾 Simpan Perubahan</MudButton>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    }
+</MudContainer>
+
+@code {
+    private ApplicationUser? _user;
+    private UserProfileModel _profileModel = new();
+    private bool _saved;
+    private string? _avatarUrl;
+
+    protected override void OnInitialized()
+    {
+        _user = AuthState.GetCurrentUser();
+        if (_user != null)
+        {
+            _avatarUrl = _user.AvatarUrl;
+            _profileModel = new UserProfileModel { FullName = _user.FullName, PhoneNumber = _user.PhoneNumber, Address = _user.Address, PreferredLocation = _user.PreferredLocation, PreferredType = _user.PreferredType, MinBudget = _user.MinBudget, MaxBudget = _user.MaxBudget };
+        }
+    }
+
+    private async Task TriggerFileUpload() => await JSRuntime.InvokeVoidAsync("document.getElementById('avatarInput').click");
+
+    private async Task OnAvatarUploaded(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file != null)
+        {
+            var buffer = new byte[file.Size];
+            await file.OpenReadStream(2 * 1024 * 1024).ReadAsync(buffer);
+            var base64 = Convert.ToBase64String(buffer);
+            _avatarUrl = $"data:{file.ContentType};base64,{base64}";
+            _profileModel.AvatarUrl = _avatarUrl;
+            if (_user != null) _user.AvatarUrl = _avatarUrl;
+        }
+    }
+
+    private async Task SaveProfile()
+    {
+        if (_user == null) return;
+        _profileModel.AvatarUrl = _avatarUrl;
+        await AuthService.UpdateProfileAsync(_user.Id, _profileModel);
+        _saved = true; await Task.Delay(2000); _saved = false;
+    }
+
+    [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
+}

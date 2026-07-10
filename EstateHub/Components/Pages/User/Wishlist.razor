@@ -1,0 +1,41 @@
+@page "/user/wishlist"
+@using EstateHub.Models
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+
+<PageTitle>Wishlist - EstateHub</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-4">
+    <div class="d-flex align-center justify-space-between mb-4">
+        <div><MudText Typo="Typo.h4" Style="font-weight:700;">Wishlist Saya ❤️</MudText><MudText Typo="Typo.body1" Color="Color.Secondary">@_wishlistItems.Count properti tersimpan</MudText></div>
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="/property/search" StartIcon="@Icons.Material.Filled.Search" Style="border-radius:12px;">Cari Properti</MudButton>
+    </div>
+
+    @if (_wishlistItems.Count == 0)
+    {
+        <MudPaper Elevation="1" Class="pa-8 text-center" Style="border-radius:16px;">
+            <MudIcon Icon="@Icons.Material.Filled.FavoriteBorder" Size="Size.Large" Color="Color.Secondary" Class="mb-3" />
+            <MudText Typo="Typo.h5">Wishlist kosong</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">Simpan properti favorit Anda</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/property/search" Style="border-radius:12px;">Jelajahi Properti</MudButton>
+        </MudPaper>
+    }
+    else
+    {
+        <MudGrid>
+            @foreach (var item in _wishlistItems)
+            {
+                if (item.Property == null) continue;
+                <MudItem xs="12" sm="6" md="4" lg="3"><PropertyCard PropertyData="item.Property" /></MudItem>
+            }
+        </MudGrid>
+    }
+</MudContainer>
+
+@code {
+    private List<WishlistItem> _wishlistItems = new();
+    protected override async Task OnInitializedAsync()
+    {
+        _wishlistItems = await Db.WishlistItems.Include(w => w.Property).Where(w => w.UserId == "buyer-001").OrderByDescending(w => w.AddedAt).ToListAsync();
+    }
+}

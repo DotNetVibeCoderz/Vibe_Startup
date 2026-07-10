@@ -1,0 +1,87 @@
+@page "/property/search"
+@page "/property/featured"
+@using EstateHub.Models
+@inject PropertyService PropertyService
+
+<PageTitle>Cari Properti - EstateHub</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-4">
+    <MudText Typo="Typo.h4" Style="font-weight:700;" Class="mb-4">Cari Properti</MudText>
+    <MudPaper Elevation="2" Class="pa-4 mb-4" Style="border-radius:16px;">
+        <MudGrid>
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField @bind-Value="_keyword" Placeholder="Cari lokasi atau judul..." Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudSelect T="string" @bind-Value="_propertyType" Label="Tipe Properti" Variant="Variant.Outlined">
+                    <MudSelectItem T="string" Value="@null">Semua Tipe</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("House")">🏠 Rumah</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Apartment")">🏢 Apartemen</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("ShopHouse")">🏪 Ruko</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Villa")">🏡 Villa</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Land")">🌳 Tanah</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Office")">🏬 Kantor</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudSelect T="string" @bind-Value="_listingType" Label="Jual/Sewa" Variant="Variant.Outlined">
+                    <MudSelectItem T="string" Value="@null">Semua</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Sale")">💰 Dijual</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Rent")">🔑 Disewakan</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudSelect T="string" @bind-Value="_city" Label="Kota" Variant="Variant.Outlined">
+                    <MudSelectItem T="string" Value="@null">Semua Kota</MudSelectItem>
+                    @foreach (var c in _cities) { <MudSelectItem T="string" Value="@c">@c</MudSelectItem> }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudSelect T="string" @bind-Value="_sortBy" Label="Urutkan" Variant="Variant.Outlined">
+                    <MudSelectItem T="string" Value="@("newest")">🆕 Terbaru</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("price_asc")">⬆️ Harga Terendah</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("price_desc")">⬇️ Harga Tertinggi</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("popular")">🔥 Terpopuler</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="3" md="1">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="ApplyFilters" Style="height:48px; border-radius:12px;">Cari</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @if (_isLoading) { <MudProgressLinear Indeterminate="true" Class="my-4" /> }
+    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">Ditemukan <strong>@_totalResults</strong> properti</MudText>
+    @if (_properties.Count == 0)
+    {
+        <MudPaper Elevation="1" Class="pa-8 text-center" Style="border-radius:16px;">
+            <MudIcon Icon="@Icons.Material.Filled.SearchOff" Size="Size.Large" Color="Color.Secondary" Class="mb-3" />
+            <MudText Typo="Typo.h6" Style="font-weight:700;">Tidak ada properti ditemukan</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">Coba ubah filter pencarian Anda</MudText>
+        </MudPaper>
+    }
+    else
+    {
+        <MudGrid>
+            @foreach (var prop in _properties) { <MudItem xs="12" sm="6" md="4" lg="3"><PropertyCard PropertyData="prop" /></MudItem> }
+        </MudGrid>
+    }
+</MudContainer>
+
+@code {
+    private List<EstateHub.Models.Property> _properties = new();
+    private List<string> _cities = new();
+    private bool _isLoading = true;
+    private string? _keyword; private string? _propertyType; private string? _listingType; private string? _city; private string? _sortBy = "newest";
+    private int _totalResults;
+
+    protected override async Task OnInitializedAsync() { _cities = await PropertyService.GetCitiesAsync(); await LoadProperties(); }
+    private async Task LoadProperties()
+    {
+        _isLoading = true; StateHasChanged();
+        _properties = await PropertyService.SearchAsync(keyword: _keyword, type: _propertyType, listingType: _listingType, city: _city, page: 1, pageSize: 20);
+        _totalResults = await PropertyService.SearchCountAsync(keyword: _keyword, type: _propertyType, listingType: _listingType, city: _city);
+        _isLoading = false;
+    }
+    private async Task ApplyFilters() => await LoadProperties();
+}

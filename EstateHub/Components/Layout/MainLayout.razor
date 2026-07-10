@@ -1,0 +1,153 @@
+@inherits LayoutComponentBase
+@using MudBlazor
+@inject EstateHub.Services.EstateHubAuthStateProvider AuthState
+@inject IJSRuntime JS
+
+<MudThemeProvider Theme="_theme" @bind-IsDarkMode="_isDarkMode" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudDrawer @bind-Open="_drawerOpen" Anchor="Anchor.Left"
+               Variant="@(_isMobile ? DrawerVariant.Temporary : DrawerVariant.Persistent)"
+               Width="260px" ClipMode="DrawerClipMode.Docked" Elevation="2">
+        <div class="drawer-logo">
+            <MudIcon Icon="@Icons.Material.Filled.RealEstateAgent" Size="Size.Large" Color="Color.Primary" />
+            <MudText Typo="Typo.h6" Style="font-weight:700;margin-left:10px;">
+                <span style="color:var(--mud-palette-primary)">Estate</span>Hub
+            </MudText>
+        </div>
+        <div style="flex:1; overflow-y:auto;">
+            <NavMenu OnNavClicked="CloseDrawer" />
+        </div>
+    </MudDrawer>
+
+    <MudMainContent>
+        <MudAppBar Elevation="1">
+            <MudIconButton Icon="@Icons.Material.Filled.Menu" OnClick="ToggleDrawer" />
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.Notifications" OnClick="ToggleNotifications" />
+            <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" OnClick="ToggleTheme" />
+            <MudIconButton Icon="@Icons.Material.Filled.AccountCircle" OnClick="ToggleUserMenu" />
+        </MudAppBar>
+
+        <div style="padding:24px; min-height:calc(100vh - 64px - 48px);">
+            @Body
+        </div>
+
+        <footer style="padding:12px 24px; text-align:center; border-top:1px solid var(--mud-palette-divider);">
+            <MudText Typo="Typo.body2" Color="Color.Secondary">© 2024 EstateHub — Powered by Gravicode Studios</MudText>
+        </footer>
+    </MudMainContent>
+</MudLayout>
+
+@if (_userMenuVisible)
+{
+    <MudOverlay Visible="true" OnClick="CloseUserMenu" DarkBackground="false" />
+    <MudPaper Elevation="8" Style="position:fixed; top:56px; right:8px; z-index:10000; min-width:210px; border-radius:12px; padding:6px 0;">
+        <MudButton Variant="Variant.Text" FullWidth="true" Href="/user/profile" StartIcon="@Icons.Material.Filled.ManageAccounts" OnClick="CloseUserMenu" Style="justify-content:flex-start; text-transform:none; padding:10px 16px;">Profil Saya</MudButton>
+        <MudButton Variant="Variant.Text" FullWidth="true" Href="/user/wishlist" StartIcon="@Icons.Material.Filled.Favorite" OnClick="CloseUserMenu" Style="justify-content:flex-start; text-transform:none; padding:10px 16px;">Wishlist</MudButton>
+        <MudButton Variant="Variant.Text" FullWidth="true" Href="/user/bookings" StartIcon="@Icons.Material.Filled.CalendarMonth" OnClick="CloseUserMenu" Style="justify-content:flex-start; text-transform:none; padding:10px 16px;">Booking Saya</MudButton>
+        <MudDivider Style="margin:4px 0;" />
+        <MudButton Variant="Variant.Text" FullWidth="true" Href="/logout" StartIcon="@Icons.Material.Filled.Logout" OnClick="CloseUserMenu" Style="justify-content:flex-start; text-transform:none; padding:10px 16px; color:var(--mud-palette-error);">Logout</MudButton>
+    </MudPaper>
+}
+
+@if (_notificationsVisible)
+{
+    <MudOverlay Visible="true" OnClick="CloseNotifications" DarkBackground="true" />
+    <MudPaper Elevation="16" Style="position:fixed; top:56px; right:60px; z-index:10001; width:380px; max-width:90vw; max-height:70vh; overflow-y:auto; border-radius:16px;">
+        <div class="pa-4">
+            <div class="d-flex justify-space-between align-center mb-3">
+                <MudText Typo="Typo.h6" Style="font-weight:700;">Notifikasi</MudText>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="MarkAllRead">Tandai Semua Dibaca</MudButton>
+            </div>
+            @if (_notificationCount == 0)
+            { <MudText Typo="Typo.body2" Color="Color.Secondary" Class="text-center py-4">Tidak ada notifikasi baru 🎉</MudText> }
+            else
+            {
+                @foreach (var notif in _notifications)
+                {
+                    <MudPaper Elevation="0" Class="pa-3 mb-2" Style="background:var(--mud-palette-background-gray); border-radius:12px;">
+                        <div class="d-flex justify-space-between align-start mb-1">
+                            <MudText Typo="Typo.body2" Style="font-weight:600;">@notif.Title</MudText>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">@notif.Type</MudChip>
+                        </div>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">@notif.Message</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">@notif.CreatedAt.ToString("dd/MM HH:mm")</MudText>
+                    </MudPaper>
+                }
+            }
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private bool _drawerOpen = true;
+    private bool _isDarkMode;
+    private bool _isMobile;
+    private bool _userMenuVisible;
+    private bool _notificationsVisible;
+    private int _notificationCount = 3;
+
+    private List<NotificationInfo> _notifications = new()
+    {
+        new() { Title = "Booking Baru", Message = "Siti Pembeli ingin melihat Rumah Minimalis Jaksel", Type = "Booking", CreatedAt = DateTime.UtcNow.AddHours(-1) },
+        new() { Title = "Properti Terverifikasi", Message = "Apartemen Premium SCBD telah diverifikasi", Type = "System", CreatedAt = DateTime.UtcNow.AddHours(-3) },
+        new() { Title = "Pembayaran Diterima", Message = "DP Villa Mewah Puncak telah diterima", Type = "Payment", CreatedAt = DateTime.UtcNow.AddDays(-1) },
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Restore auth from localStorage (tab baru, refresh, dll)
+            await AuthState.TryRestoreFromStorageAsync();
+
+            var width = await JS.InvokeAsync<int>("getBrowserWidth");
+            _isMobile = width < 960;
+            if (_isMobile) _drawerOpen = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+    private void CloseDrawer() { if (_isMobile) _drawerOpen = false; }
+    private void ToggleTheme() => _isDarkMode = !_isDarkMode;
+    private void ToggleUserMenu() { _userMenuVisible = !_userMenuVisible; _notificationsVisible = false; }
+    private void CloseUserMenu() => _userMenuVisible = false;
+    private void ToggleNotifications() { _notificationsVisible = !_notificationsVisible; _userMenuVisible = false; }
+    private void CloseNotifications() => _notificationsVisible = false;
+    private void MarkAllRead() { _notificationCount = 0; _notificationsVisible = false; }
+
+    private MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#2563EB", Secondary = "#475569", Tertiary = "#059669",
+            AppbarBackground = "#FFFFFF", AppbarText = "#1E293B",
+            Background = "#F8FAFC", BackgroundGray = "#F1F5F9", Surface = "#FFFFFF",
+            DrawerBackground = "#FFFFFF", DrawerText = "#1E293B", DrawerIcon = "#475569",
+        },
+        PaletteDark = new PaletteDark
+        {
+            Primary = "#60A5FA", Secondary = "#94A3B8", Tertiary = "#34D399",
+            AppbarBackground = "#1E293B", AppbarText = "#F1F5F9",
+            Background = "#0F172A", BackgroundGray = "#1E293B", Surface = "#1E293B",
+            DrawerBackground = "#1E293B", DrawerText = "#F1F5F9", DrawerIcon = "#94A3B8",
+        }
+    };
+
+    private class NotificationInfo
+    {
+        public string Title { get; set; } = "";
+        public string? Message { get; set; }
+        public string Type { get; set; } = "System";
+        public DateTime CreatedAt { get; set; }
+    }
+}
+
+<style>
+    .drawer-logo { display: flex; align-items: center; padding: 14px 16px; min-height: 60px; }
+</style>

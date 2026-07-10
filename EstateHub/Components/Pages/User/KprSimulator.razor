@@ -1,0 +1,144 @@
+@page "/kpr"
+@inject KprSimulatorService KprService
+
+<PageTitle>Simulasi KPR - EstateHub</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="py-4">
+    <MudText Typo="Typo.h4" Style="font-weight:700;" Class="mb-2">Simulasi KPR</MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">
+        Kalkulator cicilan KPR lengkap dengan analisis kelayakan dan rekomendasi AI
+    </MudText>
+
+    <MudGrid>
+        <MudItem xs="12" md="5">
+            <MudPaper Elevation="2" Class="pa-6" Style="border-radius:16px;">
+                <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-4">Data KPR</MudText>
+                <MudTextField @bind-Value="_propertyPriceStr" Label="Harga Properti (Rp)" Variant="Variant.Outlined"
+                              Adornment="Adornment.Start" AdornmentText="Rp" Class="mb-3" />
+                <MudTextField @bind-Value="_downPaymentStr" Label="Uang Muka / DP (Rp)" Variant="Variant.Outlined"
+                              Adornment="Adornment.Start" AdornmentText="Rp" Class="mb-3" />
+                <MudText Typo="Typo.caption" Color="Color.Primary" Class="mb-3" Style="cursor:pointer;"
+                         OnClick="SetDefaultDownPayment">
+                    💡 DP 20% = Rp @((_propertyPrice * 0.2m).ToString("N0"))
+                </MudText>
+                <MudSlider @bind-Value="_interestRate" Min="3" Max="15" Step="0.1" Class="mb-3"
+                           Label="Suku Bunga per Tahun (%)" ValueLabel="true" />
+                <MudSelect @bind-Value="_tenorYears" Label="Tenor (Tahun)" Variant="Variant.Outlined" Class="mb-4">
+                    <MudSelectItem Value="5">5 Tahun</MudSelectItem>
+                    <MudSelectItem Value="10">10 Tahun</MudSelectItem>
+                    <MudSelectItem Value="15">15 Tahun</MudSelectItem>
+                    <MudSelectItem Value="20">20 Tahun</MudSelectItem>
+                    <MudSelectItem Value="25">25 Tahun</MudSelectItem>
+                    <MudSelectItem Value="30">30 Tahun</MudSelectItem>
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                           OnClick="CalculateKpr" Size="Size.Large" Style="border-radius:12px; font-weight:600;">
+                    <MudIcon Icon="@Icons.Material.Filled.Calculate" Class="mr-2" /> Hitung KPR
+                </MudButton>
+            </MudPaper>
+
+            @if (_result != null)
+            {
+                <MudPaper Elevation="2" Class="pa-6 mt-4" Style="border-radius:16px;">
+                    <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Analisis Kelayakan</MudText>
+                    <MudTextField @bind-Value="_monthlyIncomeStr" Label="Penghasilan Bulanan (Rp)" Variant="Variant.Outlined"
+                                  Adornment="Adornment.Start" AdornmentText="Rp" Class="mb-3" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Tertiary" FullWidth="true"
+                               OnClick="CheckEligibility" Style="border-radius:12px;">Cek Kelayakan</MudButton>
+                    @if (_eligibility != null)
+                    {
+                        <MudAlert Severity="@(_eligibility.IsEligible ? Severity.Success : Severity.Warning)" Class="mt-3" Style="border-radius:12px;">
+                            <MudText Typo="Typo.body1" Style="font-weight:600;">
+                                Rasio Cicilan: @_eligibility.DebtServiceRatio% (@(_eligibility.IsEligible ? "LAYAK" : "TIDAK LAYAK"))
+                            </MudText>
+                            <MudText Typo="Typo.body2">@_eligibility.Recommendation</MudText>
+                        </MudAlert>
+                    }
+                </MudPaper>
+            }
+        </MudItem>
+
+        <MudItem xs="12" md="7">
+            @if (_result == null)
+            {
+                <MudPaper Elevation="1" Class="pa-8 text-center" Style="border-radius:16px;">
+                    <MudIcon Icon="@Icons.Material.Filled.Calculate" Size="Size.Large" Color="Color.Secondary" Class="mb-3" />
+                    <MudText Typo="Typo.h5" Style="font-weight:700;">Simulasi KPR</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Masukkan data dan klik "Hitung KPR".</MudText>
+                </MudPaper>
+            }
+            else
+            {
+                <MudGrid>
+                    <MudItem xs="12" sm="6">
+                        <MudPaper Elevation="2" Class="pa-4" Style="border-radius:16px; background:linear-gradient(135deg,var(--mud-palette-primary),#3B82F6);color:white;">
+                            <MudText Typo="Typo.caption">Cicilan per Bulan</MudText>
+                            <MudText Typo="Typo.h4" Style="font-weight:800;">Rp @_result.MonthlyPayment.ToString("N0")</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudPaper Elevation="2" Class="pa-4" Style="border-radius:16px; background:linear-gradient(135deg,var(--mud-palette-tertiary),#10B981);color:white;">
+                            <MudText Typo="Typo.caption">Total Pinjaman</MudText>
+                            <MudText Typo="Typo.h4" Style="font-weight:800;">Rp @_result.LoanAmount.ToString("N0")</MudText>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="6" sm="4"><MudPaper Elevation="1" Class="pa-4 text-center" Style="border-radius:12px;"><MudText Typo="Typo.caption">DP</MudText><MudText Typo="Typo.h6">Rp @_result.DownPayment.ToString("N0")</MudText></MudPaper></MudItem>
+                    <MudItem xs="6" sm="4"><MudPaper Elevation="1" Class="pa-4 text-center" Style="border-radius:12px;"><MudText Typo="Typo.caption">Total Bunga</MudText><MudText Typo="Typo.h6">Rp @_result.TotalInterest.ToString("N0")</MudText></MudPaper></MudItem>
+                    <MudItem xs="6" sm="4"><MudPaper Elevation="1" Class="pa-4 text-center" Style="border-radius:12px;"><MudText Typo="Typo.caption">Total Bayar</MudText><MudText Typo="Typo.h6">Rp @_result.TotalPayment.ToString("N0")</MudText></MudPaper></MudItem>
+                </MudGrid>
+
+                <MudPaper Elevation="1" Class="pa-4 mt-4" Style="border-radius:16px;">
+                    <MudText Typo="Typo.h6" Style="font-weight:700;" Class="mb-3">Jadwal Amortisasi (12 Bulan Pertama)</MudText>
+                    <MudTable Items="@_result.AmortizationSchedule" Hover="true" Dense="true" Striped="true">
+                        <HeaderContent><MudTh>Bulan</MudTh><MudTh>Pokok</MudTh><MudTh>Bunga</MudTh><MudTh>Total</MudTh><MudTh>Sisa</MudTh></HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.Month</MudTd>
+                            <MudTd>Rp @context.Principal.ToString("N0")</MudTd>
+                            <MudTd>Rp @context.Interest.ToString("N0")</MudTd>
+                            <MudTd>Rp @context.Total.ToString("N0")</MudTd>
+                            <MudTd>Rp @context.RemainingBalance.ToString("N0")</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudPaper>
+            }
+        </MudItem>
+    </MudGrid>
+</MudContainer>
+
+@code {
+    private string _propertyPriceStr = "1500000000";
+    private string _downPaymentStr = "300000000";
+    private double _interestRate = 7.0;
+    private int _tenorYears = 15;
+    private string _monthlyIncomeStr = "20000000";
+
+    private decimal _propertyPrice => TryParseDecimal(_propertyPriceStr);
+    private decimal _downPayment => TryParseDecimal(_downPaymentStr);
+    private decimal _monthlyIncome => TryParseDecimal(_monthlyIncomeStr);
+
+    private KprResult? _result;
+    private LoanEligibility? _eligibility;
+
+    private static decimal TryParseDecimal(string value)
+        => decimal.TryParse(value, System.Globalization.NumberStyles.Any, null, out var result) ? result : 0;
+
+    private void CalculateKpr()
+    {
+        if (_propertyPrice <= 0 || _downPayment >= _propertyPrice) return;
+        _result = KprService.Calculate(_propertyPrice, _downPayment, _interestRate, _tenorYears * 12);
+        _eligibility = null;
+    }
+
+    private void CheckEligibility()
+    {
+        if (_result == null || _monthlyIncome <= 0) return;
+        _eligibility = KprService.CheckEligibility(_monthlyIncome, _result.MonthlyPayment);
+    }
+
+    private void SetDefaultDownPayment()
+    {
+        var dp = _propertyPrice * 0.2m;
+        _downPaymentStr = dp.ToString("F0");
+        CalculateKpr();
+    }
+}
