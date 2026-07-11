@@ -1,0 +1,41 @@
+@page "/admin/config"
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@inject SmartDrive.Data.SmartDriveDbContext Db
+
+<PageTitle>Konfigurasi Sistem</PageTitle>
+<div class="page-header"><h2>⚙️ Konfigurasi Sistem</h2></div>
+
+@if(_msg!=null){<div class="alert alert-@(_ok?"success":"danger") mb-3">@_msg</div>}
+
+<div class="card"><div class="card-header"><h3>Konfigurasi Aplikasi</h3></div>
+<div class="table-container"><table><thead><tr><th>Key</th><th>Value</th><th>Deskripsi</th><th>Kategori</th><th>Aksi</th></tr></thead>
+<tbody>@foreach(var c in _configs){<tr><td><code>@c.ConfigKey</code></td><td>@(c.ConfigValue?.Length>80?c.ConfigValue[..80]+"...":c.ConfigValue)</td><td>@c.Description</td><td>@c.Category</td><td><button class="btn btn-outline btn-sm" @onclick="()=>Edit(c)">✏️</button></td></tr>}</tbody></table></div></div>
+
+@if(_showEdit){
+<div class="modal-overlay" @onclick="()=>_showEdit=false">
+<div class="modal" @onclick:stopPropagation="true" style="max-width:500px;">
+    <div class="modal-header"><h3>Edit @_editKey</h3><button class="btn btn-outline btn-sm" @onclick="()=>_showEdit=false">✕</button></div>
+    <div class="form-group mb-3"><label style="font-weight:600;">Key</label><input class="form-control" value="@_editKey" readonly disabled style="background:var(--bg-tertiary)"/></div>
+    <div class="form-group mb-3"><label style="font-weight:600;">Category</label><input class="form-control" value="@_editCat" readonly disabled style="background:var(--bg-tertiary)"/></div>
+    <div class="form-group mb-3"><label style="font-weight:600;">Value</label><textarea @bind="_editValue" class="form-control" rows="4" placeholder="Masukkan value baru..."></textarea></div>
+    <div class="flex-between">
+        <button class="btn btn-outline" @onclick="()=>_showEdit=false">Batal</button>
+        <button class="btn btn-primary" @onclick="SaveConfig">💾 Simpan</button>
+    </div>
+</div></div>}
+
+@code {
+    List<SystemConfig> _configs=[]; bool _showEdit,_ok; string _editKey="",_editValue="",_editCat="",_msg;
+    protected override async Task OnInitializedAsync()=>_configs=await Db.SystemConfigs.OrderBy(c=>c.Category).ToListAsync();
+    void Edit(SystemConfig c){_editKey=c.ConfigKey;_editValue=c.ConfigValue??"";_editCat=c.Category??"";_showEdit=true;_msg=null;}
+    async Task SaveConfig(){
+        try{
+            var c=await Db.SystemConfigs.FirstOrDefaultAsync(x=>x.ConfigKey==_editKey);
+            if(c!=null){c.ConfigValue=_editValue;c.UpdatedAt=DateTime.UtcNow;await Db.SaveChangesAsync();}
+            _showEdit=false;_msg="Konfigurasi disimpan!";_ok=true;
+            _configs=await Db.SystemConfigs.OrderBy(x=>x.Category).ToListAsync();
+        }catch(Exception ex){_msg=$"Error: {ex.Message}";_ok=false;}
+    }
+}

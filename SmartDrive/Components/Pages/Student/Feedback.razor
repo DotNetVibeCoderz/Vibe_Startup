@@ -1,0 +1,19 @@
+@page "/student/feedback"
+@attribute [Authorize(Roles = "Student")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Feedback Instruktur</PageTitle>
+<div class="page-header"><h2>⭐ Feedback dari Instruktur</h2></div>
+
+@foreach(var f in _feedbacks){<div class="card"><div class="flex-between"><div><strong>@f.Instructor?.User?.FullName</strong> - @f.CreatedAt.ToString("dd MMM yyyy")</div><span>⭐ @f.Rating/5</span></div>
+<div style="margin-top:8px;color:var(--text-secondary)"><p>@f.Comments</p>
+@if(!string.IsNullOrEmpty(f.Strengths)){<div style="color:#2e7d32;">💪 <strong>Kelebihan:</strong> @f.Strengths</div>}
+@if(!string.IsNullOrEmpty(f.AreasForImprovement)){<div style="color:#e65100;">🎯 <strong>Perbaiki:</strong> @f.AreasForImprovement</div>}</div></div>}
+@if(!_feedbacks.Any()){<div class="empty-state"><span class="empty-icon">⭐</span><h3>Belum ada feedback</h3><p>Feedback akan muncul setelah Anda menyelesaikan sesi latihan.</p></div>}
+
+@code { List<SmartDrive.Models.Entities.StudentFeedback> _feedbacks=new();
+    protected override async Task OnInitializedAsync(){var state=await AuthState.GetAuthenticationStateAsync();var uid=state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;if(uid!=null){var sp=await Db.StudentProfiles.FirstOrDefaultAsync(s=>s.UserId==uid);if(sp!=null)_feedbacks=await Db.StudentFeedbacks.Include(f=>f.Instructor).ThenInclude(i=>i!.User).Where(f=>f.StudentId==sp.Id).OrderByDescending(f=>f.CreatedAt).Take(20).ToListAsync();}}
+}

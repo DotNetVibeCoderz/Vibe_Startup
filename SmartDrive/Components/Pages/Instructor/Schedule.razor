@@ -1,0 +1,43 @@
+@page "/instructor/schedule"
+@attribute [Authorize(Roles = "Instructor")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Jadwal Mengajar</PageTitle>
+<div class="page-header"><h2>📅 Jadwal Mengajar</h2></div>
+
+<div class="card"><div class="card-header"><h3>Atur Ketersediaan</h3></div>
+<div class="table-container"><table><thead><tr><th>Hari</th><th>Mulai</th><th>Selesai</th><th>Status</th><th>Aksi</th></tr></thead>
+<tbody>
+@foreach(var s in _schedules){
+    <tr><td>@s.DayOfWeek.ToString()</td><td>@s.StartTime.ToString(@"hh\:mm")</td><td>@s.EndTime.ToString(@"hh\:mm")</td>
+    <td><span class="badge-status @(s.IsAvailable?"badge-success":"badge-danger")">@(s.IsAvailable?"Tersedia":"Tidak")</span></td>
+    <td><button class="btn btn-outline btn-sm" @onclick="()=>Toggle(s)">Toggle</button></td></tr>
+}</tbody></table></div></div>
+
+<div class="card mt-3"><div class="card-header"><h3>Booking Mendatang</h3></div>
+@foreach(var b in _bookings){<div style="padding:12px;border-bottom:1px solid var(--border-color);"><div class="flex-between"><strong>@b.StartTime.ToString("dd MMM yyyy HH:mm") - @b.EndTime.ToString("HH:mm")</strong><span class="badge-status @GetClass(b.Status)">@b.Status</span></div><small>👨‍🎓 @b.Student?.FullName | 🚗 @b.Vehicle?.PlateNumber | 📍 @b.Location?.Name</small></div>}
+@if(!_bookings.Any()){<p class="empty-state">Belum ada booking.</p>}</div>
+
+@code {
+    List<InstructorSchedule> _schedules=[]; List<SmartDrive.Models.Entities.Booking> _bookings=[]; int _instructorId;
+    protected override async Task OnInitializedAsync(){
+        var state=await AuthState.GetAuthenticationStateAsync();
+        var uid=state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if(uid!=null){
+            var inst=await Db.InstructorProfiles.FirstOrDefaultAsync(i=>i.UserId==uid);
+            if(inst!=null){
+                _instructorId=inst.Id;
+                // SQLite tidak support TimeSpan di ORDER BY → tarik ke memory dulu lalu sort
+                var raw = await Db.InstructorSchedules.Where(s=>s.InstructorId==inst.Id).ToListAsync();
+                _schedules = raw.OrderBy(s=>s.DayOfWeek).ThenBy(s=>s.StartTime).ToList();
+                _bookings=await Db.Bookings.Include(b=>b.Student).Include(b=>b.Vehicle).Include(b=>b.Location).Where(b=>b.InstructorId==inst.Id&&b.StartTime>DateTime.UtcNow).OrderBy(b=>b.StartTime).Take(20).ToListAsync();
+            }
+        }
+    }
+    async Task Toggle(InstructorSchedule s){s.IsAvailable=!s.IsAvailable;await Db.SaveChangesAsync();}
+    string GetClass(SmartDrive.Models.Enums.BookingStatus s)=>s switch{SmartDrive.Models.Enums.BookingStatus.Scheduled=>"badge-info",SmartDrive.Models.Enums.BookingStatus.Completed=>"badge-success",_=>"badge-neutral"};
+}

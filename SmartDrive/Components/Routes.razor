@@ -1,0 +1,19 @@
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                @{ Nav.NavigateTo($"/auth/login?returnUrl={Uri.EscapeDataString(Nav.Uri)}"); }
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>404 - Halaman Tidak Ditemukan</PageTitle>
+        <div class="empty-state" style="padding:60px;">
+            <div class="empty-icon">🔍</div><h3>404</h3><p>Halaman tidak ditemukan.</p>
+            <a href="/" class="btn btn-primary mt-3">Kembali ke Home</a>
+        </div>
+    </NotFound>
+</Router>
+
+@code { [Inject] NavigationManager Nav { get; set; } = default!; }

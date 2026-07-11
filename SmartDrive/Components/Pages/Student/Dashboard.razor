@@ -1,0 +1,25 @@
+@page "/student/dashboard"
+@attribute [Authorize(Roles = "Student")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@inject SmartDrive.Data.SmartDriveDbContext DbContext
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Student Dashboard - SmartDrive</PageTitle>
+<div class="page-header"><h2>📊 Dashboard Siswa</h2><p>Selamat datang, @_studentName! Pantau progres belajar Anda.</p></div>
+
+<div class="stats-grid"><div class="stat-card"><div class="stat-icon">🕐</div><div class="stat-info"><h4>@_totalHours</h4><p>Jam Latihan</p></div></div><div class="stat-card"><div class="stat-icon">✅</div><div class="stat-info"><h4>@_completedSessions</h4><p>Sesi Selesai</p></div></div><div class="stat-card"><div class="stat-icon">⭐</div><div class="stat-info"><h4>@_currentLevel</h4><p>Level Saat Ini</p></div></div><div class="stat-card"><div class="stat-icon">🏆</div><div class="stat-info"><h4>@_xp XP</h4><p>Experience Points</p></div></div></div>
+
+<div class="card"><div class="card-header"><h3>📅 Jadwal Latihan Mendatang</h3><a href="/student/book" class="btn btn-primary btn-sm">+ Booking Baru</a></div>
+@if(_upcomingBookings.Any()){<div class="table-container"><table><thead><tr><th>Tanggal</th><th>Instruktur</th><th>Kendaraan</th><th>Lokasi</th><th>Status</th></tr></thead><tbody>@foreach(var b in _upcomingBookings){<tr><td>@b.StartTime.ToString("dd MMM yyyy HH:mm")</td><td>@b.Instructor?.User?.FullName</td><td>@b.Vehicle?.PlateNumber</td><td>@b.Location?.Name</td><td><span class="badge-status @GetStatus(b.Status)">@b.Status</span></td></tr>}</tbody></table></div>}else{<div class="empty-state"><span class="empty-icon">📅</span><h3>Belum ada jadwal latihan</h3><a href="/student/book" class="btn btn-primary mt-3">Booking Sekarang</a></div>}</div>
+
+<div class="card"><div class="card-header"><h3>📝 Feedback Terbaru dari Instruktur</h3></div>
+@if(_recentFeedbacks.Any()){@foreach(var f in _recentFeedbacks){<div style="border-bottom:1px solid var(--border-color); padding:12px 0;"><div class="flex-between"><strong>@f.Instructor?.User?.FullName</strong><span>⭐ @f.Rating/5</span></div><p style="margin-top:4px; color:var(--text-secondary)">@f.Comments</p>@if(!string.IsNullOrEmpty(f.Strengths)){<small style="color:var(--success-color)">💪 Kelebihan: @f.Strengths</small>}@if(!string.IsNullOrEmpty(f.AreasForImprovement)){<small style="color:var(--warning-color); display:block">🎯 Perbaiki: @f.AreasForImprovement</small>}</div>}}else{<p class="empty-state">Belum ada feedback.</p>}</div>
+
+@code {
+    private string _studentName=""; private int _totalHours,_completedSessions,_currentLevel=1,_xp;
+    private List<SmartDrive.Models.Entities.Booking> _upcomingBookings=new();
+    private List<SmartDrive.Models.Entities.StudentFeedback> _recentFeedbacks=new();
+    protected override async Task OnInitializedAsync(){var state=await AuthState.GetAuthenticationStateAsync();var userId=state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;_studentName=state.User.FindFirst("FullName")?.Value??"Siswa";if(userId!=null){var student=await DbContext.StudentProfiles.FirstOrDefaultAsync(s=>s.UserId==userId);if(student!=null){_totalHours=student.TotalHoursCompleted;_completedSessions=student.TotalSessionsCompleted;_currentLevel=student.CurrentLevel;_xp=student.ExperiencePoints;}_upcomingBookings=await DbContext.Bookings.Include(b=>b.Instructor).ThenInclude(i=>i!.User).Include(b=>b.Vehicle).Include(b=>b.Location).Where(b=>b.StudentUserId==userId&&b.StartTime>DateTime.UtcNow.AddHours(-2)).OrderBy(b=>b.StartTime).Take(5).ToListAsync();var sp=await DbContext.StudentProfiles.FirstOrDefaultAsync(s=>s.UserId==userId);if(sp!=null)_recentFeedbacks=await DbContext.StudentFeedbacks.Include(f=>f.Instructor).ThenInclude(i=>i!.User).Where(f=>f.StudentId==sp.Id).OrderByDescending(f=>f.CreatedAt).Take(3).ToListAsync();}}
+    private string GetStatus(SmartDrive.Models.Enums.BookingStatus s)=>s switch{SmartDrive.Models.Enums.BookingStatus.Scheduled=>"badge-info",SmartDrive.Models.Enums.BookingStatus.Completed=>"badge-success",_=>"badge-neutral"};
+}

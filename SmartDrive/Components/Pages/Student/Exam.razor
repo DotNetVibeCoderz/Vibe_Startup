@@ -1,0 +1,118 @@
+@page "/student/exam"
+@attribute [Authorize(Roles = "Student")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Simulasi Ujian Teori</PageTitle>
+<div class="page-header"><h2>📝 Simulasi Ujian Teori</h2></div>
+
+@if (!_examStarted)
+{
+    <div class="card text-center"><h3>Ujian Teori Mengemudi</h3><p>@_totalQuestions soal, waktu @_timeLimit menit, passing score @_passingScore%</p>
+    <button class="btn btn-primary btn-lg" @onclick="StartExam">Mulai Ujian!</button></div>
+}
+else if (!_examFinished)
+{
+    <div class="card"><div class="flex-between mb-3"><h3>Soal @(_currentIndex + 1) / @_questions.Count</h3><span>⏱️ @_remainingTime.Minutes.ToString("D2"):@_remainingTime.Seconds.ToString("D2")</span></div>
+    @if (_currentIndex < _questions.Count)
+    {
+        var q = _questions[_currentIndex];
+        <div><h4>@q.QuestionText</h4>
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;">
+        @foreach (var opt in new[] { ("A", q.OptionA), ("B", q.OptionB), ("C", q.OptionC), ("D", q.OptionD) })
+        {
+            <label style="padding:10px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer;background:@(_answers.ContainsKey(q.Id) && _answers[q.Id] == opt.Item1 ? "var(--bg-hover)" : "transparent")">
+                <input type="radio" name="q@q.Id" checked="@(_answers.ContainsKey(q.Id) && _answers[q.Id] == opt.Item1)" @onchange="() => Answer(q.Id, opt.Item1)" /> @opt.Item2
+            </label>
+        }
+        </div>
+        <div class="flex-between mt-3">
+            <button class="btn btn-outline" @onclick="PrevQuestion" disabled="@(_currentIndex == 0)">◀ Sebelumnya</button>
+            <span>@(_currentIndex + 1)/@_questions.Count</span>
+            <button class="btn btn-primary" @onclick="NextQuestion">@(_currentIndex < _questions.Count - 1 ? "Selanjutnya ▶" : "Selesai ✅")</button>
+        </div></div>
+    }
+    </div>
+}
+else
+{
+    <div class="card text-center"><h3>Hasil Ujian</h3><div style="font-size:48px;margin:20px 0;">@(_passed ? "🎉" : "😔")</div>
+    <h2>Skor: @_score.ToString("F0")%</h2><p>Benar: @_correct / @_questions.Count</p>
+    <p>@(_passed ? "Selamat! Anda lulus ujian teori!" : "Belum lulus. Silakan coba lagi.")</p>
+    <button class="btn btn-primary" @onclick="ResetExam">Coba Lagi</button></div>
+}
+
+@code {
+    private List<ExamQuestion> _questions = new();
+    private int _totalQuestions = 10, _passingScore = 70, _correct, _currentIndex;
+    private bool _examStarted, _examFinished, _passed;
+    private double _score;
+    private TimeSpan _timeLimit = TimeSpan.FromMinutes(15);
+    private DateTime _examStartTime;
+    private Dictionary<int, string> _answers = new();
+    private System.Timers.Timer? _timer;
+    private TimeSpan _remainingTime;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // EF Core tidak bisa translate Guid.NewGuid() ke SQL.
+        // Solusi: tarik semua dulu ke memory, baru randomize.
+        var all = await Db.ExamQuestions.Where(q => q.IsActive).ToListAsync();
+        _questions = all.OrderBy(_ => Random.Shared.Next()).Take(_totalQuestions).ToList();
+    }
+
+    void StartExam()
+    {
+        _examStarted = true; _examStartTime = DateTime.Now; _answers.Clear(); _currentIndex = 0;
+        _remainingTime = _timeLimit;
+        _timer = new System.Timers.Timer(1000);
+        _timer.Elapsed += async (s, e) =>
+        {
+            _remainingTime = _timeLimit - (DateTime.Now - _examStartTime);
+            if (_remainingTime <= TimeSpan.Zero) { _timer.Stop(); await FinishExam(); }
+            await InvokeAsync(StateHasChanged);
+        };
+        _timer.Start();
+    }
+
+    void Answer(int qid, string ans) => _answers[qid] = ans;
+
+    void NextQuestion()
+    {
+        if (_currentIndex < _questions.Count - 1) _currentIndex++;
+        else _ = FinishExam();
+    }
+
+    void PrevQuestion() { if (_currentIndex > 0) _currentIndex--; }
+
+    async Task FinishExam()
+    {
+        _examFinished = true; _timer?.Stop();
+        _correct = _questions.Count(q => _answers.ContainsKey(q.Id) && _answers[q.Id] == q.CorrectAnswer);
+        _score = (double)_correct / _questions.Count * 100;
+        _passed = _score >= _passingScore;
+
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var uid = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!string.IsNullOrEmpty(uid))
+        {
+            var sp = await Db.StudentProfiles.FirstOrDefaultAsync(s => s.UserId == uid);
+            if (sp != null)
+            {
+                if (_passed) { sp.HasPassedTheory = true; sp.ExperiencePoints += 100; }
+                Db.ExamAttempts.Add(new ExamAttempt
+                {
+                    StudentId = sp.Id, TotalQuestions = _questions.Count, CorrectAnswers = _correct,
+                    Score = (decimal)_score, IsPassed = _passed, StartedAt = _examStartTime,
+                    FinishedAt = DateTime.UtcNow, PassingScore = _passingScore
+                });
+                await Db.SaveChangesAsync();
+            }
+        }
+    }
+
+    void ResetExam() { _examStarted = false; _examFinished = false; _answers.Clear(); _currentIndex = 0; }
+}

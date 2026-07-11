@@ -1,0 +1,62 @@
+@page "/admin/locations"
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject IJSRuntime JS
+
+<PageTitle>Manajemen Lokasi Latihan</PageTitle>
+<div class="page-header flex-between"><h2>📍 Manajemen Lokasi Latihan</h2><button class="btn btn-primary" @onclick="()=>ShowAdd()">+ Tambah</button></div>
+
+<div class="card"><div class="table-container"><table><thead><tr><th>Nama</th><th>Alamat</th><th>Tipe</th><th>Koordinat</th><th>Status</th><th>Aksi</th></tr></thead>
+<tbody>@foreach(var l in _locations){<tr><td>@l.Name</td><td>@l.Address</td><td>@l.LocationType</td><td>@l.Latitude.ToString("F4"), @l.Longitude.ToString("F4")</td><td><span class="badge-status @(l.IsActive?"badge-success":"badge-danger")">@(l.IsActive?"Aktif":"Nonaktif")</span></td><td><button class="btn btn-outline btn-sm" @onclick="()=>ShowEdit(l)">✏️</button><button class="btn btn-outline btn-sm" @onclick="()=>ToggleStatus(l)">@(l.IsActive?"Nonaktifkan":"Aktifkan")</button></td></tr>}</tbody></table></div></div>
+
+@if(_showModal){
+<div class="modal-overlay" @onclick="()=>_showModal=false">
+<div class="modal" @onclick:stopPropagation="true" style="max-width:550px;">
+    <div class="modal-header"><h3>@(_editing?"Edit":"Tambah") Lokasi</h3><button class="btn btn-outline btn-sm" @onclick="()=>_showModal=false">✕</button></div>
+    <div class="form-group"><label>Nama</label><input class="form-control" @bind="_form.Name" required/></div>
+    <div class="form-group"><label>Alamat</label><textarea class="form-control" @bind="_form.Address" rows="2"></textarea></div>
+    <div class="form-row">
+        <div class="form-group"><label>Latitude</label><input type="number" step="any" class="form-control" @bind="_latStr" placeholder="-6.2088"/></div>
+        <div class="form-group"><label>Longitude</label><input type="number" step="any" class="form-control" @bind="_lngStr" placeholder="106.8456"/></div>
+    </div>
+    <div class="mb-3">
+        <button type="button" class="btn btn-outline btn-sm w-100" @onclick="OpenMapPicker">
+            🗺️ Buka Google Maps untuk Pilih Koordinat
+        </button>
+        <small style="color:var(--text-muted);display:block;margin-top:4px;">
+            📌 Klik kanan di titik yang diinginkan di Google Maps → copy koordinat → paste di sini.
+        </small>
+    </div>
+    <div class="form-group"><label>Tipe</label><select class="form-control" @bind="_form.LocationType"><option>ParkingLot</option><option>Street</option><option>Highway</option><option>Residential</option></select></div>
+    <div class="form-group"><label>Deskripsi</label><textarea class="form-control" @bind="_form.Description" rows="2"></textarea></div>
+    <div class="flex-between"><button type="button" class="btn btn-outline" @onclick="()=>_showModal=false">Batal</button><button class="btn btn-primary" @onclick="SaveLocation">💾 Simpan</button></div>
+</div></div>}
+
+@code {
+    List<TrainingLocation> _locations=[]; bool _showModal,_editing; TrainingLocation _form=new(); string _latStr="",_lngStr="";
+    protected override async Task OnInitializedAsync()=>_locations=await Db.TrainingLocations.OrderBy(l=>l.Name).ToListAsync();
+
+    void ShowAdd(){_form=new TrainingLocation{IsActive=true,LocationType="ParkingLot"};_latStr="";_lngStr="";_editing=false;_showModal=true;}
+    void ShowEdit(TrainingLocation l){_form=new TrainingLocation{Id=l.Id,Name=l.Name,Address=l.Address,Latitude=l.Latitude,Longitude=l.Longitude,LocationType=l.LocationType,Description=l.Description,IsActive=l.IsActive};_latStr=l.Latitude.ToString("F6");_lngStr=l.Longitude.ToString("F6");_editing=true;_showModal=true;}
+
+    async Task OpenMapPicker(){
+        // Parse current values to pre-fill map center
+        double.TryParse(_latStr,out var lat);double.TryParse(_lngStr,out var lng);
+        if(lat==0&&lng==0){lat=-6.2088;lng=106.8456;} // Default: Jakarta
+        var url=$"https://www.google.com/maps/@{lat.ToString("F6")},{lng.ToString("F6")},17z";
+        await JS.InvokeVoidAsync("open",url,"_blank");
+    }
+
+    async Task SaveLocation(){
+        if(double.TryParse(_latStr,out var lat))_form.Latitude=lat;
+        if(double.TryParse(_lngStr,out var lng))_form.Longitude=lng;
+        try{
+            if(_editing){var e=await Db.TrainingLocations.FindAsync(_form.Id);if(e!=null){e.Name=_form.Name;e.Address=_form.Address;e.Latitude=_form.Latitude;e.Longitude=_form.Longitude;e.LocationType=_form.LocationType;e.Description=_form.Description;}}
+            else Db.TrainingLocations.Add(_form);
+            await Db.SaveChangesAsync();_showModal=false;_locations=await Db.TrainingLocations.OrderBy(l=>l.Name).ToListAsync();
+        }catch(Exception){}
+    }
+    async Task ToggleStatus(TrainingLocation l){l.IsActive=!l.IsActive;await Db.SaveChangesAsync();_locations=await Db.TrainingLocations.OrderBy(l=>l.Name).ToListAsync();}
+}

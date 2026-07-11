@@ -1,0 +1,81 @@
+@page "/instructor/evaluations"
+@attribute [Authorize(Roles = "Instructor")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject AuthenticationStateProvider AuthState
+@inject SmartDrive.Services.NotificationService NotifService
+
+<PageTitle>Evaluasi Siswa</PageTitle>
+<div class="page-header"><h2>📝 Evaluasi Siswa</h2></div>
+
+<div class="card" style="position:relative;z-index:10;"><h3 class="mb-3">Beri Feedback</h3>
+<EditForm Model="_form" OnValidSubmit="SubmitFeedback">
+<div class="form-row">
+<div class="form-group" style="position:relative;z-index:100;">
+    <label>Booking (pilih sesi yang sudah selesai)</label>
+    <InputSelect @bind-Value="_form.BookingId" class="form-control" style="position:relative;z-index:101;">
+        <option value="0">-- Pilih Booking --</option>
+        @foreach(var b in _completedBookings){<option value="@b.Id">@b.StartTime.ToString("dd MMM HH:mm") - @b.Student?.FullName @(b.Student?.Email)</option>}
+    </InputSelect>
+</div>
+<div class="form-group"><label>Rating (1-5)</label><InputNumber @bind-Value="_form.Rating" class="form-control" min="1" max="5"/></div>
+</div>
+<div class="form-group"><label>Komentar</label><InputTextArea @bind-Value="_form.Comments" class="form-control" rows="3" placeholder="Beri komentar tentang performa siswa..."/></div>
+<div class="form-row"><div class="form-group"><label>Kelebihan</label><InputText @bind-Value="_form.Strengths" class="form-control" placeholder="Apa kelebihan siswa?"/></div><div class="form-group"><label>Perlu Diperbaiki</label><InputText @bind-Value="_form.AreasForImprovement" class="form-control" placeholder="Skill apa yang perlu ditingkatkan?"/></div></div>
+<button type="submit" class="btn btn-primary" disabled="@(_form.BookingId<=0)">Simpan Feedback</button>
+</EditForm></div>
+
+@if(!string.IsNullOrEmpty(_msg)){<div class="alert alert-@(_ok?"success":"danger") mt-3">@_msg</div>}
+
+<div class="card mt-3" style="position:relative;z-index:1;"><h3>Feedback Terbaru</h3>
+@foreach(var f in _feedbacks){<div style="padding:12px 0;border-bottom:1px solid var(--border-color);"><div class="flex-between"><strong>@f.Student?.User?.FullName</strong><span>⭐ @f.Rating/5</span></div><p style="color:var(--text-secondary);margin:4px 0;">@f.Comments</p>@if(!string.IsNullOrEmpty(f.Strengths)){<small style="color:#2e7d32;">💪 @f.Strengths</small>} @if(!string.IsNullOrEmpty(f.AreasForImprovement)){<small style="color:#e65100;">🎯 @f.AreasForImprovement</small>}<br/><small style="color:var(--text-muted);">@f.CreatedAt.ToString("dd MMM yyyy")</small></div>}
+@if(!_feedbacks.Any()){<p class="empty-state">Belum ada feedback. Selesaikan sesi latihan terlebih dahulu!</p>}</div>
+
+@code {
+    List<SmartDrive.Models.Entities.Booking> _completedBookings=[]; List<StudentFeedback> _feedbacks=[]; int _instId;
+    class FeedbackForm{public int BookingId;public int Rating=5;public string Comments="",Strengths="",AreasForImprovement="";}
+    FeedbackForm _form=new(); string? _msg; bool _ok;
+
+    protected override async Task OnInitializedAsync(){
+        var state=await AuthState.GetAuthenticationStateAsync();var uid=state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if(uid!=null){
+            var inst=await Db.InstructorProfiles.FirstOrDefaultAsync(i=>i.UserId==uid);
+            if(inst!=null){
+                _instId=inst.Id;
+                // Ambil booking yg statusnya Completed untuk instruktur ini
+                _completedBookings=await Db.Bookings.Include(b=>b.Student)
+                    .Where(b=>b.InstructorId==inst.Id && b.Status==SmartDrive.Models.Enums.BookingStatus.Completed)
+                    .OrderByDescending(b=>b.StartTime).Take(30).ToListAsync();
+                _feedbacks=await Db.StudentFeedbacks.Include(f=>f.Student).ThenInclude(s=>s!.User)
+                    .Where(f=>f.InstructorId==inst.Id).OrderByDescending(f=>f.CreatedAt).Take(15).ToListAsync();
+            }
+        }
+    }
+
+    async Task SubmitFeedback(){
+        try{
+            if(_form.BookingId<=0){_msg="Pilih booking terlebih dahulu.";_ok=false;return;}
+            var b=await Db.Bookings.Include(x=>x.Student).FirstOrDefaultAsync(x=>x.Id==_form.BookingId);
+            if(b==null||b.Student==null){_msg="Booking tidak valid.";_ok=false;return;}
+
+            var fb=new StudentFeedback{
+                BookingId=_form.BookingId,InstructorId=_instId,
+                StudentId=(await Db.StudentProfiles.FirstOrDefaultAsync(s=>s.UserId==b.StudentUserId))!.Id,
+                Rating=_form.Rating,Comments=_form.Comments,Strengths=_form.Strengths,AreasForImprovement=_form.AreasForImprovement
+            };
+            Db.StudentFeedbacks.Add(fb);await Db.SaveChangesAsync();
+
+            // Update rating instruktur
+            var inst=await Db.InstructorProfiles.FindAsync(_instId);
+            if(inst!=null){var avg=await Db.StudentFeedbacks.Where(f=>f.InstructorId==_instId).AverageAsync(f=>(double?)f.Rating);inst.AverageRating=avg.HasValue?(decimal)avg.Value:5.0m;await Db.SaveChangesAsync();}
+
+            // Notifikasi ke siswa
+            await NotifService.SendNotificationAsync(b.StudentUserId,"Feedback Baru",$"Instruktur telah memberikan feedback untuk sesi {b.StartTime:dd MMM}.",SmartDrive.Models.Enums.NotificationType.FeedbackReceived);
+
+            _msg="Feedback tersimpan!";_ok=true;_form=new FeedbackForm();
+            _feedbacks=await Db.StudentFeedbacks.Include(f=>f.Student).ThenInclude(s=>s!.User).Where(f=>f.InstructorId==_instId).OrderByDescending(f=>f.CreatedAt).Take(15).ToListAsync();
+        }catch(Exception ex){_msg=$"Error: {ex.Message}";_ok=false;}
+    }
+}

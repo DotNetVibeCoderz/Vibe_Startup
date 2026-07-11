@@ -1,0 +1,84 @@
+@page "/"
+@inject NavigationManager Navigation
+
+<PageTitle>SmartDrive Academy - Belajar Menyetir Mobil</PageTitle>
+
+<div class="home-page">
+    <section class="hero-section">
+        <div class="hero-content">
+            <h1>Belajar Menyetir Jadi <span>Mudah & Menyenangkan</span></h1>
+            <p>Platform belajar menyetir #1 dengan instruktur profesional, materi lengkap, dan asisten AI Om Bambang yang siap membantu 24/7.</p>
+            <div class="hero-actions">
+                <a href="/auth/register" class="btn btn-primary btn-lg">Mulai Belajar 🚗</a>
+                <a href="/auth/login" class="btn btn-outline btn-lg">Sudah Punya Akun</a>
+            </div>
+        </div>
+        <div class="hero-image"><span>🚗</span></div>
+    </section>
+
+    <section class="stats-section">
+        <div class="stat-item"><h3>500+</h3><p>Siswa Aktif</p></div>
+        <div class="stat-item"><h3>50+</h3><p>Instruktur Profesional</p></div>
+        <div class="stat-item"><h3>95%</h3><p>Tingkat Kelulusan</p></div>
+        <div class="stat-item"><h3>4.8⭐</h3><p>Rating Rata-rata</p></div>
+    </section>
+
+    <section class="features-section">
+        <h2>Fitur Unggulan SmartDrive</h2>
+        <div class="features-grid">
+            <div class="feature-card"><span>📅</span><h3>Booking Mudah</h3><p>Pilih jadwal latihan sesuai ketersediaan Anda dan instruktur dengan sistem booking online.</p></div>
+            <div class="feature-card"><span>📚</span><h3>Materi Lengkap</h3><p>Modul digital interaktif tentang rambu lalu lintas, aturan jalan, dan teknik mengemudi.</p></div>
+            <div class="feature-card"><span>📝</span><h3>Simulasi Ujian</h3><p>Latihan soal ujian teori untuk persiapan ujian SIM dengan pembahasan lengkap.</p></div>
+            <div class="feature-card"><span>🤖</span><h3>Om Bambang AI</h3><p>Asisten virtual siap menjawab pertanyaan seputar mengemudi kapan saja.</p></div>
+            <div class="feature-card"><span>📍</span><h3>GPS Tracking</h3><p>Pantau lokasi dan progres latihan secara real-time dengan GPS tracking.</p></div>
+            <div class="feature-card"><span>🏆</span><h3>Gamifikasi</h3><p>Dapatkan badge dan reward seiring kemajuan belajar Anda.</p></div>
+        </div>
+    </section>
+
+    <section class="cta-section">
+        <h2>Siap Mulai Belajar Menyetir?</h2>
+        <p>Daftar sekarang dan dapatkan sesi pertama GRATIS!</p>
+        <a href="/auth/register" class="btn btn-success btn-lg">Daftar Gratis Sekarang!</a>
+    </section>
+
+    <footer class="home-footer">
+        <div class="footer-grid">
+            <div><h4>🚗 SmartDrive Academy</h4><p>Platform belajar menyetir terpercaya di Indonesia.</p></div>
+            <div><h4>Layanan</h4><ul><li><a href="/auth/register">Kursus Mengemudi</a></li><li><a href="/marketplace">Paket Tambahan</a></li><li><a href="/auth/register">Simulasi Ujian</a></li></ul></div>
+            <div><h4>Kontak</h4><ul><li>📧 info@smartdrive.id</li><li>📞 021-1234-5678</li><li>📍 Jakarta, Indonesia</li></ul></div>
+        </div>
+        <div class="footer-bottom"><p>© 2024 SmartDrive Academy - Powered by GraviCode Studios</p></div>
+    </footer>
+</div>
+
+<style>
+.home-page{margin:-20px}
+.hero-section{background:linear-gradient(135deg,#1877f2 0%,#0d5bbd 50%,#083d82 100%);color:white;padding:80px 40px;display:flex;align-items:center;justify-content:center;gap:40px;min-height:500px}
+.hero-content{max-width:600px}
+.hero-content h1{font-size:42px;font-weight:800;margin-bottom:16px;line-height:1.2}
+.hero-content h1 span{color:#ffd700}
+.hero-content p{font-size:18px;opacity:0.95;margin-bottom:32px;line-height:1.6}
+.hero-actions{display:flex;gap:16px}
+.hero-image span{font-size:180px}
+.stats-section{display:grid;grid-template-columns:repeat(4,1fr);background:var(--bg-secondary);padding:40px;text-align:center;box-shadow:var(--shadow)}
+.stat-item h3{font-size:32px;color:var(--accent-color)}
+.stat-item p{color:var(--text-secondary);font-size:14px;margin-top:4px}
+.features-section{padding:60px 40px;text-align:center}
+.features-section h2{font-size:28px;margin-bottom:40px}
+.features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;max-width:1200px;margin:0 auto}
+.feature-card{background:var(--bg-secondary);padding:32px 24px;border-radius:12px;box-shadow:var(--card-shadow);text-align:left;transition:transform 0.2s}
+.feature-card:hover{transform:translateY(-4px)}
+.feature-card span{font-size:40px;display:block;margin-bottom:16px}
+.feature-card h3{font-size:18px;margin-bottom:8px}
+.feature-card p{color:var(--text-secondary);font-size:14px;line-height:1.6}
+.cta-section{background:linear-gradient(135deg,var(--accent-color),var(--accent-hover));padding:60px 40px;text-align:center;color:white}
+.cta-section h2{font-size:28px;margin-bottom:12px}
+.cta-section p{font-size:16px;margin-bottom:24px;opacity:0.9}
+.home-footer{background:var(--bg-secondary);padding:40px;border-top:1px solid var(--border-color)}
+.footer-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;max-width:1200px;margin:0 auto}
+.footer-grid h4{margin-bottom:12px}
+.footer-grid ul{list-style:none}
+.footer-grid ul li{padding:4px 0;color:var(--text-secondary);font-size:14px}
+.footer-bottom{text-align:center;margin-top:32px;padding-top:16px;border-top:1px solid var(--border-color);color:var(--text-muted);font-size:13px}
+@@media (max-width:768px){.hero-section{flex-direction:column;text-align:center;padding:40px 20px}.hero-content h1{font-size:28px}.hero-image span{font-size:100px}.stats-section{grid-template-columns:repeat(2,1fr)}.footer-grid{grid-template-columns:1fr}}
+</style>

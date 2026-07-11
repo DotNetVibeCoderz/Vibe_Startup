@@ -1,0 +1,74 @@
+@page "/instructor/chat"
+@attribute [Authorize(Roles = "Instructor")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Chat dengan Siswa</PageTitle>
+<div class="page-header"><h2>💬 Chat dengan Siswa</h2></div>
+
+<div style="display:grid;grid-template-columns:250px 1fr;gap:20px;">
+    <div class="card" style="overflow-y:auto;max-height:calc(100vh-200px);">
+        <h3 class="mb-2">Kontak Siswa</h3>
+        <input class="form-control mb-2" placeholder="🔍 Cari..." @bind="_search" @bind:event="oninput" />
+        @foreach(var s in FilteredList()){<div style="padding:10px 12px;cursor:pointer;border-radius:8px;margin-bottom:4px;background:@(_selId==s.Id?"var(--bg-hover)":"transparent")" @onclick="()=>Select(s.Id,s.Name)"><strong>@s.Name</strong><br/><small style="color:var(--text-secondary)">@s.Email</small></div>}
+        @if(!FilteredList().Any()){<p style="color:var(--text-muted);font-size:13px;padding:8px;">@(string.IsNullOrEmpty(_search)?"Tidak ada siswa terdaftar.":"Tidak ditemukan.")</p>}
+    </div>
+
+    <div class="card" style="display:flex;flex-direction:column;max-height:calc(100vh-200px);">
+    @if(!string.IsNullOrEmpty(_selId)){
+        <div class="flex-between mb-3" style="padding-bottom:8px;border-bottom:1px solid var(--border-color);"><h3>Chat</h3><span>@_selName</span></div>
+        <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:8px;">
+        @foreach(var m in _msgs){
+            <div style="align-self:@(m.SenderId==_myId?"flex-end":"flex-start");max-width:70%;padding:10px 14px;border-radius:16px;background:@(m.SenderId==_myId?"var(--accent-color)":"var(--bg-tertiary)");color:@(m.SenderId==_myId?"white":"var(--text-primary)")">
+                <div>@m.MessageText</div>
+                @if(!string.IsNullOrEmpty(m.ImageUrl)){<img src="@m.ImageUrl" style="max-width:150px;border-radius:8px;margin-top:4px;" />}
+                @if(!string.IsNullOrEmpty(m.EmojiReaction)){<div style="font-size:24px;margin-top:2px;">@m.EmojiReaction</div>}
+                <br/><small style="opacity:0.7">@m.SentAt.ToString("HH:mm")</small>
+            </div>
+        }</div>
+
+        @* Emoji picker *@
+        @if(_showEmoji){<div style="display:flex;flex-wrap:wrap;gap:4px;padding:4px 8px;background:var(--bg-tertiary);border-radius:12px;margin-bottom:4px;max-width:300px;">
+        @foreach(var e in _emojis){<span style="font-size:22px;cursor:pointer;padding:2px;" @onclick="()=>PickEmoji(e)">@e</span>}
+        </div>}
+
+        @* Pending image preview *@
+        @if(!string.IsNullOrEmpty(_pendingImg)){<div style="position:relative;display:inline-block;margin-bottom:4px;"><img src="@_pendingImg" style="max-height:80px;border-radius:8px;"/><button style="position:absolute;top:-8px;right:-8px;background:var(--danger-color);color:white;border-radius:50%;border:none;font-size:12px;width:20px;height:20px;" @onclick="()=>_pendingImg=null">✕</button></div>}
+
+        <div class="input-row mt-2">
+            <button class="btn btn-outline btn-sm" @onclick="()=>_showEmoji=!_showEmoji" title="Emoji">😊</button>
+            <InputFile OnChange="HandleImage" accept="image/*" style="display:none" id="imgInstructorChat" />
+            <label for="imgInstructorChat" class="btn btn-outline btn-sm" style="margin:0;">🖼️</label>
+            <input class="form-control" @bind="_txt" placeholder="Ketik pesan..." @onkeydown="HandleKey"/>
+            <button class="btn btn-primary" @onclick="Send" disabled="@(string.IsNullOrWhiteSpace(_txt)&&string.IsNullOrEmpty(_pendingImg))">➤</button>
+        </div>
+    }else{<div class="empty-state"><span class="empty-icon">💬</span><h3>Pilih kontak</h3><p>Pilih siswa untuk mulai chat.</p></div>}
+    </div>
+</div>
+
+@code {
+    class U { public string Id="",Name="",Email=""; }
+    List<U> _all=[]; List<SmartDrive.Models.Entities.ChatMessage> _msgs=[]; string _myId="",_selId="",_selName="",_txt="",_search="",_pendingImg;
+    bool _showEmoji;
+    string[] _emojis={"😀","😂","😍","😊","😎","🤩","🥰","😇","🤔","😅","😢","😡","👍","👎","❤️","🔥","🎉","💯","✅","❌","⭐","🙏","👏","🤝","🚗","📅","📝","💪"};
+
+    List<U> FilteredList(){if(string.IsNullOrEmpty(_search))return _all;var s=_search.ToLower();return _all.Where(x=>x.Name.ToLower().Contains(s)||x.Email.ToLower().Contains(s)).ToList();}
+
+    protected override async Task OnInitializedAsync(){var st=await AuthState.GetAuthenticationStateAsync();_myId=st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value??"";_all=await Db.Users.Where(u=>u.Role==SmartDrive.Models.Enums.UserRole.Student).Select(u=>new U{Id=u.Id,Name=u.FullName,Email=u.Email??""}).OrderBy(u=>u.Name).ToListAsync();}
+
+    async Task Select(string id,string nm){_selId=id;_selName=nm;_msgs=await Db.ChatMessages.Where(m=>(m.SenderId==_myId&&m.ReceiverId==id)||(m.SenderId==id&&m.ReceiverId==_myId)).OrderBy(m=>m.SentAt).Take(50).ToListAsync();}
+
+    void PickEmoji(string e){_txt+=e;_showEmoji=false;}
+
+    async Task HandleImage(InputFileChangeEventArgs e){var f=e.File;var fn=$"chat_{Guid.NewGuid()}_{f.Name}";var p=Path.Combine("wwwroot","uploads","chat",fn);Directory.CreateDirectory(Path.GetDirectoryName(p)!);await using var s=new FileStream(p,FileMode.Create);await f.OpenReadStream(5*1024*1024).CopyToAsync(s);_pendingImg=$"/uploads/chat/{fn}";}
+
+    async Task Send(){
+        if(string.IsNullOrEmpty(_selId))return;
+        if(string.IsNullOrWhiteSpace(_txt)&&string.IsNullOrEmpty(_pendingImg))return;
+        Db.ChatMessages.Add(new SmartDrive.Models.Entities.ChatMessage{SenderId=_myId,ReceiverId=_selId,MessageText=_txt,ImageUrl=_pendingImg,SentAt=DateTime.UtcNow});
+        await Db.SaveChangesAsync();_txt="";_pendingImg=null;await Select(_selId,_selName);
+    }
+    async Task HandleKey(KeyboardEventArgs e){if(e.Key=="Enter"&&!e.ShiftKey)await Send();}
+}

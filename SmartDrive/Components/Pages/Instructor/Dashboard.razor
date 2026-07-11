@@ -1,0 +1,53 @@
+@page "/instructor/dashboard"
+@attribute [Authorize(Roles = "Instructor")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject AuthenticationStateProvider AuthState
+@inject SmartDrive.Services.NotificationService Notif
+
+<PageTitle>Instruktur Dashboard - SmartDrive</PageTitle>
+<div class="page-header"><h2>📊 Dashboard Instruktur</h2><p>Selamat datang, @_name!</p></div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon">👨‍🎓</div><div class="stat-info"><h4>@_totalStudents</h4><p>Total Siswa</p></div></div>
+    <div class="stat-card"><div class="stat-icon">🕐</div><div class="stat-info"><h4>@_totalHours</h4><p>Jam Mengajar</p></div></div>
+    <div class="stat-card"><div class="stat-icon">⭐</div><div class="stat-info"><h4>@_rating.ToString("F1")</h4><p>Rating</p></div></div>
+    <div class="stat-card"><div class="stat-icon">📅</div><div class="stat-info"><h4>@_todaySessions</h4><p>Sesi Hari Ini</p></div></div>
+</div>
+
+@if(_msg!=null){<div class="alert alert-@(_ok?"success":"danger") mb-3">@_msg</div>}
+
+<div class="card"><div class="card-header"><h3>📅 Jadwal Hari Ini</h3></div>
+@if(_todayBookings.Any()){<div class="table-container"><table><thead><tr><th>Waktu</th><th>Siswa</th><th>Kendaraan</th><th>Lokasi</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
+@foreach(var b in _todayBookings){<tr><td>@b.StartTime.ToString("HH:mm") - @b.EndTime.ToString("HH:mm")</td><td>@b.Student?.FullName</td><td>@b.Vehicle?.PlateNumber</td><td>@b.Location?.Name</td><td><span class="badge-status @StatusClass(b.Status)">@b.Status</span></td><td>@Actions(b)</td></tr>}</tbody></table></div>}else{<p class="empty-state">Tidak ada sesi hari ini.</p>}</div>
+
+<div class="card mt-3"><div class="card-header"><h3>Semua Booking</h3></div>
+@if(_allBookings.Any()){<div class="table-container"><table><thead><tr><th>Tanggal</th><th>Siswa</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
+@foreach(var b in _allBookings){<tr><td>@b.StartTime.ToString("dd MMM HH:mm")</td><td>@b.Student?.FullName</td><td><span class="badge-status @StatusClass(b.Status)">@b.Status</span></td><td>@Actions(b)</td></tr>}</tbody></table></div>}else{<p class="empty-state">Belum ada booking.</p>}</div>
+
+@{
+    RenderFragment Actions(SmartDrive.Models.Entities.Booking b) => __builder =>
+    {
+        if(b.Status==SmartDrive.Models.Enums.BookingStatus.Scheduled){<button class="btn btn-warning btn-sm" @onclick="()=>StartSession(b.Id)">▶️ Mulai Sesi</button>}
+        if(b.Status==SmartDrive.Models.Enums.BookingStatus.InProgress){<button class="btn btn-success btn-sm" @onclick="()=>CompleteSession(b.Id)">✅ Selesaikan</button>}
+        if(b.Status==SmartDrive.Models.Enums.BookingStatus.Completed){<a href="/instructor/evaluations" class="btn btn-outline btn-sm">📝 Evaluasi</a>}
+    };
+}
+
+@code {
+    string _name=""; int _totalStudents,_totalHours,_todaySessions; decimal _rating=5.0m; int _instId;
+    List<SmartDrive.Models.Entities.Booking> _todayBookings=[],_allBookings=[]; string? _msg; bool _ok;
+
+    protected override async Task OnInitializedAsync(){
+        var st=await AuthState.GetAuthenticationStateAsync();var uid=st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;_name=st.User.FindFirst("FullName")?.Value??"Instruktur";
+        if(uid!=null){var inst=await Db.InstructorProfiles.FirstOrDefaultAsync(i=>i.UserId==uid);if(inst!=null){_instId=inst.Id;_totalStudents=inst.TotalStudents;_totalHours=inst.TotalHoursTaught;_rating=inst.AverageRating;await LoadBookings();}}
+    }
+    async Task LoadBookings(){var today=DateTime.UtcNow.Date;_todayBookings=await Db.Bookings.Include(b=>b.Student).Include(b=>b.Vehicle).Include(b=>b.Location).Where(b=>b.InstructorId==_instId&&b.StartTime.Date==today).OrderBy(b=>b.StartTime).ToListAsync();_todaySessions=_todayBookings.Count;_allBookings=await Db.Bookings.Include(b=>b.Student).Where(b=>b.InstructorId==_instId).OrderByDescending(b=>b.StartTime).Take(30).ToListAsync();}
+
+    async Task StartSession(int bid){var b=await Db.Bookings.FindAsync(bid);if(b==null)return;b.Status=SmartDrive.Models.Enums.BookingStatus.InProgress;await Db.SaveChangesAsync();if(!string.IsNullOrEmpty(b.StudentUserId))await Notif.SendNotificationAsync(b.StudentUserId,"Sesi Dimulai",$"Sesi latihan dimulai!",SmartDrive.Models.Enums.NotificationType.ScheduleReminder);_msg="Sesi dimulai!";_ok=true;await LoadBookings();}
+
+    async Task CompleteSession(int bid){var b=await Db.Bookings.FindAsync(bid);if(b==null)return;b.Status=SmartDrive.Models.Enums.BookingStatus.Completed;var inst=await Db.InstructorProfiles.FindAsync(_instId);if(inst!=null)inst.TotalHoursTaught+=(int)(b.EndTime-b.StartTime).TotalHours;var sp=await Db.StudentProfiles.FirstOrDefaultAsync(s=>s.UserId==b.StudentUserId);if(sp!=null){sp.TotalHoursCompleted+=(int)(b.EndTime-b.StartTime).TotalHours;sp.TotalSessionsCompleted+=1;sp.ExperiencePoints+=50;}await Db.SaveChangesAsync();if(!string.IsNullOrEmpty(b.StudentUserId))await Notif.SendNotificationAsync(b.StudentUserId,"Sesi Selesai","Sesi selesai! Cek feedback instruktur.",SmartDrive.Models.Enums.NotificationType.FeedbackReceived);_msg="Sesi selesai! Beri evaluasi.";_ok=true;await LoadBookings();}
+
+    string StatusClass(SmartDrive.Models.Enums.BookingStatus s)=>s switch{SmartDrive.Models.Enums.BookingStatus.Scheduled=>"badge-info",SmartDrive.Models.Enums.BookingStatus.InProgress=>"badge-warning",SmartDrive.Models.Enums.BookingStatus.Completed=>"badge-success",SmartDrive.Models.Enums.BookingStatus.Cancelled=>"badge-danger",_=>"badge-neutral"};
+}

@@ -1,0 +1,27 @@
+@page "/student/progress"
+@attribute [Authorize(Roles = "Student")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Tracking Progres - SmartDrive</PageTitle>
+<div class="page-header"><h2>📈 Tracking Progres Belajar</h2></div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon">📊</div><div class="stat-info"><h4>Level @(_profile?.CurrentLevel??1)</h4><p>Level Saat Ini</p></div></div>
+    <div class="stat-card"><div class="stat-icon">⭐</div><div class="stat-info"><h4>@(_profile?.ExperiencePoints??0) XP</h4><p>Experience</p></div></div>
+    <div class="stat-card"><div class="stat-icon">🕐</div><div class="stat-info"><h4>@(_profile?.TotalHoursCompleted??0)</h4><p>Jam Latihan</p></div></div>
+    <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-info"><h4>@(_profile?.TotalSessionsCompleted??0)</h4><p>Sesi Selesai</p></div></div>
+</div>
+
+<div class="card"><div class="card-header"><h3>🏆 Badge & Achievement</h3></div>
+@if(_badges.Any()){<div style="display:flex;flex-wrap:wrap;gap:12px;">@foreach(var b in _badges){<div style="text-align:center;padding:16px;border:1px solid var(--border-color);border-radius:12px;min-width:100px;"><div style="font-size:32px;">@GetBadgeIcon(b.Level)</div><strong>@b.BadgeName</strong><br/><small>@b.Description</small><br/><small style="color:var(--text-muted)">@b.AwardedAt.ToString("dd MMM yyyy")</small></div>}</div>}else{<p class="empty-state">Belum ada badge. Terus latihan untuk mendapatkannya!</p>}</div>
+
+<div class="card"><div class="card-header"><h3>📝 Riwayat Ujian</h3></div>
+@if(_examAttempts.Any()){<div class="table-container"><table><thead><tr><th>Tanggal</th><th>Soal</th><th>Benar</th><th>Skor</th><th>Hasil</th></tr></thead><tbody>@foreach(var e in _examAttempts){<tr><td>@e.StartedAt.ToString("dd MMM yyyy")</td><td>@e.TotalQuestions</td><td>@e.CorrectAnswers</td><td>@e.Score.ToString("F1")%</td><td>@(e.IsPassed?"✅ Lulus":"❌ Belum Lulus")</td></tr>}</tbody></table></div>}else{<p class="empty-state">Belum ada riwayat ujian.</p>}</div>
+
+@code { SmartDrive.Models.Entities.StudentProfile? _profile; List<SmartDrive.Models.Entities.StudentBadge> _badges=new(); List<SmartDrive.Models.Entities.ExamAttempt> _examAttempts=new();
+    protected override async Task OnInitializedAsync(){var state=await AuthState.GetAuthenticationStateAsync();var uid=state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;if(uid!=null){_profile=await Db.StudentProfiles.FirstOrDefaultAsync(s=>s.UserId==uid);if(_profile!=null){_badges=await Db.StudentBadges.Where(b=>b.StudentId==_profile.Id).OrderByDescending(b=>b.AwardedAt).ToListAsync();_examAttempts=await Db.ExamAttempts.Where(e=>e.StudentId==_profile.Id).OrderByDescending(e=>e.StartedAt).Take(10).ToListAsync();}}}
+    string GetBadgeIcon(SmartDrive.Models.Enums.BadgeLevel l)=>l switch{SmartDrive.Models.Enums.BadgeLevel.Bronze=>"🥉",SmartDrive.Models.Enums.BadgeLevel.Silver=>"🥈",SmartDrive.Models.Enums.BadgeLevel.Gold=>"🥇",SmartDrive.Models.Enums.BadgeLevel.Platinum=>"💎",SmartDrive.Models.Enums.BadgeLevel.Diamond=>"👑",_=>"🏅"};
+}

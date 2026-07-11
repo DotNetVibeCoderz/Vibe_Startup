@@ -1,0 +1,48 @@
+@page "/instructor/students"
+@attribute [Authorize(Roles = "Instructor")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Siswa Saya</PageTitle>
+<div class="page-header"><h2>👨‍🎓 Siswa Yang Pernah Booking</h2><p>Daftar siswa yang pernah booking ke Anda</p></div>
+
+<div class="card"><div class="table-container"><table><thead><tr><th>Nama</th><th>Email</th><th>No HP</th><th>Booking Terakhir</th><th>Total Booking</th><th>Status Terakhir</th><th>Feedback</th></tr></thead>
+<tbody>
+@foreach(var s in _students){
+    <tr>
+        <td>@s.User?.FullName</td><td>@s.User?.Email</td><td>@s.User?.PhoneNumber</td>
+        <td>@s.LastBooking?.ToString("dd MMM yyyy")</td><td>@s.BookingCount</td>
+        <td><span class="badge-status @StatusClass(s.LastStatus)">@s.LastStatus</span></td>
+        <td><a href="/instructor/evaluations" class="btn btn-outline btn-sm">📝 Evaluasi</a></td>
+    </tr>
+}</tbody></table></div>
+@if(!_students.Any()){<p class="empty-state">Belum ada siswa yang booking ke Anda. Tunggu sampai ada siswa yang membooking jadwal Anda!</p>}</div>
+
+@code {
+    class StudentSummary{public string UserId="",FullName="",Email="",Phone="";public DateTime? LastBooking;public int BookingCount;public string LastStatus="";public SmartDrive.Models.Entities.ApplicationUser? User;}
+    List<StudentSummary> _students=[];
+
+    protected override async Task OnInitializedAsync(){
+        var state=await AuthState.GetAuthenticationStateAsync();var uid=state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if(uid!=null){
+            var inst=await Db.InstructorProfiles.FirstOrDefaultAsync(i=>i.UserId==uid);
+            if(inst!=null){
+                // Ambil SEMUA booking untuk instruktur ini, grouped by student
+                var bookings=await Db.Bookings.Include(b=>b.Student).Where(b=>b.InstructorId==inst.Id).OrderByDescending(b=>b.StartTime).ToListAsync();
+                var grouped=bookings.GroupBy(b=>b.StudentUserId).Select(g=>{
+                    var last=g.First();
+                    return new StudentSummary{
+                        UserId=g.Key,User=last.Student,
+                        LastBooking=last.StartTime,BookingCount=g.Count(),
+                        LastStatus=last.Status.ToString()
+                    };
+                }).OrderByDescending(s=>s.LastBooking).ToList();
+                _students=grouped;
+            }
+        }
+    }
+
+    string StatusClass(string s)=>s switch{"Scheduled"=>"badge-info","Completed"=>"badge-success","Cancelled"=>"badge-danger","InProgress"=>"badge-warning",_=>"badge-neutral"};
+}

@@ -1,0 +1,42 @@
+@page "/instructor/gps"
+@attribute [Authorize(Roles = "Instructor")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject IServiceProvider ServiceProvider
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>GPS Tracking - SmartDrive</PageTitle>
+<div class="page-header"><h2>📍 GPS Tracking & Simulator</h2></div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon">🔴</div><div class="stat-info"><h4>@_activeSims.Count</h4><p>Simulasi Aktif</p></div></div>
+    <div class="stat-card"><div class="stat-icon">📍</div><div class="stat-info"><h4>@_totalGps</h4><p>Data GPS Hari Ini</p></div></div>
+</div>
+
+<div class="card"><div class="card-header"><h3>Booking Aktif - GPS Control</h3></div>
+@foreach(var b in _activeBookings){
+    <div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;margin-bottom:8px;">
+        <div class="flex-between"><strong>@b.Student?.FullName</strong> - @b.StartTime.ToString("dd MMM HH:mm")<span class="badge-status badge-warning">@b.Status</span></div>
+        <small>🚗 @b.Vehicle?.PlateNumber | 📍 @b.Location?.Name</small>
+        <div class="flex-center mt-2">
+            @if(GpsSvc.IsSimulationRunning(b.Id)){<button class="btn btn-danger btn-sm" @onclick="()=>StopSim(b.Id)">⏹️ Stop</button>}
+            else{<button class="btn btn-success btn-sm" @onclick="()=>StartSim(b.Id)">▶️ Start</button>}
+        </div>
+    </div>
+}
+@if(!_activeBookings.Any()){<p class="empty-state">Tidak ada booking aktif.</p>}</div>
+
+@code {
+    List<SmartDrive.Models.Entities.Booking> _activeBookings=[]; List<int> _activeSims=[]; int _totalGps;
+    SmartDrive.Services.GpsSimulatorService GpsSvc => ServiceProvider.GetRequiredService<SmartDrive.Services.GpsSimulatorService>();
+
+    protected override async Task OnInitializedAsync(){
+        var state=await AuthState.GetAuthenticationStateAsync();var uid=state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if(uid!=null){var inst=await Db.InstructorProfiles.FirstOrDefaultAsync(i=>i.UserId==uid);
+        if(inst!=null){_activeBookings=await Db.Bookings.Include(b=>b.Student).Include(b=>b.Vehicle).Include(b=>b.Location).Where(b=>b.InstructorId==inst.Id&&(b.Status==SmartDrive.Models.Enums.BookingStatus.Scheduled||b.Status==SmartDrive.Models.Enums.BookingStatus.InProgress)).OrderBy(b=>b.StartTime).Take(10).ToListAsync();}
+        _activeSims=GpsSvc.GetActiveSimulations();_totalGps=await Db.GpsTrackingData.CountAsync(g=>g.Timestamp>DateTime.UtcNow.Date);}
+    }
+    void StartSim(int bid)=>GpsSvc.StartSimulation(bid,-6.2088,106.8456);
+    void StopSim(int bid)=>GpsSvc.StopSimulation(bid);
+}

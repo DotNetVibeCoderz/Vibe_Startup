@@ -1,0 +1,31 @@
+@page "/student/book"
+@attribute [Authorize(Roles = "Student")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@inject SmartDrive.Data.SmartDriveDbContext DbContext
+@inject AuthenticationStateProvider AuthState
+@inject SmartDrive.Services.NotificationService NotificationService
+
+<PageTitle>Booking Jadwal - SmartDrive</PageTitle>
+<div class="page-header"><h2>📅 Booking Jadwal Latihan</h2><p>Pilih instruktur, waktu, dan lokasi untuk sesi latihan Anda</p></div>
+@if(_successMessage!=null){<div class="alert alert-success">@_successMessage</div>}@if(_errorMessage!=null){<div class="alert alert-danger">@_errorMessage</div>}
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+<div class="card"><h3 class="mb-3">Form Booking</h3>
+<EditForm Model="_bookingModel" OnValidSubmit="HandleBooking"><DataAnnotationsValidator />
+<div class="form-group"><label>Instruktur</label><InputSelect @bind-Value="_bookingModel.InstructorId" class="form-control"><option value="0">-- Pilih Instruktur --</option>@foreach(var inst in _instructors){<option value="@inst.Id">@inst.User?.FullName - ⭐@inst.AverageRating.ToString("F1")</option>}</InputSelect></div>
+<div class="form-group"><label>Kendaraan (Opsional)</label><InputSelect @bind-Value="_bookingModel.VehicleId" class="form-control"><option value="">-- Pilih Kendaraan --</option>@foreach(var v in _vehicles){<option value="@v.Id">@v.PlateNumber - @v.Brand @v.Model (@v.Transmission)</option>}</InputSelect></div>
+<div class="form-group"><label>Lokasi Latihan</label><InputSelect @bind-Value="_bookingModel.LocationId" class="form-control"><option value="">-- Pilih Lokasi --</option>@foreach(var loc in _locations){<option value="@loc.Id">@loc.Name - @loc.LocationType</option>}</InputSelect></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><div class="form-group"><label>Tanggal</label><InputDate @bind-Value="_selectedDate" class="form-control" /></div><div class="form-group"><label>Jam Mulai</label><InputSelect @bind-Value="_selectedHour" class="form-control">@for(int h=8;h<=16;h++){<option value="@h">@h:00</option>}</InputSelect></div></div>
+<div class="form-group"><label>Catatan (Opsional)</label><InputTextArea @bind-Value="_bookingModel.Notes" class="form-control" rows="3" placeholder="Contoh: Mohon latihan parkir paralel..." /></div>
+<button type="submit" class="btn btn-primary btn-lg w-100">📅 Booking Sekarang</button></EditForm></div>
+
+<div class="card"><h3 class="mb-3">Jadwal Saya</h3>
+@if(_myBookings.Any()){@foreach(var b in _myBookings){<div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;margin-bottom:8px;"><div class="flex-between"><strong>@b.StartTime.ToString("dd MMM yyyy HH:mm")</strong><span class="badge-status @GetStatusClass(b.Status)">@b.Status</span></div><small style="color:var(--text-secondary)">Instruktur: @b.Instructor?.User?.FullName<br/>Lokasi: @b.Location?.Name</small></div>}}else{<p class="empty-state">Belum ada jadwal latihan.</p>}</div></div>
+
+@code {
+    private SmartDrive.Models.ViewModels.BookingViewModel _bookingModel=new(); private DateTime _selectedDate=DateTime.Today.AddDays(1); private int _selectedHour=9; private List<SmartDrive.Models.Entities.InstructorProfile> _instructors=new(); private List<SmartDrive.Models.Entities.Vehicle> _vehicles=new(); private List<SmartDrive.Models.Entities.TrainingLocation> _locations=new(); private List<SmartDrive.Models.Entities.Booking> _myBookings=new(); private string? _successMessage,_errorMessage; private string _userId="";
+    protected override async Task OnInitializedAsync(){var state=await AuthState.GetAuthenticationStateAsync();_userId=state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value??"";_instructors=await DbContext.InstructorProfiles.Include(i=>i.User).Where(i=>i.IsAvailable).ToListAsync();_vehicles=await DbContext.Vehicles.Where(v=>v.Status==SmartDrive.Models.Enums.VehicleStatus.Available).ToListAsync();_locations=await DbContext.TrainingLocations.Where(l=>l.IsActive).ToListAsync();if(!string.IsNullOrEmpty(_userId))_myBookings=await DbContext.Bookings.Include(b=>b.Instructor).ThenInclude(i=>i!.User).Include(b=>b.Location).Where(b=>b.StudentUserId==_userId).OrderByDescending(b=>b.StartTime).Take(10).ToListAsync();}
+    private async Task HandleBooking(){_successMessage=null;_errorMessage=null;try{if(_bookingModel.InstructorId<=0){_errorMessage="Silakan pilih instruktur.";return;}var startTime=_selectedDate.Date.AddHours(_selectedHour);var endTime=startTime.AddHours(2);var conflict=await DbContext.Bookings.AnyAsync(b=>b.InstructorId==_bookingModel.InstructorId&&b.Status!=SmartDrive.Models.Enums.BookingStatus.Cancelled&&b.StartTime<endTime&&b.EndTime>startTime);if(conflict){_errorMessage="Instruktur sudah memiliki jadwal di waktu tersebut.";return;}var booking=new SmartDrive.Models.Entities.Booking{StudentUserId=_userId,InstructorId=_bookingModel.InstructorId,VehicleId=_bookingModel.VehicleId,LocationId=_bookingModel.LocationId,StartTime=startTime,EndTime=endTime,Status=SmartDrive.Models.Enums.BookingStatus.Scheduled,Notes=_bookingModel.Notes,CreatedAt=DateTime.UtcNow};DbContext.Bookings.Add(booking);await DbContext.SaveChangesAsync();_successMessage=$"Booking berhasil untuk {startTime:dd MMM yyyy HH:mm}!";var inst=await DbContext.InstructorProfiles.FindAsync(_bookingModel.InstructorId);if(inst!=null)await NotificationService.SendNotificationAsync(inst.UserId,"Booking Baru",$"Ada booking baru untuk {startTime:dd MMM yyyy HH:mm}",SmartDrive.Models.Enums.NotificationType.ScheduleReminder);_bookingModel=new();_myBookings=await DbContext.Bookings.Include(b=>b.Instructor).ThenInclude(i=>i!.User).Include(b=>b.Location).Where(b=>b.StudentUserId==_userId).OrderByDescending(b=>b.StartTime).Take(10).ToListAsync();}catch(Exception ex){_errorMessage=$"Error: {ex.Message}";}}
+    private string GetStatusClass(SmartDrive.Models.Enums.BookingStatus s)=>s switch{SmartDrive.Models.Enums.BookingStatus.Scheduled=>"badge-info",SmartDrive.Models.Enums.BookingStatus.Completed=>"badge-success",SmartDrive.Models.Enums.BookingStatus.Cancelled=>"badge-danger",_=>"badge-neutral"};
+}

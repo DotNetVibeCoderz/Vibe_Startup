@@ -1,0 +1,65 @@
+@page "/admin/vehicles"
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@using SmartDrive.Models.Enums
+@inject SmartDrive.Data.SmartDriveDbContext DbContext
+@inject SmartDrive.Services.ExportService ExportService
+@inject IJSRuntime JS
+
+<PageTitle>Manajemen Kendaraan - SmartDrive</PageTitle>
+
+<div class="page-header flex-between"><div><h2>🚗 Manajemen Kendaraan</h2><p>Kelola data kendaraan latihan</p></div><div class="flex-center"><button class="btn btn-outline btn-sm" @onclick="ExportCsv">📥 CSV</button><button class="btn btn-outline btn-sm" @onclick="ExportExcel">📊 Excel</button><button class="btn btn-primary" @onclick="()=>ShowAddModal()">+ Tambah Kendaraan</button></div></div>
+
+<div class="card"><div class="form-row">
+    <div class="form-group"><input class="form-control" type="text" placeholder="🔍 Cari plat nomor, brand, atau model..." @bind="_searchQuery" @bind:event="oninput" @bind:after="LoadData" /></div>
+    <div class="form-group"><select class="form-control" @bind="_filterStatus" @bind:after="LoadData"><option value="">Semua Status</option><option value="Available">Tersedia</option><option value="InUse">Digunakan</option><option value="Maintenance">Maintenance</option></select></div>
+    <div class="form-group"><select class="form-control" @bind="_filterTransmission" @bind:after="LoadData"><option value="">Semua Transmisi</option><option value="Manual">Manual</option><option value="Automatic">Automatic</option></select></div>
+</div></div>
+
+<div class="card"><div class="table-container"><table><thead><tr>
+    <th @onclick="()=>ToggleSort(nameof(Vehicle.PlateNumber))" style="cursor:pointer;">Plat Nomor @SortIcon(nameof(Vehicle.PlateNumber))</th>
+    <th @onclick="()=>ToggleSort(nameof(Vehicle.Brand))" style="cursor:pointer;">Brand @SortIcon(nameof(Vehicle.Brand))</th>
+    <th>Model</th><th>Tahun</th><th>Transmisi</th>
+    <th @onclick="()=>ToggleSort(nameof(Vehicle.Status))" style="cursor:pointer;">Status @SortIcon(nameof(Vehicle.Status))</th><th>Aksi</th></tr></thead>
+<tbody>@if(_vehicles.Any()){@foreach(var v in _vehicles){<tr><td><strong>@v.PlateNumber</strong></td><td>@v.Brand</td><td>@v.Model</td><td>@v.Year</td><td>@v.Transmission</td><td><span class="badge-status @GetStatusClass(v.Status)">@v.Status</span></td><td><div class="flex-center"><button class="btn btn-outline btn-sm" @onclick="()=>ShowEditModal(v)">✏️</button><button class="btn btn-danger btn-sm" @onclick="()=>DeleteVehicle(v)">🗑️</button></div></td></tr>}}else{<tr><td colspan="7" class="text-center">Tidak ada data</td></tr>}</tbody></table></div>
+<div class="pagination"><button disabled="@(_page<=1)" @onclick="()=>ChangePage(-1)">◀</button>@for(int i=1;i<=_totalPages;i++){<button class="@(i==_page?"active":"")" @onclick="()=>GoToPage(i)">@i</button>}<button disabled="@(_page>=_totalPages)" @onclick="()=>ChangePage(1)">▶</button><span class="page-info">@_totalItems data</span></div></div>
+
+@if(_showModal){<div class="modal-overlay" @onclick="()=>_showModal=false"><div class="modal" @onclick:stopPropagation="true"><div class="modal-header"><h3>@(_isEditing?"Edit":"Tambah") Kendaraan</h3><button class="btn btn-outline btn-sm" @onclick="()=>_showModal=false">✕</button></div>
+<div class="form-group"><label>Plat Nomor</label><input class="form-control" @bind="_formVehicle.PlateNumber" required/></div>
+<div class="form-row"><div class="form-group"><label>Brand</label><input class="form-control" @bind="_formVehicle.Brand"/></div><div class="form-group"><label>Model</label><input class="form-control" @bind="_formVehicle.Model"/></div></div>
+<div class="form-row"><div class="form-group"><label>Tahun</label><input type="number" class="form-control" @bind="_formVehicle.Year"/></div><div class="form-group"><label>Transmisi</label><select class="form-control" @bind="_formVehicle.Transmission"><option value="Manual">Manual</option><option value="Automatic">Automatic</option></select></div></div>
+<div class="form-row"><div class="form-group"><label>Warna</label><input class="form-control" @bind="_formVehicle.Color"/></div><div class="form-group"><label>Status</label><select class="form-control" @bind="_formVehicle.Status"><option value="Available">Tersedia</option><option value="Maintenance">Maintenance</option><option value="Retired">Pensiun</option></select></div></div>
+<div class="flex-between"><button type="button" class="btn btn-outline" @onclick="()=>_showModal=false">Batal</button><button class="btn btn-primary" @onclick="SaveVehicle">💾 Simpan</button></div></div></div>}
+
+@code {
+    List<Vehicle> _vehicles=[]; int _page=1,_pageSize=10,_totalItems; int _totalPages=>(int)Math.Ceiling(_totalItems/(double)_pageSize);
+    string _searchQuery="",_filterStatus="",_filterTransmission="",_sortColumn=nameof(Vehicle.PlateNumber); bool _sortAscending=true,_showModal,_isEditing; Vehicle _formVehicle=new();
+
+    protected override async Task OnInitializedAsync()=>await LoadData();
+
+    async Task LoadData(){
+        try{
+            var q=DbContext.Vehicles.AsQueryable();
+            // Case-insensitive search via ToLower()
+            if(!string.IsNullOrEmpty(_searchQuery)){var s=_searchQuery.ToLower();q=q.Where(v=>v.PlateNumber.ToLower().Contains(s)||v.Brand.ToLower().Contains(s)||v.Model.ToLower().Contains(s));}
+            if(!string.IsNullOrEmpty(_filterStatus)&&Enum.TryParse<VehicleStatus>(_filterStatus,out var st))q=q.Where(v=>v.Status==st);
+            if(!string.IsNullOrEmpty(_filterTransmission)&&Enum.TryParse<TransmissionType>(_filterTransmission,out var tr))q=q.Where(v=>v.Transmission==tr);
+            q=_sortColumn switch{nameof(Vehicle.PlateNumber)=>_sortAscending?q.OrderBy(v=>v.PlateNumber):q.OrderByDescending(v=>v.PlateNumber),nameof(Vehicle.Brand)=>_sortAscending?q.OrderBy(v=>v.Brand):q.OrderByDescending(v=>v.Brand),nameof(Vehicle.Status)=>_sortAscending?q.OrderBy(v=>v.Status):q.OrderByDescending(v=>v.Status),_=>q.OrderBy(v=>v.PlateNumber)};
+            _totalItems=await q.CountAsync();_vehicles=await q.Skip((_page-1)*_pageSize).Take(_pageSize).ToListAsync();StateHasChanged();
+        }catch(Exception){}
+    }
+
+    void ToggleSort(string c){if(_sortColumn==c)_sortAscending=!_sortAscending;else{_sortColumn=c;_sortAscending=true;}_=LoadData();}
+    string SortIcon(string c)=>_sortColumn==c?(_sortAscending?"▲":"▼"):"";
+    async Task ChangePage(int d){_page+=d;await LoadData();} async Task GoToPage(int p){_page=p;await LoadData();}
+    void ShowAddModal(){_formVehicle=new Vehicle{Status=VehicleStatus.Available,Transmission=TransmissionType.Automatic,Year=DateTime.Now.Year};_isEditing=false;_showModal=true;}
+    void ShowEditModal(Vehicle v){_formVehicle=new Vehicle{Id=v.Id,PlateNumber=v.PlateNumber,Brand=v.Brand,Model=v.Model,Year=v.Year,Transmission=v.Transmission,Color=v.Color,Status=v.Status};_isEditing=true;_showModal=true;}
+    async Task SaveVehicle(){if(_isEditing){var e=await DbContext.Vehicles.FindAsync(_formVehicle.Id);if(e!=null){e.PlateNumber=_formVehicle.PlateNumber;e.Brand=_formVehicle.Brand;e.Model=_formVehicle.Model;e.Year=_formVehicle.Year;e.Transmission=_formVehicle.Transmission;e.Color=_formVehicle.Color;e.Status=_formVehicle.Status;}}else DbContext.Vehicles.Add(_formVehicle);await DbContext.SaveChangesAsync();_showModal=false;await LoadData();}
+    async Task DeleteVehicle(Vehicle v){DbContext.Vehicles.Remove(v);await DbContext.SaveChangesAsync();await LoadData();}
+
+    async Task ExportCsv(){try{var data=await DbContext.Vehicles.ToListAsync();var csv=await ExportService.ExportToCsvAsync(data,"");var b64=Convert.ToBase64String(csv);await JS.InvokeVoidAsync("eval",$"var a=document.createElement('a');a.href='data:text/csv;base64,{b64}';a.download='vehicles.csv';a.click();");}catch{}}
+    async Task ExportExcel(){try{var data=await DbContext.Vehicles.ToListAsync();var xls=ExportService.ExportToExcel(data,"Vehicles");var b64=Convert.ToBase64String(xls);await JS.InvokeVoidAsync("eval",$"var a=document.createElement('a');a.href='data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}';a.download='vehicles.xlsx';a.click();");}catch{}}
+
+    string GetStatusClass(VehicleStatus s)=>s switch{VehicleStatus.Available=>"badge-success",VehicleStatus.InUse=>"badge-warning",VehicleStatus.Maintenance=>"badge-danger",_=>"badge-neutral"};
+}

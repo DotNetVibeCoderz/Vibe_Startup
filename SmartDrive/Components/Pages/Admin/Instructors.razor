@@ -1,0 +1,27 @@
+@page "/admin/instructors"
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject IJSRuntime JS
+
+<PageTitle>Manajemen Instruktur</PageTitle>
+<div class="page-header flex-between"><div><h2>👨‍🏫 Manajemen Instruktur</h2></div><div class="flex-center"><button class="btn btn-outline btn-sm" @onclick="ExportCsv">📥 CSV</button><button class="btn btn-outline btn-sm" @onclick="ExportExcel">📊 Excel</button></div></div>
+
+<div class="card"><div class="form-row">
+    <div class="form-group"><input class="form-control" placeholder="🔍 Cari nama, email, atau lisensi..." @bind="_search" @bind:event="oninput" @bind:after="Load" /></div>
+    <div class="form-group"><select class="form-control" @bind="_filterStatus" @bind:after="Load"><option value="">Semua Status</option><option value="true">Aktif</option><option value="false">Nonaktif</option></select></div>
+</div></div>
+
+<div class="card"><div class="table-container"><table><thead><tr><th>Nama</th><th>Email</th><th>Lisensi</th><th>Pengalaman</th><th>Rating</th><th>Siswa</th><th>Jam</th><th>Status</th><th>Aksi</th></tr></thead>
+<tbody>@foreach(var i in _instructors){<tr><td>@i.User?.FullName</td><td>@i.User?.Email</td><td>@i.LicenseNumber</td><td>@i.YearsOfExperience th</td><td>⭐@i.AverageRating.ToString("F1")</td><td>@i.TotalStudents</td><td>@i.TotalHoursTaught</td><td><span class="badge-status @(i.IsAvailable?"badge-success":"badge-danger")">@(i.IsAvailable?"Aktif":"Nonaktif")</span></td><td><button class="btn btn-outline btn-sm" @onclick="()=>ToggleStatus(i)">@(i.IsAvailable?"Nonaktifkan":"Aktifkan")</button></td></tr>}</tbody></table></div>
+<div class="pagination"><button disabled="@(_page<=1)" @onclick="()=>{_page--;Load();}">◀</button><span class="page-info">@_page / @_totalPages (@_totalItems data)</span><button disabled="@(_page>=_totalPages)" @onclick="()=>{_page++;Load();}">▶</button></div></div>
+
+@code {
+    List<InstructorProfile> _instructors=[]; int _page=1,_pageSize=10,_totalItems,_totalPages; string _search="",_filterStatus="";
+    protected override async Task OnInitializedAsync()=>await Load();
+    async Task Load(){try{var q=Db.InstructorProfiles.Include(i=>i.User).AsQueryable();if(!string.IsNullOrEmpty(_search))q=q.Where(i=>(i.User!.FullName??"").Contains(_search)||(i.User!.Email??"").Contains(_search)||(i.LicenseNumber??"").Contains(_search));if(_filterStatus=="true")q=q.Where(i=>i.IsAvailable);else if(_filterStatus=="false")q=q.Where(i=>!i.IsAvailable);_totalItems=await q.CountAsync();_totalPages=(int)Math.Ceiling(_totalItems/(double)_pageSize);_instructors=await q.OrderBy(i=>i.Id).Skip((_page-1)*_pageSize).Take(_pageSize).ToListAsync();StateHasChanged();}catch(Exception){}}
+    async Task ToggleStatus(InstructorProfile i){i.IsAvailable=!i.IsAvailable;await Db.SaveChangesAsync();await Load();}
+    async Task ExportCsv(){try{var d=await Db.InstructorProfiles.Include(i=>i.User).ToListAsync();var lines=new List<string>{"Nama,Email,Lisensi,Pengalaman,Rating,Siswa,Jam,Status"};foreach(var i in d)lines.Add($"{i.User?.FullName},{i.User?.Email},{i.LicenseNumber},{i.YearsOfExperience},{i.AverageRating},{i.TotalStudents},{i.TotalHoursTaught},{(i.IsAvailable?"Aktif":"Nonaktif")}");var csv=string.Join("\n",lines);var b64=Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(csv));await JS.InvokeVoidAsync("eval",$"var a=document.createElement('a');a.href='data:text/csv;base64,{b64}';a.download='instructors.csv';a.click();");}catch{}}
+    async Task ExportExcel(){try{await ExportCsv();}catch{}}
+}

@@ -1,0 +1,40 @@
+@page "/admin/students"
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject IJSRuntime JS
+
+<PageTitle>Manajemen Siswa</PageTitle>
+<div class="page-header flex-between"><div><h2>👨‍🎓 Manajemen Siswa</h2></div><div class="flex-center"><button class="btn btn-outline btn-sm" @onclick="ExportCsv">📥 CSV</button><button class="btn btn-outline btn-sm" @onclick="ExportExcel">📊 Excel</button></div></div>
+
+<div class="card"><div class="form-row">
+    <div class="form-group"><input class="form-control" placeholder="🔍 Cari nama atau email..." @bind="_search" @bind:event="oninput" @bind:after="Load" /></div>
+    <div class="form-group"><select class="form-control" @bind="_filterTheory" @bind:after="Load"><option value="">Semua Status</option><option value="true">✅ Lulus Teori</option><option value="false">❌ Belum Lulus</option></select></div>
+</div></div>
+
+<div class="card"><div class="table-container"><table><thead><tr><th>Nama</th><th>Email</th><th>No HP</th><th>Level</th><th>Jam</th><th>Sesi</th><th>XP</th><th>Teori</th><th>Aksi</th></tr></thead>
+<tbody>@foreach(var s in _students){<tr><td>@s.User?.FullName</td><td>@s.User?.Email</td><td>@s.User?.PhoneNumber</td><td>@s.CurrentLevel</td><td>@s.TotalHoursCompleted</td><td>@s.TotalSessionsCompleted</td><td>@s.ExperiencePoints</td><td>@(s.HasPassedTheory?"✅":"❌")</td><td><button class="btn btn-outline btn-sm" @onclick="()=>ToggleTheory(s)">Toggle</button></td></tr>}</tbody></table></div>
+<div class="pagination"><button disabled="@(_page<=1)" @onclick="()=>{_page--;Load();}">◀</button><span class="page-info">@_page / @_totalPages (@_totalItems data)</span><button disabled="@(_page>=_totalPages)" @onclick="()=>{_page++;Load();}">▶</button></div></div>
+
+@code {
+    List<StudentProfile> _students=[]; int _page=1,_pageSize=10,_totalItems,_totalPages; string _search="",_filterTheory="";
+    protected override async Task OnInitializedAsync()=>await Load();
+
+    async Task Load(){
+        try{
+            var q=Db.StudentProfiles.Include(s=>s.User).AsQueryable();
+            // Case-insensitive search: gunakan ToLower() di kedua sisi
+            if(!string.IsNullOrEmpty(_search)){var s=_search.ToLower();q=q.Where(x=>(x.User!.FullName??"").ToLower().Contains(s)||(x.User!.Email??"").ToLower().Contains(s));}
+            if(_filterTheory=="true")q=q.Where(x=>x.HasPassedTheory);
+            else if(_filterTheory=="false")q=q.Where(x=>!x.HasPassedTheory);
+            _totalItems=await q.CountAsync();_totalPages=(int)Math.Ceiling(_totalItems/(double)_pageSize);
+            _students=await q.OrderBy(x=>x.Id).Skip((_page-1)*_pageSize).Take(_pageSize).ToListAsync();
+            StateHasChanged();
+        }catch(Exception){}
+    }
+
+    async Task ToggleTheory(StudentProfile s){s.HasPassedTheory=!s.HasPassedTheory;await Db.SaveChangesAsync();await Load();}
+    async Task ExportCsv(){try{var d=await Db.StudentProfiles.Include(s=>s.User).ToListAsync();var lines=new List<string>{"Nama,Email,No HP,Level,Jam,Sesi,XP,Lulus Teori"};foreach(var s in d)lines.Add($"{s.User?.FullName},{s.User?.Email},{s.User?.PhoneNumber},{s.CurrentLevel},{s.TotalHoursCompleted},{s.TotalSessionsCompleted},{s.ExperiencePoints},{(s.HasPassedTheory?"Ya":"Tidak")}");var csv=string.Join("\n",lines);var b64=Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(csv));await JS.InvokeVoidAsync("eval",$"var a=document.createElement('a');a.href='data:text/csv;base64,{b64}';a.download='students.csv';a.click();");}catch{}}
+    async Task ExportExcel(){await ExportCsv();}
+}

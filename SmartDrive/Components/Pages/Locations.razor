@@ -1,0 +1,51 @@
+@page "/locations"
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@inject SmartDrive.Data.SmartDriveDbContext Db
+
+<PageTitle>Peta Lokasi Latihan - SmartDrive</PageTitle>
+<div class="page-header flex-between">
+    <h2>📍 Peta Lokasi Latihan</h2>
+    <div class="flex-center" style="gap:8px;">
+        <input class="form-control" style="width:220px;" placeholder="🔍 Cari lokasi..." @bind="_search" @bind:event="oninput" @bind:after="LoadData" />
+        <select class="form-control" style="width:160px;" @bind="_filterType" @bind:after="LoadData">
+            <option value="">Semua Tipe</option>
+            <option>ParkingLot</option>
+            <option>Street</option>
+            <option>Highway</option>
+            <option>Residential</option>
+        </select>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;">
+@foreach (var l in _locations)
+{
+    <div class="card"><div class="flex-between"><h3>@l.Name</h3><span class="badge-status badge-info">@l.LocationType</span></div>
+    <p style="color:var(--text-secondary)">📍 @l.Address</p><p>@l.Description</p>
+    <div style="font-size:12px;color:var(--text-muted);">Koordinat: @l.Latitude.ToString("F4"), @l.Longitude.ToString("F4")</div>
+    <a href="https://www.google.com/maps?q=@l.Latitude,@l.Longitude" target="_blank" class="btn btn-outline btn-sm mt-2">🗺️ Buka di Google Maps</a>
+    </div>
+}
+</div>
+
+@if (!_locations.Any()) { <p class="empty-state">Tidak ada lokasi yang cocok.</p> }
+
+@code {
+    private List<TrainingLocation> _locations = new();
+    private string _search = "";
+    private string _filterType = "";
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        var q = Db.TrainingLocations.Where(l => l.IsActive).AsQueryable();
+        if (!string.IsNullOrEmpty(_search))
+            q = q.Where(l => l.Name.Contains(_search) || (l.Address ?? "").Contains(_search));
+        if (!string.IsNullOrEmpty(_filterType))
+            q = q.Where(l => l.LocationType == _filterType);
+        _locations = await q.OrderBy(l => l.Name).ToListAsync();
+        StateHasChanged();
+    }
+}

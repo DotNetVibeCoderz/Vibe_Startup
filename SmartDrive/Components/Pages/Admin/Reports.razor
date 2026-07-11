@@ -1,0 +1,99 @@
+@page "/admin/reports"
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@using SmartDrive.Models.Enums
+@inject SmartDrive.Data.SmartDriveDbContext Db
+
+<PageTitle>Laporan Penjualan - SmartDrive</PageTitle>
+<div class="page-header"><h2>📊 Laporan Penjualan Marketplace</h2><p>Analisa data penjualan & performa produk</p></div>
+
+@* Filter Bar *@
+<div class="card"><div class="form-row">
+    <div class="form-group"><label>Dari Tanggal</label><InputDate @bind-Value="_from" class="form-control"/></div>
+    <div class="form-group"><label>Sampai Tanggal</label><InputDate @bind-Value="_to" class="form-control"/></div>
+    <div class="form-group"><label>Status</label><InputSelect @bind-Value="_filterStatus" class="form-control"><option value="">Semua</option><option value="Pending">Pending</option><option value="Confirmed">Confirmed</option><option value="Completed">Completed</option><option value="Cancelled">Cancelled</option></InputSelect></div>
+    <div class="form-group" style="display:flex;align-items:end;"><button class="btn btn-primary" @onclick="LoadData">🔍 Filter</button></div>
+</div></div>
+
+@* Summary Cards *@
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon">🛒</div><div class="stat-info"><h4>@_totalOrders</h4><p>Total Order</p></div></div>
+    <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-info"><h4>Rp @_totalRevenue.ToString("N0")</h4><p>Total Revenue</p></div></div>
+    <div class="stat-card"><div class="stat-icon">📦</div><div class="stat-info"><h4>@_totalItems</h4><p>Item Terjual</p></div></div>
+    <div class="stat-card"><div class="stat-icon">📈</div><div class="stat-info"><h4>Rp @_avgOrder.ToString("N0")</h4><p>Rata-rata Order</p></div></div>
+</div>
+
+@* Bar Chart: Revenue by Product *@
+<div class="card"><div class="card-header"><h3>📊 Revenue per Produk</h3></div>
+@if(_productRevenue.Any()){
+    var max=_productRevenue.Max(x=>x.Revenue);
+    <div style="display:flex;flex-direction:column;gap:8px;">
+    @foreach(var p in _productRevenue){
+        var pct=max>0?(p.Revenue/max*100):0;
+        <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:180px;font-size:13px;text-align:right;">@p.Name</div>
+            <div style="flex:1;height:28px;background:var(--bg-tertiary);border-radius:6px;overflow:hidden;">
+                <div style="height:100%;width:@(pct.ToString("F0"))%;background:linear-gradient(90deg,var(--accent-color),#42b72a);display:flex;align-items:center;padding-left:8px;color:white;font-size:12px;font-weight:600;min-width:@(pct>10?"auto":"0");">
+                    @(pct>10?$"Rp {p.Revenue:N0}":"")
+                </div>
+            </div>
+            <div style="width:120px;font-size:12px;color:var(--text-secondary);">@(pct<10?$"Rp {p.Revenue:N0}":"") @p.OrderCount order</div>
+        </div>
+    }
+    </div>
+}else{<p class="empty-state">Belum ada data penjualan.</p>}
+</div>
+
+@* Orders Table *@
+<div class="card mt-3"><div class="card-header"><h3>📋 Daftar Order</h3><button class="btn btn-outline btn-sm" @onclick="ExportCsv">📥 CSV</button></div>
+<div class="table-container"><table><thead><tr><th>Order #</th><th>Tanggal</th><th>Customer</th><th>Item</th><th>Qty</th><th>Total</th><th>Status</th></tr></thead>
+<tbody>
+@foreach(var o in _orders){
+    var item=o.OrderItems?.FirstOrDefault();
+    <tr>
+        <td><code>@o.OrderNumber</code></td><td>@o.OrderDate.ToString("dd MMM HH:mm")</td><td>@o.User?.FullName</td>
+        <td>@(item?.Product?.Name??"-")</td><td>@(item?.Quantity??0)</td>
+        <td>Rp @o.TotalAmount.ToString("N0")</td>
+        <td><span class="badge-status @StatusClass(o.Status)">@o.Status</span></td>
+    </tr>
+}</tbody></table></div>
+@if(!_orders.Any()){<p class="empty-state">Belum ada order. Tampilkan dengan filter di atas.</p>}</div>
+
+@code {
+    List<MarketplaceOrder> _orders=[]; List<(string Name,int OrderCount,decimal Revenue)> _productRevenue=[];
+    DateTime _from=DateTime.Today.AddMonths(-1),_to=DateTime.Today.AddDays(1); string _filterStatus="";
+    int _totalOrders,_totalItems; decimal _totalRevenue,_avgOrder;
+
+    protected override async Task OnInitializedAsync()=>await LoadData();
+
+    async Task LoadData(){
+        try{
+            var q=Db.MarketplaceOrders.Include(o=>o.User).Include(o=>o.OrderItems).ThenInclude(i=>i.Product).AsQueryable();
+            q=q.Where(o=>o.OrderDate>=_from&&o.OrderDate<=_to.AddDays(1));
+            if(!string.IsNullOrEmpty(_filterStatus)&&Enum.TryParse<OrderStatus>(_filterStatus,out var st))q=q.Where(o=>o.Status==st);
+            _orders=await q.OrderByDescending(o=>o.OrderDate).Take(50).ToListAsync();
+
+            var allItems=_orders.SelectMany(o=>o.OrderItems).ToList();
+            _totalOrders=_orders.Count;
+            _totalItems=allItems.Sum(i=>i.Quantity);
+            _totalRevenue=allItems.Sum(i=>i.SubTotal);
+            _avgOrder=_totalOrders>0?_totalRevenue/_totalOrders:0;
+
+            _productRevenue=allItems.GroupBy(i=>i.Product?.Name??"Unknown")
+                .Select(g=>(Name:g.Key,OrderCount:g.Count(),Revenue:g.Sum(i=>i.SubTotal)))
+                .OrderByDescending(x=>x.Revenue).ToList();
+        }catch(Exception){}
+    }
+
+    async Task ExportCsv(){
+        try{
+            var lines=new List<string>{"OrderNumber,Tanggal,Customer,Item,Qty,Total,Status"};
+            foreach(var o in _orders){var i=o.OrderItems?.FirstOrDefault();lines.Add($"{o.OrderNumber},{o.OrderDate:yyyy-MM-dd},{o.User?.FullName},{i?.Product?.Name},{i?.Quantity},{o.TotalAmount},{o.Status}");}
+            var csv=string.Join("\n",lines);var b64=Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(csv));
+            await JS.InvokeVoidAsync("eval",$"var a=document.createElement('a');a.href='data:text/csv;base64,{b64}';a.download='sales_report.csv';a.click();");
+        }catch{}
+    }
+    string StatusClass(OrderStatus s)=>s switch{OrderStatus.Completed=>"badge-success",OrderStatus.Pending=>"badge-warning",OrderStatus.Confirmed=>"badge-info",OrderStatus.Cancelled=>"badge-danger",_=>"badge-neutral"};
+    [Inject] IJSRuntime JS{get;set;}=default!;
+}

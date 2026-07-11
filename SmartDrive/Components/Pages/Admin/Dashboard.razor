@@ -1,0 +1,40 @@
+@page "/admin/dashboard"
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.EntityFrameworkCore
+@inject SmartDrive.Data.SmartDriveDbContext Db
+
+<PageTitle>Admin Dashboard - SmartDrive</PageTitle>
+<div class="page-header"><h2>📊 Dashboard Admin</h2></div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon">👨‍🎓</div><div class="stat-info"><h4>@_stats.TotalStudents</h4><p>Total Siswa</p></div></div>
+    <div class="stat-card"><div class="stat-icon">👨‍🏫</div><div class="stat-info"><h4>@_stats.TotalInstructors</h4><p>Instruktur</p></div></div>
+    <div class="stat-card"><div class="stat-icon">🚗</div><div class="stat-info"><h4>@_stats.TotalVehicles</h4><p>Kendaraan Siap</p></div></div>
+    <div class="stat-card"><div class="stat-icon">📅</div><div class="stat-info"><h4>@_stats.ActiveBookings</h4><p>Booking Aktif</p></div></div>
+    <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-info"><h4>@_stats.CompletedSessions</h4><p>Sesi Selesai</p></div></div>
+    <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-info"><h4>Rp @_stats.TotalRevenue.ToString("N0")</h4><p>Total Revenue</p></div></div>
+</div>
+
+<div class="card"><div class="card-header"><h3>Booking Terbaru</h3></div>
+<div class="table-container"><table><thead><tr><th>Siswa</th><th>Instruktur</th><th>Tanggal</th><th>Status</th></tr></thead>
+<tbody>@foreach (var b in _recentBookings){<tr><td>@b.Student?.FullName</td><td>@b.Instructor?.User?.FullName</td><td>@b.StartTime.ToString("dd MMM HH:mm")</td><td><span class="badge-status @GetClass(b.Status)">@b.Status</span></td></tr>}</tbody></table></div></div>
+
+@code {
+    private SmartDrive.Models.ViewModels.DashboardStats _stats = new();
+    private List<SmartDrive.Models.Entities.Booking> _recentBookings = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stats = new SmartDrive.Models.ViewModels.DashboardStats
+        {
+            TotalStudents = await Db.StudentProfiles.CountAsync(),
+            TotalInstructors = await Db.InstructorProfiles.CountAsync(),
+            TotalVehicles = await Db.Vehicles.CountAsync(v => v.Status == SmartDrive.Models.Enums.VehicleStatus.Available),
+            ActiveBookings = await Db.Bookings.CountAsync(b => b.Status == SmartDrive.Models.Enums.BookingStatus.Scheduled),
+            CompletedSessions = await Db.Bookings.CountAsync(b => b.Status == SmartDrive.Models.Enums.BookingStatus.Completed),
+            TotalRevenue = await Db.Payments.Where(p => p.Status == SmartDrive.Models.Enums.PaymentStatus.Paid).SumAsync(p => p.Amount),
+        };
+        _recentBookings = await Db.Bookings.Include(b => b.Student).Include(b => b.Instructor).ThenInclude(i => i!.User).OrderByDescending(b => b.StartTime).Take(10).ToListAsync();
+    }
+    private string GetClass(SmartDrive.Models.Enums.BookingStatus s) => s switch { SmartDrive.Models.Enums.BookingStatus.Scheduled=>"badge-info",SmartDrive.Models.Enums.BookingStatus.Completed=>"badge-success",SmartDrive.Models.Enums.BookingStatus.Cancelled=>"badge-danger",SmartDrive.Models.Enums.BookingStatus.InProgress=>"badge-warning",_=>"badge-neutral" };
+}

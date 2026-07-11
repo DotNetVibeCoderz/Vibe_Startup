@@ -1,0 +1,81 @@
+@page "/admin/finance"
+@page "/admin/payments"
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@using SmartDrive.Models.Enums
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject SmartDrive.Services.NotificationService Notif
+
+<PageTitle>Manajemen Pembayaran</PageTitle>
+<div class="page-header"><h2>💰 Manajemen Pembayaran</h2><p>Verifikasi & kelola pembayaran siswa</p></div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon">⏳</div><div class="stat-info"><h4>@_pendingCount</h4><p>Menunggu Verifikasi</p></div></div>
+    <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-info"><h4>@_paidCount</h4><p>Lunas</p></div></div>
+    <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-info"><h4>Rp @_totalRevenue.ToString("N0")</h4><p>Total Revenue</p></div></div>
+    <div class="stat-card"><div class="stat-icon">❌</div><div class="stat-info"><h4>@_failedCount</h4><p>Gagal/Ditolak</p></div></div>
+</div>
+
+<div class="card"><div class="card-header"><h3>Daftar Pembayaran</h3></div>
+<div class="table-container"><table><thead><tr><th>ID</th><th>Tanggal</th><th>Siswa</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Bukti</th><th>Aksi Verifikasi</th></tr></thead>
+<tbody>
+@foreach(var p in _payments){
+    <tr>
+        <td>#@p.Id</td>
+        <td>@p.CreatedAt.ToString("dd MMM HH:mm")</td>
+        <td>@p.User?.FullName</td>
+        <td>Rp @p.Amount.ToString("N0")</td>
+        <td>@p.Method</td>
+        <td><span class="badge-status @StatusClass(p.Status)">@p.Status</span></td>
+        <td>
+            @if(!string.IsNullOrEmpty(p.ProofFilePath)){<a href="@p.ProofFilePath" target="_blank" class="btn btn-outline btn-sm">📎 Lihat</a>}
+            else{<span style="color:var(--text-muted)">-</span>}
+        </td>
+        <td>
+            <div class="flex-center">
+            @if(p.Status == PaymentStatus.Pending){
+                <button class="btn btn-success btn-sm" @onclick="()=>Verify(p.Id)">✅ Verifikasi</button>
+                <button class="btn btn-danger btn-sm" @onclick="()=>Reject(p.Id)">❌ Tolak</button>
+            }
+            @if(p.Status == PaymentStatus.Paid){<small style="color:var(--success-color)">@p.PaidAt?.ToString("dd MMM HH:mm")</small>}
+            </div>
+        </td>
+    </tr>
+}</tbody></table></div>
+@if(!_payments.Any()){<p class="empty-state">Belum ada pembayaran.</p>}</div>
+
+@code {
+    List<Payment> _payments=[]; int _pendingCount,_paidCount,_failedCount; decimal _totalRevenue;
+    protected override async Task OnInitializedAsync(){
+        _payments=await Db.Payments.Include(p=>p.User).OrderByDescending(p=>p.CreatedAt).Take(50).ToListAsync();
+        _pendingCount=_payments.Count(p=>p.Status==PaymentStatus.Pending);
+        _paidCount=_payments.Count(p=>p.Status==PaymentStatus.Paid);
+        _failedCount=_payments.Count(p=>p.Status==PaymentStatus.Failed);
+        _totalRevenue=_payments.Where(p=>p.Status==PaymentStatus.Paid).Sum(p=>p.Amount);
+    }
+
+    async Task Verify(int id){
+        var p=await Db.Payments.FindAsync(id);if(p==null)return;
+        p.Status=PaymentStatus.Paid;p.PaidAt=DateTime.UtcNow;
+        await Db.SaveChangesAsync();
+        // Notifikasi ke user bahwa pembayaran diverifikasi
+        if(!string.IsNullOrEmpty(p.UserId)) await Notif.SendNotificationAsync(p.UserId,"Pembayaran Diverifikasi",$"Pembayaran Rp {p.Amount:N0} telah diverifikasi.",NotificationType.GeneralInfo);
+        _payments=await Db.Payments.Include(x=>x.User).OrderByDescending(x=>x.CreatedAt).Take(50).ToListAsync();
+        _pendingCount=_payments.Count(x=>x.Status==PaymentStatus.Pending);
+        _paidCount=_payments.Count(x=>x.Status==PaymentStatus.Paid);
+        _totalRevenue=_payments.Where(x=>x.Status==PaymentStatus.Paid).Sum(x=>x.Amount);
+    }
+
+    async Task Reject(int id){
+        var p=await Db.Payments.FindAsync(id);if(p==null)return;
+        p.Status=PaymentStatus.Failed;
+        await Db.SaveChangesAsync();
+        if(!string.IsNullOrEmpty(p.UserId)) await Notif.SendNotificationAsync(p.UserId,"Pembayaran Ditolak",$"Pembayaran Rp {p.Amount:N0} ditolak. Silakan upload ulang.",NotificationType.GeneralInfo);
+        _payments=await Db.Payments.Include(x=>x.User).OrderByDescending(x=>x.CreatedAt).Take(50).ToListAsync();
+        _pendingCount=_payments.Count(x=>x.Status==PaymentStatus.Pending);
+        _failedCount=_payments.Count(x=>x.Status==PaymentStatus.Failed);
+    }
+
+    string StatusClass(PaymentStatus s)=>s switch{PaymentStatus.Paid=>"badge-success",PaymentStatus.Pending=>"badge-warning",PaymentStatus.Failed=>"badge-danger",_=>"badge-neutral"};
+}

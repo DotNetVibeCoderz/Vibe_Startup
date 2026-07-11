@@ -1,0 +1,93 @@
+@page "/marketplace"
+@attribute [Authorize]
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@using SmartDrive.Models.Enums
+@inject SmartDrive.Data.SmartDriveDbContext DbContext
+@inject SmartDrive.Services.ExportService ExportService
+@inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JS
+
+<PageTitle>Marketplace - SmartDrive</PageTitle>
+
+<div class="page-header"><h2>🛒 Marketplace Layanan</h2><p>Tingkatkan skill mengemudi Anda dengan kursus tambahan</p></div>
+
+@if (_cartItems.Any()){<div class="cart-bar"><span>🛒 @_cartItems.Sum(c=>c.Quantity) item - Rp @_cartTotal.ToString("N0")</span><button class="btn btn-success btn-sm" @onclick="Checkout">Checkout</button></div>}
+
+<div class="products-grid">
+@foreach(var p in _products){<div class="product-card"><div class="product-image">@GetIcon(p.Category)</div><div class="product-info"><h3>@p.Name</h3><span class="product-category">@p.Category</span><p>@p.Description</p><div class="product-footer"><span class="product-price">Rp @p.Price.ToString("N0")</span><span class="product-duration">⏱️ @p.DurationHours jam</span></div><button class="btn btn-primary w-100 mt-2" @onclick="()=>AddToCart(p)">+ Keranjang</button></div></div>}
+</div>
+
+@if(_showCart){<div class="modal-overlay" @onclick="()=>_showCart=false"><div class="modal" @onclick:stopPropagation="true" style="max-width:600px;"><div class="modal-header"><h3>🛒 Keranjang Belanja</h3><button class="btn btn-outline btn-sm" @onclick="()=>_showCart=false">✕</button></div>
+<div style="max-height:400px;overflow-y:auto;">@foreach(var item in _cartItems){<div class="cart-item flex-between" style="padding:12px 0;border-bottom:1px solid var(--border-color);"><div><strong>@item.Product?.Name</strong><div>Qty: @item.Quantity x Rp @item.UnitPrice.ToString("N0")</div></div><div><span>Rp @item.SubTotal.ToString("N0")</span><button class="btn btn-danger btn-sm" @onclick="()=>RemoveFromCart(item)">✕</button></div></div>}</div>
+<div class="flex-between mt-3"><strong>Total: Rp @_cartTotal.ToString("N0")</strong><div><button class="btn btn-outline btn-sm" @onclick="PrintReceipt">🖨️ Print</button><button class="btn btn-success" @onclick="ProcessOrder" disabled="@(!_cartItems.Any())">Bayar Sekarang</button></div></div>
+@if(!string.IsNullOrEmpty(_orderMessage)){<div class="alert alert-@(_orderSuccess?"success":"danger") mt-3">@_orderMessage</div>}
+@if(!string.IsNullOrEmpty(_receiptHtml)){<div class="mt-3" id="receipt-area"><h4>Struk Pembayaran</h4><div style="border:1px solid var(--border-color);padding:16px;border-radius:8px;background:white;color:black;font-family:monospace">@((MarkupString)_receiptHtml)</div></div>}
+</div></div>}
+
+<style>
+.products-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:20px;margin-top:16px}
+.product-card{background:var(--bg-secondary);border-radius:12px;box-shadow:var(--card-shadow);overflow:hidden;transition:transform 0.2s}
+.product-card:hover{transform:translateY(-4px)}
+.product-image{height:120px;display:flex;align-items:center;justify-content:center;font-size:60px;background:linear-gradient(135deg,var(--accent-color),var(--bg-tertiary))}
+.product-info{padding:16px}.product-info h3{font-size:16px;margin-bottom:4px}
+.product-category{font-size:12px;color:var(--accent-color);display:block;margin-bottom:8px}
+.product-info p{font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5}
+.product-footer{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.product-price{font-weight:700;font-size:18px;color:var(--accent-color)}
+.product-duration{font-size:12px;color:var(--text-muted)}
+.cart-bar{background:var(--bg-secondary);padding:12px 20px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow);margin-bottom:16px;position:sticky;top:60px;z-index:50}
+.w-100{width:100%}
+</style>
+
+@code {
+    private List<MarketplaceProduct> _products=[]; private List<MarketplaceOrderItem> _cartItems=[]; private decimal _cartTotal;
+    private bool _showCart,_orderSuccess; private string? _orderMessage,_receiptHtml,_userId;
+
+    protected override async Task OnInitializedAsync(){
+        _products=await DbContext.MarketplaceProducts.Where(p=>p.IsActive).ToListAsync();
+        var st=await AuthState.GetAuthenticationStateAsync();
+        _userId=st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value??"";
+    }
+
+    string GetIcon(string? c)=>c switch{"DefensiveDriving"=>"🛡️","EcoDriving"=>"🌿","NightDriving"=>"🌙","ExamPrep"=>"📝","Parking"=>"🅿️",_=>"🚗"};
+
+    void AddToCart(MarketplaceProduct p){var e=_cartItems.FirstOrDefault(c=>c.ProductId==p.Id);if(e!=null)e.Quantity++;else _cartItems.Add(new MarketplaceOrderItem{ProductId=p.Id,Product=p,Quantity=1,UnitPrice=p.Price,SubTotal=p.Price});_cartTotal=_cartItems.Sum(c=>c.SubTotal);}
+    void RemoveFromCart(MarketplaceOrderItem i){_cartItems.Remove(i);_cartTotal=_cartItems.Sum(c=>c.SubTotal);}
+    void Checkout(){_showCart=true;_orderMessage=null;_receiptHtml=null;}
+
+    async Task ProcessOrder(){
+        if(!_cartItems.Any())return;
+        try{
+            var order=new MarketplaceOrder{UserId=_userId!,OrderDate=DateTime.UtcNow,TotalAmount=_cartTotal,Status=OrderStatus.Pending,OrderNumber=$"ORD-{DateTime.UtcNow:yyyyMMdd}-{Random.Shared.Next(1000,9999)}"};
+            DbContext.MarketplaceOrders.Add(order);await DbContext.SaveChangesAsync();
+            foreach(var i in _cartItems){i.OrderId=order.Id;i.Product=null;DbContext.MarketplaceOrderItems.Add(i);}
+            await DbContext.SaveChangesAsync();
+            _orderSuccess=true;_orderMessage=$"Order #{order.OrderNumber} berhasil!";
+            var user=await DbContext.Users.FindAsync(_userId);
+            var items=_cartItems.Select(c=>(c.Product?.Name??"Item",c.Quantity,c.UnitPrice)).ToList();
+            _receiptHtml=ExportService.GenerateReceiptHtml(order.OrderNumber,user?.FullName??"Customer",items,_cartTotal,order.OrderDate);
+            _cartItems.Clear();_cartTotal=0;
+        }catch(Exception ex){_orderSuccess=false;_orderMessage=$"Error: {ex.Message}";}
+    }
+
+    /// <summary>
+    /// Print struk: buka window baru dengan HTML receipt, trigger print
+    /// </summary>
+    private async Task PrintReceipt()
+    {
+        if (string.IsNullOrEmpty(_receiptHtml)) return;
+        try
+        {
+            // Gunakan JS interop untuk print: inject HTML ke window baru
+            await JS.InvokeVoidAsync("SmartDrivePrintReceipt", _receiptHtml);
+        }
+        catch
+        {
+            // Fallback: JS function not yet registered, inject inline
+            var escaped = _receiptHtml.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "").Replace("\r", "");
+            await JS.InvokeVoidAsync("eval",
+                $"var w=window.open('','','width=400,height=600');w.document.write('{escaped}');w.document.close();setTimeout(function(){{w.print();}},500);");
+        }
+    }
+}

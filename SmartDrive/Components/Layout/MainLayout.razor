@@ -1,0 +1,77 @@
+@inherits LayoutComponentBase
+@using System.Security.Claims
+@inject NavigationManager Navigation
+@inject SmartDrive.Services.NotificationService NotificationService
+@inject AuthenticationStateProvider AuthState
+
+<div class="app-wrapper @(_dark ? "dark-theme" : "light-theme")">
+    <header class="top-nav">
+        <div class="top-nav-left"><div class="logo" @onclick="GoHome"><span class="logo-icon">🚗</span><span class="logo-text">SmartDrive</span></div></div>
+        <div class="top-nav-center">
+            <NavLink href="/" class="nav-icon" Match="NavLinkMatch.All"><span>🏠</span></NavLink>
+            @if(_auth){<NavLink href="@DashUrl" class="nav-icon"><span>📊</span></NavLink>@if(_role!="Admin"){<NavLink href="@BookingUrl" class="nav-icon"><span>📅</span></NavLink>}<NavLink href="/chat-bot" class="nav-icon"><span>🤖</span></NavLink><NavLink href="/marketplace" class="nav-icon"><span>🛒</span></NavLink>}
+        </div>
+        <div class="top-nav-right">
+            @if(_auth){<div class="notification-bell" @onclick="ToggleNotifications"><span>🔔</span>@if(_unread>0){<span class="badge">@_unread</span>}</div><div class="user-menu"><span class="user-avatar">👤</span><span class="user-name">@_name</span><div class="dropdown-menu"><a href="/profile">Profil</a><a href="/settings">Pengaturan</a><hr/><form method="post" action="/auth/logout"><button type="submit" class="logout-btn">Logout</button></form></div></div>}else{<a href="/auth/login" class="btn-login">Login</a><a href="/auth/register" class="btn-register">Register</a>}
+            <button class="theme-toggle" @onclick="ToggleTheme">@(_dark?"☀️":"🌙")</button>
+        </div>
+    </header>
+    <div class="main-container">
+        <aside class="sidebar"><nav><ul class="sidebar-nav">
+            <li><NavLink href="/" Match="NavLinkMatch.All"><span>🏠</span> Home</NavLink></li>
+            @if(_auth){
+                @if(_role=="Admin"){
+                    <li class="nav-section">Admin Panel</li>
+                    <li><NavLink href="/admin/dashboard"><span>📊</span> Dashboard</NavLink></li>
+                    <li><NavLink href="/admin/vehicles"><span>🚗</span> Kendaraan</NavLink></li>
+                    <li><NavLink href="/admin/instructors"><span>👨‍🏫</span> Instruktur</NavLink></li>
+                    <li><NavLink href="/admin/students"><span>👨‍🎓</span> Siswa</NavLink></li>
+                    <li><NavLink href="/admin/locations"><span>📍</span> Lokasi</NavLink></li>
+                    <li><NavLink href="/admin/theory"><span>📚</span> Modul Teori</NavLink></li>
+                    <li><NavLink href="/admin/finance"><span>💰</span> Pembayaran</NavLink></li>
+                    <li><NavLink href="/admin/reports"><span>📈</span> Laporan Penjualan</NavLink></li>
+                    <li><NavLink href="/admin/config"><span>⚙️</span> Konfigurasi</NavLink></li>
+                }
+                @if(_role=="Instructor"){
+                    <li class="nav-section">Instruktur Panel</li>
+                    <li><NavLink href="/instructor/dashboard"><span>📊</span> Dashboard</NavLink></li>
+                    <li><NavLink href="/instructor/schedule"><span>📅</span> Jadwal</NavLink></li>
+                    <li><NavLink href="/instructor/students"><span>👨‍🎓</span> Siswa Saya</NavLink></li>
+                    <li><NavLink href="/instructor/evaluations"><span>📝</span> Evaluasi</NavLink></li>
+                    <li><NavLink href="/instructor/gps"><span>📍</span> GPS Tracking</NavLink></li>
+                    <li><NavLink href="/instructor/chat"><span>💬</span> Chat</NavLink></li>
+                }
+                @if(_role=="Student"){
+                    <li class="nav-section">Siswa Panel</li>
+                    <li><NavLink href="/student/dashboard"><span>📊</span> Dashboard</NavLink></li>
+                    <li><NavLink href="/student/book"><span>📅</span> Booking</NavLink></li>
+                    <li><NavLink href="/student/chat"><span>💬</span> Chat Instruktur</NavLink></li>
+                    <li><NavLink href="/student/theory"><span>📚</span> Materi Teori</NavLink></li>
+                    <li><NavLink href="/student/exam"><span>📝</span> Simulasi Ujian</NavLink></li>
+                    <li><NavLink href="/student/progress"><span>📈</span> Progres</NavLink></li>
+                    <li><NavLink href="/student/payments"><span>💰</span> Pembayaran</NavLink></li>
+                    <li><NavLink href="/student/feedback"><span>⭐</span> Feedback</NavLink></li>
+                }
+                <li class="nav-section">Umum</li>
+                <li><NavLink href="/chat-bot"><span>🤖</span> Om Bambang AI</NavLink></li>
+                <li><NavLink href="/marketplace"><span>🛒</span> Marketplace</NavLink></li>
+                <li><NavLink href="/locations"><span>📍</span> Peta Lokasi</NavLink></li>
+            }
+        </ul></nav></aside>
+        <main class="main-content">
+            @if(_showNotif){<div class="notification-panel"><div class="notification-header"><h3>Notifikasi</h3><button class="btn-text" @onclick="MarkAllRead">Tandai dibaca</button><button class="btn-text" @onclick="ToggleNotifications">✕</button></div>@if(_notif?.Any()==true){@foreach(var n in _notif){<div class="notification-item @(n.IsRead?"read":"unread")"><strong>@n.Title</strong><p>@n.Message</p><small>@n.CreatedAt.ToString("dd MMM HH:mm")</small></div>}}else{<p class="empty-state">Tidak ada notifikasi</p>}</div>}
+            @Body
+        </main>
+    </div>
+    <footer class="footer"><p>© 2024 SmartDrive Academy - Powered by GraviCode Studios</p></footer>
+</div>
+
+@code {
+    private bool _dark,_auth,_showNotif; private string _name="",_role=""; private int _unread; private List<SmartDrive.Models.Entities.Notification>? _notif;
+    string DashUrl=>_role switch{"Admin"=>"/admin/dashboard","Instructor"=>"/instructor/dashboard",_=>"/student/dashboard"};
+    string BookingUrl=>_role switch{"Instructor"=>"/instructor/schedule",_=>"/student/book"};
+    void GoHome()=>Navigation.NavigateTo("/"); void ToggleTheme()=>_dark=!_dark;
+    protected override async Task OnInitializedAsync(){var st=await AuthState.GetAuthenticationStateAsync();_auth=st.User.Identity?.IsAuthenticated??false;if(_auth){_name=st.User.FindFirst("FullName")?.Value??st.User.Identity?.Name??"User";_role=st.User.FindFirst(ClaimTypes.Role)?.Value??"Student";try{_unread=await NotificationService.GetUnreadCountAsync(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value??"");}catch{}}}
+    async Task ToggleNotifications(){_showNotif=!_showNotif;if(_showNotif){var st=await AuthState.GetAuthenticationStateAsync();var uid=st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;if(uid!=null)try{_notif=await NotificationService.GetNotificationsAsync(uid);}catch{_notif=[];}}}
+    async Task MarkAllRead(){var st=await AuthState.GetAuthenticationStateAsync();var uid=st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;if(uid!=null){await NotificationService.MarkAllAsReadAsync(uid);_unread=0;if(_notif!=null)foreach(var n in _notif)n.IsRead=true;}}
+}

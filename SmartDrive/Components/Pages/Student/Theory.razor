@@ -1,0 +1,21 @@
+@page "/student/theory"
+@attribute [Authorize(Roles = "Student,Admin,Instructor")]
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@inject SmartDrive.Data.SmartDriveDbContext Db
+
+<PageTitle>Materi Teori - SmartDrive</PageTitle>
+<div class="page-header"><h2>📚 Materi Teori Mengemudi</h2></div>
+
+<div style="display:grid;grid-template-columns:280px 1fr;gap:20px;">
+    <div class="card"><h3 class="mb-2">Modul</h3>
+    @foreach(var m in _modules){<div style="padding:10px;border-radius:8px;margin-bottom:4px;cursor:pointer;background:@(_selectedModule?.Id==m.Id?"var(--bg-hover)":"transparent")" @onclick="()=>SelectModule(m)"><strong>@m.Title</strong><br/><small style="color:var(--text-secondary)">@m.Category</small></div>}</div>
+    <div class="card">
+    @if(_selectedModule!=null){<h3>@_selectedModule.Title</h3><p style="color:var(--text-secondary);margin-bottom:16px;">@_selectedModule.Description</p><div style="line-height:1.8">@((MarkupString)(_selectedModule.Content??""))</div>}else{<div class="empty-state"><span class="empty-icon">📚</span><h3>Pilih Modul</h3><p>Pilih modul dari daftar di samping untuk mulai belajar.</p></div>}
+    </div>
+</div>
+
+@code { List<TheoryModule> _modules=new(); TheoryModule? _selectedModule;
+    protected override async Task OnInitializedAsync()=>_modules=await Db.TheoryModules.Where(m=>m.IsActive).OrderBy(m=>m.OrderIndex).ToListAsync();
+    void SelectModule(TheoryModule m){_selectedModule=m;}
+}

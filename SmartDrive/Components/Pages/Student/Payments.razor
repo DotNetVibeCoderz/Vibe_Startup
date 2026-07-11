@@ -1,0 +1,77 @@
+@page "/student/payments"
+@attribute [Authorize(Roles = "Student")]
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@using SmartDrive.Models.Enums
+@inject SmartDrive.Data.SmartDriveDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Pembayaran - SmartDrive</PageTitle>
+<div class="page-header"><h2>💰 Pembayaran Saya</h2></div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-info"><h4>@_paidCount</h4><p>Lunas</p></div></div>
+    <div class="stat-card"><div class="stat-icon">⏳</div><div class="stat-info"><h4>@_pendingCount</h4><p>Menunggu Verifikasi</p></div></div>
+    <div class="stat-card"><div class="stat-icon">❌</div><div class="stat-info"><h4>@_failedCount</h4><p>Gagal</p></div></div>
+</div>
+
+<div class="card"><div class="card-header"><h3>Upload Bukti Pembayaran</h3></div>
+@if(_msg!=null){<div class="alert alert-@(_ok?"success":"danger")">@_msg</div>}
+<EditForm Model="_form" OnValidSubmit="CreatePayment">
+<div class="form-row">
+    <div class="form-group"><label>Jumlah (Rp)</label><InputNumber @bind-Value="_form.Amount" class="form-control" min="1"/></div>
+    <div class="form-group"><label>Metode</label><InputSelect @bind-Value="_form.Method" class="form-control">
+        <option value="BankTransfer">Transfer Bank</option>
+        <option value="EWallet">E-Wallet</option>
+        <option value="CreditCard">Kartu Kredit</option>
+        <option value="Cash">Tunai</option>
+    </InputSelect></div>
+</div>
+<div class="form-group"><label>Deskripsi</label><InputText @bind-Value="_form.Description" class="form-control" placeholder="Pembayaran untuk..." /></div>
+<div class="form-group">
+    <label>Upload Bukti (gambar/PDF)</label>
+    <InputFile OnChange="HandleFile" accept="image/*,.pdf" class="form-control" />
+</div>
+<button type="submit" class="btn btn-primary" disabled="@_uploading">@(_uploading?"Uploading...":"Kirim Bukti Pembayaran")</button>
+</EditForm></div>
+
+<div class="card mt-3"><div class="card-header"><h3>Riwayat Pembayaran</h3></div>
+<div class="table-container"><table><thead><tr><th>Tanggal</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Bukti</th><th>Deskripsi</th></tr></thead>
+<tbody>@foreach(var p in _payments){<tr><td>@p.CreatedAt.ToString("dd MMM HH:mm")</td><td>Rp @p.Amount.ToString("N0")</td><td>@p.Method</td><td><span class="badge-status @StatusClass(p.Status)">@p.Status</span>@if(p.Status==PaymentStatus.Paid){<br/><small style="color:var(--success-color)">Diverifikasi @p.PaidAt?.ToString("dd MMM")</small>}</td><td>@if(!string.IsNullOrEmpty(p.ProofFilePath)){<a href="@p.ProofFilePath" target="_blank">📎 Lihat</a>}</td><td>@p.Description</td></tr>}</tbody></table></div>
+@if(!_payments.Any()){<p class="empty-state">Belum ada pembayaran. Lakukan booking terlebih dahulu!</p>}</div>
+
+@code {
+    List<Payment> _payments=[]; int _paidCount,_pendingCount,_failedCount; string _uid="";
+    private class PayForm { public decimal Amount=250000; public string Description="Pembayaran kursus"; public PaymentMethod Method=PaymentMethod.BankTransfer; }
+    PayForm _form=new(); string? _msg; bool _ok,_uploading; IBrowserFile? _selectedFile;
+
+    protected override async Task OnInitializedAsync(){
+        var st=await AuthState.GetAuthenticationStateAsync();_uid=st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value??"";
+        if(!string.IsNullOrEmpty(_uid)){_payments=await Db.Payments.Where(p=>p.UserId==_uid).OrderByDescending(p=>p.CreatedAt).Take(30).ToListAsync();
+        _paidCount=_payments.Count(p=>p.Status==PaymentStatus.Paid);_pendingCount=_payments.Count(p=>p.Status==PaymentStatus.Pending);_failedCount=_payments.Count(p=>p.Status==PaymentStatus.Failed);}
+    }
+
+    void HandleFile(InputFileChangeEventArgs e){_selectedFile=e.File;}
+
+    async Task CreatePayment(){
+        if(_selectedFile==null){_msg="Pilih file bukti pembayaran.";_ok=false;return;}
+        _uploading=true;_msg=null;
+        try{
+            var fn=$"payment_{Guid.NewGuid()}_{_selectedFile.Name}";
+            var path=Path.Combine("wwwroot","uploads","payments",fn);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await using var fs=new FileStream(path,FileMode.Create);
+            await _selectedFile.OpenReadStream(10*1024*1024).CopyToAsync(fs);
+
+            Db.Payments.Add(new Payment{UserId=_uid,Amount=_form.Amount,Method=_form.Method,Description=_form.Description,ProofFilePath=$"/uploads/payments/{fn}",Status=PaymentStatus.Pending,CreatedAt=DateTime.UtcNow});
+            await Db.SaveChangesAsync();
+            _msg="Bukti pembayaran terkirim! Menunggu verifikasi admin.";_ok=true;_form=new();
+            _payments=await Db.Payments.Where(p=>p.UserId==_uid).OrderByDescending(p=>p.CreatedAt).Take(30).ToListAsync();
+            _pendingCount=_payments.Count(p=>p.Status==PaymentStatus.Pending);
+        }catch(Exception ex){_msg=$"Error: {ex.Message}";_ok=false;}
+        _uploading=false;
+    }
+
+    string StatusClass(PaymentStatus s)=>s switch{PaymentStatus.Paid=>"badge-success",PaymentStatus.Pending=>"badge-warning",PaymentStatus.Failed=>"badge-danger",_=>"badge-neutral"};
+}

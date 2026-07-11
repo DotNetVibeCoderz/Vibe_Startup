@@ -1,0 +1,130 @@
+@page "/profile"
+@page "/settings"
+@attribute [Authorize]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@inject UserManager<SmartDrive.Models.Entities.ApplicationUser> UserManager
+@inject SmartDrive.Data.SmartDriveDbContext DbContext
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Profil & Pengaturan - SmartDrive</PageTitle>
+
+<div class="page-header"><h2>👤 Profil & Pengaturan</h2></div>
+
+@if (!string.IsNullOrEmpty(_message)) { <div class="alert alert-@(_isSuccess?"success":"danger")">@_message</div> }
+
+<div class="card"><div class="card-header"><h3>Informasi Profil</h3></div>
+<EditForm Model="_profile" OnValidSubmit="SaveProfile" FormName="profileForm">
+    <DataAnnotationsValidator />
+    <div class="form-row">
+        <div class="form-group"><label>Nama Lengkap</label><InputText @bind-Value="_profile.FullName" class="form-control" /></div>
+        <div class="form-group"><label>Email</label><InputText @bind-Value="_profile.Email" class="form-control" readonly /></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>No. HP</label><InputText @bind-Value="_profile.PhoneNumber" class="form-control" /></div>
+        <div class="form-group"><label>Role</label><input class="form-control" value="@_profile.Role" readonly /></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Alamat</label><InputText @bind-Value="_profile.Address" class="form-control" /></div>
+        <div class="form-group"><label>No. KTP/SIM</label><InputText @bind-Value="_profile.IdCardNumber" class="form-control" /></div>
+    </div>
+    <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+</EditForm></div>
+
+<div class="card mt-3"><div class="card-header"><h3>🔐 Ganti Password</h3></div>
+<EditForm Model="_passwordModel" OnValidSubmit="ChangePassword" FormName="passwordForm">
+    <div class="form-row">
+        <div class="form-group"><label>Password Lama</label><InputText @bind-Value="_passwordModel.OldPassword" type="password" class="form-control" /></div>
+        <div class="form-group"><label>Password Baru</label><InputText @bind-Value="_passwordModel.NewPassword" type="password" class="form-control" /></div>
+    </div>
+    <button type="submit" class="btn btn-warning">Ganti Password</button>
+</EditForm></div>
+
+@if (_studentProfile != null || _instructorProfile != null)
+{
+<div class="card mt-3"><div class="card-header"><h3>📊 Detail @_profile.Role</h3></div>
+@if (_studentProfile != null)
+{
+    <div class="stats-grid">
+        <div class="stat-card"><div class="stat-icon">📈</div><div class="stat-info"><h4>@_studentProfile.CurrentLevel</h4><p>Level</p></div></div>
+        <div class="stat-card"><div class="stat-icon">🕐</div><div class="stat-info"><h4>@_studentProfile.TotalHoursCompleted</h4><p>Jam Latihan</p></div></div>
+        <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-info"><h4>@_studentProfile.TotalSessionsCompleted</h4><p>Sesi Selesai</p></div></div>
+        <div class="stat-card"><div class="stat-icon">⭐</div><div class="stat-info"><h4>@_studentProfile.ExperiencePoints XP</h4><p>Experience</p></div></div>
+    </div>
+}
+@if (_instructorProfile != null)
+{
+    <div class="stats-grid">
+        <div class="stat-card"><div class="stat-icon">⭐</div><div class="stat-info"><h4>@_instructorProfile.AverageRating.ToString("F1")</h4><p>Rating</p></div></div>
+        <div class="stat-card"><div class="stat-icon">👨‍🎓</div><div class="stat-info"><h4>@_instructorProfile.TotalStudents</h4><p>Total Siswa</p></div></div>
+        <div class="stat-card"><div class="stat-icon">🕐</div><div class="stat-info"><h4>@_instructorProfile.TotalHoursTaught</h4><p>Jam Mengajar</p></div></div>
+    </div>
+}
+</div>
+}
+
+@code {
+    private SmartDrive.Models.ViewModels.UserProfileViewModel _profile = new();
+    private SmartDrive.Models.Entities.StudentProfile? _studentProfile;
+    private SmartDrive.Models.Entities.InstructorProfile? _instructorProfile;
+    private class PasswordModel { public string OldPassword { get; set; } = ""; public string NewPassword { get; set; } = ""; }
+    private PasswordModel _passwordModel = new();
+    private string? _message; private bool _isSuccess;
+    private string _userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
+        if (!string.IsNullOrEmpty(_userId))
+        {
+            var user = await UserManager.FindByIdAsync(_userId);
+            if (user != null)
+            {
+                _profile = new SmartDrive.Models.ViewModels.UserProfileViewModel
+                {
+                    Id = user.Id, FullName = user.FullName, Email = user.Email ?? "",
+                    PhoneNumber = user.PhoneNumber, Role = user.Role,
+                    Address = user.Address, IdCardNumber = user.IdCardNumber,
+                    CreatedAt = user.CreatedAt, LastLoginAt = user.LastLoginAt
+                };
+            }
+            _studentProfile = await DbContext.StudentProfiles.FirstOrDefaultAsync(s => s.UserId == _userId);
+            _instructorProfile = await DbContext.InstructorProfiles.FirstOrDefaultAsync(s => s.UserId == _userId);
+        }
+    }
+
+    private async Task SaveProfile()
+    {
+        try
+        {
+            var user = await UserManager.FindByIdAsync(_userId);
+            if (user != null)
+            {
+                user.FullName = _profile.FullName;
+                user.PhoneNumber = _profile.PhoneNumber;
+                user.Address = _profile.Address;
+                user.IdCardNumber = _profile.IdCardNumber;
+                await UserManager.UpdateAsync(user);
+                _message = "Profil berhasil disimpan!"; _isSuccess = true;
+            }
+        }
+        catch { _message = "Error menyimpan profil."; _isSuccess = false; }
+    }
+
+    private async Task ChangePassword()
+    {
+        try
+        {
+            var user = await UserManager.FindByIdAsync(_userId);
+            if (user != null)
+            {
+                var result = await UserManager.ChangePasswordAsync(user, _passwordModel.OldPassword, _passwordModel.NewPassword);
+                _message = result.Succeeded ? "Password berhasil diubah!" : string.Join(", ", result.Errors.Select(e => e.Description));
+                _isSuccess = result.Succeeded;
+            }
+        }
+        catch { _message = "Error."; _isSuccess = false; }
+    }
+}

@@ -1,0 +1,21 @@
+@page "/admin/theory"
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.EntityFrameworkCore
+@using SmartDrive.Models.Entities
+@inject SmartDrive.Data.SmartDriveDbContext Db
+
+<PageTitle>Modul Teori</PageTitle>
+<div class="page-header flex-between"><h2>📚 Modul Teori</h2><button class="btn btn-primary" @onclick="()=>ShowAdd()">+ Tambah Modul</button></div>
+
+<div class="card"><div class="table-container"><table><thead><tr><th>#</th><th>Judul</th><th>Kategori</th><th>Status</th><th>Aksi</th></tr></thead>
+<tbody>@foreach(var m in _modules){<tr><td>@m.OrderIndex</td><td>@m.Title</td><td>@m.Category</td><td><span class="badge-status @(m.IsActive?"badge-success":"badge-danger")">@(m.IsActive?"Aktif":"Nonaktif")</span></td><td><button class="btn btn-outline btn-sm" @onclick="()=>ShowEdit(m)">✏️</button><a href="/student/theory?moduleId=@m.Id" class="btn btn-outline btn-sm">👁️</a></td></tr>}</tbody></table></div></div>
+
+@if(_showModal){<div class="modal-overlay" @onclick="()=>_showModal=false"><div class="modal" @onclick:stopPropagation="true"><div class="modal-header"><h3>@(_editing?"Edit":"Tambah") Modul</h3><button class="btn btn-outline btn-sm" @onclick="()=>_showModal=false">✕</button></div>
+<EditForm Model="_form" OnValidSubmit="Save"><div class="form-group"><label>Judul</label><InputText @bind-Value="_form.Title" class="form-control"/></div><div class="form-row"><div class="form-group"><label>Kategori</label><InputSelect @bind-Value="_form.Category" class="form-control"><option>TrafficSigns</option><option>RoadRules</option><option>BasicTechnique</option><option>Parking</option><option>Highway</option><option>Safety</option></InputSelect></div><div class="form-group"><label>Urutan</label><InputNumber @bind-Value="_form.OrderIndex" class="form-control"/></div></div><div class="form-group"><label>Deskripsi</label><InputText @bind-Value="_form.Description" class="form-control"/></div><div class="form-group"><label>Konten (HTML)</label><InputTextArea @bind-Value="_form.Content" class="form-control" rows="8"/></div><button type="submit" class="btn btn-primary w-100">Simpan</button></EditForm></div></div>}
+
+@code { List<TheoryModule> _modules=new(); bool _showModal,_editing; TheoryModule _form=new();
+    protected override async Task OnInitializedAsync()=>_modules=await Db.TheoryModules.OrderBy(m=>m.OrderIndex).ToListAsync();
+    void ShowAdd(){_form=new TheoryModule{IsActive=true,OrderIndex=_modules.Count+1};_editing=false;_showModal=true;}
+    void ShowEdit(TheoryModule m){_form=new TheoryModule{Id=m.Id,Title=m.Title,Description=m.Description,Content=m.Content,Category=m.Category,OrderIndex=m.OrderIndex,IsActive=m.IsActive};_editing=true;_showModal=true;}
+    async Task Save(){if(_editing){var e=await Db.TheoryModules.FindAsync(_form.Id);if(e!=null){e.Title=_form.Title;e.Description=_form.Description;e.Content=_form.Content;e.Category=_form.Category;e.OrderIndex=_form.OrderIndex;}}else Db.TheoryModules.Add(_form);await Db.SaveChangesAsync();_showModal=false;_modules=await Db.TheoryModules.OrderBy(m=>m.OrderIndex).ToListAsync();}
+}
