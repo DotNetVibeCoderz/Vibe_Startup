@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{StaticResource BgBrush}">
     <Grid>
-        <Border Style="{StaticResource NeoCard}" Width="400" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="32">
+        <Border Style="{StaticResource NeoCard}" Width="420" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="32">
             <StackPanel>
                 <TextBlock Text="🎮" FontSize="48" HorizontalAlignment="Center" Margin="0,0,0,8"/>
                 <TextBlock Text="PCHub Game Center" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" Foreground="{StaticResource TextBrush}"/>
@@ -15,7 +15,14 @@
                 <TextBox x:Name="UsernameBox" Style="{StaticResource NeoTextBox}" Margin="0,0,0,12"/>
 
                 <TextBlock Text="Password" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                <PasswordBox x:Name="PasswordBox" Style="{StaticResource NeoPasswordBox}" Margin="0,0,0,20"/>
+                <Grid Margin="0,0,0,4">
+                    <PasswordBox x:Name="PasswordBox" Style="{StaticResource NeoPasswordBox}" Margin="0,0,0,0"/>
+                    <TextBox x:Name="PasswordTextBox" Style="{StaticResource NeoTextBox}" Margin="0,0,0,0" Visibility="Collapsed"/>
+                </Grid>
+
+                <CheckBox x:Name="ShowPasswordCheck" Content="👁 Show Password" 
+                          FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" 
+                          Margin="0,4,0,12" Checked="ShowPasswordCheck_Changed" Unchecked="ShowPasswordCheck_Changed"/>
 
                 <Button x:Name="LoginBtn" Content="Login" Style="{StaticResource PrimaryButton}" 
                         Height="48" FontSize="16" Click="LoginBtn_Click"/>

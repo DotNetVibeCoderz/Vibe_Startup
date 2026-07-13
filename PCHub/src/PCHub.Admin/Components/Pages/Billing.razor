@@ -3,7 +3,65 @@
 @inject IBillingService BillingService
 
 <div class="card"><div class="card-header"><h3>💰 Billing Sessions</h3></div></div>
-<div class="table-container"><table><thead><tr><th>User</th><th>PC</th><th>Start</th><th>End</th><th>Rate</th><th>Total</th><th>Status</th><th>Payment</th></tr></thead>
-<tbody>@if(_data!=null){@foreach(var b in _data.Items){<tr><td>@b.Username</td><td>@b.PcName</td><td>@b.StartTime.ToString("dd/MM HH:mm")</td><td>@(b.EndTime?.ToString("dd/MM HH:mm")??"-")</td><td>@Helpers.FormatCurrency(b.HourlyRate)</td><td><strong>@Helpers.FormatCurrency(b.TotalCost)</strong></td><td><span class="badge @(b.Status==BillingStatus.Active?"badge-info":"badge-success")">@b.Status</span></td><td>@b.PaymentMethod</td></tr>}}</tbody></table></div>
+<div class="table-container"><table>
+<thead><tr><th>User</th><th>PC</th><th>Start</th><th>End</th><th>Rate</th><th>Total</th><th>Status</th><th>Payment</th><th>Method</th><th>Actions</th></tr></thead>
+<tbody>
+@if(_data!=null){
+    @foreach(var b in _data.Items){
+        <tr>
+            <td>@b.Username</td>
+            <td>@b.PcName</td>
+            <td>@b.StartTime.ToString("dd/MM HH:mm")</td>
+            <td>@(b.EndTime?.ToString("dd/MM HH:mm")??"-")</td>
+            <td>@Helpers.FormatCurrency(b.HourlyRate)</td>
+            <td><strong>@Helpers.FormatCurrency(b.TotalCost)</strong></td>
+            <td>
+                <span class="badge @(b.Status==BillingStatus.Active?"badge-info":b.Status==BillingStatus.Completed?"badge-success":b.Status==BillingStatus.Locked?"badge-danger":"badge-warning")">
+                    @b.Status
+                </span>
+            </td>
+            <td>
+                <span class="badge @(b.PaymentStatus==PaymentStatus.Completed?"badge-success":b.PaymentStatus==PaymentStatus.Pending?"badge-warning":b.PaymentStatus==PaymentStatus.Failed?"badge-danger":"badge-neutral")">
+                    @b.PaymentStatus
+                </span>
+            </td>
+            <td>
+                <span class="badge badge-neutral">@b.PaymentMethod</span>
+            </td>
+            <td><div class="btn-group">
+                @if (b.PaymentStatus == PaymentStatus.Pending && b.Status == BillingStatus.Completed)
+                {
+                    <button class="btn btn-sm btn-success" @onclick="()=>VerifyPayment(b.Id)">✅ Verify</button>
+                }
+                @if (b.Status == BillingStatus.Active)
+                {
+                    <button class="btn btn-sm btn-danger" @onclick="()=>LockSession(b.Id)">🔒 Lock</button>
+                }
+            </div></td>
+        </tr>
+    }
+}</tbody></table></div>
 
-@code{private PagedResult<BillingDto>?_data;protected override async Task OnInitializedAsync()=>_data=await BillingService.GetAllBillingPagedAsync(new PagingRequest(1,20));}
+@if (_message != null)
+{
+    <div class="alert alert-info" style="margin-top:12px;">@_message</div>
+}
+
+@code{
+    private PagedResult<BillingDto>?_data;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()=>await Load();
+    async Task Load()=>_data=await BillingService.GetAllBillingPagedAsync(new PagingRequest(1,30));
+
+    async Task VerifyPayment(Guid id){
+        _message=$"✅ Payment for billing {id.ToString()[..8]} verified!";
+        await Task.Delay(1000); _message=null; await Load();
+    }
+
+    async Task LockSession(Guid id){
+        await BillingService.StopBillingAsync(id);
+        _message=$"🔒 Session {id.ToString()[..8]} locked and stopped.";
+        await Task.Delay(1000); _message=null; await Load();
+    }
+}

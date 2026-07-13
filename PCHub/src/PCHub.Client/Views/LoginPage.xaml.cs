@@ -15,6 +15,25 @@ public partial class LoginPage : UserControl
         _api = new ApiService(App.ApiBaseUrl);
         UsernameBox.Text = "admin";
         PasswordBox.Password = "Admin123!";
+        PasswordTextBox.Text = "Admin123!";
+    }
+
+    private void ShowPasswordCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (ShowPasswordCheck.IsChecked == true)
+        {
+            // Show plain text
+            PasswordTextBox.Text = PasswordBox.Password;
+            PasswordTextBox.Visibility = Visibility.Visible;
+            PasswordBox.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            // Show masked
+            PasswordBox.Password = PasswordTextBox.Text;
+            PasswordTextBox.Visibility = Visibility.Collapsed;
+            PasswordBox.Visibility = Visibility.Visible;
+        }
     }
 
     private async void LoginBtn_Click(object sender, RoutedEventArgs e)
@@ -25,7 +44,12 @@ public partial class LoginPage : UserControl
 
         try
         {
-            var result = await _api.LoginAsync(UsernameBox.Text, PasswordBox.Password);
+            // Ambil password dari mana yang visible
+            var password = PasswordBox.Visibility == Visibility.Visible
+                ? PasswordBox.Password
+                : PasswordTextBox.Text;
+
+            var result = await _api.LoginAsync(UsernameBox.Text, password);
             if (result != null)
             {
                 App.AuthToken = result.Token;

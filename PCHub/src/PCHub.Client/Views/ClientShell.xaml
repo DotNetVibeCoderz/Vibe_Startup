@@ -3,37 +3,73 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:PCHub.Client.Views">
     <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="220"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-        <!-- Sidebar -->
-        <Border Grid.Column="0" Background="{StaticResource SidebarBgBrush}">
-            <StackPanel>
-                <StackPanel Margin="16,20,16,16">
-                    <TextBlock Text="🎮 PCHub" FontSize="20" FontWeight="Bold" Foreground="White"/>
-                    <TextBlock Text="GAME CENTER" FontSize="10" Foreground="#94A3B8"/>
+        <!-- Custom Title Bar (muncul setelah login, ada minimize button) -->
+        <Border x:Name="TitleBar" Grid.Row="0" Background="{StaticResource SidebarBgBrush}" 
+                Padding="8,4" Visibility="Visible" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" Margin="8,0,0,0">
+                    <TextBlock Text="🎮 PCHub Game Center" FontSize="12" FontWeight="Bold" 
+                               Foreground="White" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="TxtTitleUser" Text=" | User" FontSize="11" 
+                               Foreground="#94A3B8" VerticalAlignment="Center" Margin="8,0,0,0"/>
                 </StackPanel>
-
-                <Border Height="2" Background="#334155" Margin="8,0"/>
-
-                <Button x:Name="BtnDashboard" Content="📊 Dashboard" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Dashboard" Margin="8,8,8,2"/>
-                <Button x:Name="BtnGames" Content="🎮 Game Launcher" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Games" Margin="8,2"/>
-                <Button x:Name="BtnBilling" Content="💰 Billing" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Billing" Margin="8,2"/>
-                <Button x:Name="BtnChat" Content="💬 Chat Support" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Chat" Margin="8,2"/>
-                <Button x:Name="BtnReservations" Content="📅 My Bookings" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Reservations" Margin="8,2"/>
-
-                <Border Height="2" Background="#334155" Margin="8,12,8,8"/>
-
-                <Button x:Name="BtnSettings" Content="⚙️ Settings" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Settings" Margin="8,2"/>
-                <Button Content="🚪 Logout" Style="{StaticResource SidebarButton}" Click="Logout_Click" Margin="8,2"/>
-            </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="BtnMinimize" Content="─" Width="32" Height="28" 
+                            FontSize="14" FontWeight="Bold"
+                            Background="Transparent" Foreground="White" BorderThickness="0"
+                            Click="BtnMinimize_Click" Cursor="Hand"
+                            ToolTip="Minimize to system tray"/>
+                    <Button Content="🚪" Width="32" Height="28"
+                            Background="Transparent" Foreground="White" BorderThickness="0"
+                            Click="Logout_Click" Cursor="Hand"
+                            ToolTip="Logout"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
-        <!-- Content Area -->
-        <Border Grid.Column="1" Background="{StaticResource BgBrush}">
-            <ContentControl x:Name="PageContent"/>
-        </Border>
+        <!-- Main Layout -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Sidebar -->
+            <Border Grid.Column="0" Background="{StaticResource SidebarBgBrush}">
+                <StackPanel>
+                    <StackPanel Margin="16,20,16,16">
+                        <TextBlock Text="🎮 PCHub" FontSize="20" FontWeight="Bold" Foreground="White"/>
+                        <TextBlock Text="GAME CENTER" FontSize="10" Foreground="#94A3B8"/>
+                    </StackPanel>
+
+                    <Border Height="2" Background="#334155" Margin="8,0"/>
+
+                    <Button x:Name="BtnDashboard" Content="📊 Dashboard" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Dashboard" Margin="8,8,8,2"/>
+                    <Button x:Name="BtnGames" Content="🎮 Game Launcher" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Games" Margin="8,2"/>
+                    <Button x:Name="BtnBilling" Content="💰 Billing" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Billing" Margin="8,2"/>
+                    <Button x:Name="BtnChat" Content="💬 Chat Support" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Chat" Margin="8,2"/>
+                    <Button x:Name="BtnReservations" Content="📅 My Bookings" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Reservations" Margin="8,2"/>
+
+                    <Border Height="2" Background="#334155" Margin="8,12,8,8"/>
+
+                    <Button x:Name="BtnSettings" Content="⚙️ Settings" Style="{StaticResource SidebarButton}" Click="Nav_Click" Tag="Settings" Margin="8,2"/>
+                    <Button Content="🚪 Logout" Style="{StaticResource SidebarButton}" Click="Logout_Click" Margin="8,2"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Content Area -->
+            <Border Grid.Column="1" Background="{StaticResource BgBrush}">
+                <ContentControl x:Name="PageContent"/>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

@@ -58,7 +58,7 @@ public class ScreenLockService
                 WindowStyle = WindowStyle.None,
                 WindowState = WindowState.Maximized,
                 Topmost = true,
-                ShowInTaskbar = false,
+                ShowInTaskbar = true,
                 Background = System.Windows.Media.Brushes.Black,
                 Cursor = System.Windows.Input.Cursors.None
             };

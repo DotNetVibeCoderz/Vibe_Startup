@@ -4,10 +4,18 @@
         xmlns:views="clr-namespace:PCHub.Client.Views"
         Title="PCHub Game Center" Height="720" Width="1280"
         MinHeight="600" MinWidth="900"
+        WindowStyle="None"
+        WindowState="Maximized"
+        Topmost="True"
+        ShowInTaskbar="True"
+        ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
-        Background="{StaticResource BgBrush}">
+        Background="{StaticResource BgBrush}"
+        KeyDown="Window_KeyDown"
+        StateChanged="Window_StateChanged"
+        Closing="Window_Closing"
+        SourceInitialized="Window_SourceInitialized">
     <Grid>
-        <!-- Main content switches between Login and Client -->
         <ContentControl x:Name="MainContent"/>
     </Grid>
 </Window>

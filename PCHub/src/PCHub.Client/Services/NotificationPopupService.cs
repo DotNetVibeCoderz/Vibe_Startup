@@ -87,7 +87,7 @@ internal class PopupWindow : Window
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
         Background = Brushes.Transparent;
-        ShowInTaskbar = false;
+        ShowInTaskbar = true;
         Topmost = true;
         Width = 340;
         Height = 100;

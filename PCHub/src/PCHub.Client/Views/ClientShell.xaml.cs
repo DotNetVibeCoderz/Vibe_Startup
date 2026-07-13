@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using PCHub.Client.Services;
 
@@ -18,7 +19,6 @@ public partial class ClientShell : UserControl
         _api = new ApiService(App.ApiBaseUrl);
         if (App.AuthToken != null) _api.SetToken(App.AuthToken);
 
-        // Register pages
         _pages["Dashboard"] = new DashboardPage(_api);
         _pages["Games"] = new GameLauncherPage(_api);
         _pages["Billing"] = new BillingPage(_api);
@@ -26,7 +26,6 @@ public partial class ClientShell : UserControl
         _pages["Reservations"] = new ReservationsPage(_api);
         _pages["Settings"] = new SettingsPage();
 
-        // Register nav buttons
         _navButtons["Dashboard"] = BtnDashboard;
         _navButtons["Games"] = BtnGames;
         _navButtons["Billing"] = BtnBilling;
@@ -34,10 +33,8 @@ public partial class ClientShell : UserControl
         _navButtons["Reservations"] = BtnReservations;
         _navButtons["Settings"] = BtnSettings;
 
-        // Default to Dashboard
+        TxtTitleUser.Text = $" | {App.Username}";
         Navigate("Dashboard");
-
-        // Apply localization
         ApplyLocalization();
         App.Loc.LanguageChanged += ApplyLocalization;
     }
@@ -53,6 +50,23 @@ public partial class ClientShell : UserControl
         BtnSettings.Content = loc["nav.settings"];
     }
 
+    /// <summary>Minimize ke system tray</summary>
+    private void BtnMinimize_Click(object sender, RoutedEventArgs e)
+    {
+        // Cari parent Window untuk minimize
+        var window = Window.GetWindow(this);
+        if (window != null)
+            window.WindowState = WindowState.Minimized;
+    }
+
+    /// <summary>Drag window saat drag title bar</summary>
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var window = Window.GetWindow(this);
+        if (window != null && e.ClickCount == 1)
+            window.DragMove();
+    }
+
     private void Nav_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is string tag)
@@ -64,7 +78,6 @@ public partial class ClientShell : UserControl
         if (_pages.TryGetValue(page, out var control))
             PageContent.Content = control;
 
-        // Update button styles
         foreach (var kvp in _navButtons)
         {
             kvp.Value.Background = kvp.Key == page
