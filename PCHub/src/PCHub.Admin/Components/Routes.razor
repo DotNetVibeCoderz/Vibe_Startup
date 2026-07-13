@@ -1,0 +1,43 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using PCHub.Admin.Components.Layout
+@using PCHub.Admin.Components.Pages
+
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="@typeof(MainLayout)">
+            <NotAuthorized>
+                @if (routeData.PageType == typeof(Login) || routeData.PageType == typeof(Register))
+                {
+                    <LayoutView Layout="@typeof(LoginLayout)">
+                        @((RenderFragment)(builder =>
+                        {
+                            builder.OpenComponent(0, routeData.PageType);
+                            builder.CloseComponent();
+                        }))
+                    </LayoutView>
+                }
+                else
+                {
+                    <LayoutView Layout="@typeof(LoginLayout)">
+                        <Login />
+                    </LayoutView>
+                }
+            </NotAuthorized>
+            <Authorizing>
+                <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-size:18px;color:#94a3b8;">
+                    <span class="spinner" style="margin-right:12px;"></span> Loading...
+                </div>
+            </Authorizing>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h2" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="@typeof(LoginLayout)">
+            <div style="text-align:center;padding:60px;">
+                <div style="font-size:80px;">404</div>
+                <h1 style="color:var(--text);">Halaman tidak ditemukan</h1>
+                <a href="/" class="btn btn-primary" style="margin-top:16px;">← Dashboard</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

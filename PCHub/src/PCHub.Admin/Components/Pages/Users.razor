@@ -1,0 +1,9 @@
+@page "/users"
+@attribute [Authorize(Roles = "Admin")]
+@inject AppDbContext Db
+
+<div class="card"><div class="card-header"><h3>👥 User Management</h3></div></div>
+<div class="table-container"><table><thead><tr><th>Username</th><th>Name</th><th>Email</th><th>Role</th><th>Membership</th><th>Balance</th><th>Points</th><th>Status</th></tr></thead>
+<tbody>@if(_users!=null){@foreach(var u in _users){<tr><td><strong>@u.Username</strong></td><td>@u.FullName</td><td>@u.Email</td><td><span class="badge @(u.Role==UserRole.Admin?"badge-danger":u.Role==UserRole.Operator?"badge-info":"badge-success")">@u.Role</span></td><td><span class="badge badge-purple">@u.MembershipTier</span></td><td>@Helpers.FormatCurrency(u.Balance)</td><td>@u.LoyaltyPoints</td><td><span class="badge @(u.IsActive?"badge-success":"badge-danger")">@(u.IsActive?"Active":"Inactive")</span></td></tr>}}</tbody></table><div style="padding:16px;text-align:center;">Total: @(_users?.Count??0) users</div></div>
+
+@code{private List<User>?_users;protected override async Task OnInitializedAsync()=>_users=await Db.Users.OrderByDescending(u=>u.CreatedAt).Take(50).ToListAsync();}

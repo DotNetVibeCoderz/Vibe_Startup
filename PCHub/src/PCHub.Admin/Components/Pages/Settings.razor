@@ -1,0 +1,13 @@
+@page "/settings"
+@attribute [Authorize(Roles = "Admin,Operator")]
+@inject AppDbContext Db
+
+<div class="card"><div class="card-header"><h3>⚙️ System Configuration</h3></div></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+<div class="card"><h3>🗄️ Database</h3><div class="form-group"><label>Provider</label><select class="form-control" @bind="_db"><option value="SQLite">SQLite</option><option value="SqlServer">SQL Server</option><option value="PostgreSQL">PostgreSQL</option><option value="MySQL">MySQL</option></select></div><div class="form-group"><label>Connection String</label><input class="form-control" @bind="_cs"/></div><button class="btn btn-primary btn-sm">Save</button></div>
+<div class="card"><h3>🤖 AI ChatBot</h3><div class="form-group"><label>Provider</label><select class="form-control" @bind="_ai"><option value="OpenAI">OpenAI</option><option value="Anthropic">Anthropic</option><option value="Gemini">Gemini</option><option value="Ollama">Ollama</option></select></div><div class="form-group"><label>Model</label><input class="form-control" @bind="_am"/></div><div class="form-group"><label>API Key</label><input class="form-control" type="password" @bind="_ak"/></div><div class="form-group"><label>Temperature</label><input class="form-control" type="range" min="0" max="2" step="0.1" @bind="_at"/><span>@_at</span></div><button class="btn btn-primary btn-sm">Save</button></div>
+</div>
+<div class="card"><h3>📋 Current Configs</h3><table><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>@if(_configs!=null){@foreach(var c in _configs){<tr><td><code>@c.Key</code></td><td>@c.Value</td></tr>}}</tbody></table></div>
+
+@code{private string _db="SQLite",_cs="Data Source=PCHub.db",_ai="OpenAI",_am="gpt-4o",_ak="";private double _at=0.7;private List<SystemConfig>?_configs;
+protected override async Task OnInitializedAsync()=>_configs=await Db.SystemConfigs.OrderBy(c=>c.Key).ToListAsync();}

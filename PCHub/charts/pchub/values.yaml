@@ -1,0 +1,109 @@
+# PCHub Helm Chart - Default Values
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/your-org/pchub
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: pchub.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# PCHub Application Configuration
+config:
+  database:
+    provider: "SQLite"
+    sqliteConnection: "Data Source=/app/data/PCHub.db"
+  auth:
+    cookieExpireDays: 7
+  chatbot:
+    provider: "LocalRule"
+    model: "gpt-4o-mini"
+    temperature: 0.7
+    fallbackToLocalRule: true
+  storage:
+    provider: "FileSystem"
+    basePath: "/app/uploads"
+  email:
+    smtpServer: ""
+    smtpPort: 587
+    smtpUsername: ""
+    smtpPassword: ""
+  payment:
+    midtransServerKey: ""
+    xenditApiKey: ""
+
+# Extra environment variables
+extraEnv: []
+# - name: ASPNETCORE_ENVIRONMENT
+#   value: Production
+
+persistence:
+  enabled: true
+  data:
+    size: 1Gi
+  uploads:
+    size: 5Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# PostgreSQL dependency (optional)
+postgresql:
+  enabled: false
+  auth:
+    database: PCHub
+    username: pchub
+    password: pchub123
+
+# Redis dependency (optional)
+redis:
+  enabled: false
+  architecture: standalone
+  auth:
+    enabled: false

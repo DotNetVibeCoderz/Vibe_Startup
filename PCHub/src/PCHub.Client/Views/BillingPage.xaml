@@ -1,0 +1,94 @@
+<UserControl x:Class="PCHub.Client.Views.BillingPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24">
+            <TextBlock Text="💰 Billing &amp; Timer" FontSize="24" FontWeight="Bold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,16"/>
+
+            <!-- Active Timer Card -->
+            <Border Style="{StaticResource NeoCard}" Margin="0,0,0,16" Background="{StaticResource TimerBgBrush}">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="⏱️ Active Session Timer" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextBrush}"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button x:Name="BtnRefresh" Content="🔄" Style="{StaticResource NeoButton}" 
+                                    FontSize="14" Padding="8,4" Width="40" Click="BtnRefresh_Click" Margin="0,0,4,0"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Timer Display -->
+                    <Border CornerRadius="12" Background="{StaticResource SurfaceBrush}" 
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="2"
+                            Margin="0,12" Padding="20">
+                        <TextBlock x:Name="TxtTimer" Text="00:00:00" FontSize="56" FontWeight="Bold" 
+                                   HorizontalAlignment="Center" Foreground="{StaticResource PrimaryBrush}" 
+                                   FontFamily="Consolas"/>
+                    </Border>
+
+                    <!-- Cost -->
+                    <TextBlock x:Name="TxtCost" Text="Rp 0" FontSize="22" HorizontalAlignment="Center" 
+                               FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,8,0,4"/>
+
+                    <!-- PC Info -->
+                    <TextBlock x:Name="TxtPcInfo" Text="No active session" FontSize="13" HorizontalAlignment="Center" 
+                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,12"/>
+
+                    <!-- Action Buttons -->
+                    <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                        <Button x:Name="BtnEndSession" Content="⏹ End Session" Style="{StaticResource DangerButton}" 
+                                Width="180" FontSize="14" Padding="16,10" Click="BtnEndSession_Click" Visibility="Collapsed"/>
+                        <Button x:Name="BtnStartDemo" Content="▶ Start Demo Session" Style="{StaticResource PrimaryButton}" 
+                                Width="200" FontSize="14" Padding="16,10" Click="BtnStartDemo_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Quick Actions -->
+            <WrapPanel Margin="0,0,0,16">
+                <Border Style="{StaticResource NeoCard}" Width="200" Margin="0,0,12,0" Cursor="Hand" MouseDown="SelectPc_Click">
+                    <StackPanel>
+                        <TextBlock Text="🖥️" FontSize="28"/>
+                        <TextBlock Text="Select PC" FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TxtSelectedPc" Text="Auto-select" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource NeoCard}" Width="200" Margin="0,0,12,0" Cursor="Hand" MouseDown="ApplyPromo_Click">
+                    <StackPanel>
+                        <TextBlock Text="🏷️" FontSize="28"/>
+                        <TextBlock Text="Apply Promo Code" FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TxtPromoStatus" Text="No promo applied" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource NeoCard}" Width="200" Cursor="Hand" MouseDown="ViewHistory_Click">
+                    <StackPanel>
+                        <TextBlock Text="📋" FontSize="28"/>
+                        <TextBlock Text="View History" FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock Text="See past sessions" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                </Border>
+            </WrapPanel>
+
+            <!-- Billing History -->
+            <Border Style="{StaticResource NeoCard}">
+                <StackPanel>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="📋 Billing History" FontSize="16" FontWeight="Bold" Foreground="{StaticResource TextBrush}"/>
+                        <TextBlock Grid.Column="1" x:Name="TxtHistoryCount" Text="" FontSize="12" 
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </Grid>
+                    <ItemsControl x:Name="BillingHistoryList"/>
+                    <TextBlock x:Name="TxtNoHistory" Text="No billing history yet." FontSize="12" 
+                               Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

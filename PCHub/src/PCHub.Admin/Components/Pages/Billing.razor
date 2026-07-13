@@ -1,0 +1,9 @@
+@page "/billing"
+@attribute [Authorize(Roles = "Admin,Operator")]
+@inject IBillingService BillingService
+
+<div class="card"><div class="card-header"><h3>💰 Billing Sessions</h3></div></div>
+<div class="table-container"><table><thead><tr><th>User</th><th>PC</th><th>Start</th><th>End</th><th>Rate</th><th>Total</th><th>Status</th><th>Payment</th></tr></thead>
+<tbody>@if(_data!=null){@foreach(var b in _data.Items){<tr><td>@b.Username</td><td>@b.PcName</td><td>@b.StartTime.ToString("dd/MM HH:mm")</td><td>@(b.EndTime?.ToString("dd/MM HH:mm")??"-")</td><td>@Helpers.FormatCurrency(b.HourlyRate)</td><td><strong>@Helpers.FormatCurrency(b.TotalCost)</strong></td><td><span class="badge @(b.Status==BillingStatus.Active?"badge-info":"badge-success")">@b.Status</span></td><td>@b.PaymentMethod</td></tr>}}</tbody></table></div>
+
+@code{private PagedResult<BillingDto>?_data;protected override async Task OnInitializedAsync()=>_data=await BillingService.GetAllBillingPagedAsync(new PagingRequest(1,20));}

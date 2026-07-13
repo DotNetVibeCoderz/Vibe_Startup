@@ -1,0 +1,18 @@
+@page "/pcs"
+@attribute [Authorize(Roles = "Admin,Operator")]
+@inject IPcService PcService
+
+<div class="card"><div class="card-header"><h3>🖥️ PC Management</h3><button class="btn btn-primary" @onclick="ShowAdd">+ Add PC</button></div></div>
+<div class="table-container"><table><thead><tr><th>PC #</th><th>Name</th><th>Status</th><th>Specs</th><th>Rate/Hr</th><th>Actions</th></tr></thead>
+<tbody>@if(_data!=null){@foreach(var p in _data.Items){<tr><td><strong>@p.PcNumber</strong></td><td>@p.Name</td><td><span class="badge @(p.Status==PcStatus.Available?"badge-success":p.Status==PcStatus.InUse?"badge-info":p.Status==PcStatus.Maintenance?"badge-warning":"badge-danger")">@p.Status</span></td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@p.Specifications</td><td>@Helpers.FormatCurrency(p.HourlyRate)</td><td><button class="btn btn-sm" @onclick="()=>Edit(p)">✏️</button><button class="btn btn-sm btn-danger" @onclick="()=>Delete(p.Id)">🗑️</button></td></tr>}}</tbody></table>
+@if(_data!=null&&_data.TotalPages>1){<div class="pagination">@for(int i=1;i<=_data.TotalPages;i++){<button class="@(i==_page?"active":"")" @onclick="()=>Go(i)">@i</button>}<span>Total: @_data.TotalCount</span></div>}</div>
+@if(_show){<div class="modal-overlay" @onclick="()=>_show=false"><div class="modal-content" @onclick:stopPropagation="true" style="max-width:550px;"><h3>@(_edit==null?"Add PC":"Edit PC")</h3><div class="form-group"><label>PC Number</label><input class="form-control" @bind="_fn"/></div><div class="form-group"><label>Name</label><input class="form-control" @bind="_fname"/></div><div class="form-group"><label>Specs</label><textarea class="form-control" @bind="_fspec" rows="2"></textarea></div><div class="form-group"><label>Rate (Rp)</label><input class="form-control" type="number" @bind="_frate"/></div><button class="btn btn-primary" @onclick="Save">Save</button></div></div>}
+
+@code{private PagedResult<PcDto>?_data;private int _page=1;private bool _show;private PcDto?_edit;private string _fn="",_fname="",_fspec="";private decimal _frate=8000;
+protected override async Task OnInitializedAsync()=>await Load();
+async Task Load()=>_data=await PcService.GetPcsPagedAsync(new PagingRequest(_page,10));
+async Task Go(int p){_page=p;await Load();}
+void ShowAdd(){_edit=null;_fn="";_fname="";_fspec="";_frate=8000;_show=true;}
+void Edit(PcDto p){_edit=p;_fn=p.PcNumber;_fname=p.Name;_fspec=p.Specifications;_frate=p.HourlyRate;_show=true;}
+async Task Save(){if(_edit==null)await PcService.CreatePcAsync(new PcCreateRequest(_fname,_fn,_fspec,_frate));else await PcService.UpdatePcAsync(new PcUpdateRequest(_edit.Id,_fname,_fn,PcStatus.Available,_fspec,_frate,true));_show=false;await Load();}
+async Task Delete(Guid id){await PcService.DeletePcAsync(id);await Load();}}

@@ -1,0 +1,12 @@
+@inherits LayoutComponentBase
+
+<head>
+    <link rel="stylesheet" href="app.css" />
+</head>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:20px;">
+    <div style="width:100%;max-width:420px;">
+        <div style="background:var(--surface);border:3px solid var(--text);border-radius:16px;padding:32px;box-shadow:8px 8px 0 rgba(0,0,0,0.15);">
+            @Body
+        </div>
+    </div>
+</div>

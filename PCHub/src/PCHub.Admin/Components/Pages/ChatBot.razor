@@ -1,0 +1,24 @@
+@page "/chatbot"
+@attribute [Authorize]
+@inject IChatBotService ChatBotService
+
+<div class="chat-container">
+<div class="chat-sidebar"><div class="chat-sidebar-header"><h3 style="font-size:16px;">🤖 Koh Dedi</h3><p style="font-size:11px;">AI Assistant</p><button class="btn btn-primary btn-sm" style="width:100%;margin-top:8px;" @onclick="NewSession">+ New Chat</button></div><div class="chat-sessions">@if(_sessions!=null){@foreach(var s in _sessions){<div class="chat-session-item @(s.Id==_active?"active":"")" @onclick="()=>Select(s.Id)"><div style="display:flex;justify-content:space-between;"><div><div style="font-weight:600;font-size:13px;">@s.Title</div><div style="font-size:11px;">@s.MessageCount msgs</div></div><button class="btn btn-sm" @onclick:stopPropagation="true" @onclick="()=>DelSession(s.Id)">🗑️</button></div></div>}}</div></div>
+<div class="chat-main">
+@if(_active==Guid.Empty){<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;"><div style="font-size:64px;">🤖</div><h2>Halo! Saya Koh Dedi</h2><p>Silakan tanya apa saja!</p><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;justify-content:center;"><button class="btn btn-sm" @onclick="AskStatusPc">🖥️ Status PC</button><button class="btn btn-sm" @onclick="AskListGame">🎮 Game</button><button class="btn btn-sm" @onclick="AskHarga">💰 Harga</button><button class="btn btn-sm" @onclick="AskJam">🕐 Jam</button></div></div>}
+else{<div class="chat-messages">@foreach(var m in _msgs){<div class="chat-message @m.Role"><div style="font-weight:700;font-size:11px;">@(m.Role=="user"?"👤 You":"🤖 Koh Dedi")</div><div style="font-size:14px;white-space:pre-wrap;">@((MarkupString)RenderMd(m.Content))</div></div>}@if(_loading){<div class="chat-message assistant"><div>Mengetik...</div></div>}</div><div class="chat-input-area"><input class="form-control" @bind="_input" placeholder="Ketik..." @onkeypress="OnKey"/><button class="btn btn-sm" @onclick="ResetSession">🔄</button><button class="btn btn-primary" @onclick="Send" disabled="@_loading">Kirim</button></div>}
+</div></div>
+
+@code{private List<ChatSessionDto>?_sessions;private List<ChatMessageDto> _msgs=new();private Guid _active=Guid.Empty;private string _input="";private bool _loading;
+protected override async Task OnInitializedAsync()=>_sessions=await ChatBotService.GetSessionsAsync();
+async Task NewSession(){var s=await ChatBotService.CreateSessionAsync();_sessions=await ChatBotService.GetSessionsAsync();_active=s.Id;_msgs=new();}
+async Task Select(Guid id){_active=id;_msgs=await ChatBotService.GetSessionMessagesAsync(id);}
+async Task DelSession(Guid id){await ChatBotService.DeleteSessionAsync(id);_sessions=await ChatBotService.GetSessionsAsync();if(_active==id){_active=Guid.Empty;_msgs=new();}}
+async Task ResetSession(){await ChatBotService.ResetSessionAsync(_active);_msgs=new();}
+async Task Send(){if(string.IsNullOrWhiteSpace(_input)||_loading)return;if(_active==Guid.Empty)await NewSession();var msg=_input;_input="";_loading=true;try{await ChatBotService.SendMessageAsync(new SendChatMessageRequest(_active,msg,null,null));_msgs=await ChatBotService.GetSessionMessagesAsync(_active);_sessions=await ChatBotService.GetSessionsAsync();}finally{_loading=false;}}
+async Task AskStatusPc(){_input="Cek status PC yang tersedia";await Send();}
+async Task AskListGame(){_input="Daftar game yang bisa dimainkan";await Send();}
+async Task AskHarga(){_input="Info harga dan promo terbaru";await Send();}
+async Task AskJam(){_input="Jam operasional PCHub";await Send();}
+async Task OnKey(KeyboardEventArgs e){if(e.Key=="Enter")await Send();}
+string RenderMd(string t){if(string.IsNullOrEmpty(t))return t;t=System.Text.RegularExpressions.Regex.Replace(t,@"\*\*(.*?)\*\*","<strong>$1</strong>");t=System.Text.RegularExpressions.Regex.Replace(t,@"\*(.*?)\*","<em>$1</em>");t=t.Replace("\n","<br/>");return t;}}

@@ -1,0 +1,12 @@
+@page "/memberships"
+@attribute [Authorize(Roles = "Admin,Operator")]
+@inject IMembershipService MembershipService
+
+<div class="card"><div class="card-header"><h3>👑 Membership Plans</h3><button class="btn btn-primary btn-sm" @onclick="ShowAdd">+ Add</button></div></div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;">@if(_data!=null){@foreach(var m in _data){<div class="card" style="text-align:center;"><div style="font-size:32px;">@(m.Tier==MembershipTier.Basic?"🥉":m.Tier==MembershipTier.Silver?"🥈":m.Tier==MembershipTier.Gold?"🥇":m.Tier==MembershipTier.Platinum?"💎":"👑")</div><h3>@m.Name</h3><div style="font-size:20px;font-weight:800;">@Helpers.FormatCurrency(m.MonthlyPrice)<span style="font-size:12px;">/mo</span></div><div style="text-align:left;font-size:12px;margin-top:8px;">🎁 @m.DiscountPercentage% Discount<br/>⏱️ @m.BonusHours Bonus Hours<br/>⭐ @m.LoyaltyPointsPerMonth Points/mo</div><span class="badge @(m.IsActive?"badge-success":"badge-danger")">@(m.IsActive?"Active":"Inactive")</span></div>}}</div>
+@if(_show){<div class="modal-overlay" @onclick="()=>_show=false"><div class="modal-content" @onclick:stopPropagation="true"><h3>Add Plan</h3><div class="form-group"><label>Name</label><input class="form-control" @bind="_fn"/></div><div class="form-group"><label>Tier</label><select class="form-control" @bind="_ft">@foreach(var t in Enum.GetValues<MembershipTier>()){<option value="@t">@t</option>}</select></div><div class="form-group"><label>Price</label><input class="form-control" type="number" @bind="_fp"/></div><div class="form-group"><label>Discount %</label><input class="form-control" type="number" @bind="_fd"/></div><div class="form-group"><label>Bonus Hours</label><input class="form-control" type="number" @bind="_fb"/></div><div class="form-group"><label>Points</label><input class="form-control" type="number" @bind="_fpo"/></div><button class="btn btn-primary" @onclick="Save">Save</button></div></div>}
+
+@code{private List<MembershipDto>?_data;private bool _show;private string _fn="";private MembershipTier _ft=MembershipTier.Basic;private decimal _fp;private int _fd,_fb,_fpo;
+protected override async Task OnInitializedAsync()=>_data=await MembershipService.GetAllMembershipsAsync();
+void ShowAdd(){_fn="";_fp=0;_fd=0;_fb=0;_fpo=0;_show=true;}
+async Task Save(){await MembershipService.CreateMembershipAsync(new MembershipCreateRequest(_fn,_ft,null,_fp,_fd,_fb,_fpo));_show=false;_data=await MembershipService.GetAllMembershipsAsync();}}

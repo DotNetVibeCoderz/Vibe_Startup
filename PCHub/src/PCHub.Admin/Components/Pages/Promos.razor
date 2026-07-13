@@ -1,0 +1,13 @@
+@page "/promos"
+@attribute [Authorize(Roles = "Admin,Operator")]
+@inject IPromoService PromoService
+
+<div class="card"><div class="card-header"><h3>🎉 Promos</h3><button class="btn btn-primary btn-sm" @onclick="ShowAdd">+ Add</button></div></div>
+<div class="table-container"><table><thead><tr><th>Name</th><th>Code</th><th>Discount</th><th>Start</th><th>End</th><th>Status</th></tr></thead>
+<tbody>@if(_data!=null){@foreach(var p in _data.Items){<tr><td><strong>@p.Name</strong></td><td><code>@(p.PromoCode??"-")</code></td><td>@p.DiscountPercentage%</td><td>@p.StartDate.ToString("dd MMM")</td><td>@p.EndDate.ToString("dd MMM")</td><td><span class="badge @(p.IsActive?"badge-success":"badge-danger")">@(p.IsActive?"Active":"Inactive")</span></td></tr>}}</tbody></table></div>
+@if(_show){<div class="modal-overlay" @onclick="()=>_show=false"><div class="modal-content" @onclick:stopPropagation="true"><h3>Add Promo</h3><div class="form-group"><label>Name</label><input class="form-control" @bind="_fn"/></div><div class="form-group"><label>Code</label><input class="form-control" @bind="_fc"/></div><div class="form-group"><label>Discount %</label><input class="form-control" type="number" @bind="_fd"/></div><div class="form-group"><label>Start Date</label><InputDate class="form-control" @bind-Value="_fs"/></div><div class="form-group"><label>End Date</label><InputDate class="form-control" @bind-Value="_fe"/></div><button class="btn btn-primary" @onclick="Save">Save</button></div></div>}
+
+@code{private PagedResult<PromoDto>?_data;private bool _show;private string _fn="",_fc="";private int _fd=10;private DateTime _fs=DateTime.Now,_fe=DateTime.Now.AddMonths(1);
+protected override async Task OnInitializedAsync()=>_data=await PromoService.GetAllPromosPagedAsync(new PagingRequest(1,20));
+void ShowAdd(){_fn="";_fc="";_fd=10;_fs=DateTime.Now;_fe=DateTime.Now.AddMonths(1);_show=true;}
+async Task Save(){await PromoService.CreatePromoAsync(new PromoCreateRequest(_fn,null,_fc,_fd,null,_fs,_fe));_show=false;_data=await PromoService.GetAllPromosPagedAsync(new PagingRequest(1,20));}}

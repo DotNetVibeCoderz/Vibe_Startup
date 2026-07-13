@@ -1,0 +1,15 @@
+@page "/games"
+@attribute [Authorize(Roles = "Admin,Operator")]
+@inject IGameService GameService
+
+<div class="card"><div class="card-header"><h3>🎮 Game Management</h3><button class="btn btn-primary" @onclick="ShowAdd">+ Add Game</button></div></div>
+<div class="table-container"><table><thead><tr><th>Game</th><th>Genre</th><th>Version</th><th>Status</th><th>Popular</th><th>Actions</th></tr></thead>
+<tbody>@if(_data!=null){@foreach(var g in _data.Items){<tr><td><strong>@g.Name</strong></td><td>@g.Genre</td><td>@(g.Version??"-")</td><td><span class="badge @(g.IsInstalled?"badge-success":"badge-warning")">@(g.IsInstalled?"Installed":"Not")</span></td><td>@(g.IsPopular?"⭐":"-")</td><td><button class="btn btn-sm" @onclick="()=>Edit(g)">✏️</button><button class="btn btn-sm btn-danger" @onclick="()=>Del(g.Id)">🗑️</button></td></tr>}}</tbody></table></div>
+@if(_show){<div class="modal-overlay" @onclick="()=>_show=false"><div class="modal-content" @onclick:stopPropagation="true"><h3>@(_edit==null?"Add Game":"Edit Game")</h3><div class="form-group"><label>Name</label><input class="form-control" @bind="_fn"/></div><div class="form-group"><label>Genre</label><select class="form-control" @bind="_fg">@foreach(var g in Enum.GetValues<GameGenre>()){<option value="@g">@g</option>}</select></div><div class="form-group"><label>Executable Path</label><input class="form-control" @bind="_fp"/></div><div class="form-group"><label>Version</label><input class="form-control" @bind="_fv"/></div><div class="form-group"><label><input type="checkbox" @bind="_fpop"/> Popular</label></div><button class="btn btn-primary" @onclick="Save">Save</button></div></div>}
+
+@code{private PagedResult<GameDto>?_data;private bool _show;private GameDto?_edit;private string _fn="",_fp="",_fv="";private GameGenre _fg=GameGenre.Other;private bool _fpop;
+protected override async Task OnInitializedAsync()=>_data=await GameService.GetGamesPagedAsync(new PagingRequest(1,20));
+void ShowAdd(){_edit=null;_fn="";_fp="";_fv="";_fg=GameGenre.Other;_fpop=false;_show=true;}
+void Edit(GameDto g){_edit=g;_fn=g.Name;_fp=g.ExecutablePath??"";_fv=g.Version??"";_fg=g.Genre;_fpop=g.IsPopular;_show=true;}
+async Task Save(){if(_edit==null)await GameService.CreateGameAsync(new GameCreateRequest(_fn,_fg,null,_fp,null,_fv));else await GameService.UpdateGameAsync(new GameUpdateRequest(_edit.Id,_fn,_fg,null,_fp,null,_fv,_fpop));_show=false;_data=await GameService.GetGamesPagedAsync(new PagingRequest(1,20));}
+async Task Del(Guid id){await GameService.DeleteGameAsync(id);_data=await GameService.GetGamesPagedAsync(new PagingRequest(1,20));}}

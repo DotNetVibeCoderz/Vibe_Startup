@@ -1,0 +1,51 @@
+<UserControl x:Class="PCHub.Client.Views.GameLauncherPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24">
+            <!-- Header & Search -->
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="300"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="🎮 Game Launcher" FontSize="24" FontWeight="Bold" Foreground="{StaticResource TextBrush}"/>
+                    <TextBlock x:Name="TxtGameCount" Text="Loading games..." FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                </StackPanel>
+                <Grid Grid.Column="1">
+                    <TextBox x:Name="SearchBox" Style="{StaticResource NeoTextBox}" 
+                             VerticalAlignment="Center" TextChanged="SearchBox_TextChanged"
+                             Tag="Search games..."/>
+                    <TextBlock x:Name="SearchPlaceholder" Text="🔍 Search games..." 
+                               IsHitTestVisible="False" VerticalAlignment="Center" Margin="14,0,0,0"
+                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="13"/>
+                </Grid>
+            </Grid>
+
+            <!-- Genre Filter -->
+            <WrapPanel x:Name="GenreFilter" Margin="0,0,0,16">
+                <Button Content="All" Style="{StaticResource PrimaryButton}" FontSize="11" Padding="12,6" Margin="0,0,8,8" Click="FilterGenre_Click" Tag=""/>
+                <Button Content="FPS" Style="{StaticResource NeoButton}" FontSize="11" Padding="12,6" Margin="0,0,8,8" Click="FilterGenre_Click" Tag="FPS"/>
+                <Button Content="MOBA" Style="{StaticResource NeoButton}" FontSize="11" Padding="12,6" Margin="0,0,8,8" Click="FilterGenre_Click" Tag="MOBA"/>
+                <Button Content="RPG" Style="{StaticResource NeoButton}" FontSize="11" Padding="12,6" Margin="0,0,8,8" Click="FilterGenre_Click" Tag="RPG"/>
+                <Button Content="Battle Royale" Style="{StaticResource NeoButton}" FontSize="11" Padding="12,6" Margin="0,0,8,8" Click="FilterGenre_Click" Tag="BattleRoyale"/>
+                <Button Content="Sport" Style="{StaticResource NeoButton}" FontSize="11" Padding="12,6" Margin="0,0,8,8" Click="FilterGenre_Click" Tag="Sport"/>
+                <Button Content="Strategy" Style="{StaticResource NeoButton}" FontSize="11" Padding="12,6" Margin="0,0,8,8" Click="FilterGenre_Click" Tag="Strategy"/>
+            </WrapPanel>
+
+            <!-- Game Cards Grid -->
+            <WrapPanel x:Name="GameCardsPanel"/>
+
+            <!-- Empty State -->
+            <TextBlock x:Name="TxtEmpty" Text="No games found." FontSize="14" 
+                       Foreground="{StaticResource TextSecondaryBrush}" 
+                       HorizontalAlignment="Center" Margin="0,40,0,0" Visibility="Collapsed"/>
+
+            <!-- Loading -->
+            <TextBlock x:Name="TxtLoading" Text="Loading games..." FontSize="12" 
+                       Foreground="{StaticResource TextSecondaryBrush}" 
+                       HorizontalAlignment="Center" Margin="0,20,0,0"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

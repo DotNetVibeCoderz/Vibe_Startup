@@ -1,0 +1,107 @@
+@page "/reservations"
+@attribute [Authorize]
+@inject IReservationService ReservationService
+@inject IPcService PcService
+@inject IGameService GameService
+@inject PCHub.Admin.Services.PCHubAuthStateProvider AuthProvider
+
+<div class="card"><div class="card-header"><h3>📅 Reservations</h3><button class="btn btn-primary" @onclick="ShowCreateModal">+ New Reservation</button></div></div>
+
+<div class="table-container"><table><thead><tr><th>User</th><th>PC</th><th>Date</th><th>Duration</th><th>Game</th><th>Status</th><th>Actions</th></tr></thead>
+<tbody>
+@if (_data != null) {
+    @foreach (var r in _data.Items) {
+        <tr>
+            <td><strong>@r.Username</strong></td><td>@(r.PcName ?? "Any PC")</td>
+            <td>@r.ReservationDate.ToString("dd MMM yyyy HH:mm")</td><td>@Helpers.FormatDuration(r.DurationMinutes)</td>
+            <td>@(r.GameRequested ?? "-")</td>
+            <td><span class="badge @(r.Status == ReservationStatus.Confirmed ? "badge-success" : r.Status == ReservationStatus.Pending ? "badge-warning" : r.Status == ReservationStatus.Cancelled ? "badge-danger" : "badge-info")">@r.Status</span></td>
+            <td><div class="btn-group">
+                @if (r.Status == ReservationStatus.Pending) {
+                    <button class="btn btn-sm btn-success" @onclick="() => Confirm(r.Id)">✅</button>
+                    <button class="btn btn-sm btn-danger" @onclick="() => Cancel(r.Id)">❌</button>
+                }
+                @if (r.Status == ReservationStatus.Confirmed) {
+                    <button class="btn btn-sm btn-primary" @onclick="() => Complete(r.Id)">✔️</button>
+                }
+            </div></td>
+        </tr>
+    }
+}</tbody></table></div>
+
+@if (_showModal) {
+<div class="modal-overlay" @onclick="() => _showModal = false">
+<div class="modal-content" @onclick:stopPropagation="true" style="max-width:520px;">
+<div class="modal-header"><h3>📅 New Reservation</h3><button class="btn btn-sm" @onclick="() => _showModal = false">✕</button></div>
+
+<div class="form-group"><label>PC (optional)</label>
+<select class="form-control" @bind="_newPcId">
+<option value="">Any PC</option>
+@foreach (var pc in _pcs) { <option value="@pc.Id">@pc.Name - Rp @pc.HourlyRate:N0/hr</option> }
+</select></div>
+
+<div class="form-group"><label>Date (yyyy-MM-dd)</label>
+<input class="form-control" @bind="_newDateStr" @bind:event="oninput" placeholder="yyyy-MM-dd" /></div>
+
+<div class="form-group"><label>Time (HH:mm)</label>
+<input class="form-control" @bind="_newTimeSlot" @bind:event="oninput" placeholder="HH:mm" /></div>
+
+<div class="form-group"><label>Duration (minutes)</label>
+<input class="form-control" type="number" @bind="_newDuration" min="30" step="30" /></div>
+
+<div class="form-group"><label>Game (optional)</label>
+<select class="form-control" @bind="_newGame">
+<option value="">Any Game</option>
+@foreach (var game in _games) { <option value="@game.Name">@game.Name</option> }
+</select></div>
+
+<div class="form-group"><label>Notes</label>
+<input class="form-control" @bind="_newNotes" @bind:event="oninput" placeholder="Optional..." /></div>
+
+@if (!string.IsNullOrEmpty(_modalError)) { <div class="alert alert-danger">@_modalError</div> }
+
+<div class="modal-footer">
+<button class="btn" @onclick="() => _showModal = false">Cancel</button>
+<button class="btn btn-primary" @onclick="CreateReservation" disabled="@_creating">@(_creating ? "Creating..." : "📅 Create")</button>
+</div>
+</div></div> }
+
+@code {
+    private PagedResult<ReservationDto>? _data;
+    private List<PcDto> _pcs = []; private List<GameDto> _games = [];
+    private bool _showModal, _creating;
+    private string _newDateStr = DateTime.Today.AddDays(1).ToString("yyyy-MM-dd");
+    private string _newTimeSlot = "13:00"; private int _newDuration = 60;
+    private string _newPcId = "", _newGame = "", _newNotes = "", _modalError = "";
+
+    protected override async Task OnInitializedAsync() {
+        _data = await ReservationService.GetAllReservationsPagedAsync(new PagingRequest(1, 50));
+        _pcs = await PcService.GetAllPcsAsync(); _games = await GameService.GetAllGamesAsync();
+    }
+    private async Task Confirm(Guid id) { await ReservationService.UpdateReservationStatusAsync(id, ReservationStatus.Confirmed); _data = await ReservationService.GetAllReservationsPagedAsync(new PagingRequest(1, 50)); }
+    private async Task Cancel(Guid id) { await ReservationService.CancelReservationAsync(id); _data = await ReservationService.GetAllReservationsPagedAsync(new PagingRequest(1, 50)); }
+    private async Task Complete(Guid id) { await ReservationService.UpdateReservationStatusAsync(id, ReservationStatus.Completed); _data = await ReservationService.GetAllReservationsPagedAsync(new PagingRequest(1, 50)); }
+    private void ShowCreateModal() => _showModal = true;
+
+    private async Task CreateReservation() {
+        _creating = true; _modalError = "";
+        try {
+            // Ambil user ID dari auth state yang sedang login (bukan hardcoded!)
+            var userIdStr = AuthProvider.UserId;
+            if (string.IsNullOrEmpty(userIdStr) || !Guid.TryParse(userIdStr, out var userId))
+            {
+                _modalError = "You must be logged in to create a reservation.";
+                return;
+            }
+
+            var dateParts = _newDateStr.Split('-');
+            var timeParts = _newTimeSlot.Split(':');
+            var dt = new DateTime(int.Parse(dateParts[0]), int.Parse(dateParts[1]), int.Parse(dateParts[2]), int.Parse(timeParts[0]), 0, 0);
+            Guid? pcId = Guid.TryParse(_newPcId, out var pid) ? pid : null;
+            var req = new CreateReservationRequest(pcId, dt, _newDuration, string.IsNullOrWhiteSpace(_newGame) ? null : _newGame, string.IsNullOrWhiteSpace(_newNotes) ? null : _newNotes);
+            await ReservationService.CreateReservationAsync(userId, req);
+            _showModal = false; _data = await ReservationService.GetAllReservationsPagedAsync(new PagingRequest(1, 50));
+        } catch (Exception ex) { _modalError = $"Error: {ex.Message}"; }
+        finally { _creating = false; }
+    }
+}

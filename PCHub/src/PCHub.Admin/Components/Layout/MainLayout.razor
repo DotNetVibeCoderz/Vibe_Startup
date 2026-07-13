@@ -1,0 +1,95 @@
+@inherits LayoutComponentBase
+
+<div class="app-container @(_darkMode ? "theme-dark" : "")">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-logo">🎮</div>
+            <div class="brand-text"><h3>PCHub</h3><span class="brand-sub">Game Center</span></div>
+        </div>
+        <nav class="sidebar-nav">
+            @* === DASHBOARD — semua role === *@
+            <NavLink href="/" Match="NavLinkMatch.All"><span class="nav-icon">📊</span> Dashboard</NavLink>
+
+            @* === ADMIN & OPERATOR === *@
+            @if (_isAdmin || _isOperator)
+            {
+                <NavLink href="/pcs"><span class="nav-icon">🖥️</span> PC Management</NavLink>
+                <NavLink href="/games"><span class="nav-icon">🎮</span> Game Management</NavLink>
+                <NavLink href="/billing"><span class="nav-icon">💰</span> Billing</NavLink>
+                <NavLink href="/reservations"><span class="nav-icon">📅</span> Reservations</NavLink>
+                <NavLink href="/memberships"><span class="nav-icon">👑</span> Memberships</NavLink>
+                <NavLink href="/promos"><span class="nav-icon">🎉</span> Promos</NavLink>
+                <NavLink href="/tournaments"><span class="nav-icon">🏆</span> Tournaments</NavLink>
+                <NavLink href="/reports"><span class="nav-icon">📄</span> Reports</NavLink>
+                <NavLink href="/chatbot"><span class="nav-icon">🤖</span> Koh Dedi AI</NavLink>
+            }
+
+            @* === ADMIN ONLY === *@
+            @if (_isAdmin)
+            {
+                <NavLink href="/users"><span class="nav-icon">👥</span> Users</NavLink>
+            }
+
+            @* === MEMBER — limited === *@
+            @if (_isMember)
+            {
+                <NavLink href="/reservations"><span class="nav-icon">📅</span> My Bookings</NavLink>
+                <NavLink href="/chatbot"><span class="nav-icon">🤖</span> Koh Dedi AI</NavLink>
+            }
+        </nav>
+        <div class="sidebar-footer">
+            <button class="theme-toggle" @onclick="ToggleTheme">@(_darkMode ? "☀️ Light" : "🌙 Dark")</button>
+            @if (_isAdmin || _isOperator)
+            {
+                <NavLink href="/settings"><span class="nav-icon">⚙️</span> Settings</NavLink>
+            }
+            <NavLink href="/profile"><span class="nav-icon">👤</span> My Profile</NavLink>
+            <a href="/swagger" target="_blank"><span class="nav-icon">📘</span> API Docs</a>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <header class="topbar">
+            <div class="topbar-left"><h2>@PageTitle</h2></div>
+            <div class="topbar-right">
+                <span class="badge @(_isAdmin ? "badge-purple" : _isOperator ? "badge-info" : "badge-neutral")" style="margin-right:4px;">@_roleLabel</span>
+                <span class="user-greeting">👋 Halo, @_userName</span>
+                <a href="/profile" style="text-decoration:none;"><div class="user-avatar">@_userInitial</div></a>
+                <button type="button" class="btn btn-sm btn-outline" style="margin-left:8px;" @onclick="HandleLogout">🚪</button>
+            </div>
+        </header>
+        <div class="content-area">@Body</div>
+    </main>
+</div>
+
+@inject PCHub.Admin.Services.PCHubAuthStateProvider AuthProvider
+@inject NavigationManager Navigation
+
+@code {
+    private bool _darkMode;
+
+    private bool _isAdmin => AuthProvider.UserRole == "Admin";
+    private bool _isOperator => AuthProvider.UserRole == "Operator";
+    private bool _isMember => AuthProvider.UserRole == "Member" || AuthProvider.UserRole == "Guest";
+
+    private string _roleLabel => AuthProvider.UserRole switch
+    {
+        "Admin" => "Admin",
+        "Operator" => "Operator",
+        "Member" => "Member",
+        _ => "User"
+    };
+
+    private string _userName { get => AuthProvider.FullName ?? AuthProvider.UserName ?? "User"; }
+    private string _userInitial { get => (_userName.Length > 0 ? _userName[..1] : "A").ToUpper(); }
+
+    [Parameter] public string? PageTitle { get; set; } = "Dashboard";
+
+    private void ToggleTheme() => _darkMode = !_darkMode;
+
+    private void HandleLogout()
+    {
+        AuthProvider.Logout();
+        Navigation.NavigateTo("/login");
+    }
+}

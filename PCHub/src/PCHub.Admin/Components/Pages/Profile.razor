@@ -1,0 +1,80 @@
+@page "/profile"
+@attribute [Authorize]
+@inject IAuthService AuthService
+@inject IHttpContextAccessor HttpContextAccessor
+@inject PCHub.Admin.Services.PCHubAuthStateProvider AuthProvider
+@inject NavigationManager Navigation
+
+<div class="card"><div class="card-header"><h3>👤 User Profile</h3></div></div>
+
+@if (_profile == null)
+{
+    <div class="loading-overlay"><span class="spinner"></span> Loading profile...</div>
+}
+else
+{
+    <div class="card">
+        <div style="display:flex;gap:24px;align-items:flex-start;">
+            <div style="width:80px;height:80px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;border:3px solid var(--border);flex-shrink:0;">
+                @(_profile.FullName.Length > 0 ? _profile.FullName[..1].ToUpper() : "A")
+            </div>
+            <div class="flex-1">
+                <h2 style="margin:0;">@_profile.FullName</h2>
+                <p style="color:var(--text-secondary);">@("@" + _profile.Username)</p>
+                <span class="badge badge-info">@_profile.Role</span>
+                <span class="badge badge-purple" style="margin-left:4px;">@_profile.MembershipTier</span>
+            </div>
+            <button type="button" class="btn btn-danger btn-sm" @onclick="HandleLogout">🚪 Logout</button>
+        </div>
+    </div>
+
+    <div class="grid-3" style="margin-top:16px;">
+        <div class="stat-card"><div class="stat-icon">📧</div><div class="stat-info"><h4>Email</h4><div class="stat-value" style="font-size:14px;">@_profile.Email</div></div></div>
+        <div class="stat-card"><div class="stat-icon">📱</div><div class="stat-info"><h4>Phone</h4><div class="stat-value" style="font-size:14px;">@(_profile.PhoneNumber ?? "-")</div></div></div>
+        <div class="stat-card"><div class="stat-icon">⭐</div><div class="stat-info"><h4>Loyalty Points</h4><div class="stat-value">@_profile.LoyaltyPoints</div></div></div>
+        <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-info"><h4>Balance</h4><div class="stat-value" style="font-size:18px;">Rp @_profile.Balance:N0</div></div></div>
+        <div class="stat-card"><div class="stat-icon">📅</div><div class="stat-info"><h4>Member Since</h4><div class="stat-value" style="font-size:14px;">@_profile.CreatedAt.ToString("dd MMM yyyy")</div></div></div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+        <h3 style="margin-bottom:12px;">🔒 Change Password</h3>
+        @if (!string.IsNullOrEmpty(_pwMessage)) { <div class="alert @(_pwSuccess?"alert-success":"alert-danger")">@_pwMessage</div> }
+        <div class="form-group"><label>Old Password</label><input class="form-control" type="password" @bind="_oldPw" /></div>
+        <div class="form-group"><label>New Password</label><input class="form-control" type="password" @bind="_newPw" /></div>
+        <button class="btn btn-primary" @onclick="ChangePassword" disabled="@_changingPw">@(_changingPw ? "Updating..." : "Update Password")</button>
+    </div>
+}
+
+@code {
+    private UserProfileResponse? _profile;
+    private string _oldPw = "", _newPw = "", _pwMessage = "";
+    private bool _pwSuccess, _changingPw;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Guid.TryParse(AuthProvider.UserId, out var uid))
+            _profile = await AuthService.GetProfileAsync(uid);
+    }
+
+    private void HandleLogout()
+    {
+        AuthProvider.Logout();
+        Navigation.NavigateTo("/login");
+    }
+
+    private async Task ChangePassword()
+    {
+        if (string.IsNullOrWhiteSpace(_oldPw) || string.IsNullOrWhiteSpace(_newPw)) { _pwMessage = "❌ Isi semua field."; return; }
+        _changingPw = true;
+        try
+        {
+            if (Guid.TryParse(AuthProvider.UserId, out var id))
+            {
+                var ok = await AuthService.ChangePasswordAsync(id, new ChangePasswordRequest(_oldPw, _newPw));
+                _pwSuccess = ok; _pwMessage = ok ? "✅ Password berhasil diubah!" : "❌ Password lama salah.";
+            }
+        }
+        catch (Exception ex) { _pwMessage = $"❌ Error: {ex.Message}"; }
+        finally { _changingPw = false; }
+    }
+}

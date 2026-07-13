@@ -1,0 +1,150 @@
+@page "/reports"
+@attribute [Authorize]
+@inject IDashboardService DashboardService
+@inject IExportService ExportService
+@inject AppDbContext Db
+@inject IJSRuntime JS
+
+<div class="card"><div class="card-header"><h3>📄 Financial Reports</h3></div></div>
+
+@if(_stats!=null)
+{
+    <div class="stats-grid">
+        <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-info"><h4>Today Revenue</h4><div class="stat-value">@Helpers.FormatCurrency(_stats.TodayRevenue)</div></div></div>
+        <div class="stat-card"><div class="stat-icon">📊</div><div class="stat-info"><h4>Month Revenue</h4><div class="stat-value">@Helpers.FormatCurrency(_stats.MonthRevenue)</div></div></div>
+        <div class="stat-card"><div class="stat-icon">🎮</div><div class="stat-info"><h4>Sessions (30d)</h4><div class="stat-value">@_totalSessions</div></div></div>
+        <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-info"><h4>Active Users</h4><div class="stat-value">@_stats.ActiveUsers</div></div></div>
+    </div>
+}
+
+<div class="card">
+    <div class="card-header">
+        <h3>📈 Revenue History (30 Days)</h3>
+        <div class="btn-group">
+            <button class="btn btn-primary" @onclick="ExportCsv" disabled="@_isExporting">
+                @(_isExporting && _currentExport == "csv" ? "⏳ Exporting..." : "📥 Export CSV")
+            </button>
+            <button class="btn btn-success" @onclick="ExportExcel" disabled="@_isExporting">
+                @(_isExporting && _currentExport == "xlsx" ? "⏳ Exporting..." : "📊 Export Excel")
+            </button>
+        </div>
+    </div>
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Date</th><th>Revenue</th><th>Sessions</th></tr></thead>
+            <tbody>
+                @if(_history!=null){
+                    @foreach(var r in _history){
+                        <tr>
+                            <td>@r.ReportDate.ToString("dd MMM yyyy")</td>
+                            <td><strong>@Helpers.FormatCurrency(r.TotalRevenue)</strong></td>
+                            <td>@r.TotalSessions</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (_exportingMessage != null)
+{
+    <div class="alert alert-info" style="margin-top:12px;">@_exportingMessage</div>
+}
+
+@code {
+    private DashboardStats? _stats;
+    private int _totalSessions;
+    private List<FinancialReport>? _history;
+    private bool _isExporting;
+    private string? _currentExport;
+    private string? _exportingMessage;
+
+    protected override async Task OnInitializedAsync() => await RefreshData();
+
+    private async Task RefreshData()
+    {
+        _stats = await DashboardService.GetDashboardStatsAsync();
+        _totalSessions = await Db.BillingSessions.CountAsync(b => b.CreatedAt >= DateTime.UtcNow.AddDays(-30));
+        var billings = await Db.BillingSessions
+            .Where(b => b.EndTime >= DateTime.UtcNow.AddDays(-30) && b.PaymentStatus == PaymentStatus.Completed)
+            .ToListAsync();
+        _history = billings
+            .GroupBy(b => b.EndTime?.Date ?? b.CreatedAt.Date)
+            .Select(g => new FinancialReport { ReportDate = g.Key, TotalRevenue = g.Sum(b => b.TotalCost), TotalSessions = g.Count() })
+            .OrderByDescending(r => r.ReportDate).Take(30).ToList();
+    }
+
+    private async Task<List<ExportRow>> GetExportData()
+    {
+        var billings = await Db.BillingSessions
+            .Include(b => b.User).Include(b => b.Pc)
+            .Where(b => b.EndTime >= DateTime.UtcNow.AddDays(-30) && b.PaymentStatus == PaymentStatus.Completed)
+            .OrderByDescending(b => b.EndTime)
+            .ToListAsync();
+
+        return billings.Select(b => new ExportRow
+        {
+            Id = b.Id.ToString()[..8],
+            Date = (b.EndTime ?? b.StartTime).ToString("yyyy-MM-dd HH:mm"),
+            User = b.User?.Username ?? "-",
+            PC = b.Pc?.Name ?? "-",
+            DurationMin = (int)((b.EndTime ?? b.StartTime) - b.StartTime).TotalMinutes,
+            HourlyRate = b.HourlyRate,
+            TotalCost = b.TotalCost,
+            Status = b.Status.ToString(),
+            Payment = b.PaymentStatus.ToString()
+        }).ToList();
+    }
+
+    private async Task ExportCsv()
+    {
+        _isExporting = true; _currentExport = "csv";
+        _exportingMessage = "📥 Generating CSV...";
+        try
+        {
+            var data = await GetExportData();
+            var bytes = await ExportService.ExportToCsvAsync(data);
+            await DownloadFile(bytes, $"PCHub_Billing_{DateTime.Now:yyyyMMdd}.csv", "text/csv");
+            _exportingMessage = "✅ CSV exported successfully!";
+        }
+        catch (Exception ex) { _exportingMessage = $"❌ Error: {ex.Message}"; }
+        finally { _isExporting = false; _currentExport = null; }
+    }
+
+    private async Task ExportExcel()
+    {
+        _isExporting = true; _currentExport = "xlsx";
+        _exportingMessage = "📊 Generating Excel...";
+        try
+        {
+            var data = await GetExportData();
+            var bytes = await ExportService.ExportToExcelAsync(data, "Billing Report");
+            await DownloadFile(bytes, $"PCHub_Billing_{DateTime.Now:yyyyMMdd}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            _exportingMessage = "✅ Excel exported successfully!";
+        }
+        catch (Exception ex) { _exportingMessage = $"❌ Error: {ex.Message}"; }
+        finally { _isExporting = false; _currentExport = null; }
+    }
+
+    private async Task DownloadFile(byte[] bytes, string fileName, string contentType)
+    {
+        var base64 = Convert.ToBase64String(bytes);
+        var js = $"var a=document.createElement('a');a.href='data:{contentType};base64,{base64}';a.download='{fileName}';document.body.appendChild(a);a.click();document.body.removeChild(a);";
+        await JS.InvokeVoidAsync("eval", js);
+    }
+
+    public class ExportRow
+    {
+        public string Id { get; set; } = "";
+        public string Date { get; set; } = "";
+        public string User { get; set; } = "";
+        public string PC { get; set; } = "";
+        public int DurationMin { get; set; }
+        public decimal HourlyRate { get; set; }
+        public decimal TotalCost { get; set; }
+        public string Status { get; set; } = "";
+        public string Payment { get; set; } = "";
+    }
+}

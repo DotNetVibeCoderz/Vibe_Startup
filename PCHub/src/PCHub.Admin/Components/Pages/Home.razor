@@ -1,0 +1,17 @@
+@page "/"
+@attribute [Authorize]
+@inject IDashboardService DashboardService
+
+@if(_stats==null){<div style="text-align:center;padding:60px;"><h3>Loading dashboard...</h3></div>}else{
+<div class="stats-grid">
+<div class="stat-card"><div class="stat-icon">👥</div><div class="stat-info"><h4>Total Users</h4><div class="stat-value">@_stats.TotalUsers</div><small>@_stats.ActiveUsers active</small></div></div>
+<div class="stat-card"><div class="stat-icon">🖥️</div><div class="stat-info"><h4>Total PCs</h4><div class="stat-value">@_stats.TotalPcs</div><small>@_stats.AvailablePcs available</small></div></div>
+<div class="stat-card"><div class="stat-icon">💰</div><div class="stat-info"><h4>Today Revenue</h4><div class="stat-value">@Helpers.FormatCurrency(_stats.TodayRevenue)</div><small>Month: @Helpers.FormatCurrency(_stats.MonthRevenue)</small></div></div>
+<div class="stat-card"><div class="stat-icon">🎮</div><div class="stat-info"><h4>Active Sessions</h4><div class="stat-value">@_stats.ActiveSessions</div><small>@_stats.PendingReservations pending</small></div></div>
+</div>
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;">
+<div class="card"><div class="card-header"><h3>📈 Revenue (7 Days)</h3></div><div style="display:flex;align-items:flex-end;gap:8px;height:200px;padding:16px 0;">@{var maxR=_stats.RevenueChart.Any()?_stats.RevenueChart.Max(r=>r.Amount):1;if(maxR==0)maxR=1;}@foreach(var day in _stats.RevenueChart){var h=(double)(day.Amount/maxR)*100;<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;"><span style="font-size:10px;font-weight:700;">@Helpers.FormatCurrency(day.Amount)</span><div style="width:100%;height:@(h)%;background:var(--primary);border:2px solid var(--text);border-radius:4px 4px 0 0;min-height:4px;"></div><span style="font-size:10px;">@day.Date.ToString("ddd")</span></div>}</div></div>
+<div class="card"><div class="card-header"><h3>🔥 Popular Games</h3></div>@if(_stats.PopularGames.Any()){<div style="display:flex;flex-direction:column;gap:12px;">@foreach(var g in _stats.PopularGames.Take(8)){<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-weight:600;">🎮 @g.GameName</span><div style="display:flex;gap:16px;font-size:13px;color:var(--text-secondary);"><span>@g.PlayCount plays</span><span>@Helpers.FormatDuration(g.TotalMinutes)</span></div></div>}</div>}else{<p style="color:var(--text-secondary);">No data yet.</p>}</div>
+</div>}
+
+@code{private DashboardStats?_stats;protected override async Task OnInitializedAsync()=>_stats=await DashboardService.GetDashboardStatsAsync();}

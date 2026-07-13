@@ -1,0 +1,13 @@
+apiVersion: v2
+name: pchub
+description: Helm chart for PCHub Game Center - Rental PC Management Application
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - pchub
+  - game-center
+  - rental-pc
+maintainers:
+  - name: PCHub Team
+    email: dev@pchub.com
