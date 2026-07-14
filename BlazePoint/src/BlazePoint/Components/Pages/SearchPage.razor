@@ -1,0 +1,104 @@
+@page "/search"
+@attribute [Authorize]
+@inject SearchService Search
+@inject NavigationManager Nav
+
+<PageTitle>Pencarian — BlazePoint</PageTitle>
+
+<h1>🔍 Pencarian</h1>
+
+<div class="bp-card">
+    <div class="bp-row">
+        <input class="bp-input" style="flex:1" placeholder="Cari dokumen, halaman, list, diskusi…"
+               @bind="_query" @onkeydown="OnKeyDown" />
+        <select class="bp-select" style="max-width:180px" @bind="_mode">
+            <option value="fulltext">Full-text</option>
+            <option value="semantic">Semantik (vektor)</option>
+        </select>
+        <button class="bp-btn" @onclick="RunSearchAsync" disabled="@_busy">
+            @if (_busy)
+            {
+                <span class="bp-loading"></span>
+            }
+            else
+            {
+                <span>Cari</span>
+            }
+        </button>
+    </div>
+    <div class="bp-muted bp-mt">
+        Full-text mencocokkan kata persis; pencarian semantik menggunakan embedding vektor
+        (@_mode) untuk menemukan konten yang mirip makna.
+    </div>
+</div>
+
+@if (_searched)
+{
+    <div class="bp-card">
+        <div class="bp-card-title">Hasil (@_hits.Count)</div>
+        @if (_hits.Count == 0)
+        {
+            <div class="bp-empty"><div class="big">🔍</div>Tidak ditemukan hasil untuk "@_lastQuery".</div>
+        }
+        @foreach (var hit in _hits)
+        {
+            <div style="padding:12px 0;border-bottom:1px solid var(--divider)">
+                <div class="bp-row">
+                    <span class="bp-chip @ChipClass(hit.EntityType)">@IconFor(hit.EntityType) @hit.EntityType</span>
+                    @if (_mode == "semantic")
+                    {
+                        <span class="bp-muted">skor: @hit.Score.ToString("0.###")</span>
+                    }
+                </div>
+                <a href="@hit.Link" style="font-size:17px;font-weight:600">@hit.Title</a>
+                <div class="bp-muted">@hit.Snippet</div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "q")] public string? InitialQuery { get; set; }
+
+    private string _query = "";
+    private string _lastQuery = "";
+    private string _mode = "fulltext";
+    private bool _busy, _searched;
+    private List<SearchHit> _hits = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(InitialQuery))
+        {
+            _query = InitialQuery;
+            await RunSearchAsync();
+        }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await RunSearchAsync();
+    }
+
+    private async Task RunSearchAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_query)) return;
+        _busy = true;
+        _lastQuery = _query;
+        _hits = _mode == "semantic"
+            ? await Search.SemanticSearchAsync(_query)
+            : await Search.FullTextSearchAsync(_query);
+        _busy = false;
+        _searched = true;
+    }
+
+    private static string IconFor(string type) => type switch
+    {
+        "Document" => "📄", "Page" => "📃", "ListItem" => "📋", "Discussion" => "💬", _ => "🔹"
+    };
+
+    private static string ChipClass(string type) => type switch
+    {
+        "Document" => "blue", "Page" => "green", "ListItem" => "yellow", "Discussion" => "red", _ => ""
+    };
+}

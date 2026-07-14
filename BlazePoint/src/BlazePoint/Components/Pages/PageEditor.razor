@@ -1,0 +1,242 @@
+@page "/pages/edit/{Id:int}"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@inherits BpComponentBase
+@inject PageService Pages
+@inject NavigationManager Nav
+@using BlazePoint.Components.WebParts
+
+<PageTitle>Edit Halaman — BlazePoint</PageTitle>
+
+@if (_page is null)
+{
+    <div class="bp-empty"><div class="big">🤔</div>Halaman tidak ditemukan.</div>
+}
+else
+{
+    <div class="bp-row bp-mb">
+        <a class="bp-btn secondary sm" href="/pages">← Halaman</a>
+        <input class="bp-input" style="max-width:320px;font-weight:700" @bind="_title" />
+        <select class="bp-select" style="max-width:170px" @bind="_layout">
+            <option value="Default">Default</option>
+            <option value="News">News</option>
+            <option value="Intranet">Intranet</option>
+            <option value="Web">Web</option>
+        </select>
+        <span class="bp-spacer"></span>
+        <button class="bp-btn secondary" @onclick="() => _showVersions = true">🕘 Versi (@_page.Version)</button>
+        <button class="bp-btn secondary" @onclick="SaveDraftAsync">💾 Simpan Draft</button>
+        <button class="bp-btn success" @onclick="PublishAsync">🚀 Publish</button>
+        <a class="bp-btn ghost" href="/p/@_page.Slug" target="_blank">👁️ Lihat</a>
+    </div>
+    @if (_saved)
+    {
+        <div class="bp-success">✔ @_savedMessage</div>
+    }
+
+    <div style="display:grid;grid-template-columns:220px 1fr 300px;gap:16px">
+        @* --- palette --- *@
+        <div class="bp-card" style="align-self:start">
+            <div class="bp-card-title">🧩 WebParts</div>
+            <div class="bp-muted bp-mb">Drag ke kolom, atau klik untuk menambah.</div>
+            @foreach (var descriptor in WebPartRegistry.All)
+            {
+                <div class="bp-palette-item" draggable="true"
+                     @ondragstart="() => _draggedType = descriptor.Key"
+                     @onclick="() => AddPart(descriptor.Key, 0)">
+                    @descriptor.Icon @descriptor.Name
+                </div>
+            }
+        </div>
+
+        @* --- canvas: 3 columns --- *@
+        <div class="bp-webpart-editor">
+            <div class="bp-page-columns">
+                @for (var col = 0; col < 3; col++)
+                {
+                    var column = col;
+                    <div class="bp-editor-column"
+                         @ondragover:preventDefault
+                         @ondrop="() => OnDrop(column)">
+                        <div class="bp-muted" style="text-align:center;margin-bottom:6px">Kolom @(column + 1)</div>
+                        @foreach (var part in _parts.Where(p => p.Column == column).OrderBy(p => p.Order))
+                        {
+                            <div style="border:2px solid @(part.Id == _selected?.Id ? "var(--bp-blue)" : "transparent");border-radius:10px;cursor:pointer"
+                                 @onclick="() => _selected = part">
+                                <WebPartRenderer Part="part" />
+                                <div class="bp-row" style="padding:0 8px 8px">
+                                    <button class="bp-btn ghost sm" @onclick:stopPropagation @onclick="() => Move(part, -1)">↑</button>
+                                    <button class="bp-btn ghost sm" @onclick:stopPropagation @onclick="() => Move(part, 1)">↓</button>
+                                    <button class="bp-btn ghost sm" @onclick:stopPropagation @onclick="() => MoveColumn(part, -1)">←</button>
+                                    <button class="bp-btn ghost sm" @onclick:stopPropagation @onclick="() => MoveColumn(part, 1)">→</button>
+                                    <span class="bp-spacer"></span>
+                                    <button class="bp-btn ghost sm" @onclick:stopPropagation @onclick="() => Remove(part)">🗑️</button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* --- properties --- *@
+        <div class="bp-card" style="align-self:start">
+            <div class="bp-card-title">⚙️ Properti</div>
+            @if (_selected is null)
+            {
+                <div class="bp-muted">Pilih webpart untuk mengedit propertinya.</div>
+            }
+            else
+            {
+                <div class="bp-field">
+                    <label class="bp-label">Judul WebPart</label>
+                    <input class="bp-input" @bind="_selected.Title" @bind:after="StateHasChanged" />
+                </div>
+                @foreach (var setting in WebPartRegistry.Find(_selected.Type)?.Settings ?? [])
+                {
+                    <div class="bp-field">
+                        <label class="bp-label">@setting.Label</label>
+                        @if (setting.Kind == "textarea")
+                        {
+                            <textarea class="bp-textarea" rows="8"
+                                      value="@_selected.Settings.GetValueOrDefault(setting.Key, "")"
+                                      @onchange='e => SetSetting(setting.Key, e.Value?.ToString() ?? "")'></textarea>
+                        }
+                        else
+                        {
+                            <input class="bp-input"
+                                   value="@_selected.Settings.GetValueOrDefault(setting.Key, "")"
+                                   @onchange='e => SetSetting(setting.Key, e.Value?.ToString() ?? "")' />
+                        }
+                    </div>
+                }
+                <div class="bp-muted">Perubahan properti langsung terlihat di kanvas.</div>
+            }
+        </div>
+    </div>
+
+    @if (_showVersions)
+    {
+        <div class="bp-modal-backdrop" @onclick="() => _showVersions = false">
+            <div class="bp-modal" @onclick:stopPropagation>
+                <h3>🕘 Riwayat Versi</h3>
+                @foreach (var version in _versions)
+                {
+                    <div class="bp-row" style="padding:8px 0;border-bottom:1px solid var(--divider)">
+                        <span class="bp-chip @(version.Version == _page.Version ? "green" : "")">v@(version.Version)</span>
+                        <div style="flex:1">
+                            <div>@version.Comment</div>
+                            <div class="bp-muted">@version.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</div>
+                        </div>
+                        @if (version.Version != _page.Version)
+                        {
+                            <button class="bp-btn secondary sm" @onclick="() => RollbackAsync(version.Version)">↩️ Rollback</button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private CmsPage? _page;
+    private List<WebPartModel> _parts = [];
+    private List<CmsPageVersion> _versions = [];
+    private WebPartModel? _selected;
+    private string _title = "";
+    private string _layout = "Default";
+    private string? _draggedType;
+    private bool _showVersions, _saved;
+    private string _savedMessage = "";
+
+    protected override async Task OnInitializedCoreAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _page = await Pages.GetAsync(Id);
+        if (_page is not null)
+        {
+            _title = _page.Title;
+            _layout = _page.Layout;
+            _parts = PageService.ParseParts(_page.ContentJson);
+            _versions = await Pages.GetVersionsAsync(Id);
+        }
+    }
+
+    private void OnDrop(int column)
+    {
+        if (_draggedType is null) return;
+        AddPart(_draggedType, column);
+        _draggedType = null;
+    }
+
+    private void AddPart(string type, int column)
+    {
+        var descriptor = WebPartRegistry.Find(type);
+        if (descriptor is null) return;
+        var part = new WebPartModel
+        {
+            Type = type,
+            Title = descriptor.Name,
+            Column = column,
+            Order = _parts.Count(p => p.Column == column),
+            Settings = new Dictionary<string, string>(descriptor.Defaults)
+        };
+        _parts.Add(part);
+        _selected = part;
+    }
+
+    private void Remove(WebPartModel part)
+    {
+        _parts.Remove(part);
+        if (_selected?.Id == part.Id) _selected = null;
+    }
+
+    private void Move(WebPartModel part, int delta)
+    {
+        var column = _parts.Where(p => p.Column == part.Column).OrderBy(p => p.Order).ToList();
+        var idx = column.IndexOf(part);
+        var newIdx = idx + delta;
+        if (newIdx < 0 || newIdx >= column.Count) return;
+        (column[idx].Order, column[newIdx].Order) = (column[newIdx].Order, column[idx].Order);
+    }
+
+    private void MoveColumn(WebPartModel part, int delta)
+    {
+        var target = Math.Clamp(part.Column + delta, 0, 2);
+        if (target == part.Column) return;
+        part.Column = target;
+        part.Order = _parts.Count(p => p.Column == target);
+    }
+
+    private void SetSetting(string key, string value)
+    {
+        if (_selected is null) return;
+        _selected.Settings[key] = value;
+    }
+
+    private async Task SaveDraftAsync()
+    {
+        await Pages.SaveDraftAsync(Id, _title, _layout, _parts, UserId);
+        _saved = true;
+        _savedMessage = "Draft tersimpan.";
+    }
+
+    private async Task PublishAsync()
+    {
+        await Pages.SaveDraftAsync(Id, _title, _layout, _parts, UserId);
+        await Pages.PublishAsync(Id, UserId);
+        await LoadAsync();
+        _saved = true;
+        _savedMessage = $"Halaman dipublish sebagai v{_page?.Version}.";
+    }
+
+    private async Task RollbackAsync(int version)
+    {
+        await Pages.RollbackAsync(Id, version, UserId);
+        _showVersions = false;
+        await LoadAsync();
+    }
+}

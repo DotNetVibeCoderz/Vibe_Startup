@@ -1,0 +1,195 @@
+@page "/documents"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject DocumentService Docs
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Dokumen — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <h1 style="margin:0">📁 Dokumen</h1>
+    <span class="bp-spacer"></span>
+    <a class="bp-btn secondary" href="/recycle-bin">🗑️ Recycle Bin</a>
+    @if (IsEditor)
+    {
+        <button class="bp-btn secondary" @onclick="() => _showNewFolder = true">📂 Folder Baru</button>
+        <label class="bp-btn">
+            ⬆️ Upload
+            <InputFile OnChange="OnUpload" multiple style="display:none" />
+        </label>
+    }
+</div>
+
+<div class="bp-card">
+    <div class="bp-breadcrumb bp-mb">
+        <a href="#" @onclick='() => Go("/")' @onclick:preventDefault>🏠 Root</a>
+        @{
+            var crumbs = _folder.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var acc = "";
+        }
+        @foreach (var crumb in crumbs)
+        {
+            acc += "/" + crumb;
+            var target = acc;
+            <span>›</span>
+            <a href="#" @onclick="() => Go(target)" @onclick:preventDefault>@crumb</a>
+        }
+    </div>
+
+    @if (_uploading)
+    {
+        <div class="bp-success"><span class="bp-loading"></span> Mengupload…</div>
+    }
+
+    <div class="bp-table-wrap">
+        <table class="bp-table">
+            <thead>
+                <tr>
+                    <th @onclick='() => Sort("name")'>Nama @SortIcon("name")</th>
+                    <th @onclick='() => Sort("size")'>Ukuran @SortIcon("size")</th>
+                    <th>Versi</th>
+                    <th @onclick='() => Sort("date")'>Diubah @SortIcon("date")</th>
+                    <th>Oleh</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var folder in _subfolders)
+                {
+                    <tr style="cursor:pointer" @onclick="() => Go(folder)">
+                        <td><span class="bp-doc-icon">📂</span> <strong>@folder.Split('/')[^1]</strong></td>
+                        <td colspan="5" class="bp-muted">Folder</td>
+                    </tr>
+                }
+                @foreach (var doc in SortedDocs)
+                {
+                    <tr>
+                        <td style="cursor:pointer" @onclick='() => Nav.NavigateTo($"/documents/{doc.Id}")'>
+                            <span class="bp-doc-icon">@IconFor(doc)</span> @doc.Name
+                        </td>
+                        <td>@FormatSize(doc.Size)</td>
+                        <td><span class="bp-chip">v@(doc.Version)</span></td>
+                        <td>@doc.UpdatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</td>
+                        <td><UserBadge UserId="@doc.CreatedById" /></td>
+                        <td class="bp-row" style="flex-wrap:nowrap">
+                            <a class="bp-btn ghost sm" href="/api/documents/@doc.Id/download" target="_blank">⬇️</a>
+                            <a class="bp-btn ghost sm" href="/documents/@doc.Id">ℹ️</a>
+                            @if (IsEditor)
+                            {
+                                <button class="bp-btn ghost sm" title="Hapus" @onclick="() => DeleteAsync(doc)">🗑️</button>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (_docs.Count == 0 && _subfolders.Count == 0)
+                {
+                    <tr><td colspan="6"><div class="bp-empty"><div class="big">📁</div>Folder kosong. Upload dokumen pertama Anda!</div></td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (_showNewFolder)
+{
+    <div class="bp-modal-backdrop" @onclick="() => _showNewFolder = false">
+        <div class="bp-modal" @onclick:stopPropagation>
+            <h3>📂 Folder Baru</h3>
+            <p class="bp-muted">Folder virtual dibuat saat file pertama diupload ke dalamnya.</p>
+            <input class="bp-input" placeholder="Nama folder" @bind="_newFolderName" />
+            <div class="bp-row bp-mt">
+                <span class="bp-spacer"></span>
+                <button class="bp-btn secondary" @onclick="() => _showNewFolder = false">Batal</button>
+                <button class="bp-btn" @onclick="CreateFolder">Buka Folder</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "path")] public string? Path { get; set; }
+
+    private string _folder = "/";
+    private List<Document> _docs = [];
+    private List<string> _subfolders = [];
+    private bool _uploading, _showNewFolder;
+    private string _newFolderName = "";
+    private string _sortBy = "name";
+    private bool _sortAsc = true;
+
+    protected override async Task OnInitializedCoreAsync() => await LoadAsync();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var newFolder = string.IsNullOrEmpty(Path) ? "/" : Path;
+        if (newFolder != _folder) { _folder = newFolder; await LoadAsync(); }
+    }
+
+    private async Task LoadAsync()
+    {
+        _folder = string.IsNullOrEmpty(Path) ? "/" : Path;
+        _docs = await Docs.GetByFolderAsync(_folder);
+        _subfolders = await Docs.GetSubfoldersAsync(_folder);
+    }
+
+    private IEnumerable<Document> SortedDocs => (_sortBy, _sortAsc) switch
+    {
+        ("size", true) => _docs.OrderBy(d => d.Size),
+        ("size", false) => _docs.OrderByDescending(d => d.Size),
+        ("date", true) => _docs.OrderBy(d => d.UpdatedAt),
+        ("date", false) => _docs.OrderByDescending(d => d.UpdatedAt),
+        (_, true) => _docs.OrderBy(d => d.Name),
+        _ => _docs.OrderByDescending(d => d.Name)
+    };
+
+    private void Sort(string by)
+    {
+        if (_sortBy == by) _sortAsc = !_sortAsc;
+        else { _sortBy = by; _sortAsc = true; }
+    }
+
+    private string SortIcon(string by) => _sortBy != by ? "" : _sortAsc ? "▲" : "▼";
+
+    private void Go(string folder)
+        => Nav.NavigateTo($"/documents?path={Uri.EscapeDataString(folder)}");
+
+    private void CreateFolder()
+    {
+        if (string.IsNullOrWhiteSpace(_newFolderName)) return;
+        var target = (_folder == "/" ? "" : _folder) + "/" + _newFolderName.Trim();
+        _showNewFolder = false;
+        _newFolderName = "";
+        Go(target);
+    }
+
+    private async Task OnUpload(InputFileChangeEventArgs e)
+    {
+        _uploading = true;
+        foreach (var file in e.GetMultipleFiles(10))
+        {
+            await using var stream = file.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024);
+            await Docs.UploadAsync(_folder, file.Name, stream,
+                string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType,
+                file.Size, UserId);
+        }
+        _uploading = false;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(Document doc)
+    {
+        if (!await JS.InvokeAsync<bool>("blazePoint.confirmDialog", $"Pindahkan '{doc.Name}' ke recycle bin?")) return;
+        await Docs.SoftDeleteAsync(doc.Id, UserId);
+        await LoadAsync();
+    }
+
+    private static string IconFor(Document d) => DocumentService.PreviewKind(d.ContentType, d.Name) switch
+    {
+        "image" => "🖼️", "video" => "🎬", "audio" => "🎵", "pdf" => "📕", "text" => "📄", _ => "📎"
+    };
+
+    private static string FormatSize(long bytes) =>
+        bytes < 1024 ? $"{bytes} B" :
+        bytes < 1048576 ? $"{bytes / 1024.0:0.#} KB" : $"{bytes / 1048576.0:0.#} MB";
+}

@@ -1,0 +1,79 @@
+@page "/p/{Slug}"
+@inject PageService Pages
+@using BlazePoint.Components.WebParts
+
+<PageTitle>@(_page?.Title ?? "Halaman") — BlazePoint</PageTitle>
+
+@if (_page is null || !_page.IsPublished)
+{
+    <div class="bp-empty"><div class="big">📭</div>Halaman tidak ditemukan atau belum dipublish.</div>
+}
+else
+{
+    @* --- masterpage-style headers, selected per page layout --- *@
+    @switch (_page.Layout)
+    {
+        case "News":
+            <div class="mp-news-header">
+                <div class="bp-muted" style="color:#ffd9d9">📰 BLAZEPOINT NEWS · @_page.UpdatedAt.ToLocalTime().ToString("dd MMMM yyyy")</div>
+                <h1>@_page.Title</h1>
+            </div>
+            break;
+        case "Intranet":
+            <div class="mp-intranet-header">
+                <div style="opacity:.8">🏢 Intranet Perusahaan</div>
+                <h1 style="margin:4px 0 0">@_page.Title</h1>
+            </div>
+            break;
+        case "Web":
+            <div class="mp-web-header">
+                <h1>@_page.Title</h1>
+                <div style="opacity:.7;margin-top:8px">Dipersembahkan oleh BlazePoint</div>
+            </div>
+            break;
+        default:
+            <h1>@_page.Title</h1>
+            break;
+    }
+
+    <div class="bp-page-columns @ColumnsClass">
+        @for (var col = 0; col < 3; col++)
+        {
+            var column = col;
+            var parts = _parts.Where(p => p.Column == column).OrderBy(p => p.Order).ToList();
+            if (parts.Count == 0 && column > 0 && _usedColumns <= column) { continue; }
+            <div>
+                @foreach (var part in parts)
+                {
+                    <WebPartRenderer Part="part" />
+                }
+            </div>
+        }
+    </div>
+    <div class="bp-muted" style="margin-top:16px">Versi @_page.Version · layout @_page.Layout</div>
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    private CmsPage? _page;
+    private List<WebPartModel> _parts = [];
+    private int _usedColumns = 1;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _page = await Pages.GetBySlugAsync(Slug);
+        if (_page is not null)
+        {
+            _parts = PageService.ParseParts(_page.PublishedJson);
+            _usedColumns = _parts.Count == 0 ? 1 : _parts.Max(p => p.Column) + 1;
+        }
+    }
+
+    private string ColumnsClass => _usedColumns switch
+    {
+        1 => "cols-1",
+        2 => "cols-2",
+        _ => ""
+    };
+}

@@ -1,0 +1,96 @@
+@page "/admin/users"
+@attribute [Authorize(Roles = "Admin")]
+@inherits BpComponentBase
+@inject UserManager<ApplicationUser> UserManager
+@inject AuditService Audit
+@inject IJSRuntime JS
+@using Microsoft.AspNetCore.Identity
+
+<PageTitle>Manajemen Pengguna — BlazePoint</PageTitle>
+
+<h1>👥 Manajemen Pengguna</h1>
+
+<div class="bp-card">
+    <div class="bp-table-wrap">
+        <table class="bp-table">
+            <thead><tr><th>Pengguna</th><th>Email</th><th>Role</th><th>Terdaftar</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var entry in _users)
+                {
+                    var user = entry.User;
+                    <tr>
+                        <td>
+                            <span class="bp-row" style="display:inline-flex">
+                                <span class="bp-avatar sm" style="background:@user.AvatarColor">@user.DisplayName[..1].ToUpper()</span>
+                                <strong>@user.DisplayName</strong>
+                            </span>
+                        </td>
+                        <td>@user.Email</td>
+                        <td>
+                            <select class="bp-select" style="max-width:130px"
+                                    value="@entry.Role" @onchange='e => ChangeRoleAsync(user, e.Value?.ToString() ?? "Viewer")'>
+                                <option>Admin</option>
+                                <option>Editor</option>
+                                <option>Viewer</option>
+                            </select>
+                        </td>
+                        <td>@user.CreatedAt.ToLocalTime().ToString("dd MMM yyyy")</td>
+                        <td>
+                            @if (user.Id != UserId)
+                            {
+                                <button class="bp-btn danger sm" @onclick="() => DeleteAsync(user)">🗑️ Hapus</button>
+                            }
+                            else
+                            {
+                                <span class="bp-chip green">Anda</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="bp-card">
+    <div class="bp-card-title">ℹ️ Role & Hak Akses</div>
+    <ul>
+        <li><strong>Admin</strong> — akses penuh: pengguna, pengaturan, hapus permanen, semua konten.</li>
+        <li><strong>Editor</strong> — buat/edit dokumen, halaman, list, form, workflow.</li>
+        <li><strong>Viewer</strong> — hanya melihat konten, berdiskusi, dan mengisi form.</li>
+    </ul>
+</div>
+
+@code {
+    private List<(ApplicationUser User, string Role)> _users = [];
+
+    protected override async Task OnInitializedCoreAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var users = UserManager.Users.OrderBy(u => u.DisplayName).ToList();
+        _users = [];
+        foreach (var user in users)
+        {
+            var roles = await UserManager.GetRolesAsync(user);
+            _users.Add((user, roles.FirstOrDefault() ?? "Viewer"));
+        }
+    }
+
+    private async Task ChangeRoleAsync(ApplicationUser user, string newRole)
+    {
+        var current = await UserManager.GetRolesAsync(user);
+        await UserManager.RemoveFromRolesAsync(user, current);
+        await UserManager.AddToRoleAsync(user, newRole);
+        await Audit.LogAsync("Auth", $"Role {user.DisplayName} diubah ke {newRole}", UserId, UserName);
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(ApplicationUser user)
+    {
+        if (!await JS.InvokeAsync<bool>("blazePoint.confirmDialog", $"Hapus pengguna '{user.DisplayName}'?")) return;
+        await UserManager.DeleteAsync(user);
+        await Audit.LogAsync("Auth", $"Pengguna {user.DisplayName} dihapus", UserId, UserName);
+        await LoadAsync();
+    }
+}

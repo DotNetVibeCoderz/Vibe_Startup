@@ -1,0 +1,124 @@
+@page "/sites/{Slug}"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject SiteService SitesSvc
+@inject DocumentService Docs
+@inject ListService ListsSvc
+@inject DiscussionService DiscussionsSvc
+@inject CalendarService Calendar
+@inject PageService Pages
+
+<PageTitle>@(_site?.Name ?? "Site") — BlazePoint</PageTitle>
+
+@if (_site is null)
+{
+    <div class="bp-empty"><div class="big">🤔</div>Site tidak ditemukan.</div>
+}
+else
+{
+    <div class="mp-intranet-header" style="background:linear-gradient(120deg, @_site.Color, @(_site.Color)aa)">
+        <div style="font-size:44px">@_site.Icon</div>
+        <h1 style="margin:4px 0 0">@_site.Name</h1>
+        <div style="opacity:.85">@_site.Description</div>
+    </div>
+
+    <div class="bp-grid-2">
+        <div>
+            <div class="bp-card">
+                <div class="bp-card-title"><span>📄 Halaman Site</span></div>
+                @if (_pages.Count == 0)
+                {
+                    <div class="bp-muted">Belum ada halaman untuk site ini.</div>
+                }
+                @foreach (var pg in _pages)
+                {
+                    <a class="bp-navitem" href="/p/@pg.Slug"><span class="icon">📃</span> @pg.Title</a>
+                }
+            </div>
+
+            <div class="bp-card">
+                <div class="bp-card-title"><span>📁 Dokumen Site</span><a class="bp-btn ghost sm" href="/documents">Semua →</a></div>
+                @if (_documents.Count == 0)
+                {
+                    <div class="bp-muted">Belum ada dokumen.</div>
+                }
+                @foreach (var doc in _documents.Take(6))
+                {
+                    <a class="bp-navitem" href="/documents/@doc.Id">
+                        <span class="icon">📄</span>
+                        <span>@doc.Name <span class="bp-muted">v@(doc.Version)</span></span>
+                    </a>
+                }
+            </div>
+
+            <div class="bp-card">
+                <div class="bp-card-title"><span>📋 Lists</span><a class="bp-btn ghost sm" href="/lists">Semua →</a></div>
+                @foreach (var list in _lists)
+                {
+                    <a class="bp-navitem" href="/lists/@list.Id"><span class="icon">@list.Icon</span> @list.Name</a>
+                }
+                @if (_lists.Count == 0)
+                {
+                    <div class="bp-muted">Belum ada list.</div>
+                }
+            </div>
+        </div>
+
+        <div>
+            <div class="bp-card">
+                <div class="bp-card-title"><span>📅 Event Site</span><a class="bp-btn ghost sm" href="/calendar">Kalender →</a></div>
+                @foreach (var evt in _events)
+                {
+                    <div class="bp-row" style="padding:6px 0;border-bottom:1px solid var(--divider)">
+                        <span style="width:10px;height:10px;border-radius:50%;background:@evt.Color"></span>
+                        <div>
+                            <div style="font-weight:600">@evt.Title</div>
+                            <div class="bp-muted">@evt.Start.ToString("dd MMM HH:mm") @evt.Location</div>
+                        </div>
+                    </div>
+                }
+                @if (_events.Count == 0)
+                {
+                    <div class="bp-muted">Tidak ada event mendatang.</div>
+                }
+            </div>
+
+            <div class="bp-card">
+                <div class="bp-card-title"><span>💬 Diskusi Site</span><a class="bp-btn ghost sm" href="/discussions">Semua →</a></div>
+                @foreach (var thread in _threads.Take(5))
+                {
+                    <a class="bp-navitem" href="/discussions/@thread.Id">
+                        <span class="icon">💬</span>
+                        <span>@thread.Title <span class="bp-muted">(@thread.Posts.Count balasan)</span></span>
+                    </a>
+                }
+                @if (_threads.Count == 0)
+                {
+                    <div class="bp-muted">Belum ada diskusi.</div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    private Site? _site;
+    private List<Document> _documents = [];
+    private List<ListDefinition> _lists = [];
+    private List<DiscussionThread> _threads = [];
+    private List<CalendarEvent> _events = [];
+    private List<CmsPage> _pages = [];
+
+    protected override async Task OnInitializedCoreAsync()
+    {
+        _site = await SitesSvc.GetBySlugAsync(Slug);
+        if (_site is null) return;
+        _documents = await Docs.GetByFolderAsync("/", _site.Id);
+        _lists = await ListsSvc.GetAllAsync(_site.Id);
+        _threads = await DiscussionsSvc.GetThreadsAsync(_site.Id);
+        _events = await Calendar.GetUpcomingAsync(5, _site.Id);
+        _pages = (await Pages.GetAllAsync(_site.Id)).Where(p => p.IsPublished).ToList();
+    }
+}

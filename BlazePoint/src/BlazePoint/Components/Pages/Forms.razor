@@ -1,0 +1,86 @@
+@page "/forms"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject FormService FormsSvc
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@using System.Text.Json
+
+<PageTitle>Form Designer — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <h1 style="margin:0">📝 Forms</h1>
+    <span class="bp-spacer"></span>
+    @if (IsEditor)
+    {
+        <a class="bp-btn" href="/forms/designer/0">＋ Form Baru</a>
+    }
+</div>
+
+<h3>📚 Template Library</h3>
+<div class="bp-grid-3">
+    @foreach (var form in _forms.Where(f => f.IsTemplate))
+    {
+        <div class="bp-card">
+            <div class="bp-card-title"><span>📋 @form.Name</span><span class="bp-chip blue">Template</span></div>
+            <p class="bp-muted">@form.Description</p>
+            <div class="bp-row">
+                <a class="bp-btn secondary sm" href="/forms/fill/@form.Id">✍️ Isi Form</a>
+                @if (IsEditor)
+                {
+                    <button class="bp-btn ghost sm" @onclick="() => CloneAsync(form)">📑 Duplikat</button>
+                    <a class="bp-btn ghost sm" href="/forms/designer/@form.Id">✏️</a>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<h3>📄 Form Saya</h3>
+<div class="bp-grid-3">
+    @foreach (var form in _forms.Where(f => !f.IsTemplate))
+    {
+        <div class="bp-card">
+            <div class="bp-card-title">📋 @form.Name</div>
+            <p class="bp-muted">@form.Description</p>
+            <div class="bp-row">
+                <a class="bp-btn secondary sm" href="/forms/fill/@form.Id">✍️ Isi</a>
+                @if (IsEditor)
+                {
+                    <a class="bp-btn ghost sm" href="/forms/designer/@form.Id">✏️ Edit</a>
+                    <button class="bp-btn ghost sm" @onclick="() => DeleteAsync(form)">🗑️</button>
+                }
+            </div>
+        </div>
+    }
+    @if (!_forms.Any(f => !f.IsTemplate))
+    {
+        <div class="bp-empty" style="grid-column:1/-1"><div class="big">📝</div>Belum ada form custom. Buat baru atau duplikat template.</div>
+    }
+</div>
+
+@code {
+    private List<FormDefinition> _forms = [];
+
+    protected override async Task OnInitializedCoreAsync() => _forms = await FormsSvc.GetAllAsync();
+
+    private async Task CloneAsync(FormDefinition template)
+    {
+        var clone = new FormDefinition
+        {
+            Name = template.Name + " (salinan)",
+            Description = template.Description,
+            SchemaJson = template.SchemaJson,
+            IsTemplate = false
+        };
+        var saved = await FormsSvc.SaveAsync(clone, UserId);
+        Nav.NavigateTo($"/forms/designer/{saved.Id}");
+    }
+
+    private async Task DeleteAsync(FormDefinition form)
+    {
+        if (!await JS.InvokeAsync<bool>("blazePoint.confirmDialog", $"Hapus form '{form.Name}'?")) return;
+        await FormsSvc.DeleteAsync(form.Id, UserId);
+        _forms = await FormsSvc.GetAllAsync();
+    }
+}

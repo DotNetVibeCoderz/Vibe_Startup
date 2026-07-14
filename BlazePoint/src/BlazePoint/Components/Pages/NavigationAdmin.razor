@@ -1,0 +1,104 @@
+@page "/navigation"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@inject NavigationService NavSvc
+
+<PageTitle>Manajemen Navigasi — BlazePoint</PageTitle>
+
+<h1>🧭 Manajemen Navigasi</h1>
+<p class="bp-muted">Atur menu Top Navigation dan Quick Launch (menu samping). Perubahan langsung terlihat oleh semua pengguna.</p>
+
+<div class="bp-grid-2">
+    @foreach (var location in new[] { NavLocation.TopNav, NavLocation.QuickLaunch })
+    {
+        var loc = location;
+        <div class="bp-card">
+            <div class="bp-card-title">@(loc == NavLocation.TopNav ? "⬆️ Top Navigation" : "◀️ Quick Launch (menu samping)")</div>
+            @foreach (var item in _items.Where(i => i.Location == loc).OrderBy(i => i.Order))
+            {
+                <div class="bp-row" style="padding:6px 0;border-bottom:1px solid var(--divider)">
+                    <span style="font-size:18px">@item.Icon</span>
+                    <strong style="min-width:110px">@item.Title</strong>
+                    <code class="bp-muted">@item.Url</code>
+                    <span class="bp-spacer"></span>
+                    <button class="bp-btn ghost sm" @onclick="() => MoveAsync(item, -1)">↑</button>
+                    <button class="bp-btn ghost sm" @onclick="() => MoveAsync(item, 1)">↓</button>
+                    <button class="bp-btn ghost sm" @onclick="() => Edit(item)">✏️</button>
+                    <button class="bp-btn ghost sm" @onclick="() => DeleteAsync(item)">🗑️</button>
+                </div>
+            }
+            <button class="bp-btn secondary sm bp-mt" @onclick="() => New(loc)">＋ Tambah Item</button>
+        </div>
+    }
+</div>
+
+@if (_editing is not null)
+{
+    <div class="bp-modal-backdrop" @onclick="() => _editing = null">
+        <div class="bp-modal" @onclick:stopPropagation>
+            <h3>@(_editing.Id == 0 ? "＋ Item Navigasi Baru" : "✏️ Edit Item")</h3>
+            <div class="bp-field"><label class="bp-label">Judul</label><input class="bp-input" @bind="_editing.Title" /></div>
+            <div class="bp-field"><label class="bp-label">URL</label><input class="bp-input" @bind="_editing.Url" placeholder="/documents atau https://…" /></div>
+            <div class="bp-field"><label class="bp-label">Icon (emoji)</label><input class="bp-input" @bind="_editing.Icon" /></div>
+            <div class="bp-field">
+                <label class="bp-label">Lokasi</label>
+                <select class="bp-select" @bind="_editing.Location">
+                    <option value="@NavLocation.TopNav">Top Navigation</option>
+                    <option value="@NavLocation.QuickLaunch">Quick Launch</option>
+                </select>
+            </div>
+            <div class="bp-row bp-mt">
+                <span class="bp-spacer"></span>
+                <button class="bp-btn secondary" @onclick="() => _editing = null">Batal</button>
+                <button class="bp-btn" @onclick="SaveAsync">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<NavigationItem> _items = [];
+    private NavigationItem? _editing;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var top = await NavSvc.GetAsync(NavLocation.TopNav);
+        var quick = await NavSvc.GetAsync(NavLocation.QuickLaunch);
+        _items = [.. top, .. quick];
+    }
+
+    private void New(NavLocation location)
+        => _editing = new NavigationItem
+        {
+            Location = location, Icon = "🔹",
+            Order = _items.Count(i => i.Location == location)
+        };
+
+    private void Edit(NavigationItem item)
+        => _editing = new NavigationItem
+        {
+            Id = item.Id, Title = item.Title, Url = item.Url, Icon = item.Icon,
+            Order = item.Order, Location = item.Location, SiteId = item.SiteId
+        };
+
+    private async Task SaveAsync()
+    {
+        if (_editing is null || string.IsNullOrWhiteSpace(_editing.Title)) return;
+        await NavSvc.SaveAsync(_editing);
+        _editing = null;
+        await LoadAsync();
+    }
+
+    private async Task MoveAsync(NavigationItem item, int direction)
+    {
+        await NavSvc.MoveAsync(item.Id, direction);
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(NavigationItem item)
+    {
+        await NavSvc.DeleteAsync(item.Id);
+        await LoadAsync();
+    }
+}

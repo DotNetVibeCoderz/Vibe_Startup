@@ -1,0 +1,45 @@
+@* SharePoint-style Countdown Timer toward a target date. *@
+@implements IDisposable
+
+<div style="text-align:center;padding:8px">
+    <div class="bp-muted">@Settings.GetValueOrDefault("label", "Menuju acara")</div>
+    @if (_remaining <= TimeSpan.Zero)
+    {
+        <div style="font-size:26px;font-weight:800;color:var(--bp-green)">🎉 Waktunya tiba!</div>
+    }
+    else
+    {
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:6px">
+            @foreach (var (value, unit) in new[] { (_remaining.Days, "hari"), (_remaining.Hours, "jam"), (_remaining.Minutes, "menit"), (_remaining.Seconds, "detik") })
+            {
+                <div style="background:var(--surface-2);border-radius:10px;padding:10px 12px;min-width:62px">
+                    <div style="font-size:24px;font-weight:800;font-variant-numeric:tabular-nums">@value</div>
+                    <div class="bp-muted" style="font-size:11px">@unit</div>
+                </div>
+            }
+        </div>
+    }
+    <div class="bp-muted" style="margin-top:6px">@_target.ToString("dddd, dd MMMM yyyy HH:mm")</div>
+</div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private DateTime _target;
+    private TimeSpan _remaining;
+    private System.Threading.Timer? _timer;
+
+    protected override void OnParametersSet()
+    {
+        if (!DateTime.TryParse(Settings.GetValueOrDefault("targetDate", ""), out _target))
+            _target = DateTime.Today.AddDays(30);
+        Tick();
+    }
+
+    protected override void OnInitialized()
+        => _timer = new System.Threading.Timer(_ => InvokeAsync(() => { Tick(); StateHasChanged(); }), null, 1000, 1000);
+
+    private void Tick() => _remaining = _target - DateTime.Now;
+
+    public void Dispose() => _timer?.Dispose();
+}

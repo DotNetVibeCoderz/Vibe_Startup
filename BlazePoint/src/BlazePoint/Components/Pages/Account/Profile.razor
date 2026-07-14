@@ -1,0 +1,162 @@
+@page "/profile"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject UserManager<ApplicationUser> UserManager
+@inject UserService Users
+@inject IFileStorage Storage
+@using Microsoft.AspNetCore.Identity
+
+<PageTitle>Profil — BlazePoint</PageTitle>
+
+<h1>👤 Profil Saya</h1>
+
+@if (_user is not null)
+{
+    <div class="bp-content-narrow" style="margin:0">
+        <div class="bp-card">
+            <div class="bp-row">
+                @if (_avatarUrl is not null)
+                {
+                    <img class="bp-avatar lg" style="object-fit:cover" src="@_avatarUrl" alt="@_user.DisplayName" />
+                }
+                else
+                {
+                    <span class="bp-avatar lg" style="background:@_user.AvatarColor">@_user.DisplayName[..1].ToUpper()</span>
+                }
+                <div style="flex:1">
+                    <h2 style="margin:0">@_user.DisplayName</h2>
+                    <div class="bp-muted">@_user.Email · terdaftar @_user.CreatedAt.ToLocalTime().ToString("dd MMMM yyyy")</div>
+                    <div class="bp-row bp-mt">
+                        @foreach (var role in _roles)
+                        {
+                            <span class="bp-chip blue">@role</span>
+                        }
+                    </div>
+                </div>
+                <div class="bp-row" style="flex-direction:column;align-items:stretch;gap:6px">
+                    <label class="bp-btn secondary sm" style="cursor:pointer">
+                        📷 Upload Foto
+                        <InputFile OnChange="OnAvatarUpload" accept="image/*" style="display:none" />
+                    </label>
+                    @if (_avatarUrl is not null)
+                    {
+                        <button class="bp-btn ghost sm" @onclick="RemoveAvatarAsync">🗑️ Hapus Foto</button>
+                    }
+                </div>
+            </div>
+            @if (_avatarMessage is not null)
+            {
+                <div class="@(_avatarOk ? "bp-success" : "bp-error") bp-mt">@_avatarMessage</div>
+            }
+        </div>
+
+        <div class="bp-card">
+            <div class="bp-card-title">✏️ Ubah Profil</div>
+            <div class="bp-field"><label class="bp-label">Nama tampilan</label><input class="bp-input" @bind="_displayName" /></div>
+            <div class="bp-field"><label class="bp-label">Warna avatar</label><input type="color" class="bp-input" style="max-width:100px" @bind="_avatarColor" /></div>
+            <button class="bp-btn" @onclick="SaveProfileAsync">💾 Simpan</button>
+            @if (_profileSaved)
+            {
+                <div class="bp-success bp-mt">✔ Profil tersimpan. Refresh halaman untuk melihat perubahan.</div>
+            }
+        </div>
+
+        <div class="bp-card">
+            <div class="bp-card-title">🔐 Ganti Password</div>
+            <div class="bp-field"><label class="bp-label">Password lama</label><input type="password" class="bp-input" @bind="_oldPassword" /></div>
+            <div class="bp-field"><label class="bp-label">Password baru</label><input type="password" class="bp-input" @bind="_newPassword" /></div>
+            <button class="bp-btn" @onclick="ChangePasswordAsync">🔐 Ganti Password</button>
+            @if (_passwordMessage is not null)
+            {
+                <div class="@(_passwordOk ? "bp-success" : "bp-error") bp-mt">@_passwordMessage</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private ApplicationUser? _user;
+    private IList<string> _roles = [];
+    private string _displayName = "", _avatarColor = "#1877f2";
+    private string _oldPassword = "", _newPassword = "";
+    private bool _profileSaved, _passwordOk, _avatarOk;
+    private string? _passwordMessage, _avatarMessage, _avatarUrl;
+
+    protected override async Task OnInitializedCoreAsync()
+    {
+        if (UserId is null) return;
+        _user = await UserManager.FindByIdAsync(UserId);
+        if (_user is not null)
+        {
+            _roles = await UserManager.GetRolesAsync(_user);
+            _displayName = _user.DisplayName;
+            _avatarColor = _user.AvatarColor;
+            _avatarUrl = (await Users.GetDisplayAsync(UserId)).AvatarUrl;
+        }
+    }
+
+    private async Task OnAvatarUpload(InputFileChangeEventArgs e)
+    {
+        if (UserId is null) return;
+        var file = e.File;
+        if (!file.ContentType.StartsWith("image/"))
+        {
+            _avatarOk = false;
+            _avatarMessage = "File harus berupa gambar (jpg/png/webp/gif).";
+            return;
+        }
+        try
+        {
+            // resize on the client-provided data to keep avatars small (max 512px)
+            var resized = await file.RequestImageFileAsync("image/jpeg", 512, 512);
+            var ext = "jpg";
+            var key = $"avatars/{UserId}/{Guid.NewGuid():N}.{ext}";
+            await using (var stream = resized.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024))
+            {
+                await Storage.SaveAsync(key, stream, "image/jpeg");
+            }
+            var previousKey = await Users.SetAvatarAsync(UserId, key);
+            if (previousKey is not null)
+                try { await Storage.DeleteAsync(previousKey); } catch { /* best-effort cleanup */ }
+            _avatarUrl = "/api/files/" + key;
+            _avatarOk = true;
+            _avatarMessage = "✔ Foto profil tersimpan. Refresh halaman agar tampil di seluruh aplikasi.";
+        }
+        catch (Exception ex)
+        {
+            _avatarOk = false;
+            _avatarMessage = "Gagal upload foto: " + ex.Message;
+        }
+    }
+
+    private async Task RemoveAvatarAsync()
+    {
+        if (UserId is null) return;
+        var previousKey = await Users.SetAvatarAsync(UserId, null);
+        if (previousKey is not null)
+            try { await Storage.DeleteAsync(previousKey); } catch { /* best-effort cleanup */ }
+        _avatarUrl = null;
+        _avatarOk = true;
+        _avatarMessage = "Foto profil dihapus.";
+    }
+
+    private async Task SaveProfileAsync()
+    {
+        if (_user is null || string.IsNullOrWhiteSpace(_displayName)) return;
+        _user.DisplayName = _displayName;
+        _user.AvatarColor = _avatarColor;
+        await UserManager.UpdateAsync(_user);
+        _profileSaved = true;
+    }
+
+    private async Task ChangePasswordAsync()
+    {
+        if (_user is null) return;
+        var result = await UserManager.ChangePasswordAsync(_user, _oldPassword, _newPassword);
+        _passwordOk = result.Succeeded;
+        _passwordMessage = result.Succeeded
+            ? "✔ Password berhasil diganti."
+            : string.Join("; ", result.Errors.Select(e => e.Description));
+        _oldPassword = _newPassword = "";
+    }
+}

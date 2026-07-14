@@ -1,0 +1,57 @@
+@* SharePoint-style List view: renders items of a custom list inside a page. *@
+@inject ListService Lists
+
+@if (_list is null)
+{
+    <div class="bp-muted">List #@Settings.GetValueOrDefault("listId", "?") tidak ditemukan. Isi properti "listId".</div>
+}
+else
+{
+    <div class="bp-row bp-mb">
+        <strong>@_list.Icon @_list.Name</strong>
+        <span class="bp-spacer"></span>
+        <a class="bp-btn ghost sm" href="/lists/@_list.Id">Buka list →</a>
+    </div>
+    <div class="bp-table-wrap">
+        <table class="bp-table">
+            <thead>
+                <tr>
+                    @foreach (var col in _columns)
+                    {
+                        <th>@col.Name</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in _items)
+                {
+                    var values = ListService.ParseValues(item.ValuesJson);
+                    <tr>
+                        @foreach (var col in _columns)
+                        {
+                            <td>@ListService.DisplayValue(values, col.Name)</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private ListDefinition? _list;
+    private List<ListColumn> _columns = [];
+    private List<ListItemEntity> _items = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!int.TryParse(Settings.GetValueOrDefault("listId", "1"), out var listId)) return;
+        _list = await Lists.GetAsync(listId);
+        if (_list is null) return;
+        var count = int.TryParse(Settings.GetValueOrDefault("count", "5"), out var c) ? c : 5;
+        _columns = ListService.ParseColumns(_list.ColumnsJson).Where(col => col.ShowInView).ToList();
+        _items = (await Lists.GetItemsAsync(listId)).Take(count).ToList();
+    }
+}

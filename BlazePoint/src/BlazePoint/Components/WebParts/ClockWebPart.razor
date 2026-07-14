@@ -1,0 +1,41 @@
+@implements IDisposable
+
+<div style="text-align:center;padding:8px">
+    <div style="font-size:36px;font-weight:800;font-variant-numeric:tabular-nums">@_now.ToString("HH:mm:ss")</div>
+    <div class="bp-muted">@_now.ToString("dddd, dd MMMM yyyy")</div>
+    <div class="bp-muted">@_tzLabel</div>
+</div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private DateTime _now = DateTime.Now;
+    private string _tzLabel = "";
+    private TimeZoneInfo? _tz;
+    private System.Threading.Timer? _timer;
+
+    protected override void OnParametersSet()
+    {
+        var tzId = Settings.GetValueOrDefault("timezone", "");
+        try
+        {
+            _tz = string.IsNullOrEmpty(tzId) ? TimeZoneInfo.Local : TimeZoneInfo.FindSystemTimeZoneById(tzId);
+            _tzLabel = _tz.DisplayName;
+        }
+        catch
+        {
+            _tz = TimeZoneInfo.Local;
+            _tzLabel = _tz.DisplayName;
+        }
+        Tick();
+    }
+
+    protected override void OnInitialized()
+        => _timer = new System.Threading.Timer(_ => InvokeAsync(() => { Tick(); StateHasChanged(); }),
+            null, 1000, 1000);
+
+    private void Tick()
+        => _now = _tz is null ? DateTime.Now : TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _tz);
+
+    public void Dispose() => _timer?.Dispose();
+}

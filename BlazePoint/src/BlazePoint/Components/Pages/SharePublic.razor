@@ -1,0 +1,46 @@
+@page "/share/{Token}"
+@layout EmptyLayout
+@inject ShareLinkService Shares
+
+<PageTitle>File Dibagikan — BlazePoint</PageTitle>
+
+<div class="bp-auth-page">
+    <div class="bp-auth-card" style="max-width:460px;text-align:center">
+        <div style="font-size:26px;font-weight:800;color:var(--bp-blue);margin-bottom:16px">🔷 BlazePoint</div>
+        @if (_link is null)
+        {
+            <div class="bp-error">Link tidak ditemukan atau sudah dihapus.</div>
+        }
+        else if (_expired)
+        {
+            <div class="bp-error">⌛ Link ini sudah kedaluwarsa (@_link.ExpiresAt?.ToLocalTime().ToString("dd MMM yyyy")).</div>
+        }
+        else
+        {
+            <div style="font-size:52px">📄</div>
+            <h2>@_link.Document?.Name</h2>
+            <div class="bp-muted bp-mb">
+                @($"{(_link.Document?.Size ?? 0) / 1024.0:0.#} KB") · versi @_link.Document?.Version
+                @(_link.IsPublic ? "" : " · memerlukan login")
+            </div>
+            <a class="bp-btn" style="width:100%" href="/api/share/@Token/download">⬇️ Download File</a>
+            @if (_link.ExpiresAt is not null)
+            {
+                <div class="bp-muted bp-mt">Link berlaku sampai @_link.ExpiresAt?.ToLocalTime().ToString("dd MMMM yyyy")</div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+
+    private ShareLink? _link;
+    private bool _expired;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _link = await Shares.GetByTokenAsync(Token);
+        _expired = _link?.ExpiresAt is not null && _link.ExpiresAt < DateTime.UtcNow;
+    }
+}

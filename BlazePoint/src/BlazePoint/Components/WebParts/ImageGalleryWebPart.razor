@@ -1,0 +1,28 @@
+@* SharePoint-style Image Gallery: grid of images (one URL per line) with click-to-enlarge. *@
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px">
+    @foreach (var url in Urls)
+    {
+        var u = url;
+        <img src="@u" alt="" loading="lazy"
+             style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;cursor:zoom-in"
+             @onclick="() => _zoom = u" />
+    }
+</div>
+
+@if (_zoom is not null)
+{
+    <div class="bp-modal-backdrop" @onclick="() => _zoom = null">
+        <img src="@_zoom" alt="" style="max-width:92vw;max-height:88vh;border-radius:10px" />
+    </div>
+}
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private string? _zoom;
+
+    private IEnumerable<string> Urls =>
+        Settings.GetValueOrDefault("urls", "https://picsum.photos/id/10/400\nhttps://picsum.photos/id/20/400\nhttps://picsum.photos/id/30/400")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+}

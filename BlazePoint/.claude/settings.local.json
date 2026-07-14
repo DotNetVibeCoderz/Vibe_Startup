@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(dotnet --list-sdks; dotnet --version)",
+      "PowerShell(dotnet new blazor -n BlazePoint -o src/BlazePoint --interactivity Server --auth None --no-https false; dotnet new sln -n BlazePoint; dotnet sln add src/BlazePoint/BlazePoint.csproj)",
+      "PowerShell(Set-Content *)",
+      "PowerShell($f = \"C:\\\\Users\\\\mifma\\\\Documents\\\\CodeSandbox\\\\BlazePoint\\\\src\\\\BlazePoint\\\\Components\\\\Pages\\\\Workflows.razor\"; $c = [System.IO.File]::ReadAllText\\($f\\); $c = $c.Replace\\('await Workflows.GetDefinitionsAsync\\(\\)', 'await WorkflowsSvc.GetDefinitionsAsync\\(\\)'\\).Replace\\('await Workflows.GetInstancesAsync\\(\\)', 'await WorkflowsSvc.GetInstancesAsync\\(\\)'\\).Replace\\('await Workflows.StartAsync\\(', 'await WorkflowsSvc.StartAsync\\('\\).Replace\\('await Workflows.DeleteDefinitionAsync\\(', 'await WorkflowsSvc.DeleteDefinitionAsync\\('\\); [System.IO.File]::WriteAllText\\($f, $c, \\(New-Object System.Text.UTF8Encoding $false\\)\\))",
+      "PowerShell(dotnet build *)",
+      "PowerShell(Start-Sleep -Seconds 12; try { $r = Invoke-WebRequest -Uri \"http://localhost:5112/account/login\" -UseBasicParsing -TimeoutSec 20; \"STATUS: $\\($r.StatusCode\\)\"; \\($r.Content.Substring\\(0, [Math]::Min\\(400, $r.Content.Length\\)\\)\\) } catch { \"ERROR: $\\($_.Exception.Message\\)\" })",
+      "PowerShell(Start-Sleep -Seconds 10; try { $r = Invoke-WebRequest -Uri \"http://localhost:5112/account/login\" -UseBasicParsing -TimeoutSec 30; \"APP UP: $\\($r.StatusCode\\)\" } catch { \"ERROR: $\\($_.Exception.Message\\)\" })",
+      "PowerShell($conn = Get-NetTCPConnection -LocalPort 5112 -State Listen -ErrorAction SilentlyContinue; if \\($conn\\) { $p = Get-Process -Id $conn[0].OwningProcess -ErrorAction SilentlyContinue; \"PORT 5112 DIPAKAI oleh: $\\($p.ProcessName\\) \\(PID $\\($p.Id\\)\\)\" } else { \"PORT 5112 KOSONG\" })",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Start-Sleep -Seconds 10; try { $r = Invoke-WebRequest -Uri \"http://localhost:5112/\" -UseBasicParsing -TimeoutSec 30 -MaximumRedirection 5; \"APP UP: $\\($r.StatusCode\\)\" } catch { \"ERROR: $\\($_.Exception.Message\\)\" })"
+    ]
+  }
+}

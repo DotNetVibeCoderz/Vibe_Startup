@@ -1,0 +1,42 @@
+@* SharePoint-style People: directory cards of portal users. *@
+@inject UserService Users
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">
+    @foreach (var person in _people)
+    {
+        <div style="background:var(--surface-2);border-radius:10px;padding:14px;text-align:center">
+            @if (person.AvatarUrl is not null)
+            {
+                <img class="bp-avatar lg" style="object-fit:cover;margin:0 auto 8px;display:inline-flex" src="@person.AvatarUrl" alt="@person.Name" />
+            }
+            else
+            {
+                <span class="bp-avatar lg" style="background:@person.Color;margin:0 auto 8px;display:inline-flex">
+                    @(string.IsNullOrEmpty(person.Name) ? "?" : person.Name[..1].ToUpper())
+                </span>
+            }
+            <div style="font-weight:700;font-size:14px">@person.Name</div>
+            <div class="bp-muted" style="overflow:hidden;text-overflow:ellipsis">@person.Email</div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private record Person(string Name, string? Email, string Color, string? AvatarUrl);
+
+    private List<Person> _people = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var count = int.TryParse(Settings.GetValueOrDefault("count", "6"), out var c) ? c : 6;
+        var users = (await Users.GetAllAsync()).Take(count).ToList();
+        _people = [];
+        foreach (var user in users)
+        {
+            var display = await Users.GetDisplayAsync(user.Id);
+            _people.Add(new Person(user.DisplayName, user.Email, user.AvatarColor, display.AvatarUrl));
+        }
+    }
+}

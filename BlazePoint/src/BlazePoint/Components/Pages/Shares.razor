@@ -1,0 +1,69 @@
+@page "/shares"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject ShareLinkService SharesSvc
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Link Berbagi — BlazePoint</PageTitle>
+
+<h1>🔗 Link Berbagi File</h1>
+<p class="bp-muted">Kelola link publik/privat untuk berbagi dokumen. Buat link baru dari halaman detail dokumen.</p>
+
+<div class="bp-card">
+    <div class="bp-table-wrap">
+        <table class="bp-table">
+            <thead><tr><th>Dokumen</th><th>Akses</th><th>Kedaluwarsa</th><th>Unduhan</th><th>Dibuat</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var link in _links)
+                {
+                    <tr>
+                        <td>📄 <a href="/documents/@link.DocumentId">@(link.Document?.Name ?? $"#{link.DocumentId}")</a></td>
+                        <td><span class="bp-chip @(link.IsPublic ? "green" : "yellow")">@(link.IsPublic ? "🌐 Publik" : "🔒 Login")</span></td>
+                        <td>
+                            @if (link.ExpiresAt is null)
+                            {
+                                <span class="bp-muted">Tanpa batas</span>
+                            }
+                            else if (link.ExpiresAt < DateTime.UtcNow)
+                            {
+                                <span class="bp-chip red">Kedaluwarsa</span>
+                            }
+                            else
+                            {
+                                @link.ExpiresAt.Value.ToLocalTime().ToString("dd MMM yyyy")
+                            }
+                        </td>
+                        <td>@link.DownloadCount×</td>
+                        <td>@link.CreatedAt.ToLocalTime().ToString("dd MMM yyyy")</td>
+                        <td class="bp-row" style="flex-wrap:nowrap">
+                            <button class="bp-btn ghost sm" @onclick="() => Copy(link)">📋 Salin Link</button>
+                            <a class="bp-btn ghost sm" href="/share/@link.Token" target="_blank">👁️</a>
+                            <button class="bp-btn ghost sm" @onclick="() => DeleteAsync(link)">🗑️</button>
+                        </td>
+                    </tr>
+                }
+                @if (_links.Count == 0)
+                {
+                    <tr><td colspan="6"><div class="bp-empty"><div class="big">🔗</div>Belum ada link berbagi.</div></td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<ShareLink> _links = [];
+
+    protected override async Task OnInitializedCoreAsync()
+        => _links = await SharesSvc.GetAllAsync(IsAdmin ? null : UserId);
+
+    private async Task Copy(ShareLink link)
+        => await JS.InvokeVoidAsync("blazePoint.copyText", $"{Nav.BaseUri.TrimEnd('/')}/share/{link.Token}");
+
+    private async Task DeleteAsync(ShareLink link)
+    {
+        await SharesSvc.DeleteAsync(link.Id, UserId);
+        _links = await SharesSvc.GetAllAsync(IsAdmin ? null : UserId);
+    }
+}

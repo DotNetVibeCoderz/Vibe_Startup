@@ -1,0 +1,29 @@
+@page "/account/register"
+@layout EmptyLayout
+
+<PageTitle>Daftar — BlazePoint</PageTitle>
+
+<div class="bp-auth-page">
+    <div class="bp-auth-card">
+        <h2 style="text-align:center;margin-top:0">🔷 Buat Akun BlazePoint</h2>
+        @if (Error is not null)
+        {
+            <div class="bp-error">@Error</div>
+        }
+        <form method="post" action="/auth/register">
+            <input class="bp-input" name="displayName" placeholder="Nama lengkap" required autofocus />
+            <input class="bp-input" type="email" name="email" placeholder="Email" required />
+            <input class="bp-input" type="password" name="password" placeholder="Password (min. 6 karakter)" required minlength="6" />
+            <input class="bp-input" type="password" name="confirmPassword" placeholder="Ulangi password" required />
+            <button type="submit" class="bp-btn success">Daftar</button>
+        </form>
+        <div class="bp-muted bp-mt">Akun baru mendapat role <strong>Viewer</strong>. Admin dapat mengubah role dari Admin Panel.</div>
+        <div style="text-align:center;margin-top:14px">
+            Sudah punya akun? <a href="/account/login">Masuk</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+}

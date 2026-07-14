@@ -1,0 +1,33 @@
+@* SharePoint-style Quick Links: list of shortcut tiles.
+   Setting "links" format: one per line → "Judul|/url|🔗" *@
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">
+    @foreach (var link in ParseLinks())
+    {
+        <a href="@link.Url" class="bp-navitem" style="flex-direction:column;text-align:center;background:var(--surface-2);border-radius:10px;padding:14px 8px">
+            <span style="font-size:26px">@link.Icon</span>
+            <span style="font-weight:600;font-size:13px">@link.Title</span>
+        </a>
+    }
+</div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private record QuickLink(string Title, string Url, string Icon);
+
+    private List<QuickLink> ParseLinks()
+    {
+        var raw = Settings.GetValueOrDefault("links", "Dokumen|/documents|📁\nKalender|/calendar|📅");
+        var result = new List<QuickLink>();
+        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = line.Split('|');
+            result.Add(new QuickLink(
+                parts.ElementAtOrDefault(0) ?? "Link",
+                parts.ElementAtOrDefault(1) ?? "#",
+                parts.ElementAtOrDefault(2) ?? "🔗"));
+        }
+        return result;
+    }
+}

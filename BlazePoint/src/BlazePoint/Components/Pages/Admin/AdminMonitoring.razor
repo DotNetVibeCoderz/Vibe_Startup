@@ -1,0 +1,74 @@
+@page "/admin/monitoring"
+@attribute [Authorize(Roles = "Admin")]
+@inject AuditService Audit
+@inject DashboardService Dashboard
+
+<PageTitle>Monitoring — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <h1 style="margin:0">📈 Monitoring & Audit Log</h1>
+    <span class="bp-spacer"></span>
+    <select class="bp-select" style="max-width:180px" value="@_category" @onchange="OnCategoryChanged">
+        <option value="">Semua kategori</option>
+        <option>Auth</option>
+        <option>Document</option>
+        <option>Page</option>
+        <option>List</option>
+        <option>Workflow</option>
+        <option>Calendar</option>
+        <option>Form</option>
+        <option>Site</option>
+        <option>System</option>
+    </select>
+    <button class="bp-btn secondary" @onclick="LoadAsync">🔄 Refresh</button>
+</div>
+
+@if (_stats is not null)
+{
+    <div class="bp-kpi-row">
+        <div class="bp-kpi"><span class="value">@_stats.UserCount</span><span class="label">Total Pengguna</span></div>
+        <div class="bp-kpi"><span class="value">@_stats.DocumentCount</span><span class="label">Dokumen Aktif</span></div>
+        <div class="bp-kpi"><span class="value">@($"{_stats.TotalStorageBytes / 1048576.0:0.#}") MB</span><span class="label">Storage</span></div>
+        <div class="bp-kpi"><span class="value">@_stats.ChatSessions</span><span class="label">Sesi Chat Clippy</span></div>
+        <div class="bp-kpi"><span class="value">@_logs.Count</span><span class="label">Log Ditampilkan</span></div>
+    </div>
+}
+
+<div class="bp-card">
+    <div class="bp-table-wrap">
+        <table class="bp-table">
+            <thead><tr><th>Waktu</th><th>Kategori</th><th>Pesan</th><th>Pengguna</th></tr></thead>
+            <tbody>
+                @foreach (var log in _logs)
+                {
+                    <tr>
+                        <td style="white-space:nowrap">@log.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm:ss")</td>
+                        <td><span class="bp-chip blue">@log.Category</span></td>
+                        <td>@log.Message</td>
+                        <td><UserBadge UserId="@log.UserId" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<AuditLog> _logs = [];
+    private DashboardStats? _stats;
+    private string _category = "";
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task OnCategoryChanged(ChangeEventArgs e)
+    {
+        _category = e.Value?.ToString() ?? "";
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _logs = await Audit.GetRecentAsync(200, string.IsNullOrEmpty(_category) ? null : _category);
+        _stats = await Dashboard.GetStatsAsync();
+    }
+}

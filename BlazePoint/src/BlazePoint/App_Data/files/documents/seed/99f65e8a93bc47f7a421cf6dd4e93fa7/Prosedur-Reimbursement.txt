@@ -1,0 +1,8 @@
+PROSEDUR REIMBURSEMENT
+
+1. Kumpulkan bukti pembayaran (struk/invoice) maksimal 30 hari setelah transaksi.
+2. Isi form reimbursement di menu Forms dengan nominal dan kategori biaya.
+3. Persetujuan berjenjang: atasan langsung -> Finance.
+4. Dana cair ke rekening payroll dalam 7 hari kerja setelah disetujui.
+
+Batas reimbursement tanpa persetujuan direksi: Rp 5.000.000 per pengajuan.

@@ -1,0 +1,128 @@
+@page "/lists"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject ListService ListsSvc
+@inject IJSRuntime JS
+
+<PageTitle>Lists — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <h1 style="margin:0">📋 Custom Lists</h1>
+    <span class="bp-spacer"></span>
+    @if (IsEditor)
+    {
+        <button class="bp-btn" @onclick="NewList">＋ List Baru</button>
+    }
+</div>
+
+<div class="bp-grid-3">
+    @foreach (var list in _lists)
+    {
+        <div class="bp-card">
+            <div class="bp-card-title">
+                <span>@list.Icon @list.Name</span>
+                @if (IsEditor)
+                {
+                    <span class="bp-row" style="flex-wrap:nowrap">
+                        <button class="bp-btn ghost sm" @onclick="() => EditList(list)">✏️</button>
+                        <button class="bp-btn ghost sm" @onclick="() => DeleteListAsync(list)">🗑️</button>
+                    </span>
+                }
+            </div>
+            <p class="bp-muted">@list.Description</p>
+            <div class="bp-row">
+                @foreach (var col in ListService.ParseColumns(list.ColumnsJson).Take(4))
+                {
+                    <span class="bp-chip">@col.Name</span>
+                }
+            </div>
+            <a class="bp-btn secondary bp-mt" href="/lists/@list.Id">Buka List →</a>
+        </div>
+    }
+    @if (_lists.Count == 0)
+    {
+        <div class="bp-empty"><div class="big">📋</div>Belum ada list. Buat list pertama Anda!</div>
+    }
+</div>
+
+@if (_editing is not null)
+{
+    <div class="bp-modal-backdrop" @onclick="() => _editing = null">
+        <div class="bp-modal lg" @onclick:stopPropagation>
+            <h3>@(_editing.Id == 0 ? "＋ List Baru" : "✏️ Edit List") — Desainer Kolom</h3>
+            <div class="bp-grid-2">
+                <div class="bp-field"><label class="bp-label">Nama</label><input class="bp-input" @bind="_editing.Name" /></div>
+                <div class="bp-field"><label class="bp-label">Icon (emoji)</label><input class="bp-input" @bind="_editing.Icon" /></div>
+            </div>
+            <div class="bp-field"><label class="bp-label">Deskripsi</label><input class="bp-input" @bind="_editing.Description" /></div>
+
+            <h4>Kolom Dinamis</h4>
+            @foreach (var col in _columns)
+            {
+                <div class="bp-row bp-mb">
+                    <input class="bp-input" style="flex:2" placeholder="Nama kolom" @bind="col.Name" />
+                    <select class="bp-select" style="flex:1" @bind="col.Type">
+                        <option>Text</option><option>Number</option><option>Date</option>
+                        <option>Choice</option><option>Boolean</option><option>Url</option>
+                    </select>
+                    @if (col.Type == "Choice")
+                    {
+                        <input class="bp-input" style="flex:2" placeholder="Pilihan (pisah koma)"
+                               value="@string.Join(", ", col.Choices)"
+                               @onchange='e => col.Choices = (e.Value?.ToString() ?? "").Split(",", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()' />
+                    }
+                    <label class="bp-row" style="gap:4px"><input type="checkbox" @bind="col.Required" /> Wajib</label>
+                    <button class="bp-btn ghost sm" @onclick="() => _columns.Remove(col)">✕</button>
+                </div>
+            }
+            <button class="bp-btn secondary sm" @onclick='() => _columns.Add(new ListColumn { Name = $"Kolom{_columns.Count + 1}" })'>＋ Tambah Kolom</button>
+
+            <div class="bp-row bp-mt">
+                <span class="bp-spacer"></span>
+                <button class="bp-btn secondary" @onclick="() => _editing = null">Batal</button>
+                <button class="bp-btn" @onclick="SaveListAsync">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ListDefinition> _lists = [];
+    private ListDefinition? _editing;
+    private List<ListColumn> _columns = [];
+
+    protected override async Task OnInitializedCoreAsync() => _lists = await ListsSvc.GetAllAsync();
+
+    private void NewList()
+    {
+        _editing = new ListDefinition { Icon = "📋" };
+        _columns = [new ListColumn { Name = "Judul", Required = true }];
+    }
+
+    private void EditList(ListDefinition list)
+    {
+        _editing = new ListDefinition
+        {
+            Id = list.Id, Name = list.Name, Description = list.Description,
+            Icon = list.Icon, SiteId = list.SiteId, ColumnsJson = list.ColumnsJson, CreatedAt = list.CreatedAt
+        };
+        _columns = ListService.ParseColumns(list.ColumnsJson);
+    }
+
+    private async Task SaveListAsync()
+    {
+        if (_editing is null || string.IsNullOrWhiteSpace(_editing.Name)) return;
+        _editing.ColumnsJson = ListService.SerializeColumns(_columns.Where(c => !string.IsNullOrWhiteSpace(c.Name)).ToList());
+        await ListsSvc.SaveAsync(_editing, UserId);
+        _editing = null;
+        _lists = await ListsSvc.GetAllAsync();
+    }
+
+    private async Task DeleteListAsync(ListDefinition list)
+    {
+        if (!await JS.InvokeAsync<bool>("blazePoint.confirmDialog",
+            $"Hapus list '{list.Name}' beserta semua itemnya?")) return;
+        await ListsSvc.DeleteAsync(list.Id, UserId);
+        _lists = await ListsSvc.GetAllAsync();
+    }
+}

@@ -1,0 +1,63 @@
+@page "/recycle-bin"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject DocumentService Docs
+@inject IJSRuntime JS
+
+<PageTitle>Recycle Bin — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <h1 style="margin:0">🗑️ Recycle Bin</h1>
+    <span class="bp-spacer"></span>
+    <a class="bp-btn secondary" href="/documents">← Dokumen</a>
+</div>
+
+<div class="bp-card">
+    <div class="bp-table-wrap">
+        <table class="bp-table">
+            <thead><tr><th>Nama</th><th>Folder Asal</th><th>Ukuran</th><th>Dihapus</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var doc in _docs)
+                {
+                    <tr>
+                        <td>📄 @doc.Name</td>
+                        <td>@doc.FolderPath</td>
+                        <td>@($"{doc.Size / 1024.0:0.#} KB")</td>
+                        <td>@doc.DeletedAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm")</td>
+                        <td class="bp-row" style="flex-wrap:nowrap">
+                            <button class="bp-btn success sm" @onclick="() => RestoreAsync(doc)">↩️ Pulihkan</button>
+                            @if (IsAdmin)
+                            {
+                                <button class="bp-btn danger sm" @onclick="() => PurgeAsync(doc)">❌ Hapus Permanen</button>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (_docs.Count == 0)
+                {
+                    <tr><td colspan="5"><div class="bp-empty"><div class="big">✨</div>Recycle bin kosong.</div></td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<Document> _docs = [];
+
+    protected override async Task OnInitializedCoreAsync() => _docs = await Docs.GetRecycleBinAsync();
+
+    private async Task RestoreAsync(Document doc)
+    {
+        await Docs.RestoreAsync(doc.Id, UserId);
+        _docs = await Docs.GetRecycleBinAsync();
+    }
+
+    private async Task PurgeAsync(Document doc)
+    {
+        if (!await JS.InvokeAsync<bool>("blazePoint.confirmDialog",
+            $"Hapus permanen '{doc.Name}'? Tindakan ini tidak bisa dibatalkan.")) return;
+        await Docs.PurgeAsync(doc.Id, UserId);
+        _docs = await Docs.GetRecycleBinAsync();
+    }
+}

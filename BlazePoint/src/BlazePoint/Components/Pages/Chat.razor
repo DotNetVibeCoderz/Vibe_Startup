@@ -1,0 +1,248 @@
+@page "/chat"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject ClippyService Clippy
+@inject MarkdownService Markdown
+@inject IJSRuntime JS
+
+<PageTitle>Clippy — BlazePoint</PageTitle>
+
+<div class="bp-chat-layout">
+    @* ---------- sessions sidebar ---------- *@
+    <div class="bp-chat-sessions">
+        <button class="bp-btn" @onclick="NewSessionAsync">＋ Percakapan Baru</button>
+        <div class="bp-sidebar-section">Riwayat</div>
+        @foreach (var session in _sessions)
+        {
+            var s = session;
+            <div class="bp-chat-session @(s.Id == _current?.Id ? "active" : "")"
+                 @onclick="() => SelectSessionAsync(s)">
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">💬 @s.Title</span>
+                <button class="bp-btn ghost sm" title="Hapus" @onclick:stopPropagation
+                        @onclick="() => DeleteSessionAsync(s)">🗑️</button>
+            </div>
+        }
+    </div>
+
+    @* ---------- main chat ---------- *@
+    <div class="bp-chat-main">
+        <div class="bp-row" style="padding:12px 16px;border-bottom:1px solid var(--divider)">
+            <span style="font-size:26px">📎</span>
+            <div>
+                <div style="font-weight:800">Clippy</div>
+                <div class="bp-muted">Asisten AI BlazePoint · @Clippy.Provider (@Clippy.ModelName)</div>
+            </div>
+            <span class="bp-spacer"></span>
+            @if (_current is not null)
+            {
+                <button class="bp-btn secondary sm" @onclick="ResetSessionAsync">🔄 Reset Sesi</button>
+            }
+        </div>
+
+        @if (!Clippy.IsConfigured)
+        {
+            <div class="bp-error" style="margin:12px 16px">
+                ⚠️ API key untuk provider <strong>@Clippy.Provider</strong> belum diisi.
+                Set <code>Clippy:@(Clippy.Provider):ApiKey</code> di <code>appsettings.json</code>,
+                atau ganti <code>Clippy:Provider</code> ke <code>Ollama</code> untuk model lokal.
+            </div>
+        }
+
+        <div class="bp-chat-messages" id="chat-scroll">
+            @if (_current is null)
+            {
+                <div class="bp-empty" style="margin:auto">
+                    <div class="big">📎</div>
+                    <h3>Halo! Saya Clippy 👋</h3>
+                    <p>Tanya apa saja: data portal, hitungan, pencarian internet, atau baca halaman web.<br />
+                       Mulai percakapan baru untuk memulai.</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var message in _messages)
+                {
+                    <div class="bp-msg @(message.Role == "user" ? "user" : "")">
+                        <span class="bp-avatar sm" style="background:@(message.Role == "user" ? "var(--bp-blue)" : "var(--bp-green)")">
+                            @(message.Role == "user" ? UserInitial : "📎")
+                        </span>
+                        <div class="bp-msg-bubble">
+                            @foreach (var att in ClippyService.ParseAttachments(message.AttachmentsJson))
+                            {
+                                @if (att.IsImage)
+                                {
+                                    <img src="@att.Url" alt="@att.Name" />
+                                }
+                                else
+                                {
+                                    <div class="bp-attachment-chip">📎 <a href="@att.Url" target="_blank">@att.Name</a></div>
+                                }
+                            }
+                            @((MarkupString)Markdown.ToHtml(message.Content))
+                        </div>
+                    </div>
+                }
+                @if (_streaming is not null)
+                {
+                    <div class="bp-msg">
+                        <span class="bp-avatar sm" style="background:var(--bp-green)">📎</span>
+                        <div class="bp-msg-bubble">
+                            @((MarkupString)Markdown.ToHtml(_streaming))
+                            <div class="bp-typing">Clippy sedang mengetik…</div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+
+        @if (_current is not null)
+        {
+            @if (_attachments.Count > 0)
+            {
+                <div class="bp-attachment-preview">
+                    @foreach (var att in _attachments)
+                    {
+                        <span class="bp-attachment-chip">
+                            @if (att.IsImage)
+                            {
+                                <img src="@att.Url" alt="@att.Name" />
+                            }
+                            else
+                            {
+                                <span>📎</span>
+                            }
+                            @att.Name
+                            <button class="bp-btn ghost sm" @onclick="() => _attachments.Remove(att)">✕</button>
+                        </span>
+                    }
+                </div>
+            }
+            <div class="bp-chat-input">
+                <label class="bp-icon-btn" title="Lampirkan gambar/dokumen">
+                    📎
+                    <InputFile OnChange="OnAttach" multiple style="display:none" />
+                </label>
+                <textarea class="bp-textarea" rows="1" placeholder="Tulis pesan untuk Clippy…"
+                          @bind="_input" @bind:event="oninput" @onkeydown="OnKeyDown"
+                          disabled="@_busy"></textarea>
+                <button class="bp-btn" @onclick="SendAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_input))">
+                    @if (_busy)
+                    {
+                        <span class="bp-loading"></span>
+                    }
+                    else
+                    {
+                        <span>➤</span>
+                    }
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<ChatSession> _sessions = [];
+    private ChatSession? _current;
+    private List<ChatMessageEntity> _messages = [];
+    private readonly List<ChatAttachment> _attachments = [];
+    private string _input = "";
+    private string? _streaming;
+    private bool _busy;
+
+    private string UserInitial => string.IsNullOrEmpty(UserName) ? "U" : UserName[..1].ToUpperInvariant();
+
+    protected override async Task OnInitializedCoreAsync()
+    {
+        if (UserId is null) return;
+        _sessions = await Clippy.GetSessionsAsync(UserId);
+        if (_sessions.Count > 0) await SelectSessionAsync(_sessions[0]);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await JS.InvokeVoidAsync("blazePoint.highlightCode", "#chat-scroll");
+        await JS.InvokeVoidAsync("blazePoint.scrollToBottom", "chat-scroll");
+    }
+
+    private async Task NewSessionAsync()
+    {
+        if (UserId is null) return;
+        _current = await Clippy.CreateSessionAsync(UserId);
+        _sessions = await Clippy.GetSessionsAsync(UserId);
+        _messages = [];
+    }
+
+    private async Task SelectSessionAsync(ChatSession session)
+    {
+        _current = session;
+        _messages = await Clippy.GetMessagesAsync(session.Id);
+    }
+
+    private async Task DeleteSessionAsync(ChatSession session)
+    {
+        await Clippy.DeleteSessionAsync(session.Id);
+        if (_current?.Id == session.Id) { _current = null; _messages = []; }
+        _sessions = await Clippy.GetSessionsAsync(UserId!);
+    }
+
+    private async Task ResetSessionAsync()
+    {
+        if (_current is null) return;
+        await Clippy.ResetSessionAsync(_current.Id);
+        _messages = [];
+        _sessions = await Clippy.GetSessionsAsync(UserId!);
+    }
+
+    private async Task OnAttach(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles(5))
+        {
+            await using var stream = file.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+            var attachment = await Clippy.UploadAttachmentAsync(file.Name, stream,
+                string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
+            _attachments.Add(attachment);
+        }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey && !_busy && !string.IsNullOrWhiteSpace(_input))
+            await SendAsync();
+    }
+
+    private async Task SendAsync()
+    {
+        if (_current is null || string.IsNullOrWhiteSpace(_input) || _busy) return;
+        var text = _input.Trim();
+        var attachments = _attachments.ToList();
+        _input = "";
+        _attachments.Clear();
+        _busy = true;
+        _streaming = "";
+
+        // optimistic render of the user message
+        _messages.Add(new ChatMessageEntity
+        {
+            Role = "user", Content = text,
+            AttachmentsJson = System.Text.Json.JsonSerializer.Serialize(attachments)
+        });
+        StateHasChanged();
+
+        try
+        {
+            await foreach (var chunk in Clippy.SendStreamingAsync(_current.Id, text, attachments))
+            {
+                _streaming += chunk;
+                StateHasChanged();
+            }
+        }
+        finally
+        {
+            _streaming = null;
+            _busy = false;
+            _messages = await Clippy.GetMessagesAsync(_current.Id);
+            _sessions = await Clippy.GetSessionsAsync(UserId!);
+            _current = _sessions.FirstOrDefault(s => s.Id == _current.Id) ?? _current;
+        }
+    }
+}

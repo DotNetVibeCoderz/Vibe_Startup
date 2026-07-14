@@ -1,0 +1,23 @@
+@inject MarkdownService Markdown
+
+<div class="bp-card" style="margin-left:@(Depth * 28)px">
+    <div class="bp-row">
+        <UserBadge UserId="@Post.CreatedById" />
+        <span class="bp-muted">· @Post.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+        <span class="bp-spacer"></span>
+        <button class="bp-btn ghost sm" @onclick="() => OnReply.InvokeAsync(Post.Id)">↩️ Balas</button>
+    </div>
+    <div class="bp-mt">@((MarkupString)Markdown.ToHtml(Post.Body))</div>
+</div>
+
+@foreach (var child in AllPosts.Where(p => p.ParentPostId == Post.Id).OrderBy(p => p.CreatedAt))
+{
+    <DiscussionPostView Post="child" AllPosts="AllPosts" OnReply="OnReply" Depth="Depth + 1" />
+}
+
+@code {
+    [Parameter, EditorRequired] public DiscussionPost Post { get; set; } = new();
+    [Parameter] public List<DiscussionPost> AllPosts { get; set; } = [];
+    [Parameter] public EventCallback<int> OnReply { get; set; }
+    [Parameter] public int Depth { get; set; }
+}

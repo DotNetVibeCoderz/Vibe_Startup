@@ -1,0 +1,32 @@
+@inject DocumentService Documents
+
+@if (_docs.Count == 0)
+{
+    <div class="bp-muted">Belum ada dokumen.</div>
+}
+else
+{
+    @foreach (var doc in _docs)
+    {
+        <a class="bp-navitem" href="/documents/@doc.Id">
+            <span class="icon">📄</span>
+            <span>
+                <div>@doc.Name</div>
+                <div class="bp-muted">v@(doc.Version) · @(doc.Size / 1024.0 < 1024 ? $"{doc.Size / 1024.0:0.#} KB" : $"{doc.Size / 1048576.0:0.#} MB")</div>
+            </span>
+        </a>
+    }
+}
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private List<Document> _docs = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var count = int.TryParse(Settings.GetValueOrDefault("count", "5"), out var c) ? c : 5;
+        var all = await Documents.GetByFolderAsync("/");
+        _docs = all.OrderByDescending(d => d.UpdatedAt).Take(count).ToList();
+    }
+}

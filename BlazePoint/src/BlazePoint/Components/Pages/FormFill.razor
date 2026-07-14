@@ -1,0 +1,122 @@
+@page "/forms/fill/{Id:int}"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject FormService FormsSvc
+@using System.Text.Json
+
+<PageTitle>@(_form?.Name ?? "Form") — BlazePoint</PageTitle>
+
+<div class="bp-content-narrow" style="margin:0">
+    <a class="bp-btn secondary sm bp-mb" href="/forms">← Forms</a>
+
+    @if (_form is null)
+    {
+        <div class="bp-empty"><div class="big">🤔</div>Form tidak ditemukan.</div>
+    }
+    else if (_submitted)
+    {
+        <div class="bp-card" style="text-align:center">
+            <div style="font-size:52px">🎉</div>
+            <h2>Terima kasih!</h2>
+            <p class="bp-muted">Jawaban Anda untuk "@_form.Name" sudah tersimpan.</p>
+            <button class="bp-btn secondary" @onclick="Reset">Isi lagi</button>
+        </div>
+    }
+    else
+    {
+        <div class="bp-card">
+            <h1 style="margin-top:0">📋 @_form.Name</h1>
+            <p class="bp-muted">@_form.Description</p>
+            @foreach (var field in _fields)
+            {
+                var f = field;
+                <FormFieldInput Field="f"
+                                Value="@_values.GetValueOrDefault(f.Id, "")"
+                                ValueChanged="v => _values[f.Id] = v" />
+            }
+            @if (_error is not null)
+            {
+                <div class="bp-error">@_error</div>
+            }
+            <button class="bp-btn bp-mt" @onclick="SubmitAsync">📨 Kirim</button>
+        </div>
+
+        @if (IsEditor && _submissions.Count > 0)
+        {
+            <div class="bp-card">
+                <div class="bp-card-title">📥 @_submissions.Count Jawaban Masuk</div>
+                @foreach (var submission in _submissions.Take(20))
+                {
+                    <div style="padding:8px 0;border-bottom:1px solid var(--divider)">
+                        <div class="bp-row">
+                            <UserBadge UserId="@submission.SubmittedById" />
+                            <span class="bp-muted">@submission.SubmittedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+                        </div>
+                        <div class="bp-muted" style="font-size:13px">@FormatSubmission(submission.DataJson)</div>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private FormDefinition? _form;
+    private List<FormField> _fields = [];
+    private List<FormSubmission> _submissions = [];
+    private Dictionary<string, string> _values = [];
+    private bool _submitted;
+    private string? _error;
+
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNameCaseInsensitive = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    protected override async Task OnInitializedCoreAsync()
+    {
+        _form = await FormsSvc.GetAsync(Id);
+        if (_form is not null)
+        {
+            _fields = JsonSerializer.Deserialize<List<FormField>>(_form.SchemaJson, JsonOpts) ?? [];
+            _submissions = await FormsSvc.GetSubmissionsAsync(Id);
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        foreach (var field in _fields.Where(f => f.Required))
+        {
+            if (string.IsNullOrWhiteSpace(_values.GetValueOrDefault(field.Id)))
+            {
+                _error = $"Field '{field.Label}' wajib diisi.";
+                return;
+            }
+        }
+        _error = null;
+        // store label → value so the data stays readable even if the schema changes
+        var data = _fields.ToDictionary(f => f.Label, f => _values.GetValueOrDefault(f.Id, ""));
+        await FormsSvc.SubmitAsync(Id, JsonSerializer.Serialize(data), UserId);
+        _submitted = true;
+        _submissions = await FormsSvc.GetSubmissionsAsync(Id);
+    }
+
+    private void Reset()
+    {
+        _values = [];
+        _submitted = false;
+    }
+
+    private static string FormatSubmission(string json)
+    {
+        try
+        {
+            var data = JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? [];
+            return string.Join(" · ", data.Where(kv => !string.IsNullOrEmpty(kv.Value))
+                .Select(kv => $"{kv.Key}: {kv.Value}"));
+        }
+        catch { return json; }
+    }
+}

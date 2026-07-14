@@ -1,0 +1,26 @@
+@using BlazePoint.Components.WebParts
+
+<div class="bp-webpart">
+    @if (!string.IsNullOrEmpty(Part.Title))
+    {
+        <div class="bp-webpart-title">@Part.Title</div>
+    }
+    @if (_descriptor is null)
+    {
+        <div class="bp-muted">Webpart '@Part.Type' tidak terdaftar.</div>
+    }
+    else
+    {
+        <DynamicComponent Type="_descriptor.ComponentType"
+                          Parameters="@(new Dictionary<string, object> { ["Settings"] = Part.Settings })" />
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WebPartModel Part { get; set; } = new();
+
+    private WebPartDescriptor? _descriptor;
+
+    protected override void OnParametersSet()
+        => _descriptor = WebPartRegistry.Find(Part.Type);
+}

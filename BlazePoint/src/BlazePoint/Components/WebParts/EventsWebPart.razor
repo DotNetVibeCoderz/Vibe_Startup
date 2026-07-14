@@ -1,0 +1,31 @@
+@inject CalendarService Calendar
+
+@if (_events.Count == 0)
+{
+    <div class="bp-muted">Tidak ada event mendatang.</div>
+}
+else
+{
+    @foreach (var evt in _events)
+    {
+        <div class="bp-row" style="padding:6px 0;border-bottom:1px solid var(--divider)">
+            <span style="width:10px;height:10px;border-radius:50%;background:@evt.Color;flex-shrink:0"></span>
+            <div>
+                <div style="font-weight:600">@evt.Title</div>
+                <div class="bp-muted">@evt.Start.ToString("dd MMM HH:mm") @(string.IsNullOrEmpty(evt.Location) ? "" : "· " + evt.Location)</div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private List<CalendarEvent> _events = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var count = int.TryParse(Settings.GetValueOrDefault("count", "5"), out var c) ? c : 5;
+        _events = await Calendar.GetUpcomingAsync(count);
+    }
+}

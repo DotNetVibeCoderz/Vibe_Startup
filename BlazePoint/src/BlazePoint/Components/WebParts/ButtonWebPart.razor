@@ -1,0 +1,12 @@
+@* SharePoint-style Button / Call-to-action. *@
+
+<div style="text-align:@Settings.GetValueOrDefault("align", "center")">
+    <a class="bp-btn" style="background:@Settings.GetValueOrDefault("color", "#1877f2");padding:12px 26px;font-size:16px"
+       href="@Settings.GetValueOrDefault("url", "#")">
+        @Settings.GetValueOrDefault("text", "Klik di sini")
+    </a>
+</div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+}

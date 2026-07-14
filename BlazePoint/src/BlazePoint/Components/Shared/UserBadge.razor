@@ -1,0 +1,31 @@
+@inject UserService Users
+
+<span class="bp-row" style="gap:6px;display:inline-flex">
+    @if (_avatarUrl is not null)
+    {
+        <img class="bp-avatar sm" style="object-fit:cover" src="@_avatarUrl" alt="@_name" />
+    }
+    else
+    {
+        <span class="bp-avatar sm" style="background:@_color">@_initial</span>
+    }
+    <span>@_name</span>
+</span>
+
+@code {
+    [Parameter] public string? UserId { get; set; }
+
+    private string _name = "";
+    private string _color = "#65676b";
+    private string _initial = "?";
+    private string? _avatarUrl;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var display = await Users.GetDisplayAsync(UserId);
+        _name = display.Name;
+        _color = display.Color;
+        _avatarUrl = display.AvatarUrl;
+        _initial = string.IsNullOrEmpty(_name) ? "?" : _name.Trim()[..1].ToUpperInvariant();
+    }
+}

@@ -1,0 +1,7 @@
+@* SharePoint-style Spacer: vertical whitespace. *@
+
+<div style="height:@(Settings.GetValueOrDefault("height", "40"))px"></div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+}

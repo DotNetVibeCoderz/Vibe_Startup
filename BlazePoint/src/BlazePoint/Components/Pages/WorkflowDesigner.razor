@@ -1,0 +1,249 @@
+@page "/workflows/designer/{Id:int}"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@inherits BpComponentBase
+@inject WorkflowService Workflows
+@inject NavigationManager Nav
+@using System.Text.Json
+
+<PageTitle>Workflow Designer — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <a class="bp-btn secondary sm" href="/workflows">← Workflows</a>
+    <input class="bp-input" style="max-width:280px;font-weight:700" placeholder="Nama workflow" @bind="_name" />
+    <input class="bp-input" style="max-width:360px" placeholder="Deskripsi" @bind="_description" />
+    <span class="bp-spacer"></span>
+    <button class="bp-btn success" @onclick="SaveAsync">💾 Simpan</button>
+</div>
+@if (_saved)
+{
+    <div class="bp-success">✔ Workflow tersimpan.</div>
+}
+
+<div style="display:grid;grid-template-columns:190px 1fr 280px;gap:16px">
+    @* --- palette --- *@
+    <div class="bp-card" style="align-self:start">
+        <div class="bp-card-title">🧰 Node</div>
+        <div class="bp-muted bp-mb">Klik untuk menambah ke kanvas.</div>
+        @foreach (var (type, icon, label) in NodeTypes)
+        {
+            <div class="bp-palette-item" @onclick="() => AddNode(type, label)">@icon @label</div>
+        }
+        <hr />
+        <div class="bp-muted">
+            Mode hubungkan: klik node asal lalu node tujuan.
+        </div>
+        <button class="bp-btn @(_connectMode ? "danger" : "secondary") sm bp-mt" @onclick="ToggleConnect">
+            @(_connectMode ? "✕ Batal hubungkan" : "🔗 Hubungkan node")
+        </button>
+    </div>
+
+    @* --- canvas --- *@
+    <div class="bp-wf-canvas" style="height:520px"
+         @onmousemove="OnMouseMove" @onmouseup="OnMouseUp">
+        <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+            @foreach (var edge in _graph.Edges)
+            {
+                var from = _graph.Nodes.FirstOrDefault(n => n.Id == edge.From);
+                var to = _graph.Nodes.FirstOrDefault(n => n.Id == edge.To);
+                if (from is null || to is null) continue;
+                var x1 = from.X + 65; var y1 = from.Y + 25;
+                var x2 = to.X + 65; var y2 = to.Y + 25;
+                <line x1="@x1" y1="@y1" x2="@x2" y2="@y2" stroke="var(--bp-blue)" stroke-width="2" />
+                <circle cx="@x2" cy="@y2" r="5" fill="var(--bp-blue)" />
+                @if (!string.IsNullOrEmpty(edge.Label))
+                {
+                    @* Razor reserves the <text> tag, so emit the SVG label as raw markup *@
+                    @((MarkupString)$"<text x=\"{(x1 + x2) / 2}\" y=\"{(y1 + y2) / 2 - 6}\" fill=\"gray\" font-size=\"12\">{System.Net.WebUtility.HtmlEncode(edge.Label)}</text>")
+                }
+            }
+        </svg>
+        @foreach (var node in _graph.Nodes)
+        {
+            var n = node;
+            <div class="bp-wf-node @n.Type @(n.Id == _selected?.Id ? "selected" : "")"
+                 style="left:@(n.X)px;top:@(n.Y)px"
+                 @onmousedown="e => OnNodeMouseDown(n, e)"
+                 @onclick="() => OnNodeClick(n)">
+                <div>@n.Label</div>
+                <div class="type">@n.Type@(n.Type == "Approval" ? $" → {n.AssignRole ?? "Admin"}" : "")</div>
+            </div>
+        }
+    </div>
+
+    @* --- properties --- *@
+    <div class="bp-card" style="align-self:start">
+        <div class="bp-card-title">⚙️ Properti Node</div>
+        @if (_selected is null)
+        {
+            <div class="bp-muted">Pilih node untuk mengedit.</div>
+        }
+        else
+        {
+            <div class="bp-field"><label class="bp-label">Label</label><input class="bp-input" @bind="_selected.Label" /></div>
+            @if (_selected.Type == "Approval")
+            {
+                <div class="bp-field">
+                    <label class="bp-label">Ditugaskan ke Role</label>
+                    <select class="bp-select" @bind="_selected.AssignRole">
+                        <option value="Admin">Admin</option>
+                        <option value="Editor">Editor</option>
+                        <option value="Viewer">Viewer</option>
+                    </select>
+                </div>
+            }
+            @if (_selected.Type == "Notify")
+            {
+                <div class="bp-field"><label class="bp-label">Pesan notifikasi</label><textarea class="bp-textarea" rows="3" @bind="_selected.Message"></textarea></div>
+            }
+            @if (_selected.Type == "Condition")
+            {
+                <div class="bp-field"><label class="bp-label">Context key</label><input class="bp-input" @bind="_selected.ConditionKey" /></div>
+                <div class="bp-field"><label class="bp-label">Nilai yang dibandingkan</label><input class="bp-input" @bind="_selected.ConditionValue" /></div>
+                <div class="bp-muted">Edge berlabel "yes" diikuti bila cocok, "no" bila tidak.</div>
+            }
+            <button class="bp-btn danger sm bp-mt" @onclick="DeleteSelected">🗑️ Hapus Node</button>
+        }
+
+        <hr />
+        <div class="bp-card-title">🔗 Edges</div>
+        @foreach (var edge in _graph.Edges)
+        {
+            var e = edge;
+            <div class="bp-row" style="padding:4px 0;font-size:13px">
+                <span>@LabelOf(e.From) → @LabelOf(e.To)</span>
+                <input class="bp-input" style="max-width:70px;padding:2px 6px" placeholder="label"
+                       value="@e.Label" @onchange='ev => e.Label = ev.Value?.ToString() ?? ""' />
+                <button class="bp-btn ghost sm" @onclick="() => _graph.Edges.Remove(e)">✕</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private static readonly (string Type, string Icon, string Label)[] NodeTypes =
+    [
+        ("Start", "🟢", "Mulai"),
+        ("Approval", "✅", "Persetujuan"),
+        ("Condition", "🔀", "Kondisi"),
+        ("Notify", "🔔", "Notifikasi"),
+        ("End", "🔴", "Selesai")
+    ];
+
+    private WfGraph _graph = new();
+    private WfNode? _selected;
+    private WfNode? _dragging;
+    private double _dragOffsetX, _dragOffsetY;
+    private bool _connectMode;
+    private WfNode? _connectFrom;
+    private string _name = "";
+    private string _description = "";
+    private bool _saved;
+
+    protected override async Task OnInitializedCoreAsync()
+    {
+        if (Id > 0)
+        {
+            var def = await Workflows.GetDefinitionAsync(Id);
+            if (def is not null)
+            {
+                _name = def.Name;
+                _description = def.Description;
+                _graph = WorkflowService.ParseGraph(def.DefinitionJson);
+            }
+        }
+        else
+        {
+            _graph = new WfGraph
+            {
+                Nodes =
+                [
+                    new WfNode { Id = "start", Type = "Start", Label = "Mulai", X = 40, Y = 200 },
+                    new WfNode { Id = "end", Type = "End", Label = "Selesai", X = 700, Y = 200 }
+                ],
+                Edges = []
+            };
+        }
+    }
+
+    private void AddNode(string type, string label)
+    {
+        var node = new WfNode
+        {
+            Id = type.ToLower() + "-" + Guid.NewGuid().ToString("N")[..6],
+            Type = type, Label = label,
+            X = 260 + _graph.Nodes.Count * 15, Y = 90 + _graph.Nodes.Count * 20
+        };
+        if (type == "Approval") node.AssignRole = "Editor";
+        _graph.Nodes.Add(node);
+        _selected = node;
+    }
+
+    private void OnNodeMouseDown(WfNode node, MouseEventArgs e)
+    {
+        _dragging = node;
+        _dragOffsetX = e.OffsetX;
+        _dragOffsetY = e.OffsetY;
+    }
+
+    private void OnMouseMove(MouseEventArgs e)
+    {
+        if (_dragging is null) return;
+        _dragging.X = Math.Max(0, _dragging.X + e.MovementX);
+        _dragging.Y = Math.Max(0, _dragging.Y + e.MovementY);
+    }
+
+    private void OnMouseUp() => _dragging = null;
+
+    private void OnNodeClick(WfNode node)
+    {
+        if (_connectMode)
+        {
+            if (_connectFrom is null)
+            {
+                _connectFrom = node;
+            }
+            else if (_connectFrom.Id != node.Id)
+            {
+                _graph.Edges.Add(new WfEdge { From = _connectFrom.Id, To = node.Id });
+                _connectFrom = null;
+                _connectMode = false;
+            }
+        }
+        else
+        {
+            _selected = node;
+        }
+    }
+
+    private void ToggleConnect()
+    {
+        _connectMode = !_connectMode;
+        _connectFrom = null;
+    }
+
+    private void DeleteSelected()
+    {
+        if (_selected is null) return;
+        _graph.Nodes.Remove(_selected);
+        _graph.Edges.RemoveAll(e => e.From == _selected.Id || e.To == _selected.Id);
+        _selected = null;
+    }
+
+    private string LabelOf(string nodeId)
+        => _graph.Nodes.FirstOrDefault(n => n.Id == nodeId)?.Label ?? nodeId;
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_name)) return;
+        var def = Id > 0 ? await Workflows.GetDefinitionAsync(Id) : new WorkflowDefinition();
+        def ??= new WorkflowDefinition();
+        def.Name = _name;
+        def.Description = _description;
+        def.DefinitionJson = JsonSerializer.Serialize(_graph);
+        var saved = await Workflows.SaveDefinitionAsync(def, UserId);
+        _saved = true;
+        if (Id == 0) Nav.NavigateTo($"/workflows/designer/{saved.Id}");
+    }
+}

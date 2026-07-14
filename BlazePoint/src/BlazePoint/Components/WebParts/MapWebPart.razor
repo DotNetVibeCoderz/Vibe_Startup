@@ -1,0 +1,30 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div id="@_mapId" style="height:280px;border-radius:8px"></div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private readonly string _mapId = "map-" + Guid.NewGuid().ToString("N")[..8];
+    private bool _rendered;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender && _rendered) return;
+        _rendered = true;
+        var lat = double.TryParse(Settings.GetValueOrDefault("latitude", "-6.2088"),
+            System.Globalization.CultureInfo.InvariantCulture, out var la) ? la : -6.2088;
+        var lng = double.TryParse(Settings.GetValueOrDefault("longitude", "106.8456"),
+            System.Globalization.CultureInfo.InvariantCulture, out var lo) ? lo : 106.8456;
+        var zoom = int.TryParse(Settings.GetValueOrDefault("zoom", "13"), out var z) ? z : 13;
+        await JS.InvokeVoidAsync("blazePoint.initMap", _mapId, lat, lng, zoom,
+            Settings.GetValueOrDefault("label", ""));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("blazePoint.disposeMap", _mapId); }
+        catch { /* circuit closing */ }
+    }
+}

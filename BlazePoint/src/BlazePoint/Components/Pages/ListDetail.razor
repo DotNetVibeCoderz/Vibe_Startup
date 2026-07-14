@@ -1,0 +1,238 @@
+@page "/lists/{Id:int}"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject ListService ListsSvc
+@inject IJSRuntime JS
+@using System.Text.Json
+
+<PageTitle>@(_list?.Name ?? "List") — BlazePoint</PageTitle>
+
+@if (_list is null)
+{
+    <div class="bp-empty"><div class="big">🤔</div>List tidak ditemukan.</div>
+}
+else
+{
+    <div class="bp-row bp-mb">
+        <a class="bp-btn secondary sm" href="/lists">← Lists</a>
+        <h1 style="margin:0">@_list.Icon @_list.Name</h1>
+        <span class="bp-spacer"></span>
+        @if (IsEditor)
+        {
+            <button class="bp-btn" @onclick="NewItem">＋ Item Baru</button>
+        }
+    </div>
+
+    <div class="bp-card">
+        <div class="bp-row bp-mb">
+            <input class="bp-input" style="max-width:280px" placeholder="🔍 Filter item…"
+                   @bind="_filter" @bind:event="oninput" />
+            <label class="bp-label" style="margin:0">Group by:</label>
+            <select class="bp-select" style="max-width:180px" @bind="_groupBy">
+                <option value="">(tanpa grup)</option>
+                @foreach (var col in _columns)
+                {
+                    <option value="@col.Name">@col.Name</option>
+                }
+            </select>
+            <span class="bp-muted">@FilteredItems.Count() item</span>
+        </div>
+
+        @foreach (var group in Grouped)
+        {
+            @if (!string.IsNullOrEmpty(_groupBy))
+            {
+                <h4 style="margin:14px 0 6px">▸ @(string.IsNullOrEmpty(group.Key) ? "(kosong)" : group.Key)
+                    <span class="bp-chip">@group.Count()</span></h4>
+            }
+            <div class="bp-table-wrap">
+                <table class="bp-table">
+                    <thead>
+                        <tr>
+                            @foreach (var col in _columns)
+                            {
+                                <th @onclick="() => Sort(col.Name)">@col.Name @(_sortBy == col.Name ? (_sortAsc ? "▲" : "▼") : "")</th>
+                            }
+                            <th>Dibuat</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in group)
+                        {
+                            var values = ListService.ParseValues(item.ValuesJson);
+                            <tr>
+                                @foreach (var col in _columns)
+                                {
+                                    <td>@ListService.DisplayValue(values, col.Name)</td>
+                                }
+                                <td><UserBadge UserId="@item.CreatedById" /></td>
+                                <td class="bp-row" style="flex-wrap:nowrap">
+                                    @if (IsEditor)
+                                    {
+                                        <button class="bp-btn ghost sm" @onclick="() => EditItem(item)">✏️</button>
+                                        <button class="bp-btn ghost sm" @onclick="() => DeleteItemAsync(item)">🗑️</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (!FilteredItems.Any())
+        {
+            <div class="bp-empty"><div class="big">📭</div>Tidak ada item.</div>
+        }
+    </div>
+
+    @if (_showEditor)
+    {
+        <div class="bp-modal-backdrop" @onclick="() => _showEditor = false">
+            <div class="bp-modal" @onclick:stopPropagation>
+                <h3>@(_editItemId == 0 ? "＋ Item Baru" : "✏️ Edit Item")</h3>
+                @foreach (var col in _columns)
+                {
+                    <div class="bp-field">
+                        <label class="bp-label">@col.Name @(col.Required ? "*" : "")</label>
+                        @switch (col.Type)
+                        {
+                            case "Number":
+                                <input type="number" class="bp-input" value="@_editValues.GetValueOrDefault(col.Name)"
+                                       @onchange="e => SetValue(col.Name, e.Value)" />
+                                break;
+                            case "Date":
+                                <input type="date" class="bp-input" value="@_editValues.GetValueOrDefault(col.Name)"
+                                       @onchange="e => SetValue(col.Name, e.Value)" />
+                                break;
+                            case "Boolean":
+                                <input type="checkbox" checked="@(_editValues.GetValueOrDefault(col.Name) == "true")"
+                                       @onchange='e => SetValue(col.Name, (e.Value is bool b && b) ? "true" : "false")' />
+                                break;
+                            case "Choice":
+                                <select class="bp-select" value="@_editValues.GetValueOrDefault(col.Name)"
+                                        @onchange="e => SetValue(col.Name, e.Value)">
+                                    <option value="">— pilih —</option>
+                                    @foreach (var choice in col.Choices)
+                                    {
+                                        <option value="@choice">@choice</option>
+                                    }
+                                </select>
+                                break;
+                            default:
+                                <input class="bp-input" value="@_editValues.GetValueOrDefault(col.Name)"
+                                       @onchange="e => SetValue(col.Name, e.Value)" />
+                                break;
+                        }
+                    </div>
+                }
+                <div class="bp-row bp-mt">
+                    <span class="bp-spacer"></span>
+                    <button class="bp-btn secondary" @onclick="() => _showEditor = false">Batal</button>
+                    <button class="bp-btn" @onclick="SaveItemAsync">💾 Simpan</button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private ListDefinition? _list;
+    private List<ListColumn> _columns = [];
+    private List<ListItemEntity> _items = [];
+    private string _filter = "";
+    private string _groupBy = "";
+    private string _sortBy = "";
+    private bool _sortAsc = true;
+    private bool _showEditor;
+    private int _editItemId;
+    private Dictionary<string, string> _editValues = [];
+
+    protected override async Task OnInitializedCoreAsync()
+    {
+        _list = await ListsSvc.GetAsync(Id);
+        if (_list is not null)
+        {
+            _columns = ListService.ParseColumns(_list.ColumnsJson);
+            _items = await ListsSvc.GetItemsAsync(Id);
+        }
+    }
+
+    private IEnumerable<ListItemEntity> FilteredItems
+    {
+        get
+        {
+            var items = _items.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(_filter))
+                items = items.Where(i => i.ValuesJson.Contains(_filter, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(_sortBy))
+            {
+                items = _sortAsc
+                    ? items.OrderBy(i => ListService.DisplayValue(ListService.ParseValues(i.ValuesJson), _sortBy))
+                    : items.OrderByDescending(i => ListService.DisplayValue(ListService.ParseValues(i.ValuesJson), _sortBy));
+            }
+            return items;
+        }
+    }
+
+    private IEnumerable<IGrouping<string, ListItemEntity>> Grouped =>
+        string.IsNullOrEmpty(_groupBy)
+            ? FilteredItems.GroupBy(_ => "")
+            : FilteredItems.GroupBy(i => ListService.DisplayValue(ListService.ParseValues(i.ValuesJson), _groupBy))
+                .OrderBy(g => g.Key);
+
+    private void Sort(string column)
+    {
+        if (_sortBy == column) _sortAsc = !_sortAsc;
+        else { _sortBy = column; _sortAsc = true; }
+    }
+
+    private void NewItem()
+    {
+        _editItemId = 0;
+        _editValues = [];
+        _showEditor = true;
+    }
+
+    private void EditItem(ListItemEntity item)
+    {
+        _editItemId = item.Id;
+        _editValues = ListService.ParseValues(item.ValuesJson)
+            .ToDictionary(kv => kv.Key, kv => ListService.DisplayValue(ListService.ParseValues(item.ValuesJson), kv.Key));
+        _showEditor = true;
+    }
+
+    private void SetValue(string column, object? value)
+        => _editValues[column] = value?.ToString() ?? "";
+
+    private async Task SaveItemAsync()
+    {
+        foreach (var col in _columns.Where(c => c.Required))
+            if (string.IsNullOrWhiteSpace(_editValues.GetValueOrDefault(col.Name)))
+                return; // required not filled
+
+        var typed = new Dictionary<string, object?>();
+        foreach (var col in _columns)
+        {
+            var raw = _editValues.GetValueOrDefault(col.Name, "");
+            typed[col.Name] = col.Type switch
+            {
+                "Number" => double.TryParse(raw, out var n) ? n : null,
+                "Boolean" => raw is "true" or "✔",
+                _ => raw
+            };
+        }
+        await ListsSvc.SaveItemAsync(Id, _editItemId, typed, UserId);
+        _showEditor = false;
+        _items = await ListsSvc.GetItemsAsync(Id);
+    }
+
+    private async Task DeleteItemAsync(ListItemEntity item)
+    {
+        if (!await JS.InvokeAsync<bool>("blazePoint.confirmDialog", "Hapus item ini?")) return;
+        await ListsSvc.DeleteItemAsync(item.Id, UserId);
+        _items = await ListsSvc.GetItemsAsync(Id);
+    }
+}

@@ -1,0 +1,200 @@
+@page "/forms/designer/{Id:int}"
+@attribute [Authorize(Roles = "Admin,Editor")]
+@inherits BpComponentBase
+@inject FormService FormsSvc
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@using System.Text.Json
+
+<PageTitle>Form Designer — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <a class="bp-btn secondary sm" href="/forms">← Forms</a>
+    <input class="bp-input" style="max-width:280px;font-weight:700" placeholder="Nama form" @bind="_name" />
+    <input class="bp-input" style="max-width:340px" placeholder="Deskripsi" @bind="_description" />
+    <label class="bp-row" style="gap:4px"><input type="checkbox" @bind="_isTemplate" /> Template</label>
+    <span class="bp-spacer"></span>
+    <button class="bp-btn secondary" @onclick="ExportJson">⬇️ Export JSON</button>
+    <button class="bp-btn secondary" @onclick="() => _showImport = true">⬆️ Import JSON</button>
+    <button class="bp-btn success" @onclick="SaveAsync">💾 Simpan</button>
+</div>
+@if (_saved)
+{
+    <div class="bp-success">✔ Form tersimpan.</div>
+}
+
+<div style="display:grid;grid-template-columns:210px 1fr;gap:16px">
+    @* --- palette --- *@
+    <div class="bp-card" style="align-self:start">
+        <div class="bp-card-title">🧰 Field</div>
+        <div class="bp-muted bp-mb">Drag ke kanvas atau klik.</div>
+        @foreach (var (type, icon, label) in FieldTypes)
+        {
+            <div class="bp-palette-item" draggable="true"
+                 @ondragstart="() => _draggedType = type"
+                 @onclick="() => AddField(type, label)">@icon @label</div>
+        }
+    </div>
+
+    @* --- canvas --- *@
+    <div class="bp-webpart-editor" @ondragover:preventDefault @ondrop="OnDrop">
+        @if (_fields.Count == 0)
+        {
+            <div class="bp-empty"><div class="big">🖱️</div>Drag field ke sini untuk mulai mendesain form.</div>
+        }
+        @foreach (var field in _fields)
+        {
+            var f = field;
+            <div class="bp-card" style="border:2px solid @(f.Id == _selected?.Id ? "var(--bp-blue)" : "transparent")"
+                 @onclick="() => _selected = f">
+                <div class="bp-row">
+                    <strong>@f.Label @(f.Required ? "*" : "")</strong>
+                    <span class="bp-chip">@f.Type</span>
+                    <span class="bp-spacer"></span>
+                    <button class="bp-btn ghost sm" @onclick:stopPropagation @onclick="() => Move(f, -1)">↑</button>
+                    <button class="bp-btn ghost sm" @onclick:stopPropagation @onclick="() => Move(f, 1)">↓</button>
+                    <button class="bp-btn ghost sm" @onclick:stopPropagation @onclick="() => _fields.Remove(f)">🗑️</button>
+                </div>
+                <FormFieldInput Field="f" Value="" Disabled="true" />
+
+                @if (f.Id == _selected?.Id)
+                {
+                    <div style="background:var(--surface-2);border-radius:8px;padding:12px;margin-top:10px">
+                        <div class="bp-grid-2">
+                            <div class="bp-field"><label class="bp-label">Label</label><input class="bp-input" @bind="f.Label" /></div>
+                            <div class="bp-field"><label class="bp-label">Placeholder</label><input class="bp-input" @bind="f.Placeholder" /></div>
+                        </div>
+                        <label class="bp-row" style="gap:4px"><input type="checkbox" @bind="f.Required" /> Wajib diisi</label>
+                        @if (f.Type is "select" or "radio")
+                        {
+                            <div class="bp-field">
+                                <label class="bp-label">Pilihan (pisah koma)</label>
+                                <input class="bp-input" value="@string.Join(", ", f.Options)"
+                                       @onchange='e => f.Options = (e.Value?.ToString() ?? "").Split(",", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()' />
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@if (_showImport)
+{
+    <div class="bp-modal-backdrop" @onclick="() => _showImport = false">
+        <div class="bp-modal" @onclick:stopPropagation>
+            <h3>⬆️ Import Schema JSON</h3>
+            <textarea class="bp-textarea" rows="10" @bind="_importJson" placeholder='[{"label":"Nama","type":"text","required":true}]'></textarea>
+            @if (_importError is not null)
+            {
+                <div class="bp-error bp-mt">@_importError</div>
+            }
+            <div class="bp-row bp-mt">
+                <span class="bp-spacer"></span>
+                <button class="bp-btn secondary" @onclick="() => _showImport = false">Batal</button>
+                <button class="bp-btn" @onclick="ImportJson">Import</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private static readonly (string Type, string Icon, string Label)[] FieldTypes =
+    [
+        ("text", "🔤", "Teks"),
+        ("textarea", "📄", "Teks Panjang"),
+        ("number", "🔢", "Angka"),
+        ("date", "📅", "Tanggal"),
+        ("email", "📧", "Email"),
+        ("select", "▼", "Dropdown"),
+        ("radio", "🔘", "Pilihan Radio"),
+        ("checkbox", "☑️", "Checkbox")
+    ];
+
+    private List<FormField> _fields = [];
+    private FormField? _selected;
+    private string? _draggedType;
+    private string _name = "", _description = "";
+    private bool _isTemplate, _saved, _showImport;
+    private string _importJson = "";
+    private string? _importError;
+
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true
+    };
+
+    protected override async Task OnInitializedCoreAsync()
+    {
+        if (Id > 0)
+        {
+            var form = await FormsSvc.GetAsync(Id);
+            if (form is not null)
+            {
+                _name = form.Name;
+                _description = form.Description;
+                _isTemplate = form.IsTemplate;
+                _fields = JsonSerializer.Deserialize<List<FormField>>(form.SchemaJson, JsonOpts) ?? [];
+            }
+        }
+    }
+
+    private void OnDrop()
+    {
+        if (_draggedType is null) return;
+        var meta = FieldTypes.First(t => t.Type == _draggedType);
+        AddField(meta.Type, meta.Label);
+        _draggedType = null;
+    }
+
+    private void AddField(string type, string label)
+    {
+        var field = new FormField { Type = type, Label = label + " " + (_fields.Count + 1) };
+        if (type is "select" or "radio") field.Options = ["Pilihan 1", "Pilihan 2"];
+        _fields.Add(field);
+        _selected = field;
+    }
+
+    private void Move(FormField field, int delta)
+    {
+        var idx = _fields.IndexOf(field);
+        var newIdx = idx + delta;
+        if (newIdx < 0 || newIdx >= _fields.Count) return;
+        (_fields[idx], _fields[newIdx]) = (_fields[newIdx], _fields[idx]);
+    }
+
+    private async Task ExportJson()
+        => await JS.InvokeVoidAsync("blazePoint.copyText", JsonSerializer.Serialize(_fields, JsonOpts));
+
+    private void ImportJson()
+    {
+        try
+        {
+            _fields = JsonSerializer.Deserialize<List<FormField>>(_importJson, JsonOpts) ?? [];
+            _showImport = false;
+            _importError = null;
+        }
+        catch (Exception ex)
+        {
+            _importError = "JSON tidak valid: " + ex.Message;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_name)) return;
+        var form = Id > 0 ? await FormsSvc.GetAsync(Id) ?? new FormDefinition() : new FormDefinition();
+        form.Name = _name;
+        form.Description = _description;
+        form.IsTemplate = _isTemplate;
+        form.SchemaJson = JsonSerializer.Serialize(_fields, JsonOpts);
+        var saved = await FormsSvc.SaveAsync(form, UserId);
+        _saved = true;
+        if (Id == 0) Nav.NavigateTo($"/forms/designer/{saved.Id}");
+    }
+}

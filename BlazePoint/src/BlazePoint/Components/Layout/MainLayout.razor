@@ -1,0 +1,253 @@
+@inherits LayoutComponentBase
+@inject NavigationService NavService
+@inject NotificationService Notifications
+@inject UserService Users
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthProvider
+@implements IDisposable
+
+<div class="bp-shell">
+    <header class="bp-topbar">
+        <a href="/" class="bp-logo">🔷 BlazePoint</a>
+
+        <div class="bp-search">
+            <span>🔍</span>
+            <input placeholder="Cari di BlazePoint…" @bind="_searchText" @bind:event="oninput"
+                   @onkeydown="OnSearchKeyDown" />
+        </div>
+
+        <nav class="bp-topnav">
+            @foreach (var item in _topNav)
+            {
+                <a href="@item.Url" title="@item.Title"
+                   class="@(IsActive(item.Url) ? "active" : null)">@item.Icon</a>
+            }
+        </nav>
+
+        <div class="bp-topbar-actions">
+            <button class="bp-icon-btn" title="Ganti tema light/dark" @onclick="ToggleTheme">@(_theme == "dark" ? "🌙" : "☀️")</button>
+
+            <AuthorizeView>
+                <Authorized>
+                    <div class="bp-dropdown">
+                        <button class="bp-icon-btn" title="Notifikasi" @onclick="ToggleNotifications">
+                            🔔
+                            @if (_unread > 0)
+                            {
+                                <span class="bp-badge">@(_unread > 99 ? "99+" : _unread.ToString())</span>
+                            }
+                        </button>
+                        @if (_showNotifications)
+                        {
+                            <div class="bp-dropdown-menu">
+                                <div class="bp-row" style="padding:4px 10px">
+                                    <strong>Notifikasi</strong>
+                                    <span class="bp-spacer"></span>
+                                    <button class="bp-btn ghost sm" @onclick="MarkAllRead">Tandai dibaca</button>
+                                </div>
+                                @if (_notifications.Count == 0)
+                                {
+                                    <div class="bp-empty">Tidak ada notifikasi</div>
+                                }
+                                @foreach (var n in _notifications)
+                                {
+                                    <a class="bp-dropdown-item bp-notif-item @(n.IsRead ? "" : "unread")"
+                                       href="@(string.IsNullOrEmpty(n.Link) ? "/notifications" : n.Link)"
+                                       @onclick="() => MarkRead(n)">
+                                        <div>
+                                            <div style="font-weight:600">@n.Title</div>
+                                            <div class="bp-muted">@n.Message</div>
+                                            <div class="bp-muted">@n.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm")</div>
+                                        </div>
+                                    </a>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div class="bp-dropdown">
+                        <button class="bp-icon-btn" style="background:@_avatarColor;color:#fff;font-weight:700;padding:0;overflow:hidden"
+                                title="@_displayName" @onclick="ToggleUserMenu">
+                            @if (_avatarUrl is not null)
+                            {
+                                <img src="@_avatarUrl" alt="@_displayName" style="width:40px;height:40px;object-fit:cover" />
+                            }
+                            else
+                            {
+                                @Initial(_displayName)
+                            }
+                        </button>
+                        @if (_showUserMenu)
+                        {
+                            <div class="bp-dropdown-menu" style="min-width:240px">
+                                <div class="bp-dropdown-item" style="cursor:default">
+                                    @if (_avatarUrl is not null)
+                                    {
+                                        <img class="bp-avatar" style="object-fit:cover" src="@_avatarUrl" alt="@_displayName" />
+                                    }
+                                    else
+                                    {
+                                        <div class="bp-avatar" style="background:@_avatarColor">@Initial(_displayName)</div>
+                                    }
+                                    <div>
+                                        <div style="font-weight:700">@_displayName</div>
+                                        <div class="bp-muted">@_roles</div>
+                                    </div>
+                                </div>
+                                <a class="bp-dropdown-item" href="/profile">👤 Profil Saya</a>
+                                <a class="bp-dropdown-item" href="/notifications">🔔 Semua Notifikasi</a>
+                                @if (_roles.Contains("Admin"))
+                                {
+                                    <a class="bp-dropdown-item" href="/admin/users">🛠️ Admin Panel</a>
+                                }
+                                <form method="post" action="/auth/logout" style="margin:0">
+                                    <button type="submit" class="bp-dropdown-item"
+                                            style="width:100%;border:none;background:none;font:inherit;text-align:left;color:var(--text)">
+                                        🚪 Keluar
+                                    </button>
+                                </form>
+                            </div>
+                        }
+                    </div>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="bp-btn" href="/account/login">Masuk</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </header>
+
+    <div class="bp-body">
+        <aside class="bp-sidebar">
+            <div class="bp-sidebar-section">Quick Launch</div>
+            @foreach (var item in _quickLaunch)
+            {
+                <a class="bp-navitem @(IsActive(item.Url) ? "active" : null)" href="@item.Url">
+                    <span class="icon">@item.Icon</span> @item.Title
+                </a>
+            }
+            <AuthorizeView Roles="Admin">
+                <div class="bp-sidebar-section">Administrasi</div>
+                <a class="bp-navitem" href="/admin/users"><span class="icon">👥</span> Pengguna</a>
+                <a class="bp-navitem" href="/admin/settings"><span class="icon">⚙️</span> Pengaturan</a>
+                <a class="bp-navitem" href="/admin/monitoring"><span class="icon">📈</span> Monitoring</a>
+                <a class="bp-navitem" href="/navigation"><span class="icon">🧭</span> Navigasi</a>
+            </AuthorizeView>
+        </aside>
+
+        <main class="bp-content">
+            @Body
+        </main>
+    </div>
+</div>
+
+@code {
+    private List<NavigationItem> _topNav = [];
+    private List<NavigationItem> _quickLaunch = [];
+    private List<Notification> _notifications = [];
+    private int _unread;
+    private bool _showNotifications;
+    private bool _showUserMenu;
+    private string _theme = "light";
+    private string _searchText = "";
+    private string _displayName = "";
+    private string _avatarColor = "#1877f2";
+    private string? _avatarUrl;
+    private string _roles = "";
+    private string? _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadNavAsync();
+        NavService.Changed += OnNavChanged;
+        Notifications.Changed += OnNotifChanged;
+
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        if (auth.User.Identity?.IsAuthenticated == true)
+        {
+            _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            _roles = string.Join(", ", auth.User.Claims
+                .Where(c => c.Type == System.Security.Claims.ClaimTypes.Role).Select(c => c.Value));
+            var display = await Users.GetDisplayAsync(_userId);
+            _displayName = display.Name;
+            _avatarColor = display.Color;
+            _avatarUrl = display.AvatarUrl;
+            await RefreshNotificationsAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _theme = await JS.InvokeAsync<string>("blazePoint.getTheme");
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadNavAsync()
+    {
+        _topNav = await NavService.GetAsync(NavLocation.TopNav);
+        _quickLaunch = await NavService.GetAsync(NavLocation.QuickLaunch);
+    }
+
+    private async Task RefreshNotificationsAsync()
+    {
+        if (_userId is null) return;
+        _unread = await Notifications.UnreadCountAsync(_userId);
+        _notifications = await Notifications.GetForUserAsync(_userId, count: 10);
+    }
+
+    private void OnNavChanged() => _ = InvokeAsync(async () => { await LoadNavAsync(); StateHasChanged(); });
+    private void OnNotifChanged() => _ = InvokeAsync(async () => { await RefreshNotificationsAsync(); StateHasChanged(); });
+
+    private async Task ToggleNotifications()
+    {
+        _showNotifications = !_showNotifications;
+        _showUserMenu = false;
+        if (_showNotifications) await RefreshNotificationsAsync();
+    }
+
+    private void ToggleUserMenu()
+    {
+        _showUserMenu = !_showUserMenu;
+        _showNotifications = false;
+    }
+
+    private async Task MarkRead(Notification n)
+    {
+        if (!n.IsRead) await Notifications.MarkReadAsync(n.Id);
+        _showNotifications = false;
+    }
+
+    private async Task MarkAllRead()
+    {
+        if (_userId is not null) await Notifications.MarkAllReadAsync(_userId);
+        await RefreshNotificationsAsync();
+    }
+
+    private async Task ToggleTheme()
+        => _theme = await JS.InvokeAsync<string>("blazePoint.toggleTheme");
+
+    private void OnSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_searchText))
+            Nav.NavigateTo($"/search?q={Uri.EscapeDataString(_searchText)}");
+    }
+
+    private bool IsActive(string url)
+    {
+        var current = "/" + Nav.ToBaseRelativePath(Nav.Uri).Split('?')[0];
+        return url == "/" ? current == "/" : current.StartsWith(url);
+    }
+
+    private static string Initial(string name)
+        => string.IsNullOrEmpty(name) ? "?" : name.Trim()[..1].ToUpperInvariant();
+
+    public void Dispose()
+    {
+        NavService.Changed -= OnNavChanged;
+        Notifications.Changed -= OnNotifChanged;
+    }
+}

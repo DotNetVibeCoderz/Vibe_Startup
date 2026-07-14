@@ -1,0 +1,71 @@
+@page "/discussions/{Id:int}"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject DiscussionService DiscussionsSvc
+@inject MarkdownService Markdown
+
+<PageTitle>@(_thread?.Title ?? "Diskusi") — BlazePoint</PageTitle>
+
+@if (_thread is null)
+{
+    <div class="bp-empty"><div class="big">🤔</div>Diskusi tidak ditemukan.</div>
+}
+else
+{
+    <div class="bp-content-narrow" style="margin:0">
+        <a class="bp-btn secondary sm bp-mb" href="/discussions">← Semua Diskusi</a>
+
+        <div class="bp-card">
+            <div class="bp-row">
+                <UserBadge UserId="@_thread.CreatedById" />
+                <span class="bp-muted">· @_thread.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+            </div>
+            <h1 style="margin:10px 0">@_thread.Title</h1>
+            <div>@((MarkupString)Markdown.ToHtml(_thread.Body))</div>
+        </div>
+
+        <h3>💬 @_thread.Posts.Count Balasan</h3>
+        @foreach (var post in RootPosts)
+        {
+            <DiscussionPostView Post="post" AllPosts="_thread.Posts" OnReply="SetReplyTo" />
+        }
+
+        <div class="bp-card">
+            <div class="bp-card-title">
+                ✍️ Balas
+                @if (_replyTo is not null)
+                {
+                    <span class="bp-chip blue">membalas #@_replyTo <button class="bp-btn ghost sm" @onclick="() => _replyTo = null">✕</button></span>
+                }
+            </div>
+            <textarea class="bp-textarea" rows="4" placeholder="Tulis balasan… (gunakan @@nama untuk mention)"
+                      @bind="_replyBody"></textarea>
+            <button class="bp-btn bp-mt" @onclick="ReplyAsync">Kirim Balasan</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private DiscussionThread? _thread;
+    private string _replyBody = "";
+    private int? _replyTo;
+
+    private IEnumerable<DiscussionPost> RootPosts =>
+        _thread is null ? [] : _thread.Posts.Where(p => p.ParentPostId is null).OrderBy(p => p.CreatedAt);
+
+    protected override async Task OnInitializedCoreAsync()
+        => _thread = await DiscussionsSvc.GetThreadAsync(Id);
+
+    private void SetReplyTo(int postId) => _replyTo = postId;
+
+    private async Task ReplyAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_replyBody)) return;
+        await DiscussionsSvc.ReplyAsync(Id, _replyTo, _replyBody, UserId);
+        _replyBody = "";
+        _replyTo = null;
+        _thread = await DiscussionsSvc.GetThreadAsync(Id);
+    }
+}

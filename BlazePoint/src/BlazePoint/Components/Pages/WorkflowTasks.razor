@@ -1,0 +1,64 @@
+@page "/workflows/tasks"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject WorkflowService Workflows
+@inject AuthenticationStateProvider Auth
+
+<PageTitle>Tugas Persetujuan — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <a class="bp-btn secondary sm" href="/workflows">← Workflows</a>
+    <h1 style="margin:0">✅ Tugas Persetujuan Saya</h1>
+</div>
+
+<div class="bp-card">
+    @if (_tasks.Count == 0)
+    {
+        <div class="bp-empty"><div class="big">🎉</div>Tidak ada tugas yang menunggu persetujuan Anda.</div>
+    }
+    @foreach (var task in _tasks)
+    {
+        <div style="padding:14px 0;border-bottom:1px solid var(--divider)">
+            <div class="bp-row">
+                <strong style="font-size:16px">@task.Title</strong>
+                <span class="bp-chip yellow">⏳ Menunggu</span>
+            </div>
+            <div class="bp-muted">
+                Workflow: @task.Instance?.Definition?.Name ·
+                diajukan @task.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+                oleh <UserBadge UserId="@task.Instance?.StartedById" />
+            </div>
+            <div class="bp-row bp-mt">
+                <input class="bp-input" style="max-width:380px" placeholder="Komentar (opsional)"
+                       @bind="_comments[task.Id]" />
+                <button class="bp-btn success sm" @onclick="() => CompleteAsync(task, true)">✔ Setujui</button>
+                <button class="bp-btn danger sm" @onclick="() => CompleteAsync(task, false)">✘ Tolak</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<ApprovalTask> _tasks = [];
+    private readonly Dictionary<int, string> _comments = [];
+
+    protected override async Task OnInitializedCoreAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (UserId is null) return;
+        var auth = await Auth.GetAuthenticationStateAsync();
+        var roles = auth.User.Claims
+            .Where(c => c.Type == System.Security.Claims.ClaimTypes.Role)
+            .Select(c => c.Value).ToList();
+        _tasks = await Workflows.GetMyTasksAsync(UserId, roles);
+        foreach (var task in _tasks)
+            _comments.TryAdd(task.Id, "");
+    }
+
+    private async Task CompleteAsync(ApprovalTask task, bool approved)
+    {
+        await Workflows.CompleteTaskAsync(task.Id, approved, _comments.GetValueOrDefault(task.Id, ""), UserId!);
+        await LoadAsync();
+    }
+}

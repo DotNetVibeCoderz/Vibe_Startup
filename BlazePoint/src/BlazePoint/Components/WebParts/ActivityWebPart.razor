@@ -1,0 +1,32 @@
+@* SharePoint-style Site Activity: recent actions from the audit log. *@
+@inject DashboardService Dashboard
+
+@if (_logs.Count == 0)
+{
+    <div class="bp-muted">Belum ada aktivitas.</div>
+}
+else
+{
+    @foreach (var log in _logs)
+    {
+        <div class="bp-row" style="padding:6px 0;border-bottom:1px solid var(--divider)">
+            <span class="bp-chip blue">@log.Category</span>
+            <div style="flex:1;min-width:0">
+                <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px">@log.Message</div>
+                <div class="bp-muted" style="font-size:12px">@log.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm")</div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private List<AuditLog> _logs = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var count = int.TryParse(Settings.GetValueOrDefault("count", "6"), out var c) ? c : 6;
+        _logs = await Dashboard.RecentActivityAsync(count);
+    }
+}

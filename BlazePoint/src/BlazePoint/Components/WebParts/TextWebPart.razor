@@ -1,0 +1,7 @@
+@inject MarkdownService Markdown
+
+<div>@((MarkupString)Markdown.ToHtml(Settings.GetValueOrDefault("content", "")))</div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+}

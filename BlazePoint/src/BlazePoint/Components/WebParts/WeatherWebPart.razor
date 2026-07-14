@@ -1,0 +1,61 @@
+@inject IHttpClientFactory HttpFactory
+
+<div style="text-align:center;padding:8px">
+    @if (_loading)
+    {
+        <span class="bp-loading"></span>
+    }
+    else if (_error is not null)
+    {
+        <div class="bp-muted">⚠️ @_error</div>
+    }
+    else
+    {
+        <div style="font-size:34px">@_icon</div>
+        <div style="font-size:30px;font-weight:800">@($"{_temperature:0.#}")°C</div>
+        <div class="bp-muted">@Settings.GetValueOrDefault("city", "?") · angin @($"{_wind:0.#}") km/j</div>
+        <div class="bp-muted">@_description</div>
+    }
+</div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private bool _loading = true;
+    private string? _error;
+    private double _temperature, _wind;
+    private string _icon = "🌤️", _description = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var lat = Settings.GetValueOrDefault("latitude", "-6.2");
+            var lon = Settings.GetValueOrDefault("longitude", "106.8");
+            var http = HttpFactory.CreateClient();
+            var json = await http.GetFromJsonAsync<System.Text.Json.JsonElement>(
+                $"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true");
+            var current = json.GetProperty("current_weather");
+            _temperature = current.GetProperty("temperature").GetDouble();
+            _wind = current.GetProperty("windspeed").GetDouble();
+            var code = current.GetProperty("weathercode").GetInt32();
+            (_icon, _description) = code switch
+            {
+                0 => ("☀️", "Cerah"),
+                1 or 2 => ("🌤️", "Cerah berawan"),
+                3 => ("☁️", "Berawan"),
+                45 or 48 => ("🌫️", "Berkabut"),
+                >= 51 and <= 67 => ("🌦️", "Gerimis"),
+                >= 71 and <= 77 => ("🌨️", "Salju"),
+                >= 80 and <= 82 => ("🌧️", "Hujan"),
+                >= 95 => ("⛈️", "Badai petir"),
+                _ => ("🌤️", "")
+            };
+        }
+        catch (Exception ex)
+        {
+            _error = "Gagal memuat cuaca: " + ex.Message;
+        }
+        _loading = false;
+    }
+}

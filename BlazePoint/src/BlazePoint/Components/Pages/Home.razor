@@ -1,0 +1,124 @@
+@page "/"
+@attribute [Authorize]
+@inject DashboardService Dashboard
+@using ChartJs.Blazor
+@using ChartJs.Blazor.Common
+@using ChartJs.Blazor.Common.Enums
+@using ChartJs.Blazor.LineChart
+@using ChartJs.Blazor.BarChart
+@using ChartJs.Blazor.PieChart
+@using ChartJs.Blazor.Util
+
+<PageTitle>Dashboard — BlazePoint</PageTitle>
+
+<h1 style="margin-top:0">📊 Dashboard</h1>
+
+@if (_stats is null)
+{
+    <span class="bp-loading"></span>
+}
+else
+{
+    <div class="bp-kpi-row">
+        <div class="bp-kpi"><span class="icon">📁</span><span class="value">@_stats.DocumentCount</span><span class="label">Dokumen</span></div>
+        <div class="bp-kpi"><span class="icon">💾</span><span class="value">@($"{_stats.TotalStorageBytes / 1048576.0:0.#}") MB</span><span class="label">Storage Terpakai</span></div>
+        <div class="bp-kpi"><span class="icon">🏢</span><span class="value">@_stats.SiteCount</span><span class="label">Team Sites</span></div>
+        <div class="bp-kpi"><span class="icon">👥</span><span class="value">@_stats.UserCount</span><span class="label">Pengguna</span></div>
+        <div class="bp-kpi"><span class="icon">📄</span><span class="value">@_stats.PageCount</span><span class="label">Halaman</span></div>
+        <div class="bp-kpi"><span class="icon">✅</span><span class="value">@_stats.OpenTasks</span><span class="label">Approval Pending</span></div>
+        <div class="bp-kpi"><span class="icon">💬</span><span class="value">@_stats.DiscussionCount</span><span class="label">Diskusi</span></div>
+        <div class="bp-kpi"><span class="icon">📅</span><span class="value">@_stats.UpcomingEvents</span><span class="label">Event Mendatang</span></div>
+    </div>
+
+    <div class="bp-grid-2">
+        <div class="bp-card">
+            <div class="bp-card-title">📈 Tren Upload Dokumen (6 bulan)</div>
+            <Chart Config="_lineConfig" />
+        </div>
+        <div class="bp-card">
+            <div class="bp-card-title">🥧 Storage per Jenis File</div>
+            <Chart Config="_pieConfig" />
+        </div>
+    </div>
+
+    <div class="bp-grid-2">
+        <div class="bp-card">
+            <div class="bp-card-title">📊 Aktivitas per Kategori (30 hari)</div>
+            <Chart Config="_barConfig" />
+        </div>
+        <div class="bp-card">
+            <div class="bp-card-title">🕘 Aktivitas Terbaru</div>
+            @foreach (var log in _recent)
+            {
+                <div class="bp-row" style="padding:7px 0;border-bottom:1px solid var(--divider)">
+                    <span class="bp-chip blue">@log.Category</span>
+                    <div style="flex:1;min-width:0">
+                        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@log.Message</div>
+                        <div class="bp-muted">@log.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private DashboardStats? _stats;
+    private List<AuditLog> _recent = [];
+    private LineConfig _lineConfig = new();
+    private PieConfig _pieConfig = new(true);
+    private BarConfig _barConfig = new();
+
+    private static readonly string[] Palette =
+        ["#1877f2", "#31a24c", "#f7b928", "#f02849", "#9360f7", "#0ea5e9", "#65676b"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stats = await Dashboard.GetStatsAsync();
+        _recent = await Dashboard.RecentActivityAsync();
+
+        // line: document trend
+        _lineConfig = new LineConfig
+        {
+            Options = new LineOptions { Responsive = true, Legend = new Legend { Display = false } }
+        };
+        var trend = await Dashboard.DocumentTrendAsync();
+        var lineData = new LineDataset<int>(trend.Select(t => t.Count))
+        {
+            Label = "Dokumen",
+            BorderColor = "#1877f2",
+            BackgroundColor = "rgba(24,119,242,.15)",
+            Fill = FillingMode.Start
+        };
+        foreach (var (label, _) in trend) _lineConfig.Data.Labels.Add(label);
+        _lineConfig.Data.Datasets.Add(lineData);
+
+        // doughnut: storage by type
+        _pieConfig = new PieConfig(true)
+        {
+            Options = new PieOptions { Responsive = true }
+        };
+        var storage = await Dashboard.StorageByTypeAsync();
+        if (storage.Count == 0) storage = [("Belum ada data", 1)];
+        var pieData = new PieDataset<double>(storage.Select(s => Math.Round(s.Bytes / 1048576.0, 2)))
+        {
+            BackgroundColor = storage.Select((_, i) => Palette[i % Palette.Length]).ToArray()
+        };
+        foreach (var (label, _) in storage) _pieConfig.Data.Labels.Add(label);
+        _pieConfig.Data.Datasets.Add(pieData);
+
+        // bar: activity by category
+        _barConfig = new BarConfig
+        {
+            Options = new BarOptions { Responsive = true, Legend = new Legend { Display = false } }
+        };
+        var activity = await Dashboard.ActivityByCategoryAsync();
+        if (activity.Count == 0) activity = [("Belum ada", 0)];
+        var barData = new BarDataset<int>(activity.Select(a => a.Count))
+        {
+            BackgroundColor = activity.Select((_, i) => Palette[i % Palette.Length]).ToArray()
+        };
+        foreach (var (label, _) in activity) _barConfig.Data.Labels.Add(label);
+        _barConfig.Data.Datasets.Add(barData);
+    }
+}

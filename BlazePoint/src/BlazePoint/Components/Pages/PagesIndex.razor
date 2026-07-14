@@ -1,0 +1,106 @@
+@page "/pages"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject PageService Pages
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Halaman — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <h1 style="margin:0">📄 Halaman (CMS)</h1>
+    <span class="bp-spacer"></span>
+    @if (IsEditor)
+    {
+        <button class="bp-btn" @onclick="() => _showNew = true">＋ Halaman Baru</button>
+    }
+</div>
+
+<div class="bp-card">
+    <div class="bp-table-wrap">
+        <table class="bp-table">
+            <thead><tr><th>Judul</th><th>Slug</th><th>Masterpage</th><th>Status</th><th>Versi</th><th>Diubah</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var pg in _pages)
+                {
+                    <tr>
+                        <td style="font-weight:600">@pg.Title</td>
+                        <td><code>/p/@pg.Slug</code></td>
+                        <td><span class="bp-chip">@pg.Layout</span></td>
+                        <td>
+                            @if (pg.IsPublished)
+                            {
+                                <span class="bp-chip green">Published</span>
+                            }
+                            else
+                            {
+                                <span class="bp-chip yellow">Draft</span>
+                            }
+                        </td>
+                        <td>v@(pg.Version)</td>
+                        <td>@pg.UpdatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</td>
+                        <td class="bp-row" style="flex-wrap:nowrap">
+                            <a class="bp-btn ghost sm" href="/p/@pg.Slug" title="Lihat">👁️</a>
+                            @if (IsEditor)
+                            {
+                                <a class="bp-btn ghost sm" href="/pages/edit/@pg.Id" title="Edit">✏️</a>
+                                <button class="bp-btn ghost sm" title="Hapus" @onclick="() => DeleteAsync(pg)">🗑️</button>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (_pages.Count == 0)
+                {
+                    <tr><td colspan="7"><div class="bp-empty"><div class="big">📄</div>Belum ada halaman.</div></td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (_showNew)
+{
+    <div class="bp-modal-backdrop" @onclick="() => _showNew = false">
+        <div class="bp-modal" @onclick:stopPropagation>
+            <h3>＋ Halaman Baru</h3>
+            <div class="bp-field"><label class="bp-label">Judul</label><input class="bp-input" @bind="_newTitle" /></div>
+            <div class="bp-field">
+                <label class="bp-label">Masterpage / Layout</label>
+                <select class="bp-select" @bind="_newLayout">
+                    <option value="Default">Default — konten polos</option>
+                    <option value="News">News — header berita merah</option>
+                    <option value="Intranet">Intranet — header biru korporat</option>
+                    <option value="Web">Web — hero gelap lebar</option>
+                </select>
+            </div>
+            <div class="bp-row bp-mt">
+                <span class="bp-spacer"></span>
+                <button class="bp-btn secondary" @onclick="() => _showNew = false">Batal</button>
+                <button class="bp-btn" @onclick="CreateAsync">Buat & Edit</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<CmsPage> _pages = [];
+    private bool _showNew;
+    private string _newTitle = "";
+    private string _newLayout = "Default";
+
+    protected override async Task OnInitializedCoreAsync() => _pages = await Pages.GetAllAsync();
+
+    private async Task CreateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newTitle)) return;
+        var created = await Pages.CreateAsync(_newTitle, _newLayout, UserId);
+        Nav.NavigateTo($"/pages/edit/{created.Id}");
+    }
+
+    private async Task DeleteAsync(CmsPage pg)
+    {
+        if (!await JS.InvokeAsync<bool>("blazePoint.confirmDialog", $"Hapus halaman '{pg.Title}'?")) return;
+        await Pages.DeleteAsync(pg.Id, UserId);
+        _pages = await Pages.GetAllAsync();
+    }
+}

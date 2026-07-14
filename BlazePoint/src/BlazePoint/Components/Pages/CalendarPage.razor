@@ -1,0 +1,157 @@
+@page "/calendar"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject CalendarService Calendar
+@inject IJSRuntime JS
+
+<PageTitle>Kalender — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <h1 style="margin:0">📅 Kalender Bersama</h1>
+    <span class="bp-spacer"></span>
+    <a class="bp-btn secondary" href="/api/calendar/feed.ics" target="_blank">📥 Export ICS (Outlook/Google)</a>
+    <button class="bp-btn" @onclick="() => OpenEditor(null, DateTime.Today)">＋ Event Baru</button>
+</div>
+
+<div class="bp-card">
+    <div class="bp-row bp-mb">
+        <button class="bp-btn secondary sm" @onclick="() => ChangeMonth(-1)">←</button>
+        <h2 style="margin:0;min-width:220px;text-align:center">@_month.ToString("MMMM yyyy")</h2>
+        <button class="bp-btn secondary sm" @onclick="() => ChangeMonth(1)">→</button>
+        <button class="bp-btn ghost sm" @onclick="GoToday">Hari ini</button>
+        <span class="bp-muted">Klik tanggal untuk menambah event, klik event untuk edit. Feed ICS bisa disubscribe dari Outlook/Google Calendar.</span>
+    </div>
+
+    <div class="bp-cal-grid">
+        @foreach (var dayName in new[] { "Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min" })
+        {
+            <div class="bp-cal-head">@dayName</div>
+        }
+        @foreach (var day in _days)
+        {
+            var d = day;
+            <div class="bp-cal-cell @(d.Month != _month.Month ? "other" : "")"
+                 @onclick="() => OpenEditor(null, d)">
+                <span class="day @(d == DateTime.Today ? "today" : "")">@d.Day</span>
+                @foreach (var evt in _events.Where(e => e.Start.Date <= d && e.End.Date >= d || e.Start.Date == d))
+                {
+                    var ev = evt;
+                    <div class="bp-cal-event" style="background:@ev.Color" title="@ev.Title"
+                         @onclick:stopPropagation @onclick="() => OpenEditor(ev, d)">
+                        @(ev.AllDay ? "" : ev.Start.ToString("HH:mm ")) @ev.Title
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@if (_editing is not null)
+{
+    <div class="bp-modal-backdrop" @onclick="CloseEditor">
+        <div class="bp-modal" @onclick:stopPropagation>
+            <h3>@(_editing.Id == 0 ? "＋ Event Baru" : "✏️ Edit Event")</h3>
+            <div class="bp-field"><label class="bp-label">Judul</label><input class="bp-input" @bind="_editing.Title" /></div>
+            <div class="bp-field"><label class="bp-label">Deskripsi</label><textarea class="bp-textarea" rows="2" @bind="_editing.Description"></textarea></div>
+            <div class="bp-field"><label class="bp-label">Lokasi</label><input class="bp-input" @bind="_editing.Location" /></div>
+            <div class="bp-grid-2">
+                <div class="bp-field"><label class="bp-label">Mulai</label><input type="datetime-local" class="bp-input" @bind="_editing.Start" /></div>
+                <div class="bp-field"><label class="bp-label">Selesai</label><input type="datetime-local" class="bp-input" @bind="_editing.End" /></div>
+            </div>
+            <div class="bp-grid-2">
+                <div class="bp-field">
+                    <label class="bp-label">Warna</label>
+                    <select class="bp-select" @bind="_editing.Color">
+                        <option value="#1877f2">🔵 Biru</option>
+                        <option value="#31a24c">🟢 Hijau</option>
+                        <option value="#f7b928">🟡 Kuning</option>
+                        <option value="#f02849">🔴 Merah</option>
+                        <option value="#9360f7">🟣 Ungu</option>
+                    </select>
+                </div>
+                <div class="bp-field">
+                    <label class="bp-label">Pengingat</label>
+                    <select class="bp-select" @bind="_editing.ReminderMinutes">
+                        <option value="0">Tanpa pengingat</option>
+                        <option value="15">15 menit sebelum</option>
+                        <option value="30">30 menit sebelum</option>
+                        <option value="60">1 jam sebelum</option>
+                        <option value="1440">1 hari sebelum</option>
+                    </select>
+                </div>
+            </div>
+            <label class="bp-row"><input type="checkbox" @bind="_editing.AllDay" /> Sepanjang hari</label>
+            <div class="bp-row bp-mt">
+                @if (_editing.Id != 0)
+                {
+                    <button class="bp-btn danger" @onclick="DeleteAsync">🗑️ Hapus</button>
+                    <a class="bp-btn ghost" href="@CalendarService.GoogleCalendarUrl(_editing)" target="_blank">📆 + Google Cal</a>
+                }
+                <span class="bp-spacer"></span>
+                <button class="bp-btn secondary" @onclick="CloseEditor">Batal</button>
+                <button class="bp-btn" @onclick="SaveAsync">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private DateTime _month = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private List<DateTime> _days = [];
+    private List<CalendarEvent> _events = [];
+    private CalendarEvent? _editing;
+
+    protected override async Task OnInitializedCoreAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        // Monday-first grid covering the whole visible month
+        var first = _month;
+        var offset = ((int)first.DayOfWeek + 6) % 7;
+        var gridStart = first.AddDays(-offset);
+        _days = Enumerable.Range(0, 42).Select(i => gridStart.AddDays(i)).ToList();
+        _events = await Calendar.GetRangeAsync(gridStart, gridStart.AddDays(42));
+    }
+
+    private async Task ChangeMonth(int delta)
+    {
+        _month = _month.AddMonths(delta);
+        await LoadAsync();
+    }
+
+    private async Task GoToday()
+    {
+        _month = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        await LoadAsync();
+    }
+
+    private void OpenEditor(CalendarEvent? evt, DateTime day)
+    {
+        _editing = evt is null
+            ? new CalendarEvent { Start = day.AddHours(9), End = day.AddHours(10) }
+            : new CalendarEvent
+            {
+                Id = evt.Id, Title = evt.Title, Description = evt.Description, Location = evt.Location,
+                Start = evt.Start, End = evt.End, AllDay = evt.AllDay, Color = evt.Color,
+                ReminderMinutes = evt.ReminderMinutes, SiteId = evt.SiteId, CreatedById = evt.CreatedById
+            };
+    }
+
+    private void CloseEditor() => _editing = null;
+
+    private async Task SaveAsync()
+    {
+        if (_editing is null || string.IsNullOrWhiteSpace(_editing.Title)) return;
+        await Calendar.SaveAsync(_editing, UserId);
+        _editing = null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_editing is null) return;
+        await Calendar.DeleteAsync(_editing.Id, UserId);
+        _editing = null;
+        await LoadAsync();
+    }
+}

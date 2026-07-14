@@ -1,0 +1,26 @@
+@page "/account/reset"
+@layout EmptyLayout
+
+<PageTitle>Reset Password — BlazePoint</PageTitle>
+
+<div class="bp-auth-page">
+    <div class="bp-auth-card">
+        <h2 style="text-align:center;margin-top:0">🔐 Password Baru</h2>
+        @if (Error is not null)
+        {
+            <div class="bp-error">@Error</div>
+        }
+        <form method="post" action="/auth/reset">
+            <input type="hidden" name="email" value="@Email" />
+            <input type="hidden" name="token" value="@Token" />
+            <input class="bp-input" type="password" name="password" placeholder="Password baru (min. 6 karakter)" required minlength="6" autofocus />
+            <button type="submit" class="bp-btn">Simpan Password Baru</button>
+        </form>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "email")] public string? Email { get; set; }
+    [SupplyParameterFromQuery(Name = "token")] public string? Token { get; set; }
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+}

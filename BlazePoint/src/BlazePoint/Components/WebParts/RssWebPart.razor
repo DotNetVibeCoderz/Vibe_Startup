@@ -1,0 +1,63 @@
+@* SharePoint-style RSS/News feed reader. *@
+@inject IHttpClientFactory HttpFactory
+@using System.Xml.Linq
+
+@if (_loading)
+{
+    <span class="bp-loading"></span>
+}
+else if (_error is not null)
+{
+    <div class="bp-muted">⚠️ @_error</div>
+}
+else
+{
+    @foreach (var item in _items)
+    {
+        <div style="padding:8px 0;border-bottom:1px solid var(--divider)">
+            <a href="@item.Link" target="_blank" style="font-weight:600">@item.Title</a>
+            <div class="bp-muted" style="font-size:12px">@item.Published</div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private record FeedItem(string Title, string Link, string Published);
+
+    private bool _loading = true;
+    private string? _error;
+    private List<FeedItem> _items = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var url = Settings.GetValueOrDefault("feedUrl", "https://devblogs.microsoft.com/dotnet/feed/");
+            var count = int.TryParse(Settings.GetValueOrDefault("count", "5"), out var c) ? c : 5;
+            var http = HttpFactory.CreateClient("clippy");
+            var xml = await http.GetStringAsync(url);
+            var doc = XDocument.Parse(xml);
+            XNamespace atom = "http://www.w3.org/2005/Atom";
+
+            // RSS 2.0 <item> or Atom <entry>
+            _items = doc.Descendants("item")
+                .Select(i => new FeedItem(
+                    (string?)i.Element("title") ?? "(tanpa judul)",
+                    (string?)i.Element("link") ?? "#",
+                    (string?)i.Element("pubDate") ?? ""))
+                .Concat(doc.Descendants(atom + "entry")
+                    .Select(e => new FeedItem(
+                        (string?)e.Element(atom + "title") ?? "(tanpa judul)",
+                        (string?)e.Element(atom + "link")?.Attribute("href") ?? "#",
+                        (string?)e.Element(atom + "updated") ?? "")))
+                .Take(count).ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = "Gagal memuat feed: " + ex.Message;
+        }
+        _loading = false;
+    }
+}

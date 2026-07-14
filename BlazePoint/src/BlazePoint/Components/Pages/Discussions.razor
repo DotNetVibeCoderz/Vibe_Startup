@@ -1,0 +1,73 @@
+@page "/discussions"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject DiscussionService DiscussionsSvc
+
+<PageTitle>Diskusi — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <h1 style="margin:0">💬 Discussion Board</h1>
+    <span class="bp-spacer"></span>
+    <button class="bp-btn" @onclick="() => _showNew = true">＋ Diskusi Baru</button>
+</div>
+
+<div class="bp-content-narrow" style="margin:0">
+    @foreach (var thread in _threads)
+    {
+        <div class="bp-card">
+            <div class="bp-row">
+                <UserBadge UserId="@thread.CreatedById" />
+                <span class="bp-muted">· @thread.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+            </div>
+            <a href="/discussions/@thread.Id" style="font-size:19px;font-weight:700;display:block;margin:8px 0">@thread.Title</a>
+            <div class="bp-muted" style="overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">
+                @thread.Body
+            </div>
+            <div class="bp-row bp-mt">
+                <span class="bp-chip blue">💬 @thread.Posts.Count balasan</span>
+                <a class="bp-btn ghost sm" href="/discussions/@thread.Id">Buka diskusi →</a>
+            </div>
+        </div>
+    }
+    @if (_threads.Count == 0)
+    {
+        <div class="bp-empty"><div class="big">💬</div>Belum ada diskusi. Mulai percakapan pertama!</div>
+    }
+</div>
+
+@if (_showNew)
+{
+    <div class="bp-modal-backdrop" @onclick="() => _showNew = false">
+        <div class="bp-modal" @onclick:stopPropagation>
+            <h3>＋ Diskusi Baru</h3>
+            <div class="bp-field"><label class="bp-label">Judul</label><input class="bp-input" @bind="_newTitle" /></div>
+            <div class="bp-field">
+                <label class="bp-label">Isi (gunakan @@nama untuk mention)</label>
+                <textarea class="bp-textarea" rows="5" @bind="_newBody"></textarea>
+            </div>
+            <div class="bp-row bp-mt">
+                <span class="bp-spacer"></span>
+                <button class="bp-btn secondary" @onclick="() => _showNew = false">Batal</button>
+                <button class="bp-btn" @onclick="CreateAsync">Kirim</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<DiscussionThread> _threads = [];
+    private bool _showNew;
+    private string _newTitle = "", _newBody = "";
+
+    protected override async Task OnInitializedCoreAsync()
+        => _threads = await DiscussionsSvc.GetThreadsAsync();
+
+    private async Task CreateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newTitle)) return;
+        await DiscussionsSvc.CreateThreadAsync(_newTitle, _newBody, UserId);
+        _showNew = false;
+        _newTitle = _newBody = "";
+        _threads = await DiscussionsSvc.GetThreadsAsync();
+    }
+}

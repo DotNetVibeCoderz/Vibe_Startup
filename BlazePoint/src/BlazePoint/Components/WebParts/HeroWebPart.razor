@@ -1,0 +1,20 @@
+@* SharePoint-style Hero banner: large image with overlay title + CTA. *@
+
+<div style="position:relative;border-radius:10px;overflow:hidden;min-height:220px;display:flex;align-items:flex-end;
+            background:url('@Settings.GetValueOrDefault("imageUrl", "https://picsum.photos/1200/400")') center/cover">
+    <div style="width:100%;padding:24px;background:linear-gradient(transparent, rgba(0,0,0,.75));color:#fff">
+        <h2 style="margin:0 0 4px;font-size:26px">@Settings.GetValueOrDefault("title", "Judul Hero")</h2>
+        @if (!string.IsNullOrEmpty(Settings.GetValueOrDefault("subtitle", "")))
+        {
+            <div style="opacity:.9">@Settings["subtitle"]</div>
+        }
+        @if (!string.IsNullOrEmpty(Settings.GetValueOrDefault("buttonText", "")))
+        {
+            <a class="bp-btn bp-mt" href="@Settings.GetValueOrDefault("buttonUrl", "#")">@Settings["buttonText"]</a>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+}

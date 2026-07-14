@@ -1,0 +1,100 @@
+@page "/admin/settings"
+@attribute [Authorize(Roles = "Admin")]
+@inherits BpComponentBase
+@inject SettingsService Settings
+@inject SearchService Search
+@inject IConfiguration Config
+
+<PageTitle>Pengaturan — BlazePoint</PageTitle>
+
+<h1>⚙️ Pengaturan Site</h1>
+
+<div class="bp-grid-2">
+    <div class="bp-card">
+        <div class="bp-card-title">🏷️ Pengaturan Umum (database)</div>
+        <div class="bp-field">
+            <label class="bp-label">Nama Site</label>
+            <input class="bp-input" @bind="_siteName" />
+        </div>
+        <div class="bp-field">
+            <label class="bp-label">Pesan Sambutan</label>
+            <textarea class="bp-textarea" rows="2" @bind="_welcome"></textarea>
+        </div>
+        <div class="bp-field">
+            <label class="bp-label">Mode Pemeliharaan</label>
+            <select class="bp-select" @bind="_maintenance">
+                <option value="false">Nonaktif</option>
+                <option value="true">Aktif (banner peringatan)</option>
+            </select>
+        </div>
+        <button class="bp-btn" @onclick="SaveAsync">💾 Simpan</button>
+        @if (_saved)
+        {
+            <div class="bp-success bp-mt">✔ Pengaturan tersimpan.</div>
+        }
+    </div>
+
+    <div class="bp-card">
+        <div class="bp-card-title">🧩 Konfigurasi appsettings.json (read-only)</div>
+        <div class="bp-muted bp-mb">Provider infrastruktur dikonfigurasi lewat <code>appsettings.json</code> dan butuh restart.</div>
+        <table class="bp-table">
+            <tbody>
+                <tr><td>Database Provider</td><td><span class="bp-chip blue">@Config["Database:Provider"]</span></td></tr>
+                <tr><td>Storage Provider</td><td><span class="bp-chip blue">@Config["Storage:Provider"]</span></td></tr>
+                <tr><td>Vector Store</td><td><span class="bp-chip blue">@Config["Search:VectorStore"]</span></td></tr>
+                <tr><td>Embeddings</td><td><span class="bp-chip blue">@Config["Search:Embeddings:Provider"]</span></td></tr>
+                <tr><td>Clippy Provider</td><td><span class="bp-chip blue">@Config["Clippy:Provider"] (@Config[$"Clippy:{Config["Clippy:Provider"]}:Model"])</span></td></tr>
+                <tr><td>Clippy Temperature</td><td>@Config["Clippy:Temperature"]</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="bp-card">
+    <div class="bp-card-title">🔍 Search Index</div>
+    <p class="bp-muted">Bangun ulang index pencarian (full-text + embedding vektor) untuk semua konten.</p>
+    <button class="bp-btn secondary" @onclick="ReindexAsync" disabled="@_reindexing">
+        @if (_reindexing)
+        {
+            <span class="bp-loading"></span>
+        }
+        else
+        {
+            <span>🔄 Reindex Semua Konten</span>
+        }
+    </button>
+    @if (_reindexed is not null)
+    {
+        <div class="bp-success bp-mt">✔ @_reindexed item berhasil diindex ulang.</div>
+    }
+</div>
+
+@code {
+    private string _siteName = "BlazePoint";
+    private string _welcome = "";
+    private string _maintenance = "false";
+    private bool _saved, _reindexing;
+    private int? _reindexed;
+
+    protected override async Task OnInitializedCoreAsync()
+    {
+        _siteName = await Settings.GetAsync("SiteName") ?? "BlazePoint";
+        _welcome = await Settings.GetAsync("WelcomeMessage") ?? "";
+        _maintenance = await Settings.GetAsync("MaintenanceMode") ?? "false";
+    }
+
+    private async Task SaveAsync()
+    {
+        await Settings.SetAsync("SiteName", _siteName);
+        await Settings.SetAsync("WelcomeMessage", _welcome);
+        await Settings.SetAsync("MaintenanceMode", _maintenance);
+        _saved = true;
+    }
+
+    private async Task ReindexAsync()
+    {
+        _reindexing = true;
+        _reindexed = await Search.ReindexAllAsync();
+        _reindexing = false;
+    }
+}

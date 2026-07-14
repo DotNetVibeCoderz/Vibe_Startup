@@ -1,0 +1,90 @@
+@page "/sites"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject SiteService SitesSvc
+@inject IJSRuntime JS
+
+<PageTitle>Team Sites — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <h1 style="margin:0">🏢 Team Sites</h1>
+    <span class="bp-spacer"></span>
+    @if (IsEditor)
+    {
+        <button class="bp-btn" @onclick="NewSite">＋ Site Baru</button>
+    }
+</div>
+
+<div class="bp-grid-3">
+    @foreach (var site in _sites)
+    {
+        <div class="bp-card" style="border-top:4px solid @site.Color">
+            <div style="font-size:40px">@site.Icon</div>
+            <h3 style="margin:8px 0 4px">@site.Name</h3>
+            <span class="bp-chip">@site.Department</span>
+            <p class="bp-muted">@site.Description</p>
+            <div class="bp-row">
+                <a class="bp-btn secondary sm" href="/sites/@site.Slug">Buka Site →</a>
+                @if (IsAdmin)
+                {
+                    <button class="bp-btn ghost sm" @onclick="() => Edit(site)">✏️</button>
+                    <button class="bp-btn ghost sm" @onclick="() => DeleteAsync(site)">🗑️</button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@if (_editing is not null)
+{
+    <div class="bp-modal-backdrop" @onclick="() => _editing = null">
+        <div class="bp-modal" @onclick:stopPropagation>
+            <h3>@(_editing.Id == 0 ? "＋ Team Site Baru" : "✏️ Edit Site")</h3>
+            <div class="bp-grid-2">
+                <div class="bp-field"><label class="bp-label">Nama</label><input class="bp-input" @bind="_editing.Name" /></div>
+                <div class="bp-field"><label class="bp-label">Departemen</label><input class="bp-input" @bind="_editing.Department" /></div>
+            </div>
+            <div class="bp-field"><label class="bp-label">Deskripsi</label><textarea class="bp-textarea" rows="2" @bind="_editing.Description"></textarea></div>
+            <div class="bp-grid-2">
+                <div class="bp-field"><label class="bp-label">Icon (emoji)</label><input class="bp-input" @bind="_editing.Icon" /></div>
+                <div class="bp-field"><label class="bp-label">Warna</label><input type="color" class="bp-input" @bind="_editing.Color" /></div>
+            </div>
+            <div class="bp-row bp-mt">
+                <span class="bp-spacer"></span>
+                <button class="bp-btn secondary" @onclick="() => _editing = null">Batal</button>
+                <button class="bp-btn" @onclick="SaveAsync">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Site> _sites = [];
+    private Site? _editing;
+
+    protected override async Task OnInitializedCoreAsync() => _sites = await SitesSvc.GetAllAsync();
+
+    private void NewSite() => _editing = new Site { Icon = "🏢", Color = "#1877f2" };
+
+    private void Edit(Site site) => _editing = new Site
+    {
+        Id = site.Id, Name = site.Name, Slug = site.Slug, Description = site.Description,
+        Department = site.Department, Icon = site.Icon, Color = site.Color,
+        CreatedById = site.CreatedById, CreatedAt = site.CreatedAt
+    };
+
+    private async Task SaveAsync()
+    {
+        if (_editing is null || string.IsNullOrWhiteSpace(_editing.Name)) return;
+        await SitesSvc.SaveAsync(_editing, UserId);
+        _editing = null;
+        _sites = await SitesSvc.GetAllAsync();
+    }
+
+    private async Task DeleteAsync(Site site)
+    {
+        if (!await JS.InvokeAsync<bool>("blazePoint.confirmDialog", $"Hapus site '{site.Name}'?")) return;
+        await SitesSvc.DeleteAsync(site.Id, UserId);
+        _sites = await SitesSvc.GetAllAsync();
+    }
+}

@@ -1,0 +1,42 @@
+@page "/account/forgot"
+@layout EmptyLayout
+
+<PageTitle>Lupa Password — BlazePoint</PageTitle>
+
+<div class="bp-auth-page">
+    <div class="bp-auth-card">
+        <h2 style="text-align:center;margin-top:0">🔑 Reset Password</h2>
+        @if (Sent is null)
+        {
+            <p class="bp-muted">Masukkan email akun Anda. Kami akan membuatkan link reset password.</p>
+            <form method="post" action="/auth/forgot">
+                <input class="bp-input" type="email" name="email" placeholder="Email" required autofocus />
+                <button type="submit" class="bp-btn">Buat Link Reset</button>
+            </form>
+        }
+        else
+        {
+            <div class="bp-success">Permintaan diterima.</div>
+            @if (Link is not null)
+            {
+                <p class="bp-muted">
+                    <strong>Mode demo</strong> (SMTP belum dikonfigurasi) — gunakan link berikut untuk
+                    mereset password Anda:
+                </p>
+                <a class="bp-btn" href="@Link">🔑 Reset Password Sekarang</a>
+            }
+            else
+            {
+                <p class="bp-muted">Jika email terdaftar, link reset akan dikirim.</p>
+            }
+        }
+        <div style="text-align:center;margin-top:14px">
+            <a href="/account/login">← Kembali ke login</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "sent")] public string? Sent { get; set; }
+    [SupplyParameterFromQuery(Name = "link")] public string? Link { get; set; }
+}

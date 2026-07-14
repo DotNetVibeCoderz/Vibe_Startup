@@ -1,0 +1,67 @@
+@* Renders a single dynamic form field (used by the designer preview and the fill page). *@
+
+<div class="bp-field">
+    @if (Field.Type != "checkbox")
+    {
+        <label class="bp-label">@Field.Label @(Field.Required ? "*" : "")</label>
+    }
+    @switch (Field.Type)
+    {
+        case "textarea":
+            <textarea class="bp-textarea" rows="3" placeholder="@Field.Placeholder" disabled="@Disabled"
+                      value="@Value" @onchange="Changed"></textarea>
+            break;
+        case "number":
+            <input type="number" class="bp-input" placeholder="@Field.Placeholder" disabled="@Disabled"
+                   value="@Value" @onchange="Changed" />
+            break;
+        case "date":
+            <input type="date" class="bp-input" disabled="@Disabled" value="@Value" @onchange="Changed" />
+            break;
+        case "email":
+            <input type="email" class="bp-input" placeholder="@Field.Placeholder" disabled="@Disabled"
+                   value="@Value" @onchange="Changed" />
+            break;
+        case "select":
+            <select class="bp-select" disabled="@Disabled" value="@Value" @onchange="Changed">
+                <option value="">— pilih —</option>
+                @foreach (var option in Field.Options)
+                {
+                    <option value="@option">@option</option>
+                }
+            </select>
+            break;
+        case "radio":
+            @foreach (var option in Field.Options)
+            {
+                var opt = option;
+                <label class="bp-row" style="gap:6px;padding:2px 0">
+                    <input type="radio" name="@Field.Id" disabled="@Disabled"
+                           checked="@(Value == opt)" @onchange="() => ValueChanged.InvokeAsync(opt)" />
+                    @opt
+                </label>
+            }
+            break;
+        case "checkbox":
+            <label class="bp-row" style="gap:6px">
+                <input type="checkbox" disabled="@Disabled" checked="@(Value == "true")"
+                       @onchange='e => ValueChanged.InvokeAsync((e.Value is bool b && b) ? "true" : "false")' />
+                @Field.Label @(Field.Required ? "*" : "")
+            </label>
+            break;
+        default:
+            <input class="bp-input" placeholder="@Field.Placeholder" disabled="@Disabled"
+                   value="@Value" @onchange="Changed" />
+            break;
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public FormField Field { get; set; } = new();
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private Task Changed(ChangeEventArgs e)
+        => ValueChanged.InvokeAsync(e.Value?.ToString() ?? "");
+}

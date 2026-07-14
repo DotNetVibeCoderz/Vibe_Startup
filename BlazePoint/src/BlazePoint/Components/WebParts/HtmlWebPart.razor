@@ -1,0 +1,7 @@
+@* SharePoint-style Embed: raw HTML snippet (admin-provided). *@
+
+<div>@((MarkupString)Settings.GetValueOrDefault("html", "<em>Isi HTML di properti webpart…</em>"))</div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+}

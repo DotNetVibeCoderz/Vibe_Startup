@@ -1,0 +1,37 @@
+@* SharePoint-style News: cards of the latest published CMS pages. *@
+@inject PageService Pages
+
+@if (_pages.Count == 0)
+{
+    <div class="bp-muted">Belum ada berita yang dipublish.</div>
+}
+else
+{
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px">
+        @foreach (var pg in _pages)
+        {
+            <a href="/p/@pg.Slug" style="display:block;background:var(--surface-2);border-radius:10px;overflow:hidden;color:var(--text)">
+                <div style="height:70px;background:linear-gradient(120deg,var(--bp-blue),#5f9df7);display:flex;align-items:center;justify-content:center;font-size:30px">📰</div>
+                <div style="padding:10px">
+                    <div style="font-weight:700;font-size:14px">@pg.Title</div>
+                    <div class="bp-muted">@pg.UpdatedAt.ToLocalTime().ToString("dd MMM yyyy") · v@(pg.Version)</div>
+                </div>
+            </a>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private List<CmsPage> _pages = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var count = int.TryParse(Settings.GetValueOrDefault("count", "4"), out var c) ? c : 4;
+        _pages = (await Pages.GetAllAsync())
+            .Where(p => p.IsPublished)
+            .OrderByDescending(p => p.UpdatedAt)
+            .Take(count).ToList();
+    }
+}

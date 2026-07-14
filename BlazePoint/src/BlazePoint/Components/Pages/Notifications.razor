@@ -1,0 +1,64 @@
+@page "/notifications"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject NotificationService NotifSvc
+
+<PageTitle>Notifikasi — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <h1 style="margin:0">🔔 Notifikasi</h1>
+    <span class="bp-spacer"></span>
+    <button class="bp-btn secondary" @onclick="MarkAllAsync">Tandai semua dibaca</button>
+</div>
+
+<div class="bp-content-narrow" style="margin:0">
+    @foreach (var notification in _notifications)
+    {
+        <div class="bp-card bp-notif-item @(notification.IsRead ? "" : "unread")">
+            <div class="bp-row">
+                <div style="flex:1">
+                    <div style="font-weight:700">@notification.Title</div>
+                    <div>@notification.Message</div>
+                    <div class="bp-muted">@notification.CreatedAt.ToLocalTime().ToString("dddd, dd MMMM yyyy HH:mm")</div>
+                </div>
+                @if (!string.IsNullOrEmpty(notification.Link))
+                {
+                    <a class="bp-btn secondary sm" href="@notification.Link">Buka →</a>
+                }
+                @if (!notification.IsRead)
+                {
+                    <button class="bp-btn ghost sm" @onclick="() => MarkReadAsync(notification)">✔</button>
+                }
+            </div>
+        </div>
+    }
+    @if (_notifications.Count == 0)
+    {
+        <div class="bp-empty"><div class="big">🔕</div>Tidak ada notifikasi.</div>
+    }
+</div>
+
+@code {
+    private List<Notification> _notifications = [];
+
+    protected override async Task OnInitializedCoreAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (UserId is null) return;
+        _notifications = await NotifSvc.GetForUserAsync(UserId, count: 100);
+    }
+
+    private async Task MarkReadAsync(Notification notification)
+    {
+        await NotifSvc.MarkReadAsync(notification.Id);
+        await LoadAsync();
+    }
+
+    private async Task MarkAllAsync()
+    {
+        if (UserId is null) return;
+        await NotifSvc.MarkAllReadAsync(UserId);
+        await LoadAsync();
+    }
+}

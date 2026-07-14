@@ -1,0 +1,144 @@
+@page "/workflows"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject WorkflowService WorkflowsSvc
+@inject IJSRuntime JS
+
+<PageTitle>Workflows — BlazePoint</PageTitle>
+
+<div class="bp-row bp-mb">
+    <h1 style="margin:0">⚙️ Workflow Automation</h1>
+    <span class="bp-spacer"></span>
+    <a class="bp-btn secondary" href="/workflows/tasks">✅ Tugas Saya</a>
+    @if (IsEditor)
+    {
+        <a class="bp-btn" href="/workflows/designer/0">＋ Workflow Baru</a>
+    }
+</div>
+
+<div class="bp-grid-2">
+    <div class="bp-card">
+        <div class="bp-card-title">📐 Definisi Workflow</div>
+        @foreach (var def in _definitions)
+        {
+            <div class="bp-row" style="padding:10px 0;border-bottom:1px solid var(--divider)">
+                <div style="flex:1">
+                    <div style="font-weight:700">@def.Name @(def.IsActive ? "" : "(nonaktif)")</div>
+                    <div class="bp-muted">@def.Description</div>
+                </div>
+                <button class="bp-btn success sm" @onclick="() => StartFor(def)">▶️ Mulai</button>
+                @if (IsEditor)
+                {
+                    <a class="bp-btn secondary sm" href="/workflows/designer/@def.Id">✏️ Designer</a>
+                    <button class="bp-btn ghost sm" @onclick="() => DeleteAsync(def)">🗑️</button>
+                }
+            </div>
+        }
+        @if (_definitions.Count == 0)
+        {
+            <div class="bp-empty"><div class="big">⚙️</div>Belum ada workflow.</div>
+        }
+    </div>
+
+    <div class="bp-card">
+        <div class="bp-card-title">🔄 Instance Berjalan & Riwayat</div>
+        @foreach (var instance in _instances.Take(15))
+        {
+            <div style="padding:10px 0;border-bottom:1px solid var(--divider)">
+                <div class="bp-row">
+                    <span class="bp-chip @StatusClass(instance.Status)">@StatusLabel(instance.Status)</span>
+                    <strong>@instance.Subject</strong>
+                </div>
+                <div class="bp-muted">
+                    @instance.Definition?.Name · dimulai @instance.StartedAt.ToLocalTime().ToString("dd MMM HH:mm")
+                    oleh <UserBadge UserId="@instance.StartedById" />
+                </div>
+                @if (instance.Tasks.Count > 0)
+                {
+                    <div class="bp-row bp-mt">
+                        @foreach (var task in instance.Tasks)
+                        {
+                            <span class="bp-chip @(task.Status switch { ApprovalStatus.Approved => "green", ApprovalStatus.Rejected => "red", _ => "yellow" })">
+                                @task.Title.Split(':')[0]: @(task.Status switch { ApprovalStatus.Approved => "✔", ApprovalStatus.Rejected => "✘", _ => "⏳" })
+                            </span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        @if (_instances.Count == 0)
+        {
+            <div class="bp-empty"><div class="big">🔄</div>Belum ada instance workflow.</div>
+        }
+    </div>
+</div>
+
+@if (_startFor is not null)
+{
+    <div class="bp-modal-backdrop" @onclick="() => _startFor = null">
+        <div class="bp-modal" @onclick:stopPropagation>
+            <h3>▶️ Mulai Workflow: @_startFor.Name</h3>
+            <div class="bp-field">
+                <label class="bp-label">Subjek / keterangan</label>
+                <input class="bp-input" @bind="_subject" placeholder="cth: Persetujuan dokumen anggaran Q3" />
+            </div>
+            <div class="bp-row bp-mt">
+                <span class="bp-spacer"></span>
+                <button class="bp-btn secondary" @onclick="() => _startFor = null">Batal</button>
+                <button class="bp-btn success" @onclick="StartAsync">▶️ Mulai</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<WorkflowDefinition> _definitions = [];
+    private List<WorkflowInstance> _instances = [];
+    private WorkflowDefinition? _startFor;
+    private string _subject = "";
+
+    protected override async Task OnInitializedCoreAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _definitions = await WorkflowsSvc.GetDefinitionsAsync();
+        _instances = await WorkflowsSvc.GetInstancesAsync();
+    }
+
+    private void StartFor(WorkflowDefinition def)
+    {
+        _startFor = def;
+        _subject = "";
+    }
+
+    private async Task StartAsync()
+    {
+        if (_startFor is null || string.IsNullOrWhiteSpace(_subject)) return;
+        await WorkflowsSvc.StartAsync(_startFor.Id, _subject, UserId);
+        _startFor = null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(WorkflowDefinition def)
+    {
+        if (!await JS.InvokeAsync<bool>("blazePoint.confirmDialog", $"Hapus workflow '{def.Name}'?")) return;
+        await WorkflowsSvc.DeleteDefinitionAsync(def.Id, UserId);
+        await LoadAsync();
+    }
+
+    private static string StatusLabel(WorkflowStatus s) => s switch
+    {
+        WorkflowStatus.Running => "Berjalan",
+        WorkflowStatus.Completed => "Selesai",
+        WorkflowStatus.Rejected => "Ditolak",
+        _ => "Dibatalkan"
+    };
+
+    private static string StatusClass(WorkflowStatus s) => s switch
+    {
+        WorkflowStatus.Running => "blue",
+        WorkflowStatus.Completed => "green",
+        WorkflowStatus.Rejected => "red",
+        _ => ""
+    };
+}

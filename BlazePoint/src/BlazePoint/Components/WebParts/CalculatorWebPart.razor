@@ -1,0 +1,43 @@
+<div style="max-width:260px;margin:0 auto">
+    <input class="bp-input" style="text-align:right;font-size:22px;font-weight:700;margin-bottom:8px"
+           value="@_display" readonly />
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+        @foreach (var key in Keys)
+        {
+            <button class="bp-btn @(key is "=" ? "success" : "C" == key ? "danger" : "secondary")"
+                    style="padding:12px 0;font-size:17px"
+                    @onclick="() => Press(key)">@key</button>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public Dictionary<string, string> Settings { get; set; } = [];
+
+    private static readonly string[] Keys =
+        ["C", "(", ")", "/", "7", "8", "9", "*", "4", "5", "6", "-", "1", "2", "3", "+", "0", ".", "%", "="];
+
+    private string _display = "0";
+
+    private void Press(string key)
+    {
+        switch (key)
+        {
+            case "C":
+                _display = "0";
+                break;
+            case "=":
+                try
+                {
+                    var result = new System.Data.DataTable().Compute(_display, null);
+                    _display = Convert.ToString(result) ?? "0";
+                }
+                catch { _display = "Error"; }
+                break;
+            default:
+                if (_display is "0" or "Error") _display = key;
+                else _display += key;
+                break;
+        }
+    }
+}

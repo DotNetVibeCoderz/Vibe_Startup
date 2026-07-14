@@ -1,0 +1,226 @@
+@page "/documents/{Id:int}"
+@attribute [Authorize]
+@inherits BpComponentBase
+@inject DocumentService Docs
+@inject ShareLinkService Shares
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>@(_doc?.Name ?? "Dokumen") — BlazePoint</PageTitle>
+
+@if (_doc is null)
+{
+    <div class="bp-empty"><div class="big">🤔</div>Dokumen tidak ditemukan.</div>
+}
+else
+{
+    <div class="bp-row bp-mb">
+        <a class="bp-btn secondary sm" href="/documents?path=@Uri.EscapeDataString(_doc.FolderPath)">← Kembali</a>
+        <h1 style="margin:0">@_doc.Name</h1>
+        <span class="bp-chip blue">v@(_doc.Version)</span>
+        <span class="bp-spacer"></span>
+        <a class="bp-btn" href="/api/documents/@_doc.Id/download" target="_blank">⬇️ Download</a>
+        @if (IsEditor)
+        {
+            <button class="bp-btn secondary" @onclick="() => _showShare = true">🔗 Bagikan</button>
+        }
+    </div>
+
+    <div class="bp-grid-2">
+        <div>
+            <div class="bp-card">
+                <div class="bp-card-title">👁️ Preview</div>
+                @switch (DocumentService.PreviewKind(_doc.ContentType, _doc.Name))
+                {
+                    case "image":
+                        <img src="/api/documents/@_doc.Id/download" style="border-radius:8px" alt="@_doc.Name" />
+                        break;
+                    case "video":
+                        <video controls style="width:100%;border-radius:8px" src="/api/documents/@_doc.Id/download"></video>
+                        break;
+                    case "audio":
+                        <audio controls style="width:100%" src="/api/documents/@_doc.Id/download"></audio>
+                        break;
+                    case "pdf":
+                        <iframe class="bp-preview-frame" src="/api/documents/@_doc.Id/download"></iframe>
+                        break;
+                    case "text":
+                        <iframe class="bp-preview-frame" style="height:40vh" src="/api/documents/@_doc.Id/download"></iframe>
+                        break;
+                    default:
+                        <div class="bp-empty"><div class="big">📎</div>Preview tidak tersedia untuk tipe file ini (@_doc.ContentType).</div>
+                        break;
+                }
+            </div>
+
+            <div class="bp-card">
+                <div class="bp-card-title">🕘 Riwayat Versi</div>
+                <div class="bp-table-wrap">
+                    <table class="bp-table">
+                        <thead><tr><th>Versi</th><th>Ukuran</th><th>Komentar</th><th>Tanggal</th><th>Oleh</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var v in _doc.Versions)
+                            {
+                                <tr>
+                                    <td><span class="bp-chip @(v.Version == _doc.Version ? "green" : "")">v@(v.Version)</span></td>
+                                    <td>@($"{v.Size / 1024.0:0.#} KB")</td>
+                                    <td>@v.Comment</td>
+                                    <td>@v.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</td>
+                                    <td><UserBadge UserId="@v.CreatedById" /></td>
+                                    <td class="bp-row" style="flex-wrap:nowrap">
+                                        <a class="bp-btn ghost sm" href="/api/documents/@_doc.Id/download?version=@v.Version" target="_blank">⬇️</a>
+                                        @if (IsEditor && v.Version != _doc.Version)
+                                        {
+                                            <button class="bp-btn ghost sm" @onclick="() => RollbackAsync(v.Version)">↩️ Rollback</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <div class="bp-card">
+                <div class="bp-card-title">🏷️ Metadata & Tag</div>
+                @foreach (var kv in _metadata)
+                {
+                    <div class="bp-row bp-mb">
+                        <input class="bp-input" style="flex:1" value="@kv.Key" disabled />
+                        <input class="bp-input" style="flex:2" value="@kv.Value"
+                               @onchange='e => _metadata[kv.Key] = e.Value?.ToString() ?? ""' disabled="@(!IsEditor)" />
+                        @if (IsEditor)
+                        {
+                            <button class="bp-btn ghost sm" @onclick="() => RemoveMeta(kv.Key)">✕</button>
+                        }
+                    </div>
+                }
+                @if (IsEditor)
+                {
+                    <div class="bp-row">
+                        <input class="bp-input" style="flex:1" placeholder="Nama field" @bind="_newMetaKey" />
+                        <input class="bp-input" style="flex:2" placeholder="Nilai" @bind="_newMetaValue" />
+                        <button class="bp-btn secondary sm" @onclick="AddMeta">＋</button>
+                    </div>
+                    <button class="bp-btn bp-mt" @onclick="SaveMetadataAsync">💾 Simpan Metadata</button>
+                }
+                @if (_metaSaved)
+                {
+                    <div class="bp-success bp-mt">Metadata tersimpan ✔</div>
+                }
+            </div>
+
+            <div class="bp-card">
+                <div class="bp-card-title">ℹ️ Info</div>
+                <div class="bp-field"><span class="bp-label">Tipe</span>@_doc.ContentType</div>
+                <div class="bp-field"><span class="bp-label">Ukuran</span>@($"{_doc.Size / 1024.0:0.#} KB")</div>
+                <div class="bp-field"><span class="bp-label">Folder</span>@_doc.FolderPath</div>
+                <div class="bp-field"><span class="bp-label">Dibuat</span>@_doc.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm") oleh <UserBadge UserId="@_doc.CreatedById" /></div>
+            </div>
+
+            <div class="bp-card">
+                <div class="bp-card-title">🔗 Share Links</div>
+                @if (_shares.Count == 0)
+                {
+                    <div class="bp-muted">Belum ada link berbagi.</div>
+                }
+                @foreach (var s in _shares)
+                {
+                    <div class="bp-row" style="padding:6px 0;border-bottom:1px solid var(--divider)">
+                        <span class="bp-chip @(s.IsPublic ? "green" : "yellow")">@(s.IsPublic ? "Publik" : "Login")</span>
+                        <span class="bp-muted">@(s.ExpiresAt.HasValue ? $"s/d {s.ExpiresAt:dd MMM yyyy}" : "Tanpa batas") · @s.DownloadCount unduhan</span>
+                        <span class="bp-spacer"></span>
+                        <button class="bp-btn ghost sm" @onclick="() => CopyShare(s)">📋 Salin</button>
+                        <button class="bp-btn ghost sm" @onclick="() => DeleteShareAsync(s.Id)">🗑️</button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_showShare)
+    {
+        <div class="bp-modal-backdrop" @onclick="() => _showShare = false">
+            <div class="bp-modal" @onclick:stopPropagation>
+                <h3>🔗 Buat Link Berbagi</h3>
+                <label class="bp-label">Akses</label>
+                @* bind a string, not bool — bool select binding breaks when option values
+                   don't match BindConverter's exact "True"/"False" formatting *@
+                <select class="bp-select" @bind="_shareAccess">
+                    <option value="public">Publik — siapa pun dengan link</option>
+                    <option value="private">Privat — harus login</option>
+                </select>
+                <label class="bp-label">Kedaluwarsa (opsional)</label>
+                <input type="date" class="bp-input" @bind="_shareExpiry" />
+                <div class="bp-row bp-mt">
+                    <span class="bp-spacer"></span>
+                    <button class="bp-btn secondary" @onclick="() => _showShare = false">Batal</button>
+                    <button class="bp-btn" @onclick="CreateShareAsync">Buat Link</button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Document? _doc;
+    private Dictionary<string, string> _metadata = [];
+    private List<ShareLink> _shares = [];
+    private bool _showShare, _metaSaved;
+    private string _shareAccess = "public";
+    private DateTime? _shareExpiry;
+    private string _newMetaKey = "", _newMetaValue = "";
+
+    protected override async Task OnInitializedCoreAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _doc = await Docs.GetAsync(Id, includeVersions: true);
+        if (_doc is not null)
+        {
+            _metadata = DocumentService.ParseMetadata(_doc.MetadataJson);
+            _shares = (await Shares.GetAllAsync()).Where(s => s.DocumentId == Id).ToList();
+        }
+    }
+
+    private void AddMeta()
+    {
+        if (string.IsNullOrWhiteSpace(_newMetaKey)) return;
+        _metadata[_newMetaKey.Trim()] = _newMetaValue;
+        _newMetaKey = _newMetaValue = "";
+    }
+
+    private void RemoveMeta(string key) => _metadata.Remove(key);
+
+    private async Task SaveMetadataAsync()
+    {
+        await Docs.UpdateMetadataAsync(Id, _metadata, UserId);
+        _metaSaved = true;
+    }
+
+    private async Task RollbackAsync(int version)
+    {
+        await Docs.RollbackAsync(Id, version, UserId);
+        await LoadAsync();
+    }
+
+    private async Task CreateShareAsync()
+    {
+        await Shares.CreateAsync(Id, _shareAccess == "public", _shareExpiry, UserId);
+        _showShare = false;
+        await LoadAsync();
+    }
+
+    private async Task CopyShare(ShareLink link)
+        => await JS.InvokeVoidAsync("blazePoint.copyText", $"{Nav.BaseUri.TrimEnd('/')}/share/{link.Token}");
+
+    private async Task DeleteShareAsync(int shareId)
+    {
+        await Shares.DeleteAsync(shareId, UserId);
+        await LoadAsync();
+    }
+}
