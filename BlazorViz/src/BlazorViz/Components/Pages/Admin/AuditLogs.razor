@@ -1,0 +1,102 @@
+@page "/admin/audit"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<PageTitle>Audit Logs — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">🧾 Audit Logs</h1>
+</div>
+
+<div class="card">
+    <div class="input-row">
+        <div><label class="form-label">User</label><input class="input" @bind="_user" /></div>
+        <div>
+            <label class="form-label">Category</label>
+            <select class="input" @bind="_category">
+                <option value="">(all)</option>
+                @foreach (var c in _categories) { <option>@c</option> }
+            </select>
+        </div>
+        <div><label class="form-label">From</label><input class="input" type="date" @bind="_from" /></div>
+        <div><label class="form-label">To</label><input class="input" type="date" @bind="_to" /></div>
+        <div><button class="btn primary" @onclick="LoadAsync">🔍 Filter</button></div>
+    </div>
+
+    <div class="bv-table-wrap" style="margin-top:12px;">
+        <table class="bv-table">
+            <thead>
+                <tr>
+                    <th @onclick='() => Sort("time")'>Time @Arrow("time")</th>
+                    <th @onclick='() => Sort("user")'>User @Arrow("user")</th>
+                    <th @onclick='() => Sort("cat")'>Category @Arrow("cat")</th>
+                    <th>Action</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var log in _logs)
+                {
+                    <tr>
+                        <td class="muted">@log.TimestampUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm:ss")</td>
+                        <td>@log.UserName</td>
+                        <td><span class="badge">@log.Category</span></td>
+                        <td><b>@log.Action</b></td>
+                        <td class="muted">@log.Details</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="small muted">@_logs.Count entries (latest 500 shown).</p>
+</div>
+
+@code {
+    private List<AuditLog> _logs = [];
+    private List<string> _categories = [];
+    private string _user = "";
+    private string _category = "";
+    private DateTime? _from;
+    private DateTime? _to;
+    private string _sortCol = "time";
+    private bool _sortDesc = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _categories = await db.AuditLogs.Select(a => a.Category).Distinct().OrderBy(c => c).ToListAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var q = db.AuditLogs.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(_user)) q = q.Where(a => a.UserName != null && a.UserName.Contains(_user));
+        if (!string.IsNullOrWhiteSpace(_category)) q = q.Where(a => a.Category == _category);
+        if (_from is not null) q = q.Where(a => a.TimestampUtc >= _from.Value.ToUniversalTime());
+        if (_to is not null) q = q.Where(a => a.TimestampUtc <= _to.Value.Date.AddDays(1).ToUniversalTime());
+
+        q = (_sortCol, _sortDesc) switch
+        {
+            ("user", false) => q.OrderBy(a => a.UserName),
+            ("user", true) => q.OrderByDescending(a => a.UserName),
+            ("cat", false) => q.OrderBy(a => a.Category),
+            ("cat", true) => q.OrderByDescending(a => a.Category),
+            (_, false) => q.OrderBy(a => a.TimestampUtc),
+            _ => q.OrderByDescending(a => a.TimestampUtc)
+        };
+        _logs = await q.Take(500).ToListAsync();
+    }
+
+    private async Task Sort(string col)
+    {
+        if (_sortCol == col) _sortDesc = !_sortDesc;
+        else { _sortCol = col; _sortDesc = true; }
+        await LoadAsync();
+    }
+
+    private string Arrow(string col) => _sortCol == col ? (_sortDesc ? "▼" : "▲") : "";
+}

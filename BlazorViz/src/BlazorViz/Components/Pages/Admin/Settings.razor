@@ -1,0 +1,135 @@
+@page "/admin/settings"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using BlazorViz.Services.Ai
+@using BlazorViz.Services.Storage
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.Options
+@inject IOptionsMonitor<AiOptions> AiOpts
+@inject IOptions<StorageOptions> StorageOpts
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject PluginService Plugins
+@inject IWebHostEnvironment Env
+@inject AuditService Audit
+
+<PageTitle>Settings — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">⚙️ Settings</h1>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <h3 class="mt-0">🤖 AI (from appsettings.json)</h3>
+        <table class="bv-table">
+            <tbody>
+                <tr><td>Provider</td><td><b>@Ai.Provider</b> · @Ai.Active.Model</td></tr>
+                <tr><td>Assistant</td><td>@Ai.AssistantName</td></tr>
+                <tr><td>Temperature</td><td>@Ai.Temperature · max tokens @Ai.MaxTokens</td></tr>
+                <tr><td>Embeddings</td><td>@Ai.Embeddings.Provider (@Ai.Embeddings.Dimensions dims)</td></tr>
+                <tr><td>Vector store</td><td>@Ai.Rag.VectorStore · top-K @Ai.Rag.TopK</td></tr>
+                <tr><td>System prompt</td><td class="small muted">@Ai.SystemPrompt</td></tr>
+            </tbody>
+        </table>
+        <p class="small muted">Edit the <code>Ai</code> section of <code>appsettings.json</code> and restart (or rely on
+        reloadOnChange) to switch provider/model/persona. API keys belong in user-secrets or environment variables
+        (<code>Ai__Providers__OpenAI__ApiKey</code>).</p>
+    </div>
+
+    <div class="card">
+        <h3 class="mt-0">🗄 Storage</h3>
+        <p>Provider: <b>@StorageOpts.Value.Provider</b></p>
+        <p class="small muted">Root/bucket: @(StorageOpts.Value.Provider == "FileSystem" ? StorageOpts.Value.Root : StorageOpts.Value.Provider == "AzureBlob" ? StorageOpts.Value.AzureContainer : StorageOpts.Value.S3Bucket)</p>
+
+        <h3>🧩 Plugins</h3>
+        @if (Plugins.Loaded.Count == 0 && Plugins.Errors.Count == 0)
+        {
+            <p class="muted small">No plugins found. Drop .csx files into the <code>plugins</code> folder (see docs/plugins.md).</p>
+        }
+        @foreach (var (name, _) in Plugins.Loaded)
+        {
+            <span class="badge accent" style="margin-right:6px;">@name</span>
+        }
+        @foreach (var err in Plugins.Errors)
+        {
+            <p class="error-text small">@err</p>
+        }
+        <div style="margin-top:8px;">
+            <button class="btn sm" @onclick="ReloadPlugins">🔄 Reload plugins</button>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="mt-0">🔑 API keys (X-Api-Key header for /api/v1, docs at <a href="/swagger" target="_blank">/swagger</a>)</h3>
+    <div class="flex">
+        <input class="input" style="max-width:240px;" placeholder="Key name…" @bind="_newKeyName" />
+        <button class="btn primary" @onclick="CreateKey">＋ Generate key</button>
+    </div>
+    <div class="bv-table-wrap" style="margin-top:10px;">
+        <table class="bv-table">
+            <thead><tr><th>Name</th><th>Key</th><th>Enabled</th><th>Created</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var k in _keys)
+                {
+                    <tr>
+                        <td><b>@k.Name</b></td>
+                        <td><code>@k.Key</code></td>
+                        <td>@(k.Enabled ? "✔" : "✖")</td>
+                        <td class="muted">@k.CreatedUtc.ToLocalTime().ToString("dd MMM yyyy")</td>
+                        <td>
+                            <button class="btn sm" @onclick="() => ToggleKey(k)">@(k.Enabled ? "Disable" : "Enable")</button>
+                            <button class="btn sm danger" @onclick="() => DeleteKey(k)">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private AiOptions Ai => AiOpts.CurrentValue;
+    private List<ApiKey> _keys = [];
+    private string _newKeyName = "";
+
+    protected override async Task OnInitializedAsync() => await LoadKeys();
+
+    private async Task LoadKeys()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _keys = await db.ApiKeys.OrderBy(k => k.Id).ToListAsync();
+    }
+
+    private async Task CreateKey()
+    {
+        if (string.IsNullOrWhiteSpace(_newKeyName)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.ApiKeys.Add(new ApiKey { Name = _newKeyName.Trim(), Key = "bv-" + Guid.NewGuid().ToString("N") });
+        await db.SaveChangesAsync();
+        await Audit.LogAsync("ApiKey", "Create", _newKeyName);
+        _newKeyName = "";
+        await LoadKeys();
+    }
+
+    private async Task ToggleKey(ApiKey k)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var key = await db.ApiKeys.FindAsync(k.Id);
+        if (key is null) return;
+        key.Enabled = !key.Enabled;
+        await db.SaveChangesAsync();
+        await LoadKeys();
+    }
+
+    private async Task DeleteKey(ApiKey k)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.ApiKeys.Remove(k);
+        await db.SaveChangesAsync();
+        await Audit.LogAsync("ApiKey", "Delete", k.Name);
+        await LoadKeys();
+    }
+
+    private async Task ReloadPlugins() => await Plugins.LoadAsync();
+}

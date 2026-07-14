@@ -1,0 +1,114 @@
+@page "/admin/users"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@inject UserManager<ApplicationUser> UserManager
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuditService Audit
+
+<PageTitle>Users — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">👥 Users & Roles</h1>
+</div>
+
+<div class="card">
+    <h3 class="mt-0">Create user</h3>
+    <div class="input-row">
+        <div><label class="form-label">Email</label><input class="input" @bind="_newEmail" /></div>
+        <div><label class="form-label">Password</label><input class="input" type="password" @bind="_newPassword" /></div>
+        <div>
+            <label class="form-label">Role</label>
+            <select class="input" @bind="_newRole">
+                <option>Admin</option><option>Analyst</option><option>Viewer</option>
+            </select>
+        </div>
+        <div><button class="btn primary" @onclick="Create">＋ Create</button></div>
+    </div>
+    @if (_message is not null)
+    {
+        <p class="@(_ok ? "success-text" : "error-text")">@_message</p>
+    }
+</div>
+
+<div class="card">
+    <div class="bv-table-wrap">
+        <table class="bv-table">
+            <thead><tr><th>Email</th><th>Roles</th><th>Email confirmed</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var u in _users)
+                {
+                    <tr>
+                        <td><b>@u.User.Email</b></td>
+                        <td>
+                            @foreach (var role in new[] { "Admin", "Analyst", "Viewer" })
+                            {
+                                var r = role;
+                                <span class="chip badge @(u.Roles.Contains(r) ? "primary" : null)"
+                                      style="cursor:pointer; margin-right:4px;"
+                                      @onclick="() => ToggleRole(u.User, r)">@r</span>
+                            }
+                        </td>
+                        <td>@(u.User.EmailConfirmed ? "✔" : "—")</td>
+                        <td><button class="btn sm danger" @onclick="() => Delete(u.User)">Delete</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<(ApplicationUser User, List<string> Roles)> _users = [];
+    private string _newEmail = "";
+    private string _newPassword = "";
+    private string _newRole = "Viewer";
+    private string? _message;
+    private bool _ok;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _users = [];
+        foreach (var u in await UserManager.Users.ToListAsync())
+            _users.Add((u, (await UserManager.GetRolesAsync(u)).ToList()));
+    }
+
+    private async Task Create()
+    {
+        var user = new ApplicationUser { UserName = _newEmail, Email = _newEmail, EmailConfirmed = true };
+        var result = await UserManager.CreateAsync(user, _newPassword);
+        if (result.Succeeded)
+        {
+            await UserManager.AddToRoleAsync(user, _newRole);
+            await Audit.LogAsync("User", "Create", $"{_newEmail} as {_newRole}");
+            _ok = true; _message = $"User {_newEmail} created.";
+            _newEmail = ""; _newPassword = "";
+            await LoadAsync();
+        }
+        else
+        {
+            _ok = false;
+            _message = string.Join("; ", result.Errors.Select(e => e.Description));
+        }
+    }
+
+    private async Task ToggleRole(ApplicationUser user, string role)
+    {
+        if (await UserManager.IsInRoleAsync(user, role))
+            await UserManager.RemoveFromRoleAsync(user, role);
+        else
+            await UserManager.AddToRoleAsync(user, role);
+        await Audit.LogAsync("User", "Roles", $"{user.Email}: toggled {role}");
+        await LoadAsync();
+    }
+
+    private async Task Delete(ApplicationUser user)
+    {
+        await UserManager.DeleteAsync(user);
+        await Audit.LogAsync("User", "Delete", user.Email);
+        await LoadAsync();
+    }
+}

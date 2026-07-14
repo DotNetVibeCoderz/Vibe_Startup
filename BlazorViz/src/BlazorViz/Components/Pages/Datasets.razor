@@ -1,0 +1,68 @@
+@page "/datasets"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject DatasetService DatasetSvc
+@inject AuditService Audit
+
+<PageTitle>Datasets — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">🗂️ Datasets</h1>
+    <a class="btn primary" href="datasets/new">＋ New dataset</a>
+</div>
+
+<div class="card">
+    <div class="bv-table-wrap">
+        <table class="bv-table">
+            <thead><tr><th>Name</th><th>Source</th><th>Auto refresh</th><th>Last refreshed</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var d in _datasets)
+                {
+                    <tr>
+                        <td>
+                            <a href="datasets/@d.Id"><b>@d.Name</b></a>
+                            <div class="muted small">@d.Description</div>
+                        </td>
+                        <td><span class="badge">@(d.Connection?.Kind ?? d.SourceKind)</span></td>
+                        <td class="muted">@(d.RefreshIntervalSeconds > 0 ? $"{d.RefreshIntervalSeconds}s" : "—")</td>
+                        <td class="muted">@(d.LastRefreshedUtc?.ToLocalTime().ToString("dd MMM HH:mm") ?? "never")</td>
+                        <td>
+                            <button class="btn sm" @onclick="() => Refresh(d)">🔄 Refresh</button>
+                            <button class="btn sm danger" @onclick="() => Delete(d)">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<Dataset> _datasets = [];
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _datasets = await db.Datasets.Include(d => d.Connection).OrderBy(d => d.Name).ToListAsync();
+    }
+
+    private async Task Refresh(Dataset d)
+    {
+        DatasetSvc.Invalidate(d.Id);
+        try { await DatasetSvc.GetDataAsync(d.Id, forceRefresh: true); } catch { }
+        await LoadAsync();
+    }
+
+    private async Task Delete(Dataset d)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Datasets.Remove(d);
+        await db.SaveChangesAsync();
+        await Audit.LogAsync("Dataset", "Delete", d.Name);
+        await LoadAsync();
+    }
+}

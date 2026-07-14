@@ -1,0 +1,132 @@
+@* Interactive dashboard filters: slicer chips, dropdown, multi-select, date range. *@
+@inject DatasetService Datasets
+
+@if (Filters.Count > 0)
+{
+    <div class="filter-bar">
+        @foreach (var f in Filters)
+        {
+            var state = StateOf(f);
+            <div class="filter">
+                <label class="form-label">@(string.IsNullOrWhiteSpace(f.Label) ? f.Field : f.Label)</label>
+                @switch (f.Type)
+                {
+                    case "slicer":
+                        <div class="slicer">
+                            @foreach (var v in OptionsOf(f))
+                            {
+                                <span class="chip @(state.Values.Contains(v) ? "on" : null)"
+                                      @onclick="() => ToggleValue(f, v)">@v</span>
+                            }
+                        </div>
+                        break;
+                    case "multiselect":
+                        <select class="input" multiple size="4"
+                                @onchange="e => SetValues(f, e)">
+                            @foreach (var v in OptionsOf(f))
+                            {
+                                <option value="@v" selected="@state.Values.Contains(v)">@v</option>
+                            }
+                        </select>
+                        break;
+                    case "daterange":
+                        <div class="flex">
+                            <input class="input" type="date" value="@(state.From?.ToString("yyyy-MM-dd"))"
+                                   @onchange="e => SetFrom(f, e)" />
+                            <input class="input" type="date" value="@(state.To?.ToString("yyyy-MM-dd"))"
+                                   @onchange="e => SetTo(f, e)" />
+                        </div>
+                        break;
+                    default:
+                        <select class="input" @onchange="e => SetSingle(f, e)">
+                            <option value="">(all)</option>
+                            @foreach (var v in OptionsOf(f))
+                            {
+                                <option value="@v" selected="@(state.Values.Count == 1 && state.Values[0] == v)">@v</option>
+                            }
+                        </select>
+                        break;
+                }
+            </div>
+        }
+        <button class="btn sm" @onclick="Clear">✖ Clear filters</button>
+    </div>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<FilterDef> Filters { get; set; } = [];
+    [Parameter] public Dictionary<string, FilterState> States { get; set; } = [];
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private readonly Dictionary<string, List<string>> _options = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        foreach (var f in Filters)
+        {
+            if (_options.ContainsKey(f.Id) || f.Type == "daterange") continue;
+            try
+            {
+                var data = await Datasets.GetDataAsync(f.DatasetId);
+                _options[f.Id] = data.ColumnValues(f.Field)
+                    .Select(TableData.Format)
+                    .Where(s => s.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(s => s)
+                    .Take(200)
+                    .ToList();
+            }
+            catch { _options[f.Id] = []; }
+        }
+    }
+
+    private List<string> OptionsOf(FilterDef f) => _options.GetValueOrDefault(f.Id, []);
+
+    private FilterState StateOf(FilterDef f)
+    {
+        if (!States.TryGetValue(f.Id, out var s))
+            States[f.Id] = s = new FilterState { FilterId = f.Id };
+        return s;
+    }
+
+    private async Task ToggleValue(FilterDef f, string v)
+    {
+        var s = StateOf(f);
+        if (!s.Values.Remove(v)) s.Values.Add(v);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetSingle(FilterDef f, ChangeEventArgs e)
+    {
+        var s = StateOf(f);
+        s.Values.Clear();
+        var v = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(v)) s.Values.Add(v);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetValues(FilterDef f, ChangeEventArgs e)
+    {
+        var s = StateOf(f);
+        s.Values = e.Value is string[] arr ? arr.ToList() : [];
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetFrom(FilterDef f, ChangeEventArgs e)
+    {
+        StateOf(f).From = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : null;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task SetTo(FilterDef f, ChangeEventArgs e)
+    {
+        StateOf(f).To = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : null;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task Clear()
+    {
+        States.Clear();
+        await OnChanged.InvokeAsync();
+    }
+}

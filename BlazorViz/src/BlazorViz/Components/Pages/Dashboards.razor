@@ -1,0 +1,67 @@
+@page "/dashboards"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject DashboardService DashboardSvc
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Dashboards — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">📊 Dashboards</h1>
+    <div class="flex">
+        <input class="input" placeholder="New dashboard name…" @bind="_newName" style="min-width:220px;" />
+        <button class="btn primary" @onclick="Create">＋ Create</button>
+    </div>
+</div>
+
+<div class="grid-3">
+    @foreach (var d in _dashboards)
+    {
+        <div class="card">
+            <div class="flex-between">
+                <h3 class="mt-0 mb-0">@d.Name</h3>
+                <span class="badge">v@(d.CurrentVersion)</span>
+            </div>
+            <p class="muted small">@d.Description</p>
+            <p class="muted small">Updated @d.UpdatedUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm") · by @(d.OwnerName ?? "?")</p>
+            <div class="flex" style="flex-wrap:wrap;">
+                <a class="btn sm primary" href="dashboards/@d.Id">👁 View</a>
+                <a class="btn sm" href="dashboards/@d.Id/edit">✏️ Design</a>
+                @if (d.IsPublic && d.ShareToken is not null)
+                {
+                    <a class="btn sm accent" href="share/@d.ShareToken" target="_blank">🔗 Share link</a>
+                }
+                <button class="btn sm danger" @onclick="() => Delete(d)">🗑</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Dashboard> _dashboards = [];
+    private string _newName = "";
+
+    protected override async Task OnInitializedAsync() => _dashboards = await DashboardSvc.ListAsync();
+
+    private async Task Create()
+    {
+        if (string.IsNullOrWhiteSpace(_newName)) return;
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var user = auth.User;
+        var dash = await DashboardSvc.CreateAsync(_newName.Trim(), null,
+            user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, user.Identity?.Name);
+        Nav.NavigateTo($"dashboards/{dash.Id}/edit");
+    }
+
+    private async Task Delete(Dashboard d)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            $"Delete dashboard \"{d.Name}\" (v{d.CurrentVersion})? This also removes its version history and cannot be undone.");
+        if (!confirmed) return;
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        await DashboardSvc.DeleteAsync(d.Id, auth.User.Identity?.Name);
+        _dashboards = await DashboardSvc.ListAsync();
+    }
+}

@@ -1,0 +1,64 @@
+@page "/"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<ApplicationDbContext> DbFactory
+@inject DashboardService Dashboards
+
+<PageTitle>BlazorViz — Home</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">Welcome to BlazorViz 👋</h1>
+</div>
+
+<div class="grid-4">
+    <div class="card soft stat-card"><div class="num">@_dashboardCount</div><div class="lbl">Dashboards</div></div>
+    <div class="card soft stat-card"><div class="num">@_datasetCount</div><div class="lbl">Datasets</div></div>
+    <div class="card soft stat-card"><div class="num">@_connectionCount</div><div class="lbl">Connections</div></div>
+    <div class="card soft stat-card"><div class="num">@_chatCount</div><div class="lbl">AI Chats</div></div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <h2 class="mt-0">📊 Recent dashboards</h2>
+        @if (_dashboards.Count == 0)
+        {
+            <p class="muted">No dashboards yet. <a href="dashboards">Create one</a>.</p>
+        }
+        else
+        {
+            @foreach (var d in _dashboards.Take(6))
+            {
+                <div class="flex-between" style="padding:6px 0;">
+                    <a href="dashboards/@d.Id"><b>@d.Name</b></a>
+                    <span class="muted small">v@(d.CurrentVersion) · @d.UpdatedUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+                </div>
+            }
+        }
+    </div>
+    <div class="card">
+        <h2 class="mt-0">🚀 Quick start</h2>
+        <ol class="small" style="line-height:1.9;">
+            <li>Register a <a href="connections">connection</a> to a database, file, REST or GraphQL API.</li>
+            <li>Create a <a href="datasets">dataset</a> — add ETL steps or a C#/JS/Python script.</li>
+            <li>Build a <a href="dashboards">dashboard</a> with drag-and-drop panels and filters.</li>
+            <li>Ask the <a href="wizard">Data Wizard</a> questions about your data.</li>
+            <li>Index documents for <a href="rag">RAG</a>, or run <a href="predict">predictive analytics</a>.</li>
+        </ol>
+        <p class="small muted mb-0">External API docs at <a href="/swagger" target="_blank">/swagger</a>.</p>
+    </div>
+</div>
+
+@code {
+    private int _dashboardCount, _datasetCount, _connectionCount, _chatCount;
+    private List<Dashboard> _dashboards = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _datasetCount = db.Datasets.Count();
+        _connectionCount = db.Connections.Count();
+        _chatCount = db.ChatSessions.Count();
+        _dashboards = await Dashboards.ListAsync();
+        _dashboardCount = _dashboards.Count;
+    }
+}

@@ -1,0 +1,270 @@
+@page "/wizard"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using BlazorViz.Services.Ai
+@using System.Text.Json
+@using Markdig
+@inject ChatService Chat
+@inject AuthenticationStateProvider AuthState
+@inject IWebHostEnvironment Env
+@inject IJSRuntime JS
+
+<PageTitle>Data Wizard — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">🧙 @Chat.Options.AssistantName</h1>
+    <div class="flex">
+        @if (_session is not null)
+        {
+            <button class="btn sm warn" title="Clear this conversation's history" @onclick="ResetSession" disabled="@_streaming">♻ Reset session</button>
+        }
+        <span class="badge primary">@Chat.Options.Provider · @Chat.Options.Active.Model</span>
+    </div>
+</div>
+
+<div class="chat-layout">
+    <div class="chat-sessions">
+        <button class="btn primary" style="width:100%; margin-bottom:8px;" @onclick="NewSession">＋ New chat</button>
+        @foreach (var s in _sessions)
+        {
+            var session = s;
+            <div class="card soft" style="padding:8px 10px; margin-bottom:8px; cursor:pointer; @(session.Id == _session?.Id ? "outline:2px solid var(--primary);" : null)"
+                 @onclick="() => OpenSession(session.Id)">
+                <div class="small" style="font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@session.Title</div>
+                <div class="flex-between">
+                    <span class="muted" style="font-size:.68rem;">@session.CreatedUtc.ToLocalTime().ToString("dd MMM HH:mm")</span>
+                    <button class="btn sm ghost" @onclick:stopPropagation @onclick="() => DeleteSession(session.Id)">🗑</button>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="chat-main card" style="padding:12px;">
+        <div class="chat-thread" id="chat-thread">
+            @if (_messages.Count == 0 && !_streaming)
+            {
+                <div class="kpi-center" style="height:100%;">
+                    <div style="font-size:3rem;">🧙</div>
+                    <p class="muted" style="max-width:460px; text-align:center;">
+                        Hi! I'm @Chat.Options.AssistantName. Ask me about your datasets and dashboards —
+                        I can query data, build dashboards for you, do math, check dates, search the internet
+                        and read your indexed documents. Try one of these:
+                    </p>
+                    <div class="flex" style="flex-wrap:wrap; justify-content:center; max-width:560px;">
+                        @foreach (var ex in ExampleQueries)
+                        {
+                            var q = ex;
+                            <button class="btn sm" style="margin:3px;" @onclick="() => SendExample(q.Prompt)">@q.Label</button>
+                        }
+                    </div>
+                </div>
+            }
+            @foreach (var m in _messages)
+            {
+                <div class="chat-msg @m.Role">
+                    <div class="who">@(m.Role == "user" ? "You" : Chat.Options.AssistantName) · @m.TimestampUtc.ToLocalTime().ToString("HH:mm")</div>
+                    <div class="bubble">
+                        @if (m.Role == "assistant")
+                        {
+                            @((MarkupString)RenderMarkdown(m.Content))
+                        }
+                        else
+                        {
+                            @m.Content
+                            @foreach (var att in ParseAttachments(m.AttachmentsJson))
+                            {
+                                <div class="attach-chip">📎 <a href="@att.Url" target="_blank">@att.Name</a></div>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+            @if (_streaming)
+            {
+                <div class="chat-msg assistant">
+                    <div class="who">@Chat.Options.AssistantName <span class="spin">✨</span></div>
+                    <div class="bubble">@((MarkupString)RenderMarkdown(_streamBuffer))</div>
+                </div>
+            }
+        </div>
+
+        @if (_pendingAttachments.Count > 0)
+        {
+            <div>
+                @foreach (var att in _pendingAttachments)
+                {
+                    <span class="attach-chip">📎 @att.Name</span>
+                }
+            </div>
+        }
+        @if (_error is not null)
+        {
+            <p class="error-text">@_error</p>
+        }
+        <div class="chat-input-row">
+            <label class="btn sm" title="Attach image or document">
+                📎
+                <InputFile OnChange="OnAttach" multiple style="display:none;" />
+            </label>
+            <textarea class="input" rows="2" placeholder="Ask about your data… (Enter to send)"
+                      @bind="_input" @bind:event="oninput" @onkeydown="OnKeyDown" disabled="@_streaming"></textarea>
+            <button class="btn primary" @onclick="Send" disabled="@(_streaming || string.IsNullOrWhiteSpace(_input))">Send ➤</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ChatSession> _sessions = [];
+    private ChatSession? _session;
+    private List<ChatMessageEntity> _messages = [];
+    private readonly List<ChatAttachment> _pendingAttachments = [];
+    private string _input = "";
+    private string _streamBuffer = "";
+    private bool _streaming;
+    private string? _error;
+    private string? _userId;
+    private string? _userName;
+
+    private static readonly Markdig.MarkdownPipeline Markdown = new Markdig.MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .DisableHtml()
+        .Build();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _userName = auth.User.Identity?.Name;
+        _sessions = await Chat.ListSessionsAsync(_userId);
+        if (_sessions.Count > 0) await OpenSession(_sessions[0].Id);
+    }
+
+    private string RenderMarkdown(string text) => Markdig.Markdown.ToHtml(text ?? "", Markdown);
+
+    private static List<ChatAttachment> ParseAttachments(string? json) =>
+        string.IsNullOrWhiteSpace(json) ? [] :
+        JsonSerializer.Deserialize<List<ChatAttachment>>(json) ?? [];
+
+    private async Task NewSession()
+    {
+        _session = await Chat.GetOrCreateSessionAsync(null, _userId);
+        _sessions = await Chat.ListSessionsAsync(_userId);
+        _messages = [];
+    }
+
+    private async Task OpenSession(int id)
+    {
+        _session = await Chat.GetOrCreateSessionAsync(id, _userId);
+        _messages = await Chat.ListMessagesAsync(id);
+        StateHasChanged();
+        await ScrollDown();
+    }
+
+    private async Task DeleteSession(int id)
+    {
+        await Chat.DeleteSessionAsync(id);
+        _sessions = await Chat.ListSessionsAsync(_userId);
+        if (_session?.Id == id) { _session = null; _messages = []; }
+    }
+
+    private async Task ResetSession()
+    {
+        if (_session is null || _streaming) return;
+        await Chat.ResetSessionAsync(_session.Id);
+        _messages = [];
+        _sessions = await Chat.ListSessionsAsync(_userId);
+    }
+
+    private static readonly (string Label, string Prompt)[] ExampleQueries =
+    [
+        ("📊 List datasets", "List all my datasets and briefly describe each one."),
+        ("🧾 Sales schema", "Show me the schema of the Sales dataset."),
+        ("💰 Revenue by region", "Using the Sales dataset, which region has the highest total revenue? Show a table per region."),
+        ("🛠 Build a dashboard", "Create a dashboard called 'Revenue Insights' from the Sales dataset with KPIs for total revenue and order count, a monthly revenue line chart, a revenue-by-category donut and a region filter. Then give me the link."),
+        ("🔎 Search internet", "Search the internet for current best practices in dashboard design and summarize the top 3."),
+        ("🧮 Quick math", "If revenue grew from 1.2M to 1.45M, what is the percentage change?")
+    ];
+
+    private async Task SendExample(string prompt)
+    {
+        if (_streaming) return;
+        _input = prompt;
+        await Send();
+    }
+
+    private async Task OnAttach(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        foreach (var file in e.GetMultipleFiles(5))
+        {
+            try
+            {
+                var uploads = Path.Combine(Env.WebRootPath, "uploads");
+                Directory.CreateDirectory(uploads);
+                var safeName = $"{Guid.NewGuid():N}{Path.GetExtension(file.Name)}";
+                var localPath = Path.Combine(uploads, safeName);
+                await using (var fs = File.Create(localPath))
+                    await file.OpenReadStream(32 * 1024 * 1024).CopyToAsync(fs);
+                var isImage = file.ContentType.StartsWith("image/");
+                _pendingAttachments.Add(new ChatAttachment(file.Name, $"/uploads/{safeName}", isImage ? "image" : "document", localPath));
+            }
+            catch (Exception ex) { _error = "Attach failed: " + ex.Message; }
+        }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey && !_streaming && !string.IsNullOrWhiteSpace(_input))
+            await Send();
+    }
+
+    private async Task Send()
+    {
+        if (_streaming || string.IsNullOrWhiteSpace(_input)) return;
+        _session ??= await Chat.GetOrCreateSessionAsync(null, _userId);
+
+        var text = _input.Trim();
+        var attachments = _pendingAttachments.ToList();
+        _input = "";
+        _pendingAttachments.Clear();
+        _error = null;
+        _streaming = true;
+        _streamBuffer = "";
+
+        _messages.Add(new ChatMessageEntity
+        {
+            Role = "user",
+            Content = text,
+            AttachmentsJson = attachments.Count > 0 ? JsonSerializer.Serialize(attachments) : null,
+            TimestampUtc = DateTime.UtcNow
+        });
+        await ScrollDown();
+
+        try
+        {
+            await foreach (var chunk in Chat.SendAsync(_session.Id, text, attachments, _userName))
+            {
+                _streamBuffer += chunk;
+                StateHasChanged();
+                await ScrollDown();
+            }
+            _messages.Add(new ChatMessageEntity { Role = "assistant", Content = _streamBuffer, TimestampUtc = DateTime.UtcNow });
+        }
+        catch (Exception ex)
+        {
+            _error = $"AI error ({Chat.Options.Provider}): {ex.Message} — check Ai settings in appsettings.json.";
+        }
+        finally
+        {
+            _streaming = false;
+            _streamBuffer = "";
+            _sessions = await Chat.ListSessionsAsync(_userId);
+            await ScrollDown();
+        }
+    }
+
+    private async Task ScrollDown()
+    {
+        try { await JS.InvokeVoidAsync("bv.scrollToBottom", "chat-thread"); } catch { }
+    }
+}

@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(dotnet new blazor -int Server -au Individual -o src/BlazorViz -n BlazorViz; dotnet new sln -n BlazorViz; dotnet sln add src/BlazorViz/BlazorViz.csproj)",
+      "PowerShell(dotnet add package *)",
+      "PowerShell(dotnet add package SQLitePCLRaw.bundle_e_sqlite3 | Select-Object -Last 2; dotnet build -v q -nologo)",
+      "PowerShell(dotnet ef migrations *)",
+      "PowerShell(dotnet run *)",
+      "Bash(curl -s -o /dev/null -w \"home:%{http_code} \" http://localhost:5199/)",
+      "Bash(curl -s -o /dev/null -w \"login:%{http_code} \" http://localhost:5199/Account/Login)",
+      "Bash(curl -s -o /dev/null -w \"swagger:%{http_code} \" http://localhost:5199/swagger/index.html)",
+      "Bash(curl -s -o /dev/null -w \"api-noauth:%{http_code} \" http://localhost:5199/api/v1/datasets)",
+      "Bash(curl -s -o /dev/null http://localhost:5199/Account/Login)",
+      "Bash(curl -s -o /dev/null -w \"home:%{http_code}\\\\n\" http://localhost:5199/)",
+      "Bash(curl -s -o /dev/null -w \"login:%{http_code}\\\\n\" http://localhost:5199/Account/Login)",
+      "Bash(curl -s -o /dev/null -w \"swagger:%{http_code}\\\\n\" http://localhost:5199/swagger/index.html)",
+      "Bash(curl -s -w \"\\\\napi-noauth:%{http_code}\\\\n\" http://localhost:5199/api/v1/datasets)",
+      "Bash(python -c ' *)",
+      "Bash(curl -s -H \"X-Api-Key: bv-demo-d951101dd05747c0add83a130db05ac4\" http://localhost:5199/api/v1/datasets)",
+      "Bash(curl -s -H \"X-Api-Key: bv-demo-d951101dd05747c0add83a130db05ac4\" \"http://localhost:5199/api/v1/datasets/1/data?limit=2\")",
+      "Bash(curl -s -o /dev/null -w \"share:%{http_code}\\\\n\" http://localhost:5199/share/ba4e0f9dbb054b47b95149b59af922f2)",
+      "Bash(curl -s -H \"X-Api-Key: bv-demo-d951101dd05747c0add83a130db05ac4\" -o /tmp/export.pdf -w \"pdf:%{http_code} size:%{size_download}\\\\n\" \"http://localhost:5199/api/v1/datasets/1/export?format=pdf\")",
+      "Bash(curl -s -H \"X-Api-Key: bv-demo-d951101dd05747c0add83a130db05ac4\" \"http://localhost:5199/api/v1/datasets/4/data?limit=3\")",
+      "Bash(curl -s -o /dev/null -w \"share:%{http_code} \" http://localhost:5199/share/ba4e0f9dbb054b47b95149b59af922f2)",
+      "Bash(curl -s -H \"X-Api-Key: bv-demo-d951101dd05747c0add83a130db05ac4\" -o /dev/null -w \"api:%{http_code} \" \"http://localhost:5199/api/v1/datasets/1/data?limit=1\")",
+      "Bash(curl -s -H \"X-Api-Key: bv-demo-d951101dd05747c0add83a130db05ac4\" \"http://localhost:5199/api/v1/datasets/1/data?limit=1\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('OrderDate=',d['rows'][0]['OrderDate']\\)\")"
+    ]
+  }
+}

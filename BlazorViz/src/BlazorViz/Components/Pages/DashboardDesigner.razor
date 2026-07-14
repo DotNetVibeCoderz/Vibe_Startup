@@ -1,0 +1,550 @@
+@page "/dashboards/{Id:int}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Analyst")]
+@implements IAsyncDisposable
+@using Microsoft.EntityFrameworkCore
+@using System.Text.Json
+@using Markdig
+@using BlazorViz.Services.Ai
+@inject DashboardAiService AiDesigner
+@inject DashboardService DashboardSvc
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject DatasetService Datasets
+@inject RecommendationService Recommender
+@inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<PageTitle>Design — BlazorViz</PageTitle>
+
+@if (_dash is null)
+{
+    <p class="muted">Loading…</p>
+}
+else
+{
+    <div class="page-head">
+        <div class="flex">
+            <input class="input" style="min-width:240px; font-weight:700;" @bind="_dash.Name" />
+            <span class="badge">v@(_dash.CurrentVersion)</span>
+        </div>
+        <div class="flex" style="flex-wrap:wrap;">
+            <label class="small muted">Auto refresh (s)</label>
+            <input class="input" type="number" style="width:90px;" @bind="_layout.RefreshIntervalSeconds" />
+            <label class="checkbox-row small mb-0 mt-0"><input type="checkbox" @bind="_isPublic" /> Public link</label>
+            <button class="btn sm" @onclick="CopyShare" disabled="@(!_isPublic)">🔗 Copy link</button>
+            <button class="btn sm" @onclick="CopyEmbed" disabled="@(!_isPublic)">📋 Embed code</button>
+            <button class="btn sm warn" @onclick="() => _showVersions = !_showVersions">🕘 Versions</button>
+            <button class="btn sm accent" @onclick="() => _showAi = !_showAi">🧙 AI @(_showAi ? "▸" : "◂")</button>
+            <button class="btn primary" @onclick="Save">💾 Save</button>
+            <a class="btn ghost" href="dashboards/@Id">Done</a>
+        </div>
+    </div>
+
+    @if (_notice is not null)
+    {
+        <p class="success-text">@_notice</p>
+    }
+
+    @if (_showVersions)
+    {
+        <div class="card">
+            <h3 class="mt-0">Version history</h3>
+            @foreach (var v in _versions)
+            {
+                <div class="flex-between" style="padding:4px 0;">
+                    <span><b>v@(v.Version)</b> <span class="muted small">@v.CreatedUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm") · @v.CreatedBy</span></span>
+                    <button class="btn sm" @onclick="() => Rollback(v.Version)">↩ Rollback</button>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="bv-tabs">
+        @foreach (var tab in _layout.Tabs)
+        {
+            var t = tab;
+            <span class="tab @(t.Id == _activeTabId ? "active" : null)" @onclick="() => SelectTab(t.Id)">@t.Title</span>
+        }
+        <button class="btn sm" @onclick="AddTab">＋ Tab</button>
+        @if (ActiveTab is not null && _layout.Tabs.Count > 1)
+        {
+            <button class="btn sm danger" @onclick="RemoveTab">🗑 Tab</button>
+        }
+        @if (ActiveTab is not null)
+        {
+            <input class="input" style="max-width:160px;" @bind="ActiveTab.Title" />
+        }
+        <span class="spacer"></span>
+        <button class="btn sm accent" @onclick="AddPanel">＋ Panel</button>
+        <button class="btn sm" @onclick="SuggestPanel">💡 Suggest</button>
+    </div>
+
+    <div class="card soft">
+        <h3 class="mt-0">Filters</h3>
+        @foreach (var f in _layout.Filters)
+        {
+            var filter = f;
+            <div class="flex" style="flex-wrap:wrap; margin-bottom:6px;">
+                <select class="input" style="max-width:130px;" @bind="filter.Type">
+                    <option value="dropdown">dropdown</option>
+                    <option value="multiselect">multi-select</option>
+                    <option value="slicer">slicer</option>
+                    <option value="daterange">date range</option>
+                </select>
+                <select class="input" style="max-width:200px;" @bind="filter.DatasetId">
+                    @foreach (var d in _datasets)
+                    {
+                        <option value="@d.Id">@d.Name</option>
+                    }
+                </select>
+                <input class="input" style="max-width:160px;" placeholder="Field" @bind="filter.Field" />
+                <input class="input" style="max-width:160px;" placeholder="Label" @bind="filter.Label" />
+                <button class="btn sm danger" @onclick="() => _layout.Filters.Remove(filter)">✖</button>
+            </div>
+        }
+        <button class="btn sm" @onclick="AddFilter">＋ Add filter</button>
+    </div>
+
+    @if (ActiveTab is not null)
+    {
+        <div class="grid-stack" id="designer-grid">
+            @foreach (var panel in ActiveTab.Panels)
+            {
+                var p = panel;
+                <div class="grid-stack-item" data-panel-id="@p.Id" gs-x="@p.X" gs-y="@p.Y" gs-w="@p.W" gs-h="@p.H" @key="p.Id">
+                    <div class="grid-stack-item-content">
+                        <PanelChart Panel="p" Filters="_layout.Filters" RefreshTick="_refreshTick" Draggable="true"
+                                    OnEdit="EditPanel" OnDelete="DeletePanel" />
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (_showAi)
+    {
+        <div class="card" style="position:fixed; right:16px; top:16px; bottom:16px; width:400px; z-index:99; display:flex; flex-direction:column; overflow:visible;">
+            <div class="flex-between">
+                <h3 class="mt-0 mb-0">🧙 AI Copilot</h3>
+                <button class="btn sm ghost" @onclick="() => _showAi = false">✖</button>
+            </div>
+            <p class="small muted" style="margin:6px 0;">Describe the dashboard you want — I will add or rearrange tabs, panels and filters for you. Remember to 💾 Save when you're happy.</p>
+            <div id="designer-ai-thread" style="flex:1; overflow-y:auto; padding-right:4px;">
+                @if (_aiMessages.Count == 0 && !_aiBusy)
+                {
+                    <div class="flex" style="flex-wrap:wrap;">
+                        @foreach (var ex in AiExamples)
+                        {
+                            var q = ex;
+                            <button class="btn sm" style="margin:3px;" @onclick="() => SendAi(q)" disabled="@_aiBusy">@q</button>
+                        }
+                    </div>
+                }
+                @foreach (var m in _aiMessages)
+                {
+                    <div class="chat-msg @m.Role" style="max-width:100%;">
+                        <div class="who">@(m.Role == "user" ? "You" : "Copilot")</div>
+                        <div class="bubble" style="box-shadow:2px 2px 0 var(--shadow);">
+                            @if (m.Role == "assistant")
+                            {
+                                @((MarkupString)Markdig.Markdown.ToHtml(m.Text, AiMarkdown))
+                            }
+                            else
+                            {
+                                @m.Text
+                            }
+                        </div>
+                    </div>
+                }
+                @if (_aiBusy)
+                {
+                    <p class="small muted"><span class="spin">✨</span> designing…</p>
+                }
+            </div>
+            @if (_aiError is not null)
+            {
+                <p class="error-text small">@_aiError</p>
+            }
+            <div class="chat-input-row">
+                <textarea class="input" rows="2" placeholder="e.g. Add a KPI row and a monthly trend chart…"
+                          @bind="_aiInput" @bind:event="oninput" @onkeydown="OnAiKeyDown" disabled="@_aiBusy"></textarea>
+                <button class="btn primary" @onclick="() => SendAi(null)" disabled="@(_aiBusy || string.IsNullOrWhiteSpace(_aiInput))">➤</button>
+            </div>
+        </div>
+    }
+
+    @if (_editingPanel is not null)
+    {
+        <div class="card" style="position:fixed; right:16px; top:16px; bottom:16px; width:380px; overflow-y:auto; z-index:100;">
+            <div class="flex-between">
+                <h3 class="mt-0 mb-0">Edit panel</h3>
+                <button class="btn sm" @onclick="ApplyPanelEdit">✔ Apply</button>
+            </div>
+            <label class="form-label">Title</label>
+            <input class="input" @bind="_editingPanel.Title" />
+            <label class="form-label">Dataset</label>
+            <select class="input" value="@_editingPanel.DatasetId" @onchange="OnPanelDatasetChanged">
+                @foreach (var d in _datasets)
+                {
+                    <option value="@d.Id">@d.Name</option>
+                }
+            </select>
+            <label class="form-label">Chart type</label>
+            <select class="input" @bind="_editingPanel.ChartType">
+                @foreach (var t in ChartBuilder.ChartTypes)
+                {
+                    <option value="@t">@t</option>
+                }
+            </select>
+
+            <label class="form-label">X / category field</label>
+            <select class="input" @bind="_editingPanel.XField">
+                <option value="">—</option>
+                @foreach (var c in _panelColumns) { <option value="@c">@c</option> }
+            </select>
+
+            <label class="form-label">Y / value fields (comma separated)</label>
+            <input class="input" value="@string.Join(",", _editingPanel.YFields)"
+                   @onchange="e => _editingPanel.YFields = (e.Value?.ToString() ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()" />
+
+            <div class="input-row">
+                <div>
+                    <label class="form-label">Series field</label>
+                    <select class="input" @bind="_editingPanel.SeriesField">
+                        <option value="">—</option>
+                        @foreach (var c in _panelColumns) { <option value="@c">@c</option> }
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Aggregation</label>
+                    <select class="input" @bind="_editingPanel.Aggregation">
+                        @foreach (var a in new[] { "sum", "avg", "min", "max", "count", "none" }) { <option value="@a">@a</option> }
+                    </select>
+                </div>
+            </div>
+
+            <div class="input-row">
+                <div>
+                    <label class="form-label">Sort by</label>
+                    <input class="input" @bind="_editingPanel.SortBy" />
+                </div>
+                <div>
+                    <label class="form-label">Desc</label>
+                    <input type="checkbox" @bind="_editingPanel.SortDesc" />
+                </div>
+                <div>
+                    <label class="form-label">Limit</label>
+                    <input class="input" type="number" @bind="_editingPanel.Limit" />
+                </div>
+            </div>
+
+            @if (_editingPanel.ChartType is "map" or "mapHeat")
+            {
+                <div class="input-row">
+                    <div><label class="form-label">Lat</label><input class="input" @bind="_editingPanel.LatField" /></div>
+                    <div><label class="form-label">Lng</label><input class="input" @bind="_editingPanel.LngField" /></div>
+                </div>
+                <div class="input-row">
+                    <div><label class="form-label">Value</label><input class="input" @bind="_editingPanel.ValueField" /></div>
+                    <div><label class="form-label">Label</label><input class="input" @bind="_editingPanel.LabelField" /></div>
+                </div>
+            }
+            @if (_editingPanel.ChartType == "bubble")
+            {
+                <label class="form-label">Size field</label>
+                <input class="input" @bind="_editingPanel.SizeField" />
+            }
+            @if (_editingPanel.ChartType == "custom")
+            {
+                <label class="form-label">Library</label>
+                <select class="input" @bind="_editingPanel.CustomLib">
+                    <option value="echarts">ECharts</option>
+                    <option value="chartjs">Chart.js</option>
+                    <option value="d3">D3.js</option>
+                </select>
+                <label class="form-label">Code — function(el, rows, columns, lib, palette)</label>
+                <textarea class="input" rows="10" spellcheck="false" @bind="_editingPanel.CustomCode"></textarea>
+            }
+            <label class="form-label">ECharts option overrides (JSON, optional)</label>
+            <textarea class="input" rows="4" spellcheck="false" @bind="_editingPanel.OptionsJson"></textarea>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Dashboard? _dash;
+    private DashboardLayout _layout = new();
+    private List<Dataset> _datasets = [];
+    private List<DashboardVersion> _versions = [];
+    private string? _activeTabId;
+    private PanelDef? _editingPanel;
+    private PanelDef? _editingOriginal;
+    private List<string> _panelColumns = [];
+    private bool _isPublic;
+    private bool _showVersions;
+    private string? _notice;
+    private int _refreshTick;
+    private DotNetObjectReference<DashboardDesigner>? _selfRef;
+    private bool _gridDirty = true;
+
+    private DashboardTab? ActiveTab => _layout.Tabs.FirstOrDefault(t => t.Id == _activeTabId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _datasets = await db.Datasets.OrderBy(d => d.Name).ToListAsync();
+        _dash = await DashboardSvc.GetAsync(Id);
+        if (_dash is null) { Nav.NavigateTo("dashboards"); return; }
+        _layout = DashboardLayout.Parse(_dash.LayoutJson);
+        _activeTabId = _layout.Tabs.FirstOrDefault()?.Id;
+        _isPublic = _dash.IsPublic;
+        _versions = await DashboardSvc.VersionsAsync(Id);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) _selfRef = DotNetObjectReference.Create(this);
+        if (_gridDirty && _dash is not null)
+        {
+            _gridDirty = false;
+            await JS.InvokeVoidAsync("bv.initGrid", "designer-grid", _selfRef);
+        }
+    }
+
+    [JSInvokable]
+    public void OnGridChanged(string changesJson)
+    {
+        var changes = JsonSerializer.Deserialize<List<GridChange>>(changesJson, TableData.JsonOpts) ?? [];
+        var tab = ActiveTab;
+        if (tab is null) return;
+        foreach (var c in changes)
+        {
+            var panel = tab.Panels.FirstOrDefault(p => p.Id == c.Id);
+            if (panel is null) continue;
+            panel.X = c.X; panel.Y = c.Y; panel.W = c.W; panel.H = c.H;
+        }
+    }
+
+    private sealed record GridChange(string Id, int X, int Y, int W, int H);
+
+    private void SelectTab(string id) { _activeTabId = id; _gridDirty = true; }
+
+    private void AddTab()
+    {
+        var tab = new DashboardTab { Title = $"Tab {_layout.Tabs.Count + 1}" };
+        _layout.Tabs.Add(tab);
+        SelectTab(tab.Id);
+    }
+
+    private void RemoveTab()
+    {
+        if (ActiveTab is null || _layout.Tabs.Count <= 1) return;
+        _layout.Tabs.Remove(ActiveTab);
+        SelectTab(_layout.Tabs[0].Id);
+    }
+
+    private void AddFilter()
+    {
+        _layout.Filters.Add(new FilterDef { DatasetId = _datasets.FirstOrDefault()?.Id ?? 0 });
+    }
+
+    private void AddPanel()
+    {
+        if (ActiveTab is null) return;
+        var maxY = ActiveTab.Panels.Count == 0 ? 0 : ActiveTab.Panels.Max(p => p.Y + p.H);
+        ActiveTab.Panels.Add(new PanelDef
+        {
+            Title = "New panel",
+            DatasetId = _datasets.FirstOrDefault()?.Id ?? 0,
+            X = 0, Y = maxY, W = 6, H = 4
+        });
+        _gridDirty = true;
+    }
+
+    private async Task SuggestPanel()
+    {
+        if (ActiveTab is null || _datasets.Count == 0) return;
+        var ds = _datasets.First();
+        try
+        {
+            var data = await Datasets.GetDataAsync(ds.Id);
+            var suggestion = Recommender.Suggest(data).FirstOrDefault();
+            if (suggestion is null) return;
+            var maxY = ActiveTab.Panels.Count == 0 ? 0 : ActiveTab.Panels.Max(p => p.Y + p.H);
+            ActiveTab.Panels.Add(new PanelDef
+            {
+                Title = suggestion.Title,
+                ChartType = suggestion.ChartType,
+                DatasetId = ds.Id,
+                XField = suggestion.XField,
+                YFields = suggestion.YFields,
+                SeriesField = suggestion.SeriesField,
+                Aggregation = suggestion.Aggregation,
+                X = 0, Y = maxY, W = 6, H = 4
+            });
+            _gridDirty = true;
+        }
+        catch { /* dataset failed to load — nothing to suggest */ }
+    }
+
+    private async Task EditPanel(PanelDef panel)
+    {
+        _editingOriginal = panel;
+        _editingPanel = JsonSerializer.Deserialize<PanelDef>(JsonSerializer.Serialize(panel, TableData.JsonOpts), TableData.JsonOpts);
+        await LoadPanelColumns(panel.DatasetId);
+    }
+
+    private async Task OnPanelDatasetChanged(ChangeEventArgs e)
+    {
+        if (_editingPanel is null || !int.TryParse(e.Value?.ToString(), out var dsId)) return;
+        _editingPanel.DatasetId = dsId;
+        await LoadPanelColumns(dsId);
+    }
+
+    private async Task LoadPanelColumns(int datasetId)
+    {
+        try
+        {
+            var data = await Datasets.GetDataAsync(datasetId);
+            _panelColumns = data.Columns.Select(c => c.Name).ToList();
+        }
+        catch { _panelColumns = []; }
+    }
+
+    private void ApplyPanelEdit()
+    {
+        if (_editingPanel is null || _editingOriginal is null || ActiveTab is null) return;
+        var idx = ActiveTab.Panels.IndexOf(_editingOriginal);
+        if (idx >= 0)
+        {
+            _editingPanel.X = _editingOriginal.X;
+            _editingPanel.Y = _editingOriginal.Y;
+            _editingPanel.W = _editingOriginal.W;
+            _editingPanel.H = _editingOriginal.H;
+            ActiveTab.Panels[idx] = _editingPanel;
+        }
+        _editingPanel = null;
+        _editingOriginal = null;
+        _refreshTick++;
+        _gridDirty = true;
+    }
+
+    private void DeletePanel(PanelDef panel)
+    {
+        ActiveTab?.Panels.Remove(panel);
+        _gridDirty = true;
+    }
+
+    private async Task Save()
+    {
+        if (_dash is null) return;
+        var user = (await AuthState.GetAuthenticationStateAsync()).User.Identity?.Name;
+        var version = await DashboardSvc.SaveLayoutAsync(Id, _layout, user, _dash.Name, _dash.Description);
+        if (_isPublic != _dash.IsPublic)
+            await DashboardSvc.SetSharingAsync(Id, _isPublic, user);
+        _dash = await DashboardSvc.GetAsync(Id);
+        _versions = await DashboardSvc.VersionsAsync(Id);
+        _notice = $"Saved as version {version}.";
+    }
+
+    private async Task Rollback(int version)
+    {
+        var user = (await AuthState.GetAuthenticationStateAsync()).User.Identity?.Name;
+        await DashboardSvc.RollbackAsync(Id, version, user);
+        _dash = await DashboardSvc.GetAsync(Id);
+        _layout = DashboardLayout.Parse(_dash!.LayoutJson);
+        _activeTabId = _layout.Tabs.FirstOrDefault()?.Id;
+        _versions = await DashboardSvc.VersionsAsync(Id);
+        _refreshTick++;
+        _gridDirty = true;
+        _notice = $"Rolled back to v{version} (saved as v{_dash.CurrentVersion}).";
+    }
+
+    // ---------- AI copilot ----------
+    private bool _showAi;
+    private bool _aiBusy;
+    private string _aiInput = "";
+    private string? _aiError;
+    private readonly List<(string Role, string Text)> _aiMessages = [];
+
+    private static readonly string[] AiExamples =
+    [
+        "Add a KPI row (total revenue, orders, avg price) on top",
+        "Create a new tab 'Trends' with monthly line charts",
+        "Rearrange the panels into a tidy 2-column layout",
+        "Add a region dropdown filter and a date range filter"
+    ];
+
+    private static readonly MarkdownPipeline AiMarkdown =
+        new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
+
+    private async Task OnAiKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey && !_aiBusy && !string.IsNullOrWhiteSpace(_aiInput))
+            await SendAi(null);
+    }
+
+    private async Task SendAi(string? example)
+    {
+        var prompt = example ?? _aiInput.Trim();
+        if (string.IsNullOrWhiteSpace(prompt) || _aiBusy) return;
+        _aiInput = "";
+        _aiError = null;
+        _aiBusy = true;
+        _aiMessages.Add(("user", prompt));
+        await ScrollAi();
+        try
+        {
+            var (reply, layout) = await AiDesigner.ComposeAsync(prompt, _layout);
+            if (layout is not null)
+            {
+                // drop panels pointing at unknown datasets so the grid never renders broken cards
+                var known = _datasets.Select(d => d.Id).ToHashSet();
+                foreach (var tab in layout.Tabs)
+                    tab.Panels.RemoveAll(p => !known.Contains(p.DatasetId));
+                _layout = layout;
+                if (ActiveTab is null) _activeTabId = _layout.Tabs.FirstOrDefault()?.Id;
+                _refreshTick++;
+                _gridDirty = true;
+            }
+            _aiMessages.Add(("assistant", reply));
+        }
+        catch (Exception ex)
+        {
+            _aiError = $"AI error: {ex.Message}";
+        }
+        _aiBusy = false;
+        await ScrollAi();
+    }
+
+    private async Task ScrollAi()
+    {
+        StateHasChanged();
+        try { await JS.InvokeVoidAsync("bv.scrollToBottom", "designer-ai-thread"); } catch { }
+    }
+
+    private async Task CopyShare()
+    {
+        if (_dash?.ShareToken is null) return;
+        await JS.InvokeVoidAsync("bv.copyText", Nav.ToAbsoluteUri($"share/{_dash.ShareToken}").ToString());
+        _notice = "Share link copied.";
+    }
+
+    private async Task CopyEmbed()
+    {
+        if (_dash?.ShareToken is null) return;
+        var url = Nav.ToAbsoluteUri($"share/{_dash.ShareToken}");
+        await JS.InvokeVoidAsync("bv.copyText",
+            $"<iframe src=\"{url}\" style=\"width:100%;height:800px;border:none;\"></iframe>");
+        _notice = "Embed code copied.";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("bv.destroyGrid", "designer-grid"); } catch { }
+        _selfRef?.Dispose();
+    }
+}

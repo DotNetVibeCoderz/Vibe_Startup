@@ -1,0 +1,44 @@
+@page "/share/{Token}"
+@rendermode InteractiveServer
+@attribute [AllowAnonymous]
+@layout EmptyLayout
+@inject DashboardService DashboardSvc
+
+<PageTitle>@(_dash?.Name ?? "Shared dashboard") — BlazorViz</PageTitle>
+
+<div style="padding: 20px 24px;">
+    @if (_notFound)
+    {
+        <div class="card"><h2>🔒 Dashboard not available</h2><p class="muted">This link is invalid or sharing has been disabled.</p></div>
+    }
+    else if (_dash is null)
+    {
+        <p class="muted">Loading…</p>
+    }
+    else
+    {
+        <div class="page-head">
+            <div>
+                <h1 class="mb-0">@_dash.Name</h1>
+                <span class="muted small">@_dash.Description — shared via BlazorViz</span>
+            </div>
+            <span class="badge primary">read-only</span>
+        </div>
+        <DashboardRenderer Layout="_layout" />
+    }
+</div>
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+
+    private Dashboard? _dash;
+    private DashboardLayout _layout = new();
+    private bool _notFound;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _dash = await DashboardSvc.GetByShareTokenAsync(Token);
+        if (_dash is null) { _notFound = true; return; }
+        _layout = DashboardLayout.Parse(_dash.LayoutJson);
+    }
+}

@@ -1,0 +1,31 @@
+Country,Continent,Lat,Lng,Population,GdpPerCapita,LifeExpectancy
+Indonesia,Asia,-6.2,106.8,277000000,4940,72.0
+United States,Americas,38.9,-77.0,333000000,76399,77.2
+China,Asia,39.9,116.4,1412000000,12720,78.2
+India,Asia,28.6,77.2,1417000000,2410,67.7
+Brazil,Americas,-15.8,-47.9,215000000,8918,72.8
+Nigeria,Africa,9.1,7.4,218000000,2184,52.7
+Germany,Europe,52.5,13.4,84000000,48718,80.8
+Japan,Asia,35.7,139.7,125000000,33815,84.5
+United Kingdom,Europe,51.5,-0.1,67000000,45850,80.7
+France,Europe,48.9,2.4,68000000,40494,82.5
+Mexico,Americas,19.4,-99.1,127000000,11091,70.2
+Egypt,Africa,30.0,31.2,111000000,4295,70.2
+Russia,Europe,55.8,37.6,144000000,15271,69.4
+Australia,Oceania,-35.3,149.1,26000000,64492,83.3
+South Africa,Africa,-25.7,28.2,60000000,6766,62.3
+South Korea,Asia,37.6,127.0,52000000,32255,83.5
+Canada,Americas,45.4,-75.7,39000000,54966,81.3
+Italy,Europe,41.9,12.5,59000000,34158,82.8
+Spain,Europe,40.4,-3.7,48000000,29350,83.2
+Argentina,Americas,-34.6,-58.4,46000000,13651,75.4
+Turkey,Asia,39.9,32.9,85000000,10616,76.0
+Thailand,Asia,13.8,100.5,72000000,6910,79.3
+Vietnam,Asia,21.0,105.8,98000000,4164,73.6
+Malaysia,Asia,3.1,101.7,34000000,11972,74.9
+Singapore,Asia,1.35,103.8,5900000,82808,83.9
+Saudi Arabia,Asia,24.7,46.7,36000000,30436,76.9
+Kenya,Africa,-1.3,36.8,54000000,2099,61.4
+New Zealand,Oceania,-41.3,174.8,5100000,48781,82.1
+Netherlands,Europe,52.4,4.9,17700000,57025,81.7
+Sweden,Europe,59.3,18.1,10500000,56424,83.1

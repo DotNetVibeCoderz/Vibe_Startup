@@ -1,0 +1,63 @@
+@* Read-only dashboard renderer shared by DashboardView and the public share page. *@
+@implements IDisposable
+@inject DatasetService Datasets
+
+@if (Layout.Tabs.Count > 1)
+{
+    <div class="bv-tabs">
+        @foreach (var tab in Layout.Tabs)
+        {
+            var t = tab;
+            <span class="tab @(t.Id == _activeTabId ? "active" : null)" @onclick="() => _activeTabId = t.Id">@t.Title</span>
+        }
+    </div>
+}
+
+<FilterBar Filters="Layout.Filters" States="_filterStates" OnChanged="OnFiltersChanged" />
+
+@if (ActiveTab is not null)
+{
+    <div class="dash-grid">
+        @foreach (var panel in ActiveTab.Panels)
+        {
+            <div class="dash-panel" style="grid-column: @(panel.X + 1) / span @(panel.W); grid-row: @(panel.Y + 1) / span @(panel.H);">
+                <PanelChart Panel="panel" Filters="Layout.Filters" FilterStates="_filterStates" RefreshTick="_refreshTick" />
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public DashboardLayout Layout { get; set; } = new();
+
+    private string? _activeTabId;
+    private readonly Dictionary<string, FilterState> _filterStates = [];
+    private int _refreshTick;
+    private System.Threading.Timer? _timer;
+
+    private DashboardTab? ActiveTab =>
+        Layout.Tabs.FirstOrDefault(t => t.Id == _activeTabId) ?? Layout.Tabs.FirstOrDefault();
+
+    protected override void OnParametersSet()
+    {
+        _activeTabId ??= Layout.Tabs.FirstOrDefault()?.Id;
+        if (Layout.RefreshIntervalSeconds > 0 && _timer is null)
+        {
+            _timer = new System.Threading.Timer(_ => _ = InvokeAsync(AutoRefresh), null,
+                TimeSpan.FromSeconds(Layout.RefreshIntervalSeconds),
+                TimeSpan.FromSeconds(Layout.RefreshIntervalSeconds));
+        }
+    }
+
+    private void AutoRefresh()
+    {
+        foreach (var id in Layout.Tabs.SelectMany(t => t.Panels).Select(p => p.DatasetId).Distinct())
+            Datasets.Invalidate(id);
+        _refreshTick++;
+        StateHasChanged();
+    }
+
+    private void OnFiltersChanged() => _refreshTick++;
+
+    public void Dispose() => _timer?.Dispose();
+}

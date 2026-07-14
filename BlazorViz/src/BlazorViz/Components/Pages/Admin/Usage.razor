@@ -1,0 +1,132 @@
+@page "/admin/usage"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.EntityFrameworkCore
+@using System.Text.Json
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IJSRuntime JS
+
+<PageTitle>Usage Analytics — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">📈 Usage Analytics</h1>
+    <select class="input" style="max-width:150px;" value="@_days" @onchange="OnRangeChanged">
+        <option value="7">Last 7 days</option>
+        <option value="30">Last 30 days</option>
+        <option value="90">Last 90 days</option>
+    </select>
+</div>
+
+<div class="grid-4">
+    <div class="card soft stat-card"><div class="num">@_queries</div><div class="lbl">Data queries</div></div>
+    <div class="card soft stat-card"><div class="num">@_chats</div><div class="lbl">AI chats</div></div>
+    <div class="card soft stat-card"><div class="num">@FormatTokens(_tokens)</div><div class="lbl">LLM tokens (est.)</div></div>
+    <div class="card soft stat-card"><div class="num">@_apiCalls</div><div class="lbl">API calls</div></div>
+</div>
+
+<div class="grid-2">
+    <div class="card" style="height:340px;">
+        <h3 class="mt-0">Activity per day</h3>
+        <div id="usage-daily" style="position:absolute; inset:52px 16px 16px;"></div>
+    </div>
+    <div class="card" style="height:340px;">
+        <h3 class="mt-0">Tokens per day</h3>
+        <div id="usage-tokens" style="position:absolute; inset:52px 16px 16px;"></div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="mt-0">Top users</h3>
+    <div class="bv-table-wrap">
+        <table class="bv-table">
+            <thead><tr><th>User</th><th>Queries</th><th>Chats</th><th>Tokens</th></tr></thead>
+            <tbody>
+                @foreach (var u in _topUsers)
+                {
+                    <tr><td><b>@u.User</b></td><td>@u.Queries</td><td>@u.Chats</td><td>@FormatTokens(u.Tokens)</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private int _days = 30;
+    private long _queries, _chats, _apiCalls;
+    private double _tokens;
+    private List<(string User, long Queries, long Chats, double Tokens)> _topUsers = [];
+    private string? _dailyJson, _tokensJson;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task OnRangeChanged(ChangeEventArgs e)
+    {
+        _days = int.TryParse(e.Value?.ToString(), out var d) ? d : 30;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var since = DateTime.UtcNow.AddDays(-_days);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var metrics = await db.UsageMetrics.Where(m => m.TimestampUtc >= since).ToListAsync();
+
+        _queries = metrics.Count(m => m.Kind == "query");
+        _chats = metrics.Count(m => m.Kind == "chat");
+        _apiCalls = metrics.Count(m => m.Kind == "api");
+        _tokens = metrics.Where(m => m.Kind is "token_in" or "token_out").Sum(m => m.Value);
+
+        _topUsers = metrics.Where(m => m.UserName != null)
+            .GroupBy(m => m.UserName!)
+            .Select(g => (g.Key,
+                (long)g.Count(m => m.Kind == "query"),
+                (long)g.Count(m => m.Kind == "chat"),
+                g.Where(m => m.Kind is "token_in" or "token_out").Sum(m => m.Value)))
+            .OrderByDescending(t => t.Item2 + t.Item3)
+            .Take(10).ToList();
+
+        var byDay = metrics.GroupBy(m => m.TimestampUtc.Date).OrderBy(g => g.Key).ToList();
+        var days = byDay.Select(g => g.Key.ToString("dd MMM")).ToList();
+        _dailyJson = JsonSerializer.Serialize(new
+        {
+            tooltip = new { trigger = "axis" },
+            legend = new { top = 0 },
+            grid = new { left = 40, right = 10, top = 30, bottom = 25, containLabel = true },
+            xAxis = new { type = "category", data = days },
+            yAxis = new { type = "value" },
+            series = new object[]
+            {
+                new { name = "Queries", type = "bar", stack = "a", data = byDay.Select(g => g.Count(m => m.Kind == "query")).ToList() },
+                new { name = "Chats", type = "bar", stack = "a", data = byDay.Select(g => g.Count(m => m.Kind == "chat")).ToList() },
+                new { name = "API", type = "bar", stack = "a", data = byDay.Select(g => g.Count(m => m.Kind == "api")).ToList() }
+            }
+        });
+        _tokensJson = JsonSerializer.Serialize(new
+        {
+            tooltip = new { trigger = "axis" },
+            grid = new { left = 50, right = 10, top = 15, bottom = 25, containLabel = true },
+            xAxis = new { type = "category", data = days },
+            yAxis = new { type = "value" },
+            series = new object[]
+            {
+                new { name = "Tokens", type = "line", areaStyle = new { opacity = 0.25 }, smooth = true,
+                      data = byDay.Select(g => g.Where(m => m.Kind is "token_in" or "token_out").Sum(m => m.Value)).ToList() }
+            }
+        });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_dailyJson is not null)
+        {
+            await JS.InvokeVoidAsync("bv.renderChart", "usage-daily", _dailyJson);
+            await JS.InvokeVoidAsync("bv.renderChart", "usage-tokens", _tokensJson);
+            _dailyJson = null;
+            _tokensJson = null;
+        }
+    }
+
+    private static string FormatTokens(double t) =>
+        t >= 1_000_000 ? (t / 1_000_000).ToString("0.#") + "M" :
+        t >= 1_000 ? (t / 1_000).ToString("0.#") + "K" : t.ToString("0");
+}

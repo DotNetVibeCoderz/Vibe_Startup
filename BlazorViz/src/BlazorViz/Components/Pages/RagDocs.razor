@@ -1,0 +1,122 @@
+@page "/rag"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using BlazorViz.Services.Rag
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject RagService Rag
+@inject BlazorViz.Services.Storage.IFileStorage Storage
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Documents (RAG) — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">📚 Documents (RAG)</h1>
+    <span class="badge primary">Vector store: @Rag.StoreKind</span>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <h3 class="mt-0">Upload & index</h3>
+        <p class="small muted">PDF, Word (.docx), Excel (.xlsx), text/markdown/CSV/JSON. Indexed documents are used
+        automatically as context by the Data Wizard.</p>
+        <InputFile OnChange="OnUpload" multiple accept=".pdf,.docx,.xlsx,.txt,.md,.csv,.json" />
+        @if (_busy)
+        {
+            <p class="small"><span class="spin">⏳</span> Indexing…</p>
+        }
+        @if (_error is not null)
+        {
+            <p class="error-text">@_error</p>
+        }
+    </div>
+
+    <div class="card">
+        <h3 class="mt-0">Search test</h3>
+        <div class="flex">
+            <input class="input" placeholder="semantic query…" @bind="_query" />
+            <button class="btn primary" @onclick="Search">🔍</button>
+        </div>
+        @foreach (var m in _matches)
+        {
+            <div class="card soft" style="margin-top:8px; padding:10px;">
+                <div class="flex-between">
+                    <b class="small">@m.Chunk.FileName · chunk @m.Chunk.ChunkIndex</b>
+                    <span class="badge accent">@m.Score.ToString("0.00")</span>
+                </div>
+                <p class="small muted mb-0">@(m.Chunk.Text.Length > 300 ? m.Chunk.Text[..300] + "…" : m.Chunk.Text)</p>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="mt-0">Indexed documents</h3>
+    <div class="bv-table-wrap">
+        <table class="bv-table">
+            <thead><tr><th>File</th><th>Status</th><th>Chunks</th><th>Uploaded</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var d in _docs)
+                {
+                    <tr>
+                        <td><b>@d.FileName</b>@if (d.Error is not null)
+                            {<div class="error-text small">@d.Error</div>}</td>
+                        <td><span class="badge @(d.Status == "indexed" ? "accent" : d.Status == "failed" ? "danger" : "warn")">@d.Status</span></td>
+                        <td>@d.ChunkCount</td>
+                        <td class="muted">@d.UploadedUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm") · @d.UploadedBy</td>
+                        <td><button class="btn sm danger" @onclick="() => Delete(d.Id)">Delete</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<RagDocument> _docs = [];
+    private List<VectorMatch> _matches = [];
+    private string _query = "";
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _docs = await db.RagDocuments.OrderByDescending(d => d.Id).ToListAsync();
+    }
+
+    private async Task OnUpload(InputFileChangeEventArgs e)
+    {
+        _busy = true;
+        _error = null;
+        var user = (await AuthState.GetAuthenticationStateAsync()).User.Identity?.Name;
+        foreach (var file in e.GetMultipleFiles(10))
+        {
+            try
+            {
+                var safeName = $"{Guid.NewGuid():N}{Path.GetExtension(file.Name)}";
+                await using var stream = file.OpenReadStream(64 * 1024 * 1024);
+                var saved = await Storage.SaveAsync($"rag/{safeName}", stream);
+                await Rag.IngestAsync(file.Name, saved, user);
+            }
+            catch (Exception ex) { _error = $"{file.Name}: {ex.Message}"; }
+        }
+        _busy = false;
+        await LoadAsync();
+    }
+
+    private async Task Search()
+    {
+        if (string.IsNullOrWhiteSpace(_query)) return;
+        try { _matches = await Rag.SearchAsync(_query); _error = null; }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task Delete(int id)
+    {
+        await Rag.DeleteAsync(id);
+        await LoadAsync();
+    }
+}

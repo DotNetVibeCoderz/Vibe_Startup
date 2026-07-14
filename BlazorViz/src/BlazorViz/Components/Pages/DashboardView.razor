@@ -1,0 +1,55 @@
+@page "/dashboards/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject DashboardService DashboardSvc
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<PageTitle>@(_dash?.Name ?? "Dashboard") — BlazorViz</PageTitle>
+
+@if (_dash is null)
+{
+    <p class="muted">Loading…</p>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="mb-0">@_dash.Name</h1>
+            <span class="muted small">@_dash.Description</span>
+        </div>
+        <div class="flex">
+            @if (_layout.RefreshIntervalSeconds > 0)
+            {
+                <span class="badge accent">⟳ auto @_layout.RefreshIntervalSeconds s</span>
+            }
+            @if (_dash.IsPublic && _dash.ShareToken is not null)
+            {
+                <button class="btn sm" @onclick="CopyShare">🔗 Copy share link</button>
+            }
+            <a class="btn sm primary" href="dashboards/@Id/edit">✏️ Design</a>
+        </div>
+    </div>
+
+    <DashboardRenderer Layout="_layout" />
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Dashboard? _dash;
+    private DashboardLayout _layout = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _dash = await DashboardSvc.GetAsync(Id);
+        if (_dash is null) { Nav.NavigateTo("dashboards"); return; }
+        _layout = DashboardLayout.Parse(_dash.LayoutJson);
+    }
+
+    private async Task CopyShare()
+    {
+        var url = Nav.ToAbsoluteUri($"share/{_dash!.ShareToken}").ToString();
+        await JS.InvokeVoidAsync("bv.copyText", url);
+    }
+}

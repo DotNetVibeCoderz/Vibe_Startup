@@ -1,0 +1,201 @@
+@* Renders one dashboard panel: ECharts, geo map, custom visual, KPI or table. *@
+@implements IAsyncDisposable
+@inject DatasetService Datasets
+@inject ChartBuilder Charts
+@inject ExportService Exporter
+@inject IJSRuntime JS
+
+<div class="panel-card">
+    <div class="panel-head">
+        <span class="title @(Draggable ? "panel-drag" : null)">@Panel.Title</span>
+        @if (_error is null && Panel.ChartType is not ("kpi" or "table"))
+        {
+            <button class="btn sm ghost" title="Download PNG" @onclick="ExportPng">🖼️</button>
+        }
+        <button class="btn sm ghost" title="Export CSV" @onclick='() => Export("csv")'>⬇️</button>
+        @if (OnEdit.HasDelegate)
+        {
+            <button class="btn sm ghost" title="Edit" @onclick="() => OnEdit.InvokeAsync(Panel)">✏️</button>
+        }
+        @if (OnDelete.HasDelegate)
+        {
+            <button class="btn sm ghost" title="Remove" @onclick="() => OnDelete.InvokeAsync(Panel)">🗑️</button>
+        }
+    </div>
+    <div class="panel-body">
+        @if (_error is not null)
+        {
+            <div class="error-text" style="padding:10px;">@_error</div>
+        }
+        else if (_loading)
+        {
+            <div class="kpi-center"><span class="spin">⏳</span></div>
+        }
+        else if (Panel.ChartType == "kpi")
+        {
+            <div class="kpi-center">
+                <div class="kpi-value">@FormatKpi(_kpi.Value)</div>
+                <div class="kpi-label">@_kpi.Label</div>
+            </div>
+        }
+        else if (Panel.ChartType == "table")
+        {
+            <div style="position:absolute; inset:8px; overflow:auto;">
+                <DataTableView Data="_tableView" PageSize="8" />
+            </div>
+        }
+        else
+        {
+            <div id="@ElementId" class="chart-host"></div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public PanelDef Panel { get; set; } = new();
+    [Parameter] public IReadOnlyList<FilterDef> Filters { get; set; } = [];
+    [Parameter] public IReadOnlyDictionary<string, FilterState>? FilterStates { get; set; }
+    [Parameter] public int RefreshTick { get; set; }
+    [Parameter] public bool Draggable { get; set; }
+    [Parameter] public EventCallback<PanelDef> OnEdit { get; set; }
+    [Parameter] public EventCallback<PanelDef> OnDelete { get; set; }
+
+    private string ElementId => $"panel-{Panel.Id}";
+    private string? _error;
+    private bool _loading = true;
+    private (double Value, string Label) _kpi;
+    private TableData? _tableView;
+    private string? _pendingJs;
+    private string? _pendingMapJson;
+    private (string lib, string code, string rows, string cols)? _pendingCustom;
+    private int _renderedTick = -1;
+    private string _renderedSignature = "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var signature = System.Text.Json.JsonSerializer.Serialize(Panel) + "|" + StateSignature();
+        if (signature == _renderedSignature && RefreshTick == _renderedTick) return;
+        _renderedSignature = signature;
+        _renderedTick = RefreshTick;
+        await LoadAsync();
+    }
+
+    private string StateSignature() =>
+        FilterStates is null ? "" : string.Join(";", FilterStates.Values.Select(s =>
+            $"{s.FilterId}={string.Join(",", s.Values)}|{s.From}|{s.To}"));
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var data = await Datasets.GetDataAsync(Panel.DatasetId);
+            data = ApplyFilters(data);
+
+            switch (Panel.ChartType)
+            {
+                case "kpi":
+                    _kpi = Charts.KpiValue(Panel, data);
+                    break;
+                case "table":
+                    _tableView = BuildTable(data);
+                    break;
+                case "map" or "mapHeat":
+                    _pendingMapJson = System.Text.Json.JsonSerializer.Serialize(Charts.MapPoints(Panel, data));
+                    break;
+                case "custom":
+                    _pendingCustom = (Panel.CustomLib ?? "echarts", Panel.CustomCode ?? "", data.Head(2000).ToJson(), data.SchemaJson());
+                    break;
+                default:
+                    _pendingJs = Charts.BuildOptionJson(Panel, data);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        _loading = false;
+    }
+
+    private TableData ApplyFilters(TableData data)
+    {
+        if (FilterStates is null) return data;
+        foreach (var f in Filters.Where(f => f.DatasetId == Panel.DatasetId))
+        {
+            if (!FilterStates.TryGetValue(f.Id, out var state) || !state.IsActive) continue;
+            data = f.Type == "daterange"
+                ? EtlService.FilterDateRange(data, f.Field, state.From, state.To)
+                : EtlService.FilterIn(data, f.Field, state.Values);
+        }
+        return data;
+    }
+
+    private TableData BuildTable(TableData data)
+    {
+        if (!string.IsNullOrWhiteSpace(Panel.XField) && Panel.YFields.Count > 0 && Panel.Aggregation != "none")
+        {
+            var aggs = string.Join(",", Panel.YFields.Select(y => $"{Panel.Aggregation}:{y}"));
+            data = EtlService.Aggregate(data, Panel.XField, aggs);
+        }
+        if (!string.IsNullOrWhiteSpace(Panel.SortBy))
+        {
+            var col = data.IndexOf(Panel.SortBy) >= 0 ? Panel.SortBy : $"{Panel.Aggregation}_{Panel.SortBy}";
+            data = EtlService.Sort(data, col, Panel.SortDesc);
+        }
+        return Panel.Limit is int n and > 0 ? data.Head(n) : data.Head(500);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_pendingJs is not null)
+        {
+            var js = _pendingJs; _pendingJs = null;
+            await JS.InvokeVoidAsync("bv.renderChart", ElementId, js);
+        }
+        if (_pendingMapJson is not null)
+        {
+            var json = _pendingMapJson; _pendingMapJson = null;
+            await JS.InvokeVoidAsync("bv.renderMap", ElementId, json, Panel.ChartType == "mapHeat");
+        }
+        if (_pendingCustom is not null)
+        {
+            var (lib, code, rows, cols) = _pendingCustom.Value; _pendingCustom = null;
+            await JS.InvokeVoidAsync("bv.renderCustom", ElementId, lib, code, rows, cols);
+        }
+    }
+
+    private async Task Export(string format)
+    {
+        try
+        {
+            var data = ApplyFilters(await Datasets.GetDataAsync(Panel.DatasetId));
+            if (Panel.ChartType == "table") data = BuildTable(data);
+            var (bytes, contentType, ext) = Exporter.Export(data, format, Panel.Title);
+            await JS.InvokeVoidAsync("bv.downloadFile", $"{Panel.Title}.{ext}", contentType, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task ExportPng()
+    {
+        var dataUrl = await JS.InvokeAsync<string?>("bv.chartImage", ElementId);
+        if (dataUrl is not null)
+            await JS.InvokeVoidAsync("bv.downloadDataUrl", $"{Panel.Title}.png", dataUrl);
+    }
+
+    private static string FormatKpi(double v) => Math.Abs(v) switch
+    {
+        >= 1_000_000_000 => (v / 1_000_000_000).ToString("0.##") + "B",
+        >= 1_000_000 => (v / 1_000_000).ToString("0.##") + "M",
+        >= 10_000 => (v / 1_000).ToString("0.#") + "K",
+        _ => v.ToString("#,0.##")
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("bv.disposeChart", ElementId); }
+        catch { /* circuit already gone */ }
+    }
+}

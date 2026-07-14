@@ -1,0 +1,89 @@
+@page "/admin/performance"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@implements IDisposable
+@using System.Text.Json
+@inject PerfMonitor Monitor
+@inject IJSRuntime JS
+
+<PageTitle>Performance — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">⚡ Performance</h1>
+    <span class="badge accent">live · refreshes every 5s</span>
+</div>
+
+<div class="grid-4">
+    <div class="card soft stat-card"><div class="num">@Monitor.TotalRequests</div><div class="lbl">Requests</div></div>
+    <div class="card soft stat-card"><div class="num">@Monitor.TotalErrors</div><div class="lbl">5xx errors</div></div>
+    <div class="card soft stat-card"><div class="num">@_res.MemoryMb MB</div><div class="lbl">Memory</div></div>
+    <div class="card soft stat-card"><div class="num">@_res.UptimeMinutes m</div><div class="lbl">Uptime</div></div>
+</div>
+
+<div class="grid-2">
+    <div class="card" style="height:340px;">
+        <h3 class="mt-0">Response time (recent requests)</h3>
+        <div id="perf-times" style="position:absolute; inset:52px 16px 16px;"></div>
+    </div>
+    <div class="card" style="height:340px;">
+        <h3 class="mt-0">Traffic by path</h3>
+        <div id="perf-paths" style="position:absolute; inset:52px 16px 16px;"></div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="mt-0">Process</h3>
+    <p class="small muted">CPU time: @_res.CpuSeconds s · Threads: @_res.Threads · Working set: @_res.MemoryMb MB</p>
+</div>
+
+@code {
+    private (double CpuSeconds, double MemoryMb, double UptimeMinutes, int Threads) _res;
+    private System.Threading.Timer? _timer;
+    private bool _render = true;
+
+    protected override void OnInitialized()
+    {
+        _res = Monitor.Resources();
+        _timer = new System.Threading.Timer(_ => _ = InvokeAsync(() =>
+        {
+            _res = Monitor.Resources();
+            _render = true;
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_render) return;
+        _render = false;
+        var recent = Monitor.Recent(300);
+        var timesJson = JsonSerializer.Serialize(new
+        {
+            tooltip = new { trigger = "axis" },
+            grid = new { left = 50, right = 10, top = 15, bottom = 25, containLabel = true },
+            xAxis = new { type = "category", data = recent.Select(r => r.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")).ToList() },
+            yAxis = new { type = "value", name = "ms" },
+            series = new object[]
+            {
+                new { name = "Duration", type = "line", smooth = true, showSymbol = false,
+                      data = recent.Select(r => Math.Round(r.DurationMs, 1)).ToList() }
+            }
+        });
+        var byPath = recent.GroupBy(r => r.Path).OrderByDescending(g => g.Count()).Take(10).ToList();
+        var pathsJson = JsonSerializer.Serialize(new
+        {
+            tooltip = new { },
+            grid = new { left = 10, right = 20, top = 10, bottom = 20, containLabel = true },
+            xAxis = new { type = "value" },
+            yAxis = new { type = "category", data = byPath.Select(g => g.Key).Reverse().ToList() },
+            series = new object[]
+            {
+                new { type = "bar", data = byPath.Select(g => g.Count()).Reverse().ToList() }
+            }
+        });
+        await JS.InvokeVoidAsync("bv.renderChart", "perf-times", timesJson);
+        await JS.InvokeVoidAsync("bv.renderChart", "perf-paths", pathsJson);
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

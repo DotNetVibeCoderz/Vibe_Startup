@@ -1,0 +1,270 @@
+@page "/datasets/new"
+@page "/datasets/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using BlazorViz.Services.Scripting
+@using BlazorViz.Services.Storage
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject DatasetService DatasetSvc
+@inject RecommendationService Recommender
+@inject IFileStorage Storage
+@inject IWebHostEnvironment Env
+@inject NavigationManager Nav
+@inject AuditService Audit
+
+<PageTitle>Dataset — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">🗂️ @(_ds.Id == 0 ? "New dataset" : _ds.Name)</h1>
+    <div class="flex">
+        <button class="btn primary" @onclick="Save">💾 Save</button>
+        <button class="btn accent" @onclick="Preview">▶ Preview</button>
+        <a class="btn ghost" href="datasets">Back</a>
+    </div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <h3 class="mt-0">Source</h3>
+        <div class="input-row">
+            <div>
+                <label class="form-label">Name</label>
+                <input class="input" @bind="_ds.Name" />
+            </div>
+            <div>
+                <label class="form-label">Auto refresh (seconds, 0 = off)</label>
+                <input class="input" type="number" @bind="_ds.RefreshIntervalSeconds" />
+            </div>
+        </div>
+        <label class="form-label">Description</label>
+        <input class="input" @bind="_ds.Description" />
+
+        <label class="form-label">Source type</label>
+        <select class="input" @bind="_ds.SourceKind">
+            <option value="connection">Connection (database / API)</option>
+            <option value="file">Uploaded file (CSV / Excel / JSON)</option>
+        </select>
+
+        @if (_ds.SourceKind == "connection")
+        {
+            <label class="form-label">Connection</label>
+            <select class="input" @bind="_ds.ConnectionId">
+                <option value="">— choose —</option>
+                @foreach (var c in _connections)
+                {
+                    <option value="@c.Id">@c.Name (@c.Kind)</option>
+                }
+            </select>
+            <label class="form-label">Query (SQL / GraphQL / REST path / Excel sheet)</label>
+            <textarea class="input" rows="4" @bind="_ds.Query"></textarea>
+        }
+        else
+        {
+            <label class="form-label">Upload file</label>
+            <InputFile OnChange="OnFileUpload" accept=".csv,.xlsx,.json,.txt" />
+            @if (!string.IsNullOrWhiteSpace(_ds.FilePath))
+            {
+                <p class="small muted">Current file: @Path.GetFileName(_ds.FilePath)</p>
+            }
+        }
+    </div>
+
+    <div class="card">
+        <h3 class="mt-0">ETL steps</h3>
+        @for (var i = 0; i < _steps.Count; i++)
+        {
+            var idx = i;
+            var step = _steps[idx];
+            <div class="flex" style="margin-bottom:6px; flex-wrap:wrap;">
+                <select class="input" style="max-width:120px;" value="@step.Op" @onchange="e => { step.Op = e.Value!.ToString()!; }">
+                    @foreach (var op in new[] { "filter", "select", "drop", "rename", "compute", "sort", "aggregate", "join", "limit", "distinct", "pivot" })
+                    {
+                        <option value="@op">@op</option>
+                    }
+                </select>
+                <input class="input" style="flex:2;" placeholder="@ParamHint(step.Op)"
+                       value="@ParamString(step)" @onchange="e => SetParams(step, e.Value?.ToString())" />
+                <button class="btn sm danger" @onclick="() => _steps.RemoveAt(idx)">✖</button>
+            </div>
+        }
+        <button class="btn sm" @onclick="() => _steps.Add(new EtlStep())">＋ Add step</button>
+
+        <h3>Script (optional)</h3>
+        <div class="input-row">
+            <div>
+                <label class="form-label">Language</label>
+                <select class="input" @bind="_scriptLanguage">
+                    <option value="">— none —</option>
+                    <option value="csharp">C#</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="python">Python</option>
+                </select>
+            </div>
+            <div>
+                <label class="form-label">Template</label>
+                <select class="input" @onchange="ApplyTemplate">
+                    <option value="">— choose template —</option>
+                    @foreach (var t in ScriptTemplates.ForLanguage(string.IsNullOrEmpty(_scriptLanguage) ? "csharp" : _scriptLanguage))
+                    {
+                        <option value="@t.Name">@t.Name — @t.Description</option>
+                    }
+                </select>
+            </div>
+        </div>
+        @if (!string.IsNullOrEmpty(_scriptLanguage))
+        {
+            <textarea class="input" rows="10" @bind="_ds.Script" spellcheck="false"></textarea>
+        }
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="card"><span class="error-text">@_error</span></div>
+}
+
+@if (_preview is not null)
+{
+    <div class="card">
+        <div class="flex-between">
+            <h3 class="mt-0 mb-0">Preview (@_preview.RowCount rows)</h3>
+            <div class="flex small muted">
+                @foreach (var c in _preview.Columns.Take(12))
+                {
+                    <span class="badge">@c.Name: @c.Type</span>
+                }
+            </div>
+        </div>
+        <DataTableView Data="_preview" PageSize="10" />
+
+        <h3>💡 Suggested visualizations</h3>
+        <div class="flex" style="flex-wrap:wrap;">
+            @foreach (var s in Recommender.Suggest(_preview))
+            {
+                <span class="badge accent" title="@s.Reason">@s.ChartType: @s.Title</span>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int? Id { get; set; }
+
+    private Dataset _ds = new() { SourceKind = "connection" };
+    private List<DataConnection> _connections = [];
+    private List<EtlStep> _steps = [];
+    private string _scriptLanguage = "";
+    private TableData? _preview;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _connections = await db.Connections.OrderBy(c => c.Name).ToListAsync();
+        if (Id is int id)
+        {
+            _ds = await db.Datasets.FindAsync(id) ?? new Dataset();
+            _steps = EtlStep.ParseList(_ds.EtlJson);
+            _scriptLanguage = _ds.ScriptLanguage ?? "";
+        }
+    }
+
+    private async Task OnFileUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            var safeName = $"{Guid.NewGuid():N}{Path.GetExtension(file.Name)}";
+            await using var stream = file.OpenReadStream(64 * 1024 * 1024);
+            var saved = await Storage.SaveAsync($"datasets/{safeName}", stream);
+            _ds.FilePath = saved;
+            _ds.SourceKind = "file";
+            if (string.IsNullOrWhiteSpace(_ds.Name))
+                _ds.Name = Path.GetFileNameWithoutExtension(file.Name);
+            _error = null;
+        }
+        catch (Exception ex) { _error = "Upload failed: " + ex.Message; }
+    }
+
+    private async Task Preview()
+    {
+        _error = null;
+        SyncModel();
+        try
+        {
+            var probe = new Dataset
+            {
+                Id = _ds.Id, Name = _ds.Name, SourceKind = _ds.SourceKind, Query = _ds.Query,
+                FilePath = _ds.FilePath, ConnectionId = _ds.ConnectionId,
+                EtlJson = _ds.EtlJson, ScriptLanguage = _ds.ScriptLanguage, Script = _ds.Script
+            };
+            if (probe.ConnectionId is int cid)
+            {
+                await using var db = await DbFactory.CreateDbContextAsync();
+                probe.Connection = await db.Connections.FindAsync(cid);
+            }
+            _preview = (await DatasetSvc.ExecuteAsync(probe)).Head(500);
+        }
+        catch (Exception ex) { _error = ex.Message; _preview = null; }
+    }
+
+    private async Task Save()
+    {
+        _error = null;
+        SyncModel();
+        if (string.IsNullOrWhiteSpace(_ds.Name)) { _error = "Name is required."; return; }
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (_ds.Id == 0) db.Datasets.Add(_ds);
+        else db.Datasets.Update(_ds);
+        await db.SaveChangesAsync();
+        DatasetSvc.Invalidate(_ds.Id);
+        await Audit.LogAsync("Dataset", Id is null ? "Create" : "Update", _ds.Name);
+        Nav.NavigateTo("datasets");
+    }
+
+    private void SyncModel()
+    {
+        _ds.EtlJson = _steps.Count > 0 ? EtlStep.ToJson(_steps) : null;
+        _ds.ScriptLanguage = string.IsNullOrEmpty(_scriptLanguage) ? null : _scriptLanguage;
+        if (string.IsNullOrEmpty(_scriptLanguage)) _ds.Script = null;
+    }
+
+    private void ApplyTemplate(ChangeEventArgs e)
+    {
+        var name = e.Value?.ToString();
+        var lang = string.IsNullOrEmpty(_scriptLanguage) ? "csharp" : _scriptLanguage;
+        var template = ScriptTemplates.ForLanguage(lang).FirstOrDefault(t => t.Name == name);
+        if (template is null) return;
+        _scriptLanguage = template.Language;
+        _ds.Script = template.Code;
+    }
+
+    private static string ParamString(EtlStep step) =>
+        string.Join("; ", step.P.Select(kv => $"{kv.Key}={kv.Value}"));
+
+    private static void SetParams(EtlStep step, string? text)
+    {
+        step.P.Clear();
+        foreach (var pair in (text ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var idx = pair.IndexOf('=');
+            if (idx > 0) step.P[pair[..idx].Trim()] = pair[(idx + 1)..].Trim();
+        }
+    }
+
+    private static string ParamHint(string op) => op switch
+    {
+        "filter" => "field=Region; op==; value=North   (ops: = != > >= < <= contains in notnull)",
+        "select" => "fields=Col1,Col2,Col3",
+        "drop" => "fields=Col1,Col2",
+        "rename" => "from=OldName; to=NewName",
+        "compute" => "name=Margin; expr=Profit / Revenue",
+        "sort" => "field=Revenue; desc=true",
+        "aggregate" => "groupBy=Region,Category; aggs=sum:Revenue,avg:Price,count:*",
+        "join" => "rightDatasetId=2; leftKey=Id; rightKey=CustomerId; type=left; prefix=r_",
+        "limit" => "n=100",
+        "pivot" => "rowField=Region; columnField=Category; valueField=Revenue; agg=sum",
+        _ => ""
+    };
+}

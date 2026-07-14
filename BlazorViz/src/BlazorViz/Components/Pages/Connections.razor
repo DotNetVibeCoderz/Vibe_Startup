@@ -1,0 +1,158 @@
+@page "/connections"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Analyst")]
+@using BlazorViz.Services.Connectors
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject DataConnectorFactory Connectors
+@inject AuditService Audit
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Connections — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">🔌 Connections</h1>
+    <button class="btn primary" @onclick="New">＋ New connection</button>
+</div>
+
+@if (_editing is not null)
+{
+    <div class="card">
+        <h2 class="mt-0">@(_editing.Id == 0 ? "New connection" : $"Edit: {_editing.Name}")</h2>
+        <div class="input-row">
+            <div>
+                <label class="form-label">Name</label>
+                <input class="input" @bind="_editing.Name" />
+            </div>
+            <div>
+                <label class="form-label">Kind</label>
+                <select class="input" @bind="_editing.Kind">
+                    @foreach (var k in DataConnectorFactory.Kinds)
+                    {
+                        <option value="@k">@k</option>
+                    }
+                </select>
+            </div>
+        </div>
+        <label class="form-label">Config (JSON)</label>
+        <textarea class="input" rows="6" @bind="_editing.ConfigJson"></textarea>
+        <p class="small muted">
+            @ConfigHint(_editing.Kind)
+        </p>
+        <div class="flex">
+            <button class="btn primary" @onclick="Save">💾 Save</button>
+            <button class="btn" @onclick="Test">🔍 Test</button>
+            <button class="btn ghost" @onclick="() => _editing = null">Cancel</button>
+            @if (_testResult is not null)
+            {
+                <span class="@(_testOk ? "success-text" : "error-text")">@_testResult</span>
+            }
+        </div>
+    </div>
+}
+
+<div class="card">
+    <div class="bv-table-wrap">
+        <table class="bv-table">
+            <thead><tr><th>Name</th><th>Kind</th><th>Created</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var c in _connections)
+                {
+                    <tr>
+                        <td><b>@c.Name</b></td>
+                        <td><span class="badge primary">@c.Kind</span></td>
+                        <td class="muted">@c.CreatedUtc.ToLocalTime().ToString("dd MMM yyyy")</td>
+                        <td>
+                            <button class="btn sm" @onclick="() => Edit(c)">Edit</button>
+                            <button class="btn sm danger" @onclick="() => Delete(c)">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<DataConnection> _connections = [];
+    private DataConnection? _editing;
+    private string? _testResult;
+    private bool _testOk;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _connections = await db.Connections.OrderBy(c => c.Name).ToListAsync();
+    }
+
+    private void New()
+    {
+        _editing = new DataConnection { Kind = "sqlite", ConfigJson = "{\n  \"connectionString\": \"Data Source=path/to/db.sqlite\"\n}" };
+        _testResult = null;
+    }
+
+    private void Edit(DataConnection c)
+    {
+        _editing = new DataConnection { Id = c.Id, Name = c.Name, Kind = c.Kind, ConfigJson = c.ConfigJson, CreatedBy = c.CreatedBy, CreatedUtc = c.CreatedUtc };
+        _testResult = null;
+    }
+
+    private async Task Save()
+    {
+        if (_editing is null || string.IsNullOrWhiteSpace(_editing.Name)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (_editing.Id == 0)
+        {
+            _editing.CreatedBy = await UserName();
+            db.Connections.Add(_editing);
+        }
+        else
+        {
+            db.Connections.Update(_editing);
+        }
+        await db.SaveChangesAsync();
+        await Audit.LogAsync("Connection", _editing.Id == 0 ? "Create" : "Update", _editing.Name, await UserName());
+        _editing = null;
+        await LoadAsync();
+    }
+
+    private async Task Test()
+    {
+        if (_editing is null) return;
+        try
+        {
+            var (ok, message) = await Connectors.Get(_editing.Kind).TestAsync(_editing.ConfigJson);
+            _testOk = ok;
+            _testResult = message;
+        }
+        catch (Exception ex) { _testOk = false; _testResult = ex.Message; }
+    }
+
+    private async Task Delete(DataConnection c)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Connections.Remove(c);
+        await db.SaveChangesAsync();
+        await Audit.LogAsync("Connection", "Delete", c.Name, await UserName());
+        await LoadAsync();
+    }
+
+    private async Task<string?> UserName() =>
+        (await AuthState.GetAuthenticationStateAsync()).User.Identity?.Name;
+
+    private static string ConfigHint(string kind) => kind switch
+    {
+        "sqlite" => "{ \"connectionString\": \"Data Source=c:/data/mydb.sqlite\" } — query is SQL.",
+        "sqlserver" => "{ \"connectionString\": \"Server=.;Database=Db;Trusted_Connection=True;TrustServerCertificate=True\" }",
+        "postgresql" => "{ \"connectionString\": \"Host=localhost;Database=db;Username=user;Password=pass\" }",
+        "mysql" => "{ \"connectionString\": \"Server=localhost;Database=db;Uid=user;Pwd=pass\" }",
+        "oracle" => "{ \"connectionString\": \"User Id=user;Password=pass;Data Source=localhost:1521/XE\" }",
+        "excel" => "{ \"path\": \"c:/data/report.xlsx\", \"sheet\": \"Sheet1\" } — dataset query can override the sheet.",
+        "csv" => "{ \"path\": \"c:/data/file.csv\", \"delimiter\": \",\" }",
+        "rest" => "{ \"url\": \"https://api.example.com/items\", \"method\": \"GET\", \"headers\": {\"Authorization\": \"Bearer …\"}, \"dataPath\": \"data.items\" }",
+        "graphql" => "{ \"url\": \"https://api.example.com/graphql\", \"headers\": {}, \"dataPath\": \"items\" } — dataset query is the GraphQL document.",
+        _ => ""
+    };
+}

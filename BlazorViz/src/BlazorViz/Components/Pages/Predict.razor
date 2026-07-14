@@ -1,0 +1,282 @@
+@page "/predict"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Microsoft.EntityFrameworkCore
+@using System.Text.Json
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject DatasetService Datasets
+@inject MlService Ml
+@inject IJSRuntime JS
+
+<PageTitle>Predictive Analytics — BlazorViz</PageTitle>
+
+<div class="page-head">
+    <h1 class="mb-0">🔮 Predictive Analytics <span class="badge">ML.NET</span></h1>
+</div>
+
+<div class="card">
+    <div class="input-row">
+        <div>
+            <label class="form-label">Task</label>
+            <select class="input" @bind="_task">
+                <option value="forecast">Forecasting (SSA time series)</option>
+                <option value="regression">Regression (SDCA)</option>
+                <option value="cluster">Clustering (K-Means)</option>
+                <option value="binary">Classification — binary (logistic)</option>
+                <option value="multiclass">Classification — multi-class</option>
+                <option value="recommend">Recommendation (matrix factorization)</option>
+            </select>
+        </div>
+        <div>
+            <label class="form-label">Dataset</label>
+            <select class="input" value="@_datasetId" @onchange="OnDatasetChanged">
+                <option value="0">— choose —</option>
+                @foreach (var d in _datasets)
+                {
+                    <option value="@d.Id">@d.Name</option>
+                }
+            </select>
+        </div>
+        @if (_task == "forecast")
+        {
+            <div>
+                <label class="form-label">Time column</label>
+                <select class="input" @bind="_timeCol"><option value=""></option>@foreach (var c in _columns) { <option>@c</option> }</select>
+            </div>
+            <div>
+                <label class="form-label">Value column</label>
+                <select class="input" @bind="_valueCol"><option value=""></option>@foreach (var c in _numericColumns) { <option>@c</option> }</select>
+            </div>
+            <div>
+                <label class="form-label">Horizon</label>
+                <input class="input" type="number" @bind="_horizon" />
+            </div>
+        }
+        else if (_task == "regression")
+        {
+            <div>
+                <label class="form-label">Label (target)</label>
+                <select class="input" @bind="_valueCol"><option value=""></option>@foreach (var c in _numericColumns) { <option>@c</option> }</select>
+            </div>
+            <div style="flex:2;">
+                <label class="form-label">Features (comma separated)</label>
+                <input class="input" @bind="_features" placeholder="Col1,Col2" />
+            </div>
+        }
+        else if (_task == "cluster")
+        {
+            <div style="flex:2;">
+                <label class="form-label">Features (comma separated)</label>
+                <input class="input" @bind="_features" placeholder="Col1,Col2" />
+            </div>
+            <div>
+                <label class="form-label">Clusters (k)</label>
+                <input class="input" type="number" @bind="_k" />
+            </div>
+        }
+        else if (_task is "binary" or "multiclass")
+        {
+            <div>
+                <label class="form-label">Label (target class)</label>
+                <select class="input" @bind="_labelCol"><option value=""></option>@foreach (var c in _columns) { <option>@c</option> }</select>
+            </div>
+            <div style="flex:2;">
+                <label class="form-label">Features (comma separated, numeric)</label>
+                <input class="input" @bind="_features" placeholder="Col1,Col2" />
+            </div>
+        }
+        else if (_task == "recommend")
+        {
+            <div>
+                <label class="form-label">User column</label>
+                <select class="input" @bind="_userCol"><option value=""></option>@foreach (var c in _columns) { <option>@c</option> }</select>
+            </div>
+            <div>
+                <label class="form-label">Item column</label>
+                <select class="input" @bind="_itemCol"><option value=""></option>@foreach (var c in _columns) { <option>@c</option> }</select>
+            </div>
+            <div>
+                <label class="form-label">Rating/score column</label>
+                <select class="input" @bind="_valueCol"><option value=""></option>@foreach (var c in _numericColumns) { <option>@c</option> }</select>
+            </div>
+            <div>
+                <label class="form-label">Top N</label>
+                <input class="input" type="number" @bind="_topN" />
+            </div>
+        }
+        <div>
+            <button class="btn primary" @onclick="Run" disabled="@_busy">@(_busy ? "Running…" : "▶ Run")</button>
+        </div>
+    </div>
+    @if (_error is not null)
+    {
+        <p class="error-text">@_error</p>
+    }
+    @if (_metrics is not null)
+    {
+        <p class="success-text">@_metrics</p>
+    }
+</div>
+
+@if (_showChart)
+{
+    <div class="card" style="height:420px;">
+        <div id="ml-chart" style="position:absolute; inset:16px;"></div>
+    </div>
+}
+
+@if (_resultTable is not null)
+{
+    <div class="card">
+        <h3 class="mt-0">Result rows</h3>
+        <DataTableView Data="_resultTable" PageSize="12" />
+    </div>
+}
+
+@code {
+    private List<Dataset> _datasets = [];
+    private List<string> _columns = [];
+    private List<string> _numericColumns = [];
+    private string _task = "forecast";
+    private int _datasetId;
+    private string _timeCol = "";
+    private string _valueCol = "";
+    private string _labelCol = "";
+    private string _userCol = "";
+    private string _itemCol = "";
+    private string _features = "";
+    private int _horizon = 12;
+    private int _k = 3;
+    private int _topN = 5;
+    private bool _busy;
+    private bool _showChart;
+    private string? _error;
+    private string? _metrics;
+    private TableData? _resultTable;
+    private string? _pendingChartJson;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _datasets = await db.Datasets.OrderBy(d => d.Name).ToListAsync();
+    }
+
+    private async Task OnDatasetChanged(ChangeEventArgs e)
+    {
+        _datasetId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        _columns = [];
+        _numericColumns = [];
+        if (_datasetId == 0) return;
+        try
+        {
+            var data = await Datasets.GetDataAsync(_datasetId);
+            _columns = data.Columns.Select(c => c.Name).ToList();
+            _numericColumns = data.Columns.Where(c => c.Type is "number" or "integer").Select(c => c.Name).ToList();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task Run()
+    {
+        _busy = true;
+        _error = null;
+        _metrics = null;
+        _resultTable = null;
+        _showChart = false;
+        try
+        {
+            var data = await Datasets.GetDataAsync(_datasetId);
+            switch (_task)
+            {
+                case "forecast":
+                {
+                    var (labels, history, forecast, lower, upper) = Ml.Forecast(data, _timeCol, _valueCol, _horizon);
+                    var futureLabels = Enumerable.Range(1, forecast.Count).Select(i => $"+{i}").ToList();
+                    var allLabels = labels.Concat(futureLabels).ToList();
+                    var histSeries = history.Cast<object?>().Concat(Enumerable.Repeat<object?>(null, forecast.Count)).ToList();
+                    var fcSeries = Enumerable.Repeat<object?>(null, Math.Max(0, history.Count - 1))
+                        .Append(history.LastOrDefault()).Concat(forecast.Cast<object?>()).ToList();
+                    _pendingChartJson = JsonSerializer.Serialize(new
+                    {
+                        tooltip = new { trigger = "axis" },
+                        legend = new { top = 0 },
+                        grid = new { left = 60, right = 20, top = 30, bottom = 30, containLabel = true },
+                        xAxis = new { type = "category", data = allLabels },
+                        yAxis = new { type = "value", scale = true },
+                        series = new object[]
+                        {
+                            new { name = "History", type = "line", data = histSeries, showSymbol = false },
+                            new { name = "Forecast", type = "line", data = fcSeries, lineStyle = new { type = "dashed" }, showSymbol = false }
+                        }
+                    });
+                    _metrics = $"Forecast of '{_valueCol}' for {_horizon} periods (90% bounds: {lower.FirstOrDefault():0.##} … {upper.FirstOrDefault():0.##} for first step).";
+                    _showChart = true;
+                    break;
+                }
+                case "regression":
+                {
+                    var features = _features.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    var (actual, predicted, r2, rmse) = Ml.Regression(data, _valueCol, features);
+                    _metrics = $"R² = {r2}, RMSE = {rmse} (trained on {actual.Count} rows).";
+                    _pendingChartJson = JsonSerializer.Serialize(new
+                    {
+                        tooltip = new { trigger = "item" },
+                        grid = new { left = 60, right = 20, top = 20, bottom = 40, containLabel = true },
+                        xAxis = new { type = "value", name = "Actual", scale = true },
+                        yAxis = new { type = "value", name = "Predicted", scale = true },
+                        series = new object[]
+                        {
+                            new { type = "scatter", data = actual.Zip(predicted, (a, p) => new[] { a, p }).ToList(), symbolSize = 7 }
+                        }
+                    });
+                    _showChart = true;
+                    break;
+                }
+                case "cluster":
+                {
+                    var features = _features.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    _resultTable = Ml.Cluster(data, features, _k).Head(1000);
+                    var counts = _resultTable.ColumnValues("Cluster").GroupBy(TableData.Format)
+                        .Select(g => $"cluster {g.Key}: {g.Count()} rows");
+                    _metrics = "K-Means done — " + string.Join(", ", counts);
+                    break;
+                }
+                case "binary":
+                {
+                    var features = _features.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    var (result, accuracy, auc, f1, positive) = Ml.BinaryClassify(data, _labelCol, features);
+                    _resultTable = result.Head(1000);
+                    _metrics = $"Binary classification of '{_labelCol}' (positive class: {positive}) — Accuracy = {accuracy:P1}, AUC = {auc}, F1 = {f1}.";
+                    break;
+                }
+                case "multiclass":
+                {
+                    var features = _features.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    var (result, micro, macro, classes) = Ml.MultiClassify(data, _labelCol, features);
+                    _resultTable = result.Head(1000);
+                    _metrics = $"Multi-class classification of '{_labelCol}' ({classes} classes) — Micro accuracy = {micro:P1}, Macro accuracy = {macro:P1}.";
+                    break;
+                }
+                case "recommend":
+                {
+                    var (recs, rmse) = Ml.Recommend(data, _userCol, _itemCol, _valueCol, _topN);
+                    _resultTable = recs;
+                    _metrics = $"Matrix factorization trained on '{_userCol}' × '{_itemCol}' with rating '{_valueCol}' — training RMSE = {rmse}. Showing top {_topN} unseen items per user.";
+                    break;
+                }
+            }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        _busy = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_pendingChartJson is not null && _showChart)
+        {
+            var json = _pendingChartJson;
+            _pendingChartJson = null;
+            await JS.InvokeVoidAsync("bv.renderChart", "ml-chart", json);
+        }
+    }
+}

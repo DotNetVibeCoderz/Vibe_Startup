@@ -1,0 +1,76 @@
+@* Paged, sortable table over a TableData. *@
+
+@if (Data is null || Data.Columns.Count == 0)
+{
+    <p class="muted small">No data.</p>
+}
+else
+{
+    <div class="bv-table-wrap">
+        <table class="bv-table">
+            <thead>
+                <tr>
+                    @foreach (var col in Data.Columns)
+                    {
+                        <th @onclick="() => SortBy(col.Name)">
+                            @col.Name
+                            @if (_sortCol == col.Name)
+                            {
+                                <span>@(_sortDesc ? " ▼" : " ▲")</span>
+                            }
+                        </th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in PageRows)
+                {
+                    <tr>
+                        @foreach (var cell in row)
+                        {
+                            <td>@TableData.Format(cell)</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (TotalPages > 1)
+    {
+        <div class="flex" style="margin-top:8px;">
+            <button class="btn sm" disabled="@(_page == 0)" @onclick="() => _page--">‹ Prev</button>
+            <span class="small muted">Page @(_page + 1) / @TotalPages (@_view.RowCount rows)</span>
+            <button class="btn sm" disabled="@(_page >= TotalPages - 1)" @onclick="() => _page++">Next ›</button>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public TableData? Data { get; set; }
+    [Parameter] public int PageSize { get; set; } = 15;
+
+    private TableData _view = new();
+    private string? _sortCol;
+    private bool _sortDesc;
+    private int _page;
+
+    protected override void OnParametersSet()
+    {
+        _view = Data ?? new TableData();
+        if (_sortCol is not null && _view.IndexOf(_sortCol) >= 0)
+            _view = EtlService.Sort(_view, _sortCol, _sortDesc);
+        if (_page >= TotalPages) _page = 0;
+    }
+
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(_view.RowCount / (double)PageSize));
+
+    private IEnumerable<object?[]> PageRows => _view.Rows.Skip(_page * PageSize).Take(PageSize);
+
+    private void SortBy(string col)
+    {
+        if (_sortCol == col) _sortDesc = !_sortDesc;
+        else { _sortCol = col; _sortDesc = false; }
+        _view = EtlService.Sort(Data ?? new TableData(), col, _sortDesc);
+        _page = 0;
+    }
+}
