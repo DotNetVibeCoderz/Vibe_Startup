@@ -1,17 +1,15 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 @layout BlazorViz.Components.Layout.MainLayout
 
-<h1>Manage your account</h1>
+<div class="page-head">
+    <h1 class="mb-0">👤 Manage your account</h1>
+</div>
 
-<div>
-    <h2>Change your account settings</h2>
-    <hr />
-    <div class="row">
-        <div class="col-lg-3">
-            <ManageNavMenu />
-        </div>
-        <div class="col-lg-9">
-            @Body
-        </div>
+<div class="manage-wrap">
+    <div class="card soft manage-nav">
+        <ManageNavMenu />
+    </div>
+    <div class="card manage-body">
+        @Body
     </div>
 </div>

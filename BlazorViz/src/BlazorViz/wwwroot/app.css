@@ -339,10 +339,132 @@ table.bv-table tr:hover td { background: var(--bg-alt); }
 .grid-stack { background: transparent; }
 .grid-stack-item-content { overflow: visible !important; }
 
-/* validation (identity pages) */
+/* ============================================================
+   Identity (Account) pages — restyle the Bootstrap class
+   vocabulary the templates use so every page matches the theme
+   ============================================================ */
+
 .validation-message { color: var(--danger-strong); font-size: .8rem; }
 .valid.modified:not([type=checkbox]) { outline: 2px solid var(--accent); }
 .invalid { outline: 2px solid var(--danger-strong); }
+
+hr { border: none; border-top: 2px dashed color-mix(in srgb, var(--border) 35%, transparent); margin: 16px 0; }
+
+.form-control, select.form-select {
+    font-family: var(--font);
+    font-size: .92rem;
+    width: 100%;
+    background: var(--surface);
+    color: var(--text);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    outline: none;
+}
+
+.form-control:focus { box-shadow: 3px 3px 0 var(--shadow); }
+.form-control::placeholder { color: transparent; } /* label plays that role */
+
+/* template order is input-then-label — flip it so the label sits on top */
+.form-floating { display: flex; flex-direction: column-reverse; }
+.form-floating > label { font-weight: 600; font-size: .78rem; margin: 0 0 4px 2px; color: var(--text-muted); }
+.form-floating > .validation-message { order: -1; margin-top: 4px; }
+
+.mb-3 { margin-bottom: 14px; }
+.form-label { font-weight: 600; font-size: .8rem; }
+.form-check-input, .checkbox input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); margin-right: 6px; }
+.checkbox label { display: flex; align-items: center; font-size: .9rem; }
+
+.text-danger { color: var(--danger-strong); font-size: .82rem; }
+.text-secondary { color: var(--text-muted); }
+ul.validation-errors, .validation-summary-errors ul { margin: 8px 0; padding-left: 18px; }
+
+/* buttons: identity pages use btn btn-primary / btn-lg / btn-link / btn-danger — .btn base already themed */
+.btn.btn-primary { background: var(--primary); color: #fff; }
+.btn.btn-danger { background: var(--danger); color: #fff; }
+.btn.btn-lg { padding: 11px 18px; font-size: .95rem; }
+.btn.btn-link {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--primary);
+    text-decoration: underline;
+    padding: 4px 8px;
+}
+.w-100 { width: 100%; justify-content: center; }
+.d-flex { display: flex; gap: 8px; }
+.flex-column { flex-direction: column; }
+.mx-auto { margin-left: auto; margin-right: auto; }
+.mt-2 { margin-top: 8px; }
+
+.alert {
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 3px 3px 0 var(--shadow);
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    font-weight: 600;
+    font-size: .88rem;
+}
+.alert-danger { background: color-mix(in srgb, var(--danger) 20%, var(--surface)); color: var(--danger-strong); }
+.alert-success { background: var(--accent-soft); color: var(--text); }
+.alert-info, .alert-warning { background: color-mix(in srgb, var(--warn) 30%, var(--surface)); color: var(--text); }
+
+/* simple flex replacement for the bootstrap grid used on account pages */
+.row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.row > section { flex: 1; }
+[class*="col-lg-"], [class*="col-md-"], [class*="col-sm-"] { flex: 1 1 300px; min-width: 280px; }
+.col-lg-3 { flex: 0 1 240px; }
+.col-lg-6 { max-width: 540px; }
+.col-md-4, .col-md-6 { max-width: 480px; }
+.col-lg-4.col-lg-offset-2 { max-width: 380px; }
+
+/* Manage-area nav pills */
+.nav-pills { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.nav-pills .nav-item { margin: 0; }
+.nav-pills .nav-link {
+    display: block;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    color: var(--text);
+    font-weight: 500;
+    font-size: .9rem;
+}
+.nav-pills .nav-link:hover { background: var(--bg-alt); text-decoration: none; }
+.nav-pills .nav-link.active {
+    background: var(--primary-soft);
+    border-color: var(--border);
+    box-shadow: 2px 2px 0 var(--shadow);
+    font-weight: 700;
+}
+
+/* centered auth shell used by Login / Register */
+.auth-wrap { display: flex; flex-wrap: wrap; gap: 24px; justify-content: center; margin: 24px auto; max-width: 980px; align-items: stretch; }
+.auth-card { flex: 1 1 380px; max-width: 480px; margin-bottom: 0; }
+.auth-card.alt { flex: 0 1 320px; background: var(--surface-alt); }
+.auth-logo { display: flex; align-items: center; gap: 10px; font-size: 1.3rem; font-weight: 700; margin-bottom: 14px; }
+.auth-logo .logo-mark {
+    background: var(--primary);
+    color: #fff;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 3px 3px 0 var(--shadow);
+    padding: 2px 10px;
+}
+.auth-links { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: .88rem; }
+
+/* Manage account shell */
+.manage-wrap { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.manage-nav { flex: 0 0 240px; padding: 10px; }
+.manage-body { flex: 1; min-width: 320px; }
+.manage-body h3, .manage-body h4 { margin-top: 0; }
+
+@media (max-width: 700px) {
+    .auth-wrap { margin: 8px auto; }
+    .manage-nav { flex: 1 1 100%; }
+    .nav-pills { flex-direction: row; flex-wrap: wrap; }
+}
 
 #blazor-error-ui {
     background: var(--warn);

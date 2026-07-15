@@ -24,7 +24,10 @@
       "Bash(curl -s -o /dev/null -w \"share:%{http_code} \" http://localhost:5199/share/ba4e0f9dbb054b47b95149b59af922f2)",
       "Bash(curl -s -H \"X-Api-Key: bv-demo-d951101dd05747c0add83a130db05ac4\" -o /dev/null -w \"api:%{http_code} \" \"http://localhost:5199/api/v1/datasets/1/data?limit=1\")",
       "Bash(curl -s -H \"X-Api-Key: bv-demo-d951101dd05747c0add83a130db05ac4\" \"http://localhost:5199/api/v1/datasets/1/data?limit=1\")",
-      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('OrderDate=',d['rows'][0]['OrderDate']\\)\")"
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('OrderDate=',d['rows'][0]['OrderDate']\\)\")",
+      "Bash(curl -s http://localhost:5199/Account/Login)",
+      "Bash(curl -s -o /dev/null -w \"register:%{http_code} \" http://localhost:5199/Account/Register)",
+      "Bash(curl -s -o /dev/null -w \"forgot:%{http_code}\\\\n\" http://localhost:5199/Account/ForgotPassword)"
     ]
   }
 }
