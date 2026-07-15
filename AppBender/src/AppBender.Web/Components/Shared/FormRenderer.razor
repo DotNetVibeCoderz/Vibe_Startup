@@ -1,0 +1,448 @@
+@* Renders a form layout tree with live value binding. Used by the designer preview,
+   form run page, and published apps. Data grids support dynamic filters that reference
+   other field values ({{field}}), enabling master-detail forms. *@
+@inject IDataHubService DataHub
+
+<div class="ab-canvas-row">
+    @foreach (var component in Components.Where(c => c.Visible))
+    {
+        <div style="grid-column: span @Math.Clamp(component.Width, 1, 12);">
+            @{ RenderComp(component); }
+        </div>
+    }
+</div>
+
+@{
+    void RenderComp(FormComponent c)
+    {
+        switch (c.Type)
+        {
+            case "heading":
+                <h4 class="fw-bold mb-1">@c.Label</h4>
+                break;
+            case "label":
+                <div class="fw-semibold">@c.Label</div>
+                break;
+            case "paragraph":
+                <p class="text-secondary mb-1">@c.Label</p>
+                break;
+            case "divider":
+                <hr class="my-2" />
+                break;
+            case "spacer":
+                <div style="height:1.2rem"></div>
+                break;
+            case "image":
+                <img src="@c.Prop("url", "https://placehold.co/600x200?text=Image")" alt="@c.Label" style="max-width:100%;border-radius:8px" />
+                break;
+            case "hyperlink":
+                <a href="@c.Prop("url", "#")" target="_blank">@(string.IsNullOrEmpty(c.Label) ? c.Prop("url") : c.Label)</a>
+                break;
+            case "html":
+                <div>@((MarkupString)c.Prop("html"))</div>
+                break;
+            case "button":
+                <button class="btn btn-primary" disabled="@ReadOnly" @onclick="() => OnButtonSubmit.InvokeAsync()">
+                    @(string.IsNullOrEmpty(c.Label) ? "Submit" : c.Label)
+                </button>
+                break;
+            case "section":
+                <fieldset class="ab-card">
+                    <legend class="fs-6 fw-bold">@c.Label</legend>
+                    <FormRenderer Components="c.Children" Values="Values" ReadOnly="ReadOnly" OnButtonSubmit="OnButtonSubmit" />
+                </fieldset>
+                break;
+            case "columns":
+                <FormRenderer Components="c.Children" Values="Values" ReadOnly="ReadOnly" OnButtonSubmit="OnButtonSubmit" />
+                break;
+            case "textarea":
+            case "richtext":
+                <label class="form-label small fw-semibold">@LabelText(c)</label>
+                <textarea class="form-control" rows="3" placeholder="@c.Placeholder" disabled="@(ReadOnly || c.ReadOnly)"
+                          value="@Get(c)" @onchange="e => Set(c, e.Value?.ToString())"></textarea>
+                RenderHelp(c);
+                break;
+            case "dropdown":
+                <label class="form-label small fw-semibold">@LabelText(c)</label>
+                <select class="form-select" disabled="@(ReadOnly || c.ReadOnly)"
+                        value="@Get(c)" @onchange="e => Set(c, e.Value?.ToString())">
+                    <option value="">— select —</option>
+                    @foreach (var opt in Options(c))
+                    {
+                        <option value="@opt">@opt</option>
+                    }
+                </select>
+                RenderHelp(c);
+                break;
+            case "radio":
+                <label class="form-label small fw-semibold d-block">@LabelText(c)</label>
+                @foreach (var opt in Options(c))
+                {
+                    var option = opt;
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="@c.Id" disabled="@(ReadOnly || c.ReadOnly)"
+                               checked="@(Get(c) == option)" @onchange="() => Set(c, option)" />
+                        <label class="form-check-label small">@option</label>
+                    </div>
+                }
+                break;
+            case "checkbox":
+            case "toggle":
+                <div class="form-check @(c.Type == "toggle" ? "form-switch" : "")">
+                    <input class="form-check-input" type="checkbox" disabled="@(ReadOnly || c.ReadOnly)"
+                           checked="@(Get(c) is "true" or "1")" @onchange="e => SetBool(c, e)" />
+                    <label class="form-check-label small fw-semibold">@LabelText(c)</label>
+                </div>
+                break;
+            case "checkboxlist":
+                <label class="form-label small fw-semibold d-block">@LabelText(c)</label>
+                var selected = Get(c).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet();
+                @foreach (var opt in Options(c))
+                {
+                    var option = opt;
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" disabled="@(ReadOnly || c.ReadOnly)"
+                               checked="@selected.Contains(option)" @onchange="e => ToggleMulti(c, option, e)" />
+                        <label class="form-check-label small">@option</label>
+                    </div>
+                }
+                break;
+            case "slider":
+                <label class="form-label small fw-semibold">@LabelText(c) <span class="text-secondary">(@Get(c))</span></label>
+                <input type="range" class="form-range" min="@c.Prop("min", "0")" max="@c.Prop("max", "100")"
+                       disabled="@(ReadOnly || c.ReadOnly)" value="@Get(c)" @onchange="e => Set(c, e.Value?.ToString())" />
+                break;
+            case "rating":
+                <label class="form-label small fw-semibold d-block">@LabelText(c)</label>
+                <div>
+                    @for (var star = 1; star <= 5; star++)
+                    {
+                        var s = star;
+                        <span style="cursor:pointer;font-size:1.3rem;opacity:@(RatingValue(c) >= s ? "1" : ".3")"
+                              @onclick="() => SetRating(c, s)">⭐</span>
+                    }
+                </div>
+                break;
+            case "lookup":
+                <label class="form-label small fw-semibold">@LabelText(c)</label>
+                var lookupEntity = c.Prop("entity");
+                var records = _lookupCache.GetValueOrDefault(lookupEntity) ?? [];
+                var displayField = c.Prop("displayField", "name");
+                <select class="form-select" disabled="@(ReadOnly || c.ReadOnly)"
+                        value="@Get(c)" @onchange="e => Set(c, e.Value?.ToString())">
+                    <option value="">— select @lookupEntity —</option>
+                    @foreach (var record in records)
+                    {
+                        var data = record.Data;
+                        var display = data.TryGetValue(displayField, out var dv) ? TemplateEngine.ToText(dv)
+                            : data.Values.Select(TemplateEngine.ToText).FirstOrDefault(t => t.Length > 0) ?? record.Id;
+                        <option value="@record.Id">@display</option>
+                    }
+                </select>
+                break;
+            case "fileupload":
+            case "imageupload":
+                <label class="form-label small fw-semibold">@LabelText(c)</label>
+                <input class="form-control" type="text" placeholder="Paste a file URL (upload via App Guru chat or API)"
+                       disabled="@(ReadOnly || c.ReadOnly)" value="@Get(c)" @onchange="e => Set(c, e.Value?.ToString())" />
+                @if (c.Type == "imageupload" && Get(c).Length > 0)
+                {
+                    <img src="@Get(c)" alt="preview" style="max-height:120px;margin-top:.4rem;border-radius:8px" />
+                }
+                break;
+            case "calc":
+            {
+                // live computed value from other fields, e.g. "qty * unit_price" or
+                // "if(gte(total, nisab), total * 0.025, 0)"
+                var (ok, value) = EvaluateCalc(c.Prop("expression"));
+                var formatted = !ok ? "—" : c.Prop("format", "number") switch
+                {
+                    "currency" => value.ToString("N0", System.Globalization.CultureInfo.InvariantCulture),
+                    "percent" => (value * 100).ToString("0.##") + "%",
+                    _ => value.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)
+                };
+                <div class="ab-stat">
+                    <div class="ab-stat-value">@(c.Prop("prefix"))@formatted@(c.Prop("suffix"))</div>
+                    <div class="ab-stat-label">@c.Label</div>
+                </div>
+                if (c.Field is not null) Values[c.Field] = ok ? value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
+                RenderHelp(c);
+                break;
+            }
+            case "datagrid":
+            {
+                <div class="ab-chart-title">@c.Label</div>
+                var gridEntity = c.Prop("entity");
+                var (waitingFor, resolvedFilter) = ResolveFilter(c.Prop("filter"));
+                @if (waitingFor is not null)
+                {
+                    <div class="text-secondary small">Isi/pilih <b>@waitingFor</b> terlebih dahulu untuk menampilkan data.</div>
+                }
+                else
+                {
+                    var grid = GetGrid(gridEntity, resolvedFilter);
+                    @if (grid is null)
+                    {
+                        <div class="text-secondary small">Loading…</div>
+                    }
+                    else if (grid.Records.Count == 0)
+                    {
+                        <div class="text-secondary small">No data (entity: @gridEntity)</div>
+                    }
+                    else
+                    {
+                        var columnsProp = c.Prop("columns");
+                        var columns = columnsProp.Length > 0
+                            ? columnsProp.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
+                            : grid.Records[0].Data.Keys.Take(6).ToList();
+                        var maxRows = int.TryParse(c.Prop("pageSize", "10"), out var pr) ? pr : 10;
+                        <div class="ab-table-wrap">
+                            <table class="table table-sm table-hover">
+                                <thead>
+                                    <tr>
+                                        @foreach (var col in columns)
+                                        {
+                                            <th>@col</th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in grid.Records.Take(maxRows))
+                                    {
+                                        var data = row.Data;
+                                        <tr>
+                                            @foreach (var col in columns)
+                                            {
+                                                <td>@TemplateEngine.ToText(data.GetValueOrDefault(col))</td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="small text-secondary">@grid.TotalCount rows</div>
+                    }
+                }
+                break;
+            }
+            case "chart":
+            {
+                var chartEntity = c.Prop("entity");
+                var (waitingFor, resolvedFilter) = ResolveFilter(c.Prop("filter"));
+                @if (waitingFor is not null)
+                {
+                    <div class="text-secondary small">Isi/pilih <b>@waitingFor</b> untuk menampilkan chart.</div>
+                }
+                else
+                {
+                    var grid = GetGrid(chartEntity, resolvedFilter);
+                    var chartData = BuildChartData(grid, c.Prop("groupBy"), c.Prop("valueField"));
+                    @if (c.Prop("chartType", "bar") == "pie")
+                    {
+                        <PieChart Title="@c.Label" Data="chartData" />
+                    }
+                    else
+                    {
+                        <BarChart Title="@c.Label" Data="chartData" />
+                    }
+                }
+                break;
+            }
+            default:
+                <label class="form-label small fw-semibold">@LabelText(c)</label>
+                <input class="form-control" type="@InputType(c.Type)" placeholder="@c.Placeholder"
+                       disabled="@(ReadOnly || c.ReadOnly)" value="@Get(c)" @onchange="e => Set(c, e.Value?.ToString())" />
+                RenderHelp(c);
+                break;
+        }
+    }
+
+    void RenderHelp(FormComponent c)
+    {
+        if (!string.IsNullOrEmpty(c.HelpText))
+        {
+            <div class="form-text">@c.HelpText</div>
+        }
+    }
+}
+
+@code {
+    [Parameter] public List<FormComponent> Components { get; set; } = [];
+    [Parameter] public Dictionary<string, string> Values { get; set; } = [];
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public EventCallback OnButtonSubmit { get; set; }
+
+    private readonly Dictionary<string, List<DataRecord>> _lookupCache = [];
+    private readonly Dictionary<string, QueryResult> _gridCache = [];
+    private readonly List<(string Entity, string Filter, string Key)> _pendingGrids = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        foreach (var component in Flatten(Components).Where(c => c.Type == ComponentTypes.Lookup))
+        {
+            var entity = component.Prop("entity");
+            if (!string.IsNullOrEmpty(entity) && !_lookupCache.ContainsKey(entity))
+            {
+                try { _lookupCache[entity] = (await DataHub.QueryAsync(entity, new QueryOptions { PageSize = 200 })).Records; }
+                catch { _lookupCache[entity] = []; }
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_pendingGrids.Count == 0) return;
+        var batch = _pendingGrids.ToList();
+        _pendingGrids.Clear();
+        foreach (var (entity, filter, key) in batch)
+        {
+            if (_gridCache.ContainsKey(key)) continue;
+            try
+            {
+                var options = new QueryOptions { PageSize = 100 };
+                foreach (var clause in filter.Split(" and ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    var parts = clause.Split(' ', 3);
+                    if (parts.Length >= 2)
+                        options.Filters.Add(new FieldFilter { Field = parts[0], Op = parts[1], Value = parts.Length > 2 ? parts[2] : null });
+                }
+                _gridCache[key] = await DataHub.QueryAsync(entity, options);
+            }
+            catch
+            {
+                _gridCache[key] = new QueryResult();
+            }
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>Returns cached grid data, or null (and schedules a load) when not fetched yet.</summary>
+    private QueryResult? GetGrid(string entity, string filter)
+    {
+        if (string.IsNullOrEmpty(entity)) return new QueryResult();
+        var key = $"{entity}|{filter}";
+        if (_gridCache.TryGetValue(key, out var cached)) return cached;
+        if (!_pendingGrids.Any(p => p.Key == key)) _pendingGrids.Add((entity, filter, key));
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves {{fieldName}} placeholders in a grid/chart filter against the current form values.
+    /// Returns (waitingForField, resolved): waitingForField is non-null while a referenced field is empty.
+    /// </summary>
+    private (string? WaitingFor, string Resolved) ResolveFilter(string filterTemplate)
+    {
+        if (string.IsNullOrWhiteSpace(filterTemplate)) return (null, "");
+        string? waiting = null;
+        var resolved = System.Text.RegularExpressions.Regex.Replace(filterTemplate, @"\{\{\s*(\w+)\s*\}\}", m =>
+        {
+            var field = m.Groups[1].Value;
+            var value = Values.GetValueOrDefault(field, "");
+            if (value.Length == 0) waiting ??= field;
+            return value;
+        });
+        return (waiting, resolved);
+    }
+
+    private (bool Ok, double Value) EvaluateCalc(string expression)
+    {
+        if (string.IsNullOrWhiteSpace(expression)) return (false, 0);
+        try
+        {
+            // substitute field names with their numeric values (longest names first)
+            foreach (var (key, raw) in Values.OrderByDescending(kv => kv.Key.Length))
+            {
+                var number = double.TryParse(raw, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0;
+                expression = System.Text.RegularExpressions.Regex.Replace(
+                    expression, $@"\b{System.Text.RegularExpressions.Regex.Escape(key)}\b",
+                    number.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            // any remaining bare identifiers (fields not yet in Values) become 0,
+            // except known function names/constants
+            expression = System.Text.RegularExpressions.Regex.Replace(expression, @"\b([a-zA-Z_]\w*)\b(?!\s*\()", m =>
+                m.Groups[1].Value is "pi" or "e" ? m.Groups[1].Value : "0");
+            return (true, MathEvaluator.Evaluate(expression));
+        }
+        catch
+        {
+            return (false, 0);
+        }
+    }
+
+    private static IEnumerable<FormComponent> Flatten(List<FormComponent> list)
+    {
+        foreach (var c in list)
+        {
+            yield return c;
+            foreach (var child in Flatten(c.Children)) yield return child;
+        }
+    }
+
+    private string LabelText(FormComponent c) => c.Required ? $"{c.Label} *" : c.Label;
+
+    private string Get(FormComponent c)
+        => c.Field is not null && Values.TryGetValue(c.Field, out var v) ? v : (c.DefaultValue ?? "");
+
+    private void Set(FormComponent c, string? value)
+    {
+        if (c.Field is not null) Values[c.Field] = value ?? "";
+    }
+
+    private void SetBool(FormComponent c, ChangeEventArgs e)
+    {
+        var on = string.Equals(e.Value?.ToString(), "true", StringComparison.OrdinalIgnoreCase);
+        Set(c, on ? "true" : "false");
+    }
+
+    private void SetRating(FormComponent c, int stars)
+    {
+        if (!ReadOnly && !c.ReadOnly) Set(c, stars.ToString());
+    }
+
+    private void ToggleMulti(FormComponent c, string option, ChangeEventArgs e)
+    {
+        var on = string.Equals(e.Value?.ToString(), "true", StringComparison.OrdinalIgnoreCase);
+        var selected = Get(c).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        if (on && !selected.Contains(option)) selected.Add(option);
+        if (!on) selected.Remove(option);
+        Set(c, string.Join(",", selected));
+    }
+
+    private string[] Options(FormComponent c)
+        => c.Prop("options").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private int RatingValue(FormComponent c) => int.TryParse(Get(c), out var v) ? v : 0;
+
+    private static Dictionary<string, double> BuildChartData(QueryResult? grid, string groupBy, string valueField)
+    {
+        var result = new Dictionary<string, double>();
+        if (grid is null || string.IsNullOrEmpty(groupBy)) return result;
+        foreach (var record in grid.Records)
+        {
+            var data = record.Data;
+            var key = TemplateEngine.ToText(data.GetValueOrDefault(groupBy));
+            if (key.Length == 0) key = "(none)";
+            double value = 1;
+            if (!string.IsNullOrEmpty(valueField) &&
+                double.TryParse(TemplateEngine.ToText(data.GetValueOrDefault(valueField)),
+                    System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v))
+                value = v;
+            result[key] = result.GetValueOrDefault(key) + value;
+        }
+        return result;
+    }
+
+    private static string InputType(string type) => type switch
+    {
+        "number" => "number",
+        "email" => "email",
+        "phone" => "tel",
+        "url" => "url",
+        "password" => "password",
+        "date" => "date",
+        "time" => "time",
+        "datetime" => "datetime-local",
+        _ => "text"
+    };
+}

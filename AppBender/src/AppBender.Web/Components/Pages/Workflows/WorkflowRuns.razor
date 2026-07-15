@@ -1,0 +1,105 @@
+@page "/workflows/runs"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IWorkflowService Workflows
+
+<PageTitle>Workflow Runs — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">🛰️ Workflow Runs</h1>
+        <div class="ab-page-sub">Real-time monitoring of workflow executions with step-level logs.</div>
+    </div>
+    <div class="ms-auto">
+        <button class="btn btn-outline-secondary" @onclick="LoadAsync">🔄 Refresh</button>
+    </div>
+</div>
+
+@if (_runs is null)
+{
+    <p>Loading…</p>
+}
+else if (_runs.Count == 0)
+{
+    <div class="ab-empty"><span class="ab-empty-icon">🛰️</span>No runs yet — trigger a workflow first.</div>
+}
+else
+{
+    <div class="ab-card ab-table-wrap">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr><th>Workflow</th><th>Status</th><th>Triggered by</th><th>Started (UTC)</th><th>Duration</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var run in _runs)
+                {
+                    <tr>
+                        <td>@run.WorkflowName</td>
+                        <td>
+                            <span class="ab-badge @(run.Status switch { RunStatus.Succeeded => "success", RunStatus.Failed => "danger", RunStatus.Running => "info", _ => "warn" })">
+                                @run.Status
+                            </span>
+                        </td>
+                        <td>@run.TriggeredBy</td>
+                        <td>@run.StartedAt.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td>@((run.FinishedAt - run.StartedAt)?.TotalSeconds.ToString("0.##") ?? "…")s</td>
+                        <td><button class="btn btn-sm btn-outline-secondary" @onclick="() => ShowDetail(run)">🔍</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<Modal @bind-Visible="_showDetail" Title="Run detail" Large="true">
+    <ChildContent>
+        @if (_detail is not null)
+        {
+            <div class="mb-2">
+                <b>@_detail.WorkflowName</b> — @_detail.Status
+                @if (!string.IsNullOrEmpty(_detail.Error))
+                {
+                    <div class="alert alert-danger py-1 mt-1">@_detail.Error</div>
+                }
+            </div>
+            <div class="small text-secondary mb-2">Input: <code>@Truncate(_detail.InputJson, 300)</code></div>
+            <table class="table table-sm">
+                <thead><tr><th></th><th>Step</th><th>Type</th><th>ms</th><th>Output / Error</th></tr></thead>
+                <tbody>
+                    @foreach (var log in _detail.Logs)
+                    {
+                        <tr>
+                            <td>@(log.Status == "failed" ? "✖" : "✔")</td>
+                            <td>@log.StepName</td>
+                            <td><code>@log.StepType</code></td>
+                            <td>@log.DurationMs</td>
+                            <td class="small">@(log.Error ?? Truncate(log.Output ?? "", 200))</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            @if (!string.IsNullOrEmpty(_detail.OutputJson))
+            {
+                <div class="small">Output: <code>@Truncate(_detail.OutputJson, 500)</code></div>
+            }
+        }
+    </ChildContent>
+</Modal>
+
+@code {
+    private List<WorkflowRun>? _runs;
+    private bool _showDetail;
+    private WorkflowRun? _detail;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => _runs = await Workflows.GetRunsAsync(count: 100);
+
+    private void ShowDetail(WorkflowRun run)
+    {
+        _detail = run;
+        _showDetail = true;
+    }
+
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max] + "…";
+}

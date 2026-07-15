@@ -1,0 +1,77 @@
+@inherits LayoutComponentBase
+@inject ITenantContext Tenant
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="ab-shell">
+    <header class="ab-topbar">
+        <a class="ab-logo" href="/">
+            <span class="ab-logo-mark">⚡</span>
+            <span>AppBender</span>
+        </a>
+        <div class="ab-topbar-right">
+            <button type="button" id="themeToggle" class="btn btn-sm btn-outline-secondary"
+                    title="Toggle light/dark theme" onclick="window.appBender.toggleTheme(this)">🌓</button>
+            <a class="btn btn-sm btn-outline-secondary" href="/swagger" target="_blank" title="API docs (Swagger)">🧬 API</a>
+            <AuthorizeView>
+                <Authorized>
+                    <a href="/Account/Manage" class="text-decoration-none" title="@context.User.Identity?.Name">
+                        <span class="ab-avatar">@Initials(context.User.Identity?.Name)</span>
+                    </a>
+                    <form action="/Account/Logout" method="post" style="display:inline">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="" />
+                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Logout">↪ Logout</button>
+                    </form>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="btn btn-sm btn-primary" href="/Account/Login">Login</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </header>
+
+    <nav class="ab-sidebar">
+        <NavMenu />
+    </nav>
+
+    <main class="ab-main">
+        @Body
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // populate the circuit-scoped tenant context from the authenticated user
+        if (AuthState is not null)
+        {
+            var auth = await AuthState;
+            var user = auth.User;
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                Tenant.Set(
+                    user.FindFirst("org")?.Value ?? TenantContext.DefaultTenant,
+                    user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value,
+                    user.FindFirst("displayname")?.Value ?? user.Identity.Name ?? "user",
+                    user.FindAll(System.Security.Claims.ClaimTypes.Role).Select(c => c.Value));
+            }
+        }
+    }
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return "?";
+        var at = name.IndexOf('@');
+        var core = at > 0 ? name[..at] : name;
+        return core.Length >= 2 ? core[..2] : core;
+    }
+}

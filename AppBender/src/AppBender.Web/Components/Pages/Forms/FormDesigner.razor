@@ -1,0 +1,369 @@
+@page "/forms/designer"
+@page "/forms/designer/{FormId}"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IFormService Forms
+@inject IDataHubService DataHub
+@inject IWorkflowService Workflows
+@inject IVersionService Versions
+@inject NavigationManager Nav
+
+<PageTitle>Form Designer — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">🎨 Form Designer</h1>
+        <div class="ab-page-sub">Drag components onto the canvas · click to edit properties · live preview below.</div>
+    </div>
+    <div class="ms-auto d-flex gap-2 align-items-center">
+        <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" @bind="_form.IsPublished" id="pubSwitch" />
+            <label class="form-check-label small" for="pubSwitch">Published</label>
+        </div>
+        <button class="btn btn-outline-secondary" @onclick='() => Nav.NavigateTo("/forms")'>Back</button>
+        <button class="btn btn-primary" @onclick="SaveAsync">💾 Save</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert @(_message.StartsWith("✔") ? "alert-success" : "alert-danger") py-2">@_message</div>
+}
+
+<div class="ab-card mb-3">
+    <div class="row g-2">
+        <div class="col-md-3">
+            <label class="form-label small fw-semibold">Form name</label>
+            <input class="form-control form-control-sm" @bind="_form.Name" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-semibold">Icon</label>
+            <input class="form-control form-control-sm" @bind="_form.Icon" maxlength="4" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small fw-semibold">Bound entity (Data Hub)</label>
+            <select class="form-select form-select-sm" @bind="_form.EntityName">
+                <option value="">— none —</option>
+                @foreach (var entity in _entities)
+                {
+                    <option value="@entity.Name">@entity.DisplayName</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-semibold">Submit label</label>
+            <input class="form-control form-control-sm" @bind="_form.SubmitLabel" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-semibold">On-submit workflow</label>
+            <select class="form-select form-select-sm" @bind="_form.SubmitWorkflowId">
+                <option value="">— none —</option>
+                @foreach (var workflow in _workflows)
+                {
+                    <option value="@workflow.Id">@workflow.Name</option>
+                }
+            </select>
+        </div>
+    </div>
+</div>
+
+<div class="ab-designer">
+    <div class="ab-card">
+        <b class="d-block mb-2">🧰 Components</b>
+        @foreach (var group in ComponentTypes.Palette.GroupBy(p => p.Category))
+        {
+            <div class="ab-nav-section" style="padding-left:0">@group.Key</div>
+            @foreach (var item in group)
+            {
+                <div class="ab-palette-item" draggable="true"
+                     @ondragstart="() => _dragType = item.Type"
+                     @onclick="() => AddComponent(item.Type)">
+                    <span>@item.Icon</span> @item.Label
+                </div>
+            }
+        }
+    </div>
+
+    <div>
+        <div class="ab-canvas" @ondragover:preventDefault="true" @ondrop="DropAtEnd">
+            @if (_layout.Count == 0)
+            {
+                <div class="ab-drop-hint">Drag components here (or click one in the palette)</div>
+            }
+            <div class="ab-canvas-row">
+                @foreach (var (component, index) in _layout.Select((c, i) => (c, i)))
+                {
+                    var idx = index;
+                    <div style="grid-column: span @Math.Clamp(component.Width, 1, 12);"
+                         class="ab-canvas-item @(_selected == component ? "selected" : "")"
+                         @onclick="() => _selected = component"
+                         @ondragover:preventDefault="true"
+                         @ondrop:stopPropagation="true"
+                         @ondrop="() => DropAt(idx)">
+                        <div class="ab-item-tools">
+                            <button title="Move up" @onclick:stopPropagation="true" @onclick="() => Move(idx, -1)">↑</button>
+                            <button title="Move down" @onclick:stopPropagation="true" @onclick="() => Move(idx, 1)">↓</button>
+                            <button title="Duplicate" @onclick:stopPropagation="true" @onclick="() => Duplicate(idx)">⧉</button>
+                            <button title="Remove" @onclick:stopPropagation="true" @onclick="() => Remove(idx)">✕</button>
+                        </div>
+                        <div class="small text-secondary">@component.Type</div>
+                        <div class="fw-semibold">@(string.IsNullOrEmpty(component.Label) ? "(no label)" : component.Label)</div>
+                        @if (component.Field is not null)
+                        {
+                            <div class="small text-secondary">↳ @component.Field</div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="ab-card mt-3">
+            <b class="d-block mb-2">👁️ Live Preview</b>
+            <FormRenderer Components="_layout" Values="_previewValues" />
+            <button class="btn btn-primary mt-3" disabled>@_form.SubmitLabel</button>
+        </div>
+    </div>
+
+    <div class="ab-card">
+        <b class="d-block mb-2">⚙️ Properties</b>
+        @if (_selected is null)
+        {
+            <div class="text-secondary small">Select a component on the canvas.</div>
+        }
+        else
+        {
+            <label class="form-label small fw-semibold">Label</label>
+            <input class="form-control form-control-sm mb-2" @bind="_selected.Label" @bind:after="StateHasChanged" />
+
+            <label class="form-label small fw-semibold">Field (entity binding)</label>
+            @if (_boundEntity is not null)
+            {
+                <select class="form-select form-select-sm mb-2" @bind="_selected.Field">
+                    <option value="">— none —</option>
+                    @foreach (var field in _boundEntity.Fields)
+                    {
+                        <option value="@field.Name">@field.Name</option>
+                    }
+                </select>
+            }
+            else
+            {
+                <input class="form-control form-control-sm mb-2" @bind="_selected.Field" />
+            }
+
+            <label class="form-label small fw-semibold">Width (1–12)</label>
+            <input type="number" min="1" max="12" class="form-control form-control-sm mb-2" @bind="_selected.Width" />
+
+            <label class="form-label small fw-semibold">Placeholder</label>
+            <input class="form-control form-control-sm mb-2" @bind="_selected.Placeholder" />
+
+            <label class="form-label small fw-semibold">Default value</label>
+            <input class="form-control form-control-sm mb-2" @bind="_selected.DefaultValue" />
+
+            <label class="form-label small fw-semibold">Help text</label>
+            <input class="form-control form-control-sm mb-2" @bind="_selected.HelpText" />
+
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" @bind="_selected.Required" id="propReq" />
+                <label class="form-check-label small" for="propReq">Required</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" @bind="_selected.ReadOnly" id="propRo" />
+                <label class="form-check-label small" for="propRo">Read only</label>
+            </div>
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" @bind="_selected.Visible" id="propVis" />
+                <label class="form-check-label small" for="propVis">Visible</label>
+            </div>
+
+            @if (_selected.Type is "dropdown" or "radio" or "checkboxlist")
+            {
+                <label class="form-label small fw-semibold">Options (comma separated)</label>
+                <input class="form-control form-control-sm mb-2"
+                       value="@_selected.Prop("options")" @onchange='e => SetProp("options", e)' />
+            }
+            @if (_selected.Type is "lookup" or "datagrid" or "chart")
+            {
+                <label class="form-label small fw-semibold">Entity</label>
+                <select class="form-select form-select-sm mb-2"
+                        value="@_selected.Prop("entity")" @onchange='e => SetProp("entity", e)'>
+                    <option value="">— select —</option>
+                    @foreach (var entity in _entities)
+                    {
+                        <option value="@entity.Name">@entity.Name</option>
+                    }
+                </select>
+            }
+            @if (_selected.Type == "calc")
+            {
+                <label class="form-label small fw-semibold">Expression (field names + math, if/gte/…)</label>
+                <input class="form-control form-control-sm mb-2" placeholder="qty * unit_price"
+                       value="@_selected.Prop("expression")" @onchange='e => SetProp("expression", e)' />
+                <label class="form-label small fw-semibold">Format</label>
+                <select class="form-select form-select-sm mb-2"
+                        value="@_selected.Prop("format", "number")" @onchange='e => SetProp("format", e)'>
+                    <option value="number">number</option>
+                    <option value="currency">currency</option>
+                    <option value="percent">percent</option>
+                </select>
+                <label class="form-label small fw-semibold">Prefix / Suffix</label>
+                <div class="d-flex gap-1 mb-2">
+                    <input class="form-control form-control-sm" placeholder="Rp "
+                           value="@_selected.Prop("prefix")" @onchange='e => SetProp("prefix", e)' />
+                    <input class="form-control form-control-sm" placeholder=" /bln"
+                           value="@_selected.Prop("suffix")" @onchange='e => SetProp("suffix", e)' />
+                </div>
+            }
+            @if (_selected.Type is "datagrid" or "chart")
+            {
+                <label class="form-label small fw-semibold">Filter — "field op value", {{formField}} allowed</label>
+                <input class="form-control form-control-sm mb-2" placeholder="customer_id eq {{customer_id}}"
+                       value="@_selected.Prop("filter")" @onchange='e => SetProp("filter", e)' />
+            }
+            @if (_selected.Type == "datagrid")
+            {
+                <label class="form-label small fw-semibold">Columns (comma separated, empty = auto)</label>
+                <input class="form-control form-control-sm mb-2"
+                       value="@_selected.Prop("columns")" @onchange='e => SetProp("columns", e)' />
+                <label class="form-label small fw-semibold">Max rows</label>
+                <input class="form-control form-control-sm mb-2" type="number"
+                       value="@_selected.Prop("pageSize", "10")" @onchange='e => SetProp("pageSize", e)' />
+            }
+            @if (_selected.Type == "chart")
+            {
+                <label class="form-label small fw-semibold">Chart type</label>
+                <select class="form-select form-select-sm mb-2"
+                        value="@_selected.Prop("chartType", "bar")" @onchange='e => SetProp("chartType", e)'>
+                    <option value="bar">bar</option>
+                    <option value="pie">pie</option>
+                </select>
+                <label class="form-label small fw-semibold">Group by field</label>
+                <input class="form-control form-control-sm mb-2"
+                       value="@_selected.Prop("groupBy")" @onchange='e => SetProp("groupBy", e)' />
+                <label class="form-label small fw-semibold">Value field (empty = count)</label>
+                <input class="form-control form-control-sm mb-2"
+                       value="@_selected.Prop("valueField")" @onchange='e => SetProp("valueField", e)' />
+            }
+            @if (_selected.Type is "image" or "hyperlink")
+            {
+                <label class="form-label small fw-semibold">URL</label>
+                <input class="form-control form-control-sm mb-2"
+                       value="@_selected.Prop("url")" @onchange='e => SetProp("url", e)' />
+            }
+            @if (_selected.Type == "html")
+            {
+                <label class="form-label small fw-semibold">HTML</label>
+                <textarea class="form-control form-control-sm mb-2 ab-codearea" rows="4"
+                          value="@_selected.Prop("html")" @onchange='e => SetProp("html", e)'></textarea>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? FormId { get; set; }
+
+    private FormDefinition _form = new();
+    private List<FormComponent> _layout = [];
+    private FormComponent? _selected;
+    private List<EntityDefinition> _entities = [];
+    private List<WorkflowDefinition> _workflows = [];
+    private readonly Dictionary<string, string> _previewValues = [];
+    private string? _dragType;
+    private string _message = "";
+
+    private EntityDefinition? _boundEntity =>
+        _entities.FirstOrDefault(e => e.Name == _form.EntityName);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _entities = await DataHub.GetEntitiesAsync();
+        _workflows = await Workflows.GetAllAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrEmpty(FormId))
+        {
+            var existing = await Forms.GetAsync(FormId);
+            if (existing is not null)
+            {
+                _form = existing;
+                _layout = existing.Layout;
+                return;
+            }
+        }
+        _form = new FormDefinition { Name = "New Form" };
+        _layout = [];
+    }
+
+    private void AddComponent(string type)
+    {
+        var descriptor = ComponentTypes.Palette.FirstOrDefault(p => p.Type == type);
+        var component = new FormComponent
+        {
+            Type = type,
+            Label = descriptor.Label ?? type,
+            Width = type is "heading" or "paragraph" or "divider" or "section" or "datagrid" or "chart" or "html" ? 12 : 6
+        };
+        _layout.Add(component);
+        _selected = component;
+    }
+
+    private void DropAtEnd()
+    {
+        if (_dragType is null) return;
+        AddComponent(_dragType);
+        _dragType = null;
+    }
+
+    private void DropAt(int index)
+    {
+        if (_dragType is null) return;
+        AddComponent(_dragType);
+        var component = _layout[^1];
+        _layout.RemoveAt(_layout.Count - 1);
+        _layout.Insert(Math.Min(index, _layout.Count), component);
+        _dragType = null;
+    }
+
+    private void Move(int index, int delta)
+    {
+        var target = index + delta;
+        if (target < 0 || target >= _layout.Count) return;
+        (_layout[index], _layout[target]) = (_layout[target], _layout[index]);
+    }
+
+    private void Duplicate(int index)
+    {
+        var clone = JsonUtil.Deserialize<FormComponent>(JsonUtil.Serialize(_layout[index]))!;
+        clone.Id = Guid.NewGuid().ToString("N")[..8];
+        _layout.Insert(index + 1, clone);
+    }
+
+    private void Remove(int index)
+    {
+        if (_selected == _layout[index]) _selected = null;
+        _layout.RemoveAt(index);
+    }
+
+    private void SetProp(string key, ChangeEventArgs e)
+    {
+        if (_selected is null) return;
+        _selected.Props[key] = e.Value?.ToString() ?? "";
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            _form.Layout = _layout;
+            _form = await Forms.SaveAsync(_form);
+            _message = $"✔ Saved (v{_form.Version}).";
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+        }
+    }
+}

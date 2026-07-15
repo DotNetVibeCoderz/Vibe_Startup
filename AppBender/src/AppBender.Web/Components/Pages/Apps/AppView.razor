@@ -1,0 +1,178 @@
+@page "/a/{Slug}"
+@rendermode InteractiveServer
+@inject IAppService Apps
+@inject IFormService FormService
+@inject IWorkflowService Workflows
+@inject WorkflowRunner Runner
+@inject ITenantContext Tenant
+
+<PageTitle>@(_app?.Name ?? "App") — AppBender</PageTitle>
+
+@if (_notFound)
+{
+    <div class="ab-empty"><span class="ab-empty-icon">🔍</span>App not found or not published.</div>
+}
+else if (_denied)
+{
+    <div class="ab-empty">
+        <span class="ab-empty-icon">🔒</span>
+        You need to <a href="/Account/Login">log in</a> with sufficient permissions to open this app.
+    </div>
+}
+else if (_app is not null)
+{
+    <div class="ab-page-head" style="border-left:5px solid @_app.Color;padding-left:1rem">
+        <div>
+            <h1 class="ab-page-title">@_app.Icon @_app.Name</h1>
+            <div class="ab-page-sub">@_app.Description</div>
+        </div>
+    </div>
+
+    @if (_forms.Count > 1)
+    {
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            @foreach (var form in _forms)
+            {
+                var current = form;
+                <button class="btn btn-sm @(_activeForm?.Id == current.Id ? "btn-primary" : "btn-outline-secondary")"
+                        @onclick="() => SelectForm(current)">
+                    @current.Icon @current.Name
+                </button>
+            }
+        </div>
+    }
+
+    @if (_activeForm is not null)
+    {
+        @if (_submitted)
+        {
+            <div class="ab-card text-center py-5" style="max-width:860px">
+                <div style="font-size:2.6rem">✅</div>
+                <h4 class="fw-bold">Terima kasih!</h4>
+                <p class="text-secondary">Data berhasil dikirim.</p>
+                <button class="btn btn-outline-primary" @onclick="() => _submitted = false">Submit another response</button>
+            </div>
+        }
+        else
+        {
+            <div class="ab-card" style="max-width:860px">
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <div class="alert alert-danger py-2">@_error</div>
+                }
+                <FormRenderer Components="_layout" Values="_values" OnButtonSubmit="SubmitAsync" />
+                <button class="btn btn-primary mt-3" disabled="@_busy" @onclick="SubmitAsync">
+                    @(_busy ? "Submitting…" : _activeForm.SubmitLabel)
+                </button>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="ab-empty">This app has no forms yet.</div>
+    }
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private AppDefinition? _app;
+    private List<FormDefinition> _forms = [];
+    private FormDefinition? _activeForm;
+    private List<FormComponent> _layout = [];
+    private Dictionary<string, string> _values = [];
+    private bool _notFound, _denied, _submitted, _busy;
+    private string _error = "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _app = await Apps.GetBySlugAsync(Slug);
+        if (_app is null || !_app.IsPublished)
+        {
+            _notFound = true;
+            return;
+        }
+
+        // access check
+        if (!_app.AllowAnonymous)
+        {
+            var auth = AuthState is null ? null : await AuthState;
+            var user = auth?.User;
+            if (user?.Identity?.IsAuthenticated != true)
+            {
+                _denied = true;
+                return;
+            }
+            var allowed = _app.RequiredRole switch
+            {
+                "Admin" => user.IsInRole("Admin"),
+                "Developer" => user.IsInRole("Admin") || user.IsInRole("Developer"),
+                _ => true
+            };
+            if (!allowed)
+            {
+                _denied = true;
+                return;
+            }
+        }
+
+        // run under the app owner's tenant so anonymous/public use hits the right data
+        Tenant.Set(_app.TenantId, Tenant.UserId, Tenant.UserName, Tenant.Roles);
+
+        _forms = [];
+        foreach (var formId in _app.FormIds)
+        {
+            var form = await FormService.GetAsync(formId);
+            if (form is not null) _forms.Add(form);
+        }
+        var home = _forms.FirstOrDefault(f => f.Id == _app.HomeFormId) ?? _forms.FirstOrDefault();
+        if (home is not null) SelectForm(home);
+    }
+
+    private void SelectForm(FormDefinition form)
+    {
+        _activeForm = form;
+        _layout = form.Layout;
+        _values = [];
+        _submitted = false;
+        _error = "";
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_activeForm is null || _busy) return;
+        _busy = true;
+        _error = "";
+        try
+        {
+            var data = _values.Where(kv => kv.Value.Length > 0)
+                .ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+            var recordId = await FormService.SubmitAsync(_activeForm, data);
+            if (!string.IsNullOrEmpty(_activeForm.SubmitWorkflowId))
+            {
+                var workflow = await Workflows.GetAsync(_activeForm.SubmitWorkflowId);
+                if (workflow is not null)
+                {
+                    var trigger = new Dictionary<string, object?>
+                    {
+                        ["type"] = "form_submitted",
+                        ["formId"] = _activeForm.Id,
+                        ["values"] = data,
+                        ["recordId"] = recordId
+                    };
+                    _ = Task.Run(() => Runner.RunAsync(workflow, trigger, $"app:{_app!.Slug}"));
+                }
+            }
+            _submitted = true;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AppBender.Core/AppBender.Core.csproj" />
+    <Project Path="src/AppBender.Web/AppBender.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AppBender.Tests/AppBender.Tests.csproj" />
+  </Folder>
+</Solution>

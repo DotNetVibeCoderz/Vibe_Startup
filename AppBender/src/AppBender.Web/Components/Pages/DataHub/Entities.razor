@@ -1,0 +1,92 @@
+@page "/datahub"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IDataHubService DataHub
+@inject NavigationManager Nav
+
+<PageTitle>Data Hub — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">🗄️ Data Hub</h1>
+        <div class="ab-page-sub">Entities, relationships, and data — auto-exposed via <a href="/swagger" target="_blank">REST/GraphQL API</a>.</div>
+    </div>
+    <div class="ms-auto">
+        <a class="btn btn-primary" href="/datahub/entity">➕ New Entity</a>
+    </div>
+</div>
+
+@if (_entities is null)
+{
+    <p>Loading…</p>
+}
+else if (_entities.Count == 0)
+{
+    <div class="ab-empty">
+        <span class="ab-empty-icon">🗄️</span>
+        No entities yet. Create one manually or use <a href="/ai-studio">AI Schema Generator</a>.
+    </div>
+}
+else
+{
+    <div class="ab-grid ab-grid-3">
+        @foreach (var entity in _entities)
+        {
+            <div class="ab-tile" @onclick='() => Nav.NavigateTo($"/datahub/data/{entity.Name}")'>
+                <span class="ab-tile-icon">@entity.Icon</span>
+                <span style="flex:1">
+                    <span class="ab-tile-title d-block">@entity.DisplayName</span>
+                    <span class="ab-tile-sub d-block">@entity.Name · @entity.Fields.Count fields · v@(entity.Version)</span>
+                    <span class="ab-tile-sub">@(_counts.GetValueOrDefault(entity.Name)) records</span>
+                </span>
+                <span class="d-flex flex-column gap-1">
+                    <button class="btn btn-sm btn-outline-secondary" title="Edit schema"
+                            @onclick:stopPropagation="true"
+                            @onclick='() => Nav.NavigateTo($"/datahub/entity/{entity.Name}")'>✏️</button>
+                    <button class="btn btn-sm btn-outline-danger" title="Delete entity"
+                            @onclick:stopPropagation="true" @onclick="() => AskDelete(entity)">🗑️</button>
+                </span>
+            </div>
+        }
+    </div>
+}
+
+<Modal @bind-Visible="_confirmDelete" Title="Delete entity?">
+    <ChildContent>
+        <p>Delete <b>@_deleteTarget?.DisplayName</b> and <b>all of its records</b>? This cannot be undone.</p>
+    </ChildContent>
+    <Footer>
+        <button class="btn btn-outline-secondary" @onclick="() => _confirmDelete = false">Cancel</button>
+        <button class="btn btn-danger" @onclick="DeleteAsync">Delete</button>
+    </Footer>
+</Modal>
+
+@code {
+    private List<EntityDefinition>? _entities;
+    private readonly Dictionary<string, int> _counts = [];
+    private bool _confirmDelete;
+    private EntityDefinition? _deleteTarget;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _entities = await DataHub.GetEntitiesAsync();
+        foreach (var entity in _entities)
+            _counts[entity.Name] = await DataHub.CountRecordsAsync(entity.Name);
+    }
+
+    private void AskDelete(EntityDefinition entity)
+    {
+        _deleteTarget = entity;
+        _confirmDelete = true;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_deleteTarget is not null)
+            await DataHub.DeleteEntityAsync(_deleteTarget.Name);
+        _confirmDelete = false;
+        await LoadAsync();
+    }
+}

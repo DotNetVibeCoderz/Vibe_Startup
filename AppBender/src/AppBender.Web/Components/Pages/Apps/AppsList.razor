@@ -1,0 +1,195 @@
+@page "/apps"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject IAppService Apps
+@inject IFormService Forms
+@inject NavigationManager Nav
+
+<PageTitle>Apps — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">🚀 Apps</h1>
+        <div class="ab-page-sub">Bundle forms &amp; workflows and publish them at a unique URL.</div>
+    </div>
+    <AuthorizeView Roles="Admin,Developer">
+        <div class="ms-auto">
+            <button class="btn btn-primary" @onclick="NewApp">➕ New App</button>
+        </div>
+    </AuthorizeView>
+</div>
+
+@if (_apps is null)
+{
+    <p>Loading…</p>
+}
+else if (_apps.Count == 0)
+{
+    <div class="ab-empty"><span class="ab-empty-icon">🚀</span>No apps yet.</div>
+}
+else
+{
+    <div class="ab-grid ab-grid-3">
+        @foreach (var app in _apps)
+        {
+            <div class="ab-tile" style="border-top:3px solid @app.Color"
+                 @onclick='() => Nav.NavigateTo($"/a/{app.Slug}")'>
+                <span class="ab-tile-icon">@app.Icon</span>
+                <span style="flex:1">
+                    <span class="ab-tile-title d-block">@app.Name</span>
+                    <span class="ab-tile-sub d-block">@app.Description</span>
+                    <span class="ab-badge @(app.IsPublished ? "success" : "warn")">
+                        @(app.IsPublished ? $"Published · /a/{app.Slug}" : "Draft")
+                    </span>
+                </span>
+                <AuthorizeView Roles="Admin,Developer" Context="authCtx">
+                    <span class="d-flex flex-column gap-1">
+                        <button class="btn btn-sm btn-outline-secondary" title="Edit"
+                                @onclick:stopPropagation="true" @onclick="() => Edit(app)">✏️</button>
+                        <button class="btn btn-sm @(app.IsPublished ? "btn-outline-warning" : "btn-outline-success")"
+                                title="@(app.IsPublished ? "Unpublish" : "Publish")"
+                                @onclick:stopPropagation="true" @onclick="() => TogglePublishAsync(app)">
+                            @(app.IsPublished ? "⏸" : "🚀")
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" title="Delete"
+                                @onclick:stopPropagation="true" @onclick="() => DeleteAsync(app)">🗑️</button>
+                    </span>
+                </AuthorizeView>
+            </div>
+        }
+    </div>
+}
+
+<Modal @bind-Visible="_showEditor" Title="App settings" Large="true">
+    <ChildContent>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger py-2">@_error</div>
+        }
+        <div class="row g-2 mb-2">
+            <div class="col-md-5">
+                <label class="form-label small fw-semibold">Name</label>
+                <input class="form-control form-control-sm" @bind="_editing.Name" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold">Slug (URL)</label>
+                <input class="form-control form-control-sm" @bind="_editing.Slug" placeholder="auto" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-semibold">Icon</label>
+                <input class="form-control form-control-sm" @bind="_editing.Icon" maxlength="4" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-semibold">Color</label>
+                <input type="color" class="form-control form-control-sm form-control-color" @bind="_editing.Color" />
+            </div>
+        </div>
+        <label class="form-label small fw-semibold">Description</label>
+        <input class="form-control form-control-sm mb-2" @bind="_editing.Description" />
+        <div class="row g-2 mb-2">
+            <div class="col-md-6">
+                <label class="form-label small fw-semibold">Access</label>
+                <select class="form-select form-select-sm" @bind="_editing.RequiredRole">
+                    <option value="EndUser">EndUser (all logged-in users)</option>
+                    <option value="Developer">Developer &amp; Admin only</option>
+                    <option value="Admin">Admin only</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small fw-semibold">Anonymous access</label>
+                <div class="form-check form-switch mt-1">
+                    <input class="form-check-input" type="checkbox" @bind="_editing.AllowAnonymous" id="appAnon" />
+                    <label class="form-check-label small" for="appAnon">Allow without login</label>
+                </div>
+            </div>
+        </div>
+        <b class="small d-block mb-1">Forms in this app</b>
+        @foreach (var form in _allForms)
+        {
+            var current = form;
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="@($"f_{current.Id}")"
+                       checked="@_selectedFormIds.Contains(current.Id)"
+                       @onchange="e => ToggleForm(current.Id, e)" />
+                <label class="form-check-label small" for="@($"f_{current.Id}")">@current.Icon @current.Name</label>
+                @if (_selectedFormIds.Contains(current.Id))
+                {
+                    <button class="btn btn-sm p-0 border-0 ms-2 @(_editing.HomeFormId == current.Id ? "" : "opacity-25")"
+                            title="Set as home form" @onclick="() => _editing.HomeFormId = current.Id">🏠</button>
+                }
+            </div>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="btn btn-outline-secondary" @onclick="() => _showEditor = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="SaveAsync">💾 Save</button>
+    </Footer>
+</Modal>
+
+@code {
+    private List<AppDefinition>? _apps;
+    private List<FormDefinition> _allForms = [];
+    private bool _showEditor;
+    private AppDefinition _editing = new();
+    private HashSet<string> _selectedFormIds = [];
+    private string _error = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _apps = await Apps.GetAllAsync();
+        _allForms = await Forms.GetAllAsync();
+    }
+
+    private void NewApp()
+    {
+        _editing = new AppDefinition();
+        _selectedFormIds = [];
+        _error = "";
+        _showEditor = true;
+    }
+
+    private void Edit(AppDefinition app)
+    {
+        _editing = app;
+        _selectedFormIds = app.FormIds.ToHashSet();
+        _error = "";
+        _showEditor = true;
+    }
+
+    private void ToggleForm(string formId, ChangeEventArgs e)
+    {
+        var on = string.Equals(e.Value?.ToString(), "true", StringComparison.OrdinalIgnoreCase);
+        if (on) _selectedFormIds.Add(formId);
+        else _selectedFormIds.Remove(formId);
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            _error = "";
+            _editing.FormIds = _selectedFormIds.ToList();
+            if (_editing.HomeFormId is not null && !_selectedFormIds.Contains(_editing.HomeFormId))
+                _editing.HomeFormId = _selectedFormIds.FirstOrDefault();
+            await Apps.SaveAsync(_editing);
+            _showEditor = false;
+            _apps = await Apps.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task TogglePublishAsync(AppDefinition app)
+    {
+        await Apps.PublishAsync(app.Id, !app.IsPublished);
+        _apps = await Apps.GetAllAsync();
+    }
+
+    private async Task DeleteAsync(AppDefinition app)
+    {
+        await Apps.DeleteAsync(app.Id);
+        _apps = await Apps.GetAllAsync();
+    }
+}

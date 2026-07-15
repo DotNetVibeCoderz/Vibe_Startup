@@ -1,0 +1,64 @@
+@* Simple SVG donut chart with legend. *@
+<div class="ab-card">
+    @if (!string.IsNullOrEmpty(Title))
+    {
+        <div class="ab-chart-title">@Title</div>
+    }
+    @if (Data.Count == 0 || Data.Values.Sum() <= 0)
+    {
+        <div class="text-secondary small">No data</div>
+    }
+    else
+    {
+        var total = Data.Values.Sum();
+        var angle = -90.0;
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+            <svg class="ab-chart-svg" viewBox="0 0 200 200" style="max-width:180px">
+                @{ var i = 0; }
+                @foreach (var (label, value) in Data)
+                {
+                    var sweep = value / total * 360;
+                    var path = Arc(100, 100, 80, angle, angle + Math.Min(sweep, 359.99));
+                    <path d="@path" fill="none" stroke="@Charts.Palette[i % Charts.Palette.Length]" stroke-width="30">
+                        <title>@label: @value.ToString("0.##") (@((value / total * 100).ToString("0.#"))%)</title>
+                    </path>
+                    angle += sweep;
+                    i++;
+                }
+            </svg>
+            <div>
+                @{ var j = 0; }
+                @foreach (var (label, value) in Data)
+                {
+                    <div class="d-flex align-items-center gap-2 small mb-1">
+                        <span style="width:10px;height:10px;border-radius:3px;display:inline-block;background:@Charts.Palette[j % Charts.Palette.Length]"></span>
+                        <span>@label</span>
+                        <span class="text-secondary">@value.ToString("0.##")</span>
+                    </div>
+                    j++;
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public Dictionary<string, double> Data { get; set; } = [];
+
+    private static string Arc(double cx, double cy, double r, double startDeg, double endDeg)
+    {
+        var start = Point(cx, cy, r, startDeg);
+        var end = Point(cx, cy, r, endDeg);
+        var largeArc = endDeg - startDeg > 180 ? 1 : 0;
+        return $"M {F(start.X)} {F(start.Y)} A {F(r)} {F(r)} 0 {largeArc} 1 {F(end.X)} {F(end.Y)}";
+    }
+
+    private static (double X, double Y) Point(double cx, double cy, double r, double deg)
+    {
+        var rad = deg * Math.PI / 180;
+        return (cx + r * Math.Cos(rad), cy + r * Math.Sin(rad));
+    }
+
+    private static string F(double d) => d.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+}

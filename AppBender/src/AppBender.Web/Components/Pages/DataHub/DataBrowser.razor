@@ -1,0 +1,258 @@
+@page "/datahub/data/{EntityName}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject IDataHubService DataHub
+@inject NavigationManager Nav
+
+<PageTitle>Data — AppBender</PageTitle>
+
+@if (_entity is null)
+{
+    <p>Loading…</p>
+}
+else
+{
+    <div class="ab-page-head">
+        <div>
+            <h1 class="ab-page-title">@_entity.Icon @_entity.DisplayName</h1>
+            <div class="ab-page-sub">
+                @_result.TotalCount records ·
+                API: <code>GET /api/data/@_entity.Name</code> ·
+                <a href="/datahub/entity/@_entity.Name">Edit schema</a>
+            </div>
+        </div>
+        <div class="ms-auto d-flex gap-2">
+            <input class="form-control" style="max-width:220px" placeholder="Search…"
+                   @bind="_search" @bind:event="oninput" @onkeydown="OnSearchKey" />
+            <AuthorizeView Roles="Admin,Developer">
+                <button class="btn btn-primary" @onclick="NewRecord">➕ New Record</button>
+            </AuthorizeView>
+        </div>
+    </div>
+
+    <div class="ab-card ab-table-wrap">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    @foreach (var field in GridFields)
+                    {
+                        <th style="cursor:pointer" @onclick="() => SortBy(field.Name)">
+                            @field.DisplayName @(_sort == field.Name ? (_sortDesc ? "▼" : "▲") : "")
+                        </th>
+                    }
+                    <th style="width:110px"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var record in _result.Records)
+                {
+                    var data = record.Data;
+                    <tr>
+                        @foreach (var field in GridFields)
+                        {
+                            <td>@Render(field, data.GetValueOrDefault(field.Name))</td>
+                        }
+                        <td class="text-nowrap">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => Edit(record)">✏️</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => AskDelete(record)">🗑️</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        @if (_result.Records.Count == 0)
+        {
+            <div class="text-secondary text-center py-3">No records.</div>
+        }
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-sm btn-outline-secondary" disabled="@(_page <= 1)" @onclick="() => GoPage(_page - 1)">←</button>
+            <span class="small text-secondary">Page @_page of @Math.Max(1, (int)Math.Ceiling((double)_result.TotalCount / _pageSize))</span>
+            <button class="btn btn-sm btn-outline-secondary"
+                    disabled="@(_page * _pageSize >= _result.TotalCount)" @onclick="() => GoPage(_page + 1)">→</button>
+        </div>
+    </div>
+
+    <Modal @bind-Visible="_showEditor" Title="@(_editingId is null ? "New record" : "Edit record")" Large="true">
+        <ChildContent>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+        <div class="row g-2">
+            @foreach (var field in _entity.Fields.Where(f => f.Type != FieldType.Formula))
+            {
+                <div class="col-md-6">
+                    <label class="form-label small fw-semibold">@field.DisplayName @(field.Required ? "*" : "")</label>
+                    @if (field.Type is FieldType.Choice)
+                    {
+                        <select class="form-select" @bind="_editValues[field.Name]">
+                            <option value="">—</option>
+                            @foreach (var opt in field.Options)
+                            {
+                                <option value="@opt">@opt</option>
+                            }
+                        </select>
+                    }
+                    else if (field.Type is FieldType.Boolean)
+                    {
+                        <select class="form-select" @bind="_editValues[field.Name]">
+                            <option value="">—</option>
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                        </select>
+                    }
+                    else if (field.Type is FieldType.LongText or FieldType.RichText or FieldType.Json)
+                    {
+                        <textarea class="form-control" rows="2" @bind="_editValues[field.Name]"></textarea>
+                    }
+                    else
+                    {
+                        <input class="form-control" type="@InputType(field.Type)" @bind="_editValues[field.Name]"
+                               disabled="@(field.Type == FieldType.AutoNumber)" />
+                    }
+                </div>
+            }
+        </div>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-outline-secondary" @onclick="() => _showEditor = false">Cancel</button>
+            <button class="btn btn-primary" @onclick="SaveAsync">💾 Save</button>
+        </Footer>
+    </Modal>
+
+    <Modal @bind-Visible="_confirmDelete" Title="Delete record?">
+        <ChildContent>
+            <p>This record will be permanently deleted.</p>
+        </ChildContent>
+        <Footer>
+            <button class="btn btn-outline-secondary" @onclick="() => _confirmDelete = false">Cancel</button>
+            <button class="btn btn-danger" @onclick="DeleteAsync">Delete</button>
+        </Footer>
+    </Modal>
+}
+
+@code {
+    [Parameter] public string EntityName { get; set; } = "";
+
+    private EntityDefinition? _entity;
+    private QueryResult _result = new();
+    private string _search = "";
+    private string? _sort;
+    private bool _sortDesc;
+    private int _page = 1;
+    private const int _pageSize = 25;
+
+    private bool _showEditor;
+    private string? _editingId;
+    private Dictionary<string, string> _editValues = [];
+    private string _error = "";
+
+    private bool _confirmDelete;
+    private string? _deleteId;
+
+    private List<FieldDefinition> GridFields => (_entity?.Fields ?? []).Take(7).ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _entity = await DataHub.GetEntityAsync(EntityName);
+        if (_entity is not null) await QueryAsync();
+    }
+
+    private async Task QueryAsync()
+    {
+        _result = await DataHub.QueryAsync(EntityName, new QueryOptions
+        {
+            Search = string.IsNullOrWhiteSpace(_search) ? null : _search,
+            SortBy = _sort,
+            SortDesc = _sortDesc,
+            Page = _page,
+            PageSize = _pageSize
+        });
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") { _page = 1; await QueryAsync(); }
+    }
+
+    private async Task SortBy(string field)
+    {
+        if (_sort == field) _sortDesc = !_sortDesc;
+        else { _sort = field; _sortDesc = false; }
+        await QueryAsync();
+    }
+
+    private async Task GoPage(int page)
+    {
+        _page = Math.Max(1, page);
+        await QueryAsync();
+    }
+
+    private void NewRecord()
+    {
+        _editingId = null;
+        _error = "";
+        _editValues = _entity!.Fields.ToDictionary(f => f.Name, f => f.DefaultValue ?? "");
+        _showEditor = true;
+    }
+
+    private void Edit(DataRecord record)
+    {
+        _editingId = record.Id;
+        _error = "";
+        var data = record.Data;
+        _editValues = _entity!.Fields.ToDictionary(f => f.Name,
+            f => TemplateEngine.ToText(data.GetValueOrDefault(f.Name)));
+        _showEditor = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            _error = "";
+            var data = _editValues
+                .Where(kv => kv.Value.Length > 0 || _editingId is not null)
+                .ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+            if (_editingId is null) await DataHub.CreateRecordAsync(EntityName, data);
+            else await DataHub.UpdateRecordAsync(EntityName, _editingId, data);
+            _showEditor = false;
+            await QueryAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void AskDelete(DataRecord record)
+    {
+        _deleteId = record.Id;
+        _confirmDelete = true;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_deleteId is not null) await DataHub.DeleteRecordAsync(EntityName, _deleteId);
+        _confirmDelete = false;
+        await QueryAsync();
+    }
+
+    private string Render(FieldDefinition field, object? value)
+    {
+        var text = TemplateEngine.ToText(value);
+        return text.Length > 60 ? text[..57] + "…" : text;
+    }
+
+    private static string InputType(FieldType type) => type switch
+    {
+        FieldType.Number or FieldType.Decimal or FieldType.Currency or FieldType.AutoNumber => "number",
+        FieldType.Date => "date",
+        FieldType.DateTime => "datetime-local",
+        FieldType.Time => "time",
+        FieldType.Email => "email",
+        FieldType.Url => "url",
+        FieldType.Phone => "tel",
+        _ => "text"
+    };
+}

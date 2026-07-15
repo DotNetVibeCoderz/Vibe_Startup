@@ -1,0 +1,276 @@
+@page "/chat"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject IChatService Chat
+@inject MarkdownService Markdown
+@inject IJSRuntime JS
+
+<PageTitle>App Guru — AppBender</PageTitle>
+
+<div class="ab-chat">
+    <div class="ab-card ab-chat-sessions">
+        <div class="d-flex align-items-center mb-2">
+            <b>💬 Sessions</b>
+            <button class="btn btn-sm btn-primary ms-auto" @onclick="NewSessionAsync">➕</button>
+        </div>
+        @foreach (var session in _sessions)
+        {
+            var current = session;
+            <div class="ab-chat-session @(_active?.Id == current.Id ? "active" : "")"
+                 @onclick="() => SelectAsync(current)">
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@current.Title</span>
+                <button class="btn btn-sm p-0 border-0" title="Delete session"
+                        @onclick:stopPropagation="true" @onclick="() => DeleteSessionAsync(current)">🗑️</button>
+            </div>
+        }
+    </div>
+
+    <div class="ab-card ab-chat-panel">
+        <div class="d-flex align-items-center gap-2 border-bottom pb-2 mb-2">
+            <span class="ab-msg-avatar">🤖</span>
+            <div>
+                <b>App Guru</b>
+                <div class="small text-secondary">AI assistant · tools: calculator, date/time, web search, scraping, dataset query</div>
+            </div>
+            @if (_active is not null)
+            {
+                <div class="ms-auto d-flex gap-1">
+                    <select class="form-select form-select-sm" style="width:auto" value="@(_active.Provider ?? "")"
+                            @onchange="OnProviderChangedAsync" title="LLM provider (default from appsettings)">
+                        <option value="">default provider</option>
+                        <option value="openai">openai</option>
+                        <option value="anthropic">anthropic</option>
+                        <option value="gemini">gemini</option>
+                        <option value="ollama">ollama</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-secondary" title="Reset session (clear messages)"
+                            @onclick="ResetSessionAsync">🔄 Reset</button>
+                </div>
+            }
+        </div>
+
+        <div class="ab-chat-messages" @ref="_scrollRef">
+            @if (_messages.Count == 0 && !_streaming)
+            {
+                <div class="text-center py-4">
+                    <div style="font-size:2.4rem">🤖</div>
+                    <h5 class="fw-bold">Halo! Saya App Guru</h5>
+                    <p class="text-secondary small">Tanya apa saja, atau coba salah satu contoh prompt:</p>
+                    <div class="d-flex flex-wrap gap-2 justify-content-center" style="max-width:640px;margin:0 auto">
+                        @foreach (var sample in Chat.SamplePrompts)
+                        {
+                            var prompt = sample.Prompt;
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => UseSample(prompt)">
+                                @sample.Title
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+            @foreach (var message in _messages)
+            {
+                <div class="ab-msg @(message.Role == "user" ? "user" : "")">
+                    <span class="ab-msg-avatar">@(message.Role == "user" ? "🧑" : "🤖")</span>
+                    <div class="ab-msg-body">
+                        <div class="ab-msg-name">@(message.Role == "user" ? "You" : "App Guru")</div>
+                        <div class="ab-msg-content">
+                            @((MarkupString)Markdown.ToHtml(message.Content))
+                            @foreach (var attachment in message.Attachments.Where(a => a.IsImage))
+                            {
+                                <img src="@attachment.Url" alt="@attachment.FileName" style="max-height:220px;display:block;margin-top:.4rem" />
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+            @if (_streaming)
+            {
+                <div class="ab-msg">
+                    <span class="ab-msg-avatar">🤖</span>
+                    <div class="ab-msg-body">
+                        <div class="ab-msg-name">App Guru</div>
+                        <div class="ab-msg-content">
+                            @((MarkupString)Markdown.ToHtml(_streamBuffer.Length == 0 ? "…" : _streamBuffer.ToString()))
+                        </div>
+                    </div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <div class="alert alert-danger py-2">@_error</div>
+            }
+        </div>
+
+        <div>
+            @if (_attachments.Count > 0)
+            {
+                <div>
+                    @foreach (var attachment in _attachments)
+                    {
+                        var att = attachment;
+                        <span class="ab-attach-chip">
+                            @(att.IsImage ? "🖼️" : "📎") @att.FileName
+                            <button class="btn btn-sm p-0 border-0" @onclick="() => _attachments.Remove(att)">✕</button>
+                        </span>
+                    }
+                </div>
+            }
+            <div class="ab-chat-input">
+                <label class="btn btn-outline-secondary mb-0" title="Attach image or document">
+                    📎
+                    <InputFile OnChange="OnFileSelectedAsync" multiple style="display:none" />
+                </label>
+                <textarea class="form-control" rows="2" placeholder="Tulis pesan… (Enter untuk kirim, Shift+Enter baris baru)"
+                          @bind="_input" @bind:event="oninput" @onkeydown="OnKeyDownAsync"></textarea>
+                <button class="btn btn-primary" disabled="@(_streaming || string.IsNullOrWhiteSpace(_input))"
+                        @onclick="SendAsync">➤</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ChatSession> _sessions = [];
+    private ChatSession? _active;
+    private List<ChatMessage> _messages = [];
+    private readonly List<ChatAttachment> _attachments = [];
+    private string _input = "";
+    private bool _streaming;
+    private readonly System.Text.StringBuilder _streamBuffer = new();
+    private string _error = "";
+    private ElementReference _scrollRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sessions = await Chat.GetSessionsAsync();
+        if (_sessions.Count == 0)
+            _sessions = [await Chat.CreateSessionAsync()];
+        await SelectAsync(_sessions[0]);
+    }
+
+    private async Task SelectAsync(ChatSession session)
+    {
+        _active = session;
+        _messages = await Chat.GetMessagesAsync(session.Id);
+        _error = "";
+    }
+
+    private async Task NewSessionAsync()
+    {
+        var session = await Chat.CreateSessionAsync();
+        _sessions.Insert(0, session);
+        await SelectAsync(session);
+    }
+
+    private async Task DeleteSessionAsync(ChatSession session)
+    {
+        await Chat.DeleteSessionAsync(session.Id);
+        _sessions.Remove(session);
+        if (_active?.Id == session.Id)
+        {
+            if (_sessions.Count == 0) _sessions = [await Chat.CreateSessionAsync()];
+            await SelectAsync(_sessions[0]);
+        }
+    }
+
+    private async Task ResetSessionAsync()
+    {
+        if (_active is null) return;
+        await Chat.ResetSessionAsync(_active.Id);
+        _messages = [];
+    }
+
+    private async Task OnProviderChangedAsync(ChangeEventArgs e)
+    {
+        if (_active is null) return;
+        _active.Provider = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString();
+        await Chat.UpdateSessionAsync(_active);
+    }
+
+    private void UseSample(string prompt) => _input = prompt;
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey && !_streaming && !string.IsNullOrWhiteSpace(_input))
+            await SendAsync();
+    }
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _error = "";
+        foreach (var file in e.GetMultipleFiles(5))
+        {
+            try
+            {
+                var att = await SaveDirectlyAsync(file);
+                if (att is not null) _attachments.Add(att);
+            }
+            catch (Exception ex)
+            {
+                _error = $"Upload gagal: {ex.Message}";
+            }
+        }
+    }
+
+    [Inject] private IStorageService Storage { get; set; } = default!;
+
+    private async Task<ChatAttachment?> SaveDirectlyAsync(Microsoft.AspNetCore.Components.Forms.IBrowserFile file)
+    {
+        var path = $"uploads/{DateTime.UtcNow:yyyyMM}/{Guid.NewGuid():N}/{Path.GetFileName(file.Name)}";
+        await using var stream = file.OpenReadStream(50 * 1024 * 1024);
+        await Storage.SaveAsync(path, stream, file.ContentType);
+        return new ChatAttachment
+        {
+            FileName = file.Name,
+            Url = Storage.GetPublicUrl(path),
+            ContentType = file.ContentType,
+            IsImage = file.ContentType.StartsWith("image/")
+        };
+    }
+
+    private async Task SendAsync()
+    {
+        if (_active is null || _streaming) return;
+        var text = _input.Trim();
+        var attachments = _attachments.ToList();
+        _input = "";
+        _attachments.Clear();
+        _error = "";
+        _streaming = true;
+        _streamBuffer.Clear();
+
+        // optimistic render of the user message
+        _messages.Add(new ChatMessage { Role = "user", Content = text, Attachments = attachments });
+        StateHasChanged();
+        await ScrollAsync();
+
+        try
+        {
+            await foreach (var piece in Chat.SendAsync(_active.Id, text, attachments))
+            {
+                _streamBuffer.Append(piece);
+                StateHasChanged();
+                await ScrollAsync();
+            }
+            _messages = await Chat.GetMessagesAsync(_active.Id);
+            var index = _sessions.FindIndex(s => s.Id == _active.Id);
+            if (index >= 0 && _sessions[index].Title == "New chat")
+                _sessions[index].Title = text.Length > 60 ? text[..60] + "…" : text;
+        }
+        catch (Exception ex)
+        {
+            _error = $"AI error: {ex.Message} — periksa konfigurasi AI:Providers di appsettings.json.";
+        }
+        finally
+        {
+            _streaming = false;
+            StateHasChanged();
+            await ScrollAsync();
+        }
+    }
+
+    private async Task ScrollAsync()
+    {
+        try { await JS.InvokeVoidAsync("appBender.scrollToBottom", _scrollRef); } catch { }
+    }
+}

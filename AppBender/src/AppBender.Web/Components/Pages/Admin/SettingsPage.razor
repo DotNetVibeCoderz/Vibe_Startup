@@ -1,0 +1,75 @@
+@page "/admin/settings"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@inject IConfiguration Config
+@inject ILlmClient Llm
+@inject IWebSearchClient Search
+
+<PageTitle>Settings — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">⚙️ Settings</h1>
+        <div class="ab-page-sub">Runtime configuration comes from <code>appsettings.json</code> — this page shows the effective values.</div>
+    </div>
+</div>
+
+<div class="ab-grid ab-grid-2">
+    <div class="ab-card">
+        <b class="d-block mb-2">🤖 AI (App Guru)</b>
+        <table class="table table-sm">
+            <tbody>
+                <tr><td>Default provider</td><td><code>@Config["AI:DefaultProvider"]</code></td></tr>
+                <tr><td>Assistant name</td><td>@Config["AI:AssistantName"]</td></tr>
+                <tr><td>Temperature</td><td>@Config["AI:Temperature"]</td></tr>
+                <tr><td>Max tokens</td><td>@Config["AI:MaxTokens"]</td></tr>
+                <tr><td>Configured</td><td>@(Llm.IsConfigured ? "✅ ready" : "⚠️ no API key — set AI:Providers:*:ApiKey")</td></tr>
+            </tbody>
+        </table>
+        <b class="small">Providers</b>
+        <table class="table table-sm">
+            <thead><tr><th>Provider</th><th>Model</th><th>API key</th></tr></thead>
+            <tbody>
+                @foreach (var provider in new[] { "openai", "anthropic", "gemini", "ollama" })
+                {
+                    <tr>
+                        <td>@provider</td>
+                        <td><code>@Config[$"AI:Providers:{provider}:Model"]</code></td>
+                        <td>@(string.IsNullOrEmpty(Config[$"AI:Providers:{provider}:ApiKey"]) ? (provider == "ollama" ? "— (local)" : "✖ not set") : "✅ set")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <div class="small text-secondary">System prompt (persona) juga diatur di <code>AI:SystemPrompt</code>.</div>
+    </div>
+
+    <div class="ab-card">
+        <b class="d-block mb-2">🗄️ Storage &amp; Data</b>
+        <table class="table table-sm">
+            <tbody>
+                <tr><td>Database</td><td><code>@Config.GetConnectionString("DefaultConnection")</code></td></tr>
+                <tr><td>Storage provider</td><td><code>@(Config["Storage:Provider"] ?? "FileSystem")</code> (FileSystem | S3/MinIO | AzureBlob)</td></tr>
+                <tr><td>Web search (Tavily)</td><td>@(Search.IsConfigured ? "✅ configured" : "✖ set Tavily:ApiKey")</td></tr>
+                <tr><td>SMTP email</td><td>@(string.IsNullOrEmpty(Config["Email:Host"]) ? "✖ set Email:Host" : $"✅ {Config["Email:Host"]}")</td></tr>
+            </tbody>
+        </table>
+
+        <b class="d-block mb-2 mt-3">🧬 Data API</b>
+        <table class="table table-sm">
+            <tbody>
+                <tr><td>Swagger</td><td><a href="/swagger" target="_blank">/swagger</a></td></tr>
+                <tr><td>REST</td><td><code>/api/data/{entity}</code></td></tr>
+                <tr><td>GraphQL</td><td><code>POST /api/graphql</code></td></tr>
+                <tr><td>Webhooks</td><td><code>POST /api/webhooks/{key}</code></td></tr>
+                <tr><td>API keys</td><td>@(_apiKeyCount) key(s) under <code>Api:Keys</code> (header <code>X-Api-Key</code>)</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private int _apiKeyCount;
+
+    protected override void OnInitialized()
+        => _apiKeyCount = Config.GetSection("Api:Keys").GetChildren().Count();
+}

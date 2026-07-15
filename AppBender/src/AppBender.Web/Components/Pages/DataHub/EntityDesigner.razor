@@ -1,0 +1,249 @@
+@page "/datahub/entity"
+@page "/datahub/entity/{EntityName}"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IDataHubService DataHub
+@inject IVersionService Versions
+@inject NavigationManager Nav
+
+<PageTitle>Entity Designer — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">@(_isNew ? "➕ New Entity" : $"✏️ {_entity.DisplayName}")</h1>
+        <div class="ab-page-sub">Visual schema builder — fields, options, and relationships.</div>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+        @if (!_isNew)
+        {
+            <button class="btn btn-outline-secondary" @onclick="LoadHistoryAsync">🕘 Versions</button>
+        }
+        <button class="btn btn-outline-secondary" @onclick='() => Nav.NavigateTo("/datahub")'>Cancel</button>
+        <button class="btn btn-primary" @onclick="SaveAsync">💾 Save</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+<div class="row g-3">
+    <div class="col-lg-4">
+        <div class="ab-card">
+            <label class="form-label small fw-semibold">Display Name</label>
+            <input class="form-control mb-2" @bind="_entity.DisplayName" placeholder="e.g. Customers" />
+            <label class="form-label small fw-semibold">Logical Name (API)</label>
+            <input class="form-control mb-2" @bind="_entity.Name" placeholder="e.g. customers" disabled="@(!_isNew)" />
+            <label class="form-label small fw-semibold">Icon (emoji)</label>
+            <input class="form-control mb-2" @bind="_entity.Icon" maxlength="4" />
+            <label class="form-label small fw-semibold">Description</label>
+            <textarea class="form-control" rows="2" @bind="_entity.Description"></textarea>
+        </div>
+
+        <div class="ab-card mt-3">
+            <div class="d-flex align-items-center mb-2">
+                <b>Relationships</b>
+                <button class="btn btn-sm btn-outline-primary ms-auto" @onclick="AddRelationship">➕</button>
+            </div>
+            @foreach (var (rel, i) in _relationships.Select((r, i) => (r, i)))
+            {
+                var index = i;
+                <div class="border rounded p-2 mb-2">
+                    <input class="form-control form-control-sm mb-1" placeholder="name" @bind="rel.Name" />
+                    <div class="d-flex gap-1 mb-1">
+                        <input class="form-control form-control-sm" placeholder="parent entity" @bind="rel.FromEntity" />
+                        <span class="align-self-center">→</span>
+                        <input class="form-control form-control-sm" placeholder="child entity" @bind="rel.ToEntity" />
+                    </div>
+                    <div class="d-flex gap-1">
+                        <input class="form-control form-control-sm" placeholder="lookup field on child" @bind="rel.LookupField" />
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => _relationships.RemoveAt(index)">🗑️</button>
+                    </div>
+                </div>
+            }
+            @if (_relationships.Count == 0)
+            {
+                <div class="text-secondary small">No relationships. Lookup fields also create implicit relations.</div>
+            }
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="ab-card">
+            <div class="d-flex align-items-center mb-2">
+                <b>Fields</b>
+                <button class="btn btn-sm btn-primary ms-auto" @onclick="AddField">➕ Add Field</button>
+            </div>
+            <div class="ab-table-wrap">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th style="min-width:130px">Name</th>
+                            <th style="min-width:130px">Display</th>
+                            <th style="min-width:130px">Type</th>
+                            <th>Req</th>
+                            <th style="min-width:170px">Options / Lookup / Formula</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var (field, i) in _fields.Select((f, i) => (f, i)))
+                        {
+                            var index = i;
+                            <tr>
+                                <td><input class="form-control form-control-sm" @bind="field.Name" /></td>
+                                <td><input class="form-control form-control-sm" @bind="field.DisplayName" /></td>
+                                <td>
+                                    <select class="form-select form-select-sm" @bind="field.Type">
+                                        @foreach (var type in Enum.GetValues<FieldType>())
+                                        {
+                                            <option value="@type">@type</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td><input type="checkbox" class="form-check-input" @bind="field.Required" /></td>
+                                <td>
+                                    @if (field.Type is FieldType.Choice or FieldType.MultiChoice)
+                                    {
+                                        <input class="form-control form-control-sm" placeholder="Opt1,Opt2,Opt3"
+                                               value="@string.Join(",", field.Options)"
+                                               @onchange="e => SetOptions(field, e)" />
+                                    }
+                                    else if (field.Type == FieldType.Lookup)
+                                    {
+                                        <input class="form-control form-control-sm" placeholder="target entity" @bind="field.LookupEntity" />
+                                    }
+                                    else if (field.Type == FieldType.Formula)
+                                    {
+                                        <input class="form-control form-control-sm" placeholder="qty * price" @bind="field.Formula" />
+                                    }
+                                    else
+                                    {
+                                        <input class="form-control form-control-sm" placeholder="default value" @bind="field.DefaultValue" />
+                                    }
+                                </td>
+                                <td class="text-nowrap">
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@(index == 0)"
+                                            @onclick="() => Move(index, -1)">↑</button>
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@(index == _fields.Count - 1)"
+                                            @onclick="() => Move(index, 1)">↓</button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => _fields.RemoveAt(index)">🗑️</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (_fields.Count == 0)
+            {
+                <div class="text-secondary small">No fields yet — click "Add Field".</div>
+            }
+        </div>
+    </div>
+</div>
+
+<Modal @bind-Visible="_showHistory" Title="Schema versions" Large="true">
+    <ChildContent>
+        @if (_history.Count == 0)
+        {
+            <p class="text-secondary">No snapshots.</p>
+        }
+        else
+        {
+            <table class="table table-sm">
+                <thead><tr><th>Version</th><th>By</th><th>At (UTC)</th><th>Comment</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var snapshot in _history)
+                    {
+                        <tr>
+                            <td>v@(snapshot.Version)</td>
+                            <td>@snapshot.CreatedBy</td>
+                            <td>@snapshot.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>@snapshot.Comment</td>
+                            <td><button class="btn btn-sm btn-outline-primary" @onclick="() => RollbackAsync(snapshot)">↩ Restore</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </ChildContent>
+</Modal>
+
+@code {
+    [Parameter] public string? EntityName { get; set; }
+
+    private EntityDefinition _entity = new();
+    private List<FieldDefinition> _fields = [];
+    private List<RelationshipDefinition> _relationships = [];
+    private bool _isNew = true;
+    private string _error = "";
+    private bool _showHistory;
+    private List<VersionSnapshot> _history = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrEmpty(EntityName))
+        {
+            var existing = await DataHub.GetEntityAsync(EntityName);
+            if (existing is not null)
+            {
+                _entity = existing;
+                _fields = existing.Fields;
+                _relationships = existing.Relationships;
+                _isNew = false;
+                return;
+            }
+        }
+        _entity = new EntityDefinition();
+        _fields = [];
+        _relationships = [];
+        _isNew = true;
+    }
+
+    private void AddField() => _fields.Add(new FieldDefinition { Name = $"field_{_fields.Count + 1}", DisplayName = $"Field {_fields.Count + 1}" });
+
+    private static void SetOptions(FieldDefinition field, ChangeEventArgs e)
+        => field.Options = (e.Value?.ToString() ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    private void AddRelationship() => _relationships.Add(new RelationshipDefinition { FromEntity = _entity.Name });
+
+    private void Move(int index, int delta)
+    {
+        var target = index + delta;
+        if (target < 0 || target >= _fields.Count) return;
+        (_fields[index], _fields[target]) = (_fields[target], _fields[index]);
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            _error = "";
+            _entity.Fields = _fields;
+            _entity.Relationships = _relationships;
+            var saved = await DataHub.SaveEntityAsync(_entity);
+            Nav.NavigateTo("/datahub");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        _history = await Versions.GetHistoryAsync("entity", _entity.Id);
+        _showHistory = true;
+    }
+
+    private async Task RollbackAsync(VersionSnapshot snapshot)
+    {
+        var restored = JsonUtil.Deserialize<EntityDefinition>(snapshot.SnapshotJson);
+        if (restored is null) return;
+        restored.Id = _entity.Id;
+        await DataHub.SaveEntityAsync(restored, $"rollback to v{snapshot.Version}");
+        _showHistory = false;
+        Nav.NavigateTo("/datahub");
+    }
+}

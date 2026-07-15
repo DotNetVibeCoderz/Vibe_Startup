@@ -1,0 +1,504 @@
+@page "/ai-studio"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IAiStudioService Studio
+@inject IDataHubService DataHub
+@inject IWorkflowService Workflows
+@inject IFormService Forms
+@inject IRagService Rag
+@inject IModelBuilderService Models
+@inject MarkdownService Markdown
+@inject NavigationManager Nav
+
+<PageTitle>AI Studio — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">🧠 AI Studio</h1>
+        <div class="ab-page-sub">AI-assisted development: schema, apps, workflows, dashboards, ML, RAG, testing &amp; deployment.</div>
+    </div>
+</div>
+
+<ul class="nav nav-pills mb-3 flex-wrap">
+    @foreach (var tab in _tabs)
+    {
+        var current = tab;
+        <li class="nav-item">
+            <button class="nav-link @(_tab == current ? "active" : "")" @onclick="() => _tab = current">@current</button>
+        </li>
+    }
+</ul>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger py-2">@_error</div>
+}
+
+@switch (_tab)
+{
+    case "🪄 Schema Generator":
+        <div class="ab-card" style="max-width:900px">
+            <p class="small text-secondary">Jelaskan kebutuhan data Anda; AI membuat entity + field + relasi langsung di Data Hub.</p>
+            <textarea class="form-control mb-2" rows="3" @bind="_schemaPrompt"
+                      placeholder="Contoh: Sistem perpustakaan: buku, anggota, peminjaman dengan denda keterlambatan"></textarea>
+            <button class="btn btn-primary" disabled="@_busy" @onclick="GenerateSchemaAsync">
+                @(_busy ? "Generating…" : "✨ Generate Schema")
+            </button>
+            @if (_generatedEntities.Count > 0)
+            {
+                <div class="alert alert-success mt-3 py-2">
+                    ✔ Created: @string.Join(", ", _generatedEntities.Select(e => e.DisplayName)).
+                    <a href="/datahub">Open Data Hub</a>
+                </div>
+            }
+        </div>
+        break;
+
+    case "🏗️ Prompt-to-App":
+        <div class="ab-card" style="max-width:900px">
+            <p class="small text-secondary">Satu prompt → schema + form + workflow + app siap pakai.</p>
+            <textarea class="form-control mb-2" rows="3" @bind="_appPrompt"
+                      placeholder="Contoh: Aplikasi helpdesk: tiket dengan prioritas, kategori, dan status; form pengaduan pelanggan"></textarea>
+            <button class="btn btn-primary" disabled="@_busy" @onclick="GenerateAppAsync">
+                @(_busy ? "Building… (may take a minute)" : "✨ Build App")
+            </button>
+            @if (_appResult is not null)
+            {
+                <div class="alert alert-success mt-3 py-2">
+                    ✔ @_appResult.Summary
+                    @if (_appResult.App is not null)
+                    {
+                        <a href="/apps">Open Apps</a>
+                    }
+                </div>
+            }
+        </div>
+        break;
+
+    case "⚡ Workflow Assistant":
+        <div class="ab-card" style="max-width:900px">
+            <p class="small text-secondary">Jelaskan otomasi yang diinginkan; AI menyusun langkah workflow yang bisa langsung disimpan.</p>
+            <textarea class="form-control mb-2" rows="3" @bind="_workflowPrompt"
+                      placeholder="Contoh: Setiap jam 7 pagi, ambil order berstatus New, ringkas dengan AI, kirim email ke manager"></textarea>
+            <button class="btn btn-primary" disabled="@_busy" @onclick="SuggestWorkflowAsync">
+                @(_busy ? "Thinking…" : "✨ Suggest Workflow")
+            </button>
+            @if (_suggestedWorkflow is not null)
+            {
+                <div class="ab-card mt-3">
+                    <b>@_suggestedWorkflow.Name</b> — @_suggestedWorkflow.Description
+                    <div class="small text-secondary">Trigger: @_suggestedWorkflow.TriggerType</div>
+                    <pre class="ab-code mt-2" style="max-height:280px;overflow:auto">@JsonUtil.Serialize(_suggestedWorkflow.Steps, indented: true)</pre>
+                    <button class="btn btn-success btn-sm" @onclick="SaveSuggestedWorkflowAsync">💾 Save workflow</button>
+                </div>
+            }
+        </div>
+        break;
+
+    case "📊 Dashboard Generator":
+        <div class="ab-card mb-3" style="max-width:900px">
+            <div class="d-flex gap-2">
+                <select class="form-select" style="max-width:280px" @bind="_dashboardEntity">
+                    <option value="">— pilih entity —</option>
+                    @foreach (var entity in _entities)
+                    {
+                        <option value="@entity.Name">@entity.DisplayName</option>
+                    }
+                </select>
+                <button class="btn btn-primary" disabled="@(_busy || string.IsNullOrEmpty(_dashboardEntity))"
+                        @onclick="GenerateDashboardAsync">
+                    @(_busy ? "Generating…" : "✨ Generate Dashboard")
+                </button>
+            </div>
+        </div>
+        @if (_widgets.Count > 0)
+        {
+            <div class="ab-grid ab-grid-2">
+                @foreach (var widget in _widgets)
+                {
+                    var data = _widgetData.GetValueOrDefault(widget.Title) ?? [];
+                    @if (widget.ChartType == "pie")
+                    {
+                        <PieChart Title="@widget.Title" Data="data" />
+                    }
+                    else if (widget.ChartType == "stat")
+                    {
+                        <div class="ab-stat">
+                            <div class="ab-stat-value">@data.Values.Sum().ToString("0.##")</div>
+                            <div class="ab-stat-label">@widget.Title</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <BarChart Title="@widget.Title" Data="data" />
+                    }
+                }
+            </div>
+        }
+        break;
+
+    case "🧮 Model Builder":
+        <div class="row g-3">
+            <div class="col-lg-5">
+                <div class="ab-card">
+                    <b class="d-block mb-2">Train a model</b>
+                    <label class="form-label small fw-semibold">Name</label>
+                    <input class="form-control form-control-sm mb-2" @bind="_modelName" />
+                    <label class="form-label small fw-semibold">Entity (dataset)</label>
+                    <select class="form-select form-select-sm mb-2" @bind="_modelEntity">
+                        <option value="">—</option>
+                        @foreach (var entity in _entities)
+                        {
+                            <option value="@entity.Name">@entity.DisplayName</option>
+                        }
+                    </select>
+                    <label class="form-label small fw-semibold">Type</label>
+                    <select class="form-select form-select-sm mb-2" @bind="_modelType">
+                        <option value="linear_regression">Linear Regression (predict number)</option>
+                        <option value="logistic_regression">Binary Classification (logistic regression)</option>
+                        <option value="knn_classifier">Multi-class Classification (kNN)</option>
+                        <option value="recommender">Recommendation (collaborative filtering)</option>
+                    </select>
+                    @if (_modelType == "recommender")
+                    {
+                        <label class="form-label small fw-semibold">Feature fields: user field, item field</label>
+                        <input class="form-control form-control-sm mb-2" @bind="_modelFeatures" placeholder="e.g. customer_id,product_id" />
+                        <label class="form-label small fw-semibold">Rating field (optional, empty = 1 per interaksi)</label>
+                        <input class="form-control form-control-sm mb-2" @bind="_modelTarget" placeholder="e.g. rating" />
+                        <div class="small text-secondary mb-2">Prediksi: input <code>{"customer_id": "...", "top": 5}</code> → daftar item rekomendasi.</div>
+                    }
+                    else
+                    {
+                        <label class="form-label small fw-semibold">
+                            Target field @(_modelType == "logistic_regression" ? "(tepat 2 nilai, mis. true/false)" :
+                                           _modelType == "knn_classifier" ? "(kategori)" : "(angka)")
+                        </label>
+                        <input class="form-control form-control-sm mb-2" @bind="_modelTarget" placeholder="e.g. total" />
+                        <label class="form-label small fw-semibold">Feature fields (comma separated, numeric)</label>
+                        <input class="form-control form-control-sm mb-2" @bind="_modelFeatures" placeholder="e.g. qty,unit_price" />
+                    }
+                    <button class="btn btn-primary btn-sm" disabled="@_busy" @onclick="TrainModelAsync">
+                        @(_busy ? "Training…" : "🏋️ Train")
+                    </button>
+                </div>
+            </div>
+            <div class="col-lg-7">
+                <div class="ab-card">
+                    <b class="d-block mb-2">Models</b>
+                    @foreach (var model in _mlModels)
+                    {
+                        var current = model;
+                        <div class="border rounded p-2 mb-2">
+                            <b>@current.Name</b>
+                            <span class="ab-badge info">@current.ModelType</span>
+                            <div class="small text-secondary">@current.EntityName → @current.TargetField · metrics: @current.MetricsJson</div>
+                            <div class="d-flex gap-1 mt-1">
+                                <input class="form-control form-control-sm" placeholder='{"qty": 3, "unit_price": 150000}'
+                                       @bind="_predictInputs[current.Id]" />
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => PredictAsync(current)">🔮</button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteModelAsync(current)">🗑️</button>
+                            </div>
+                            @if (_predictions.TryGetValue(current.Id, out var prediction))
+                            {
+                                <div class="small mt-1">Prediction: <b>@prediction</b></div>
+                            }
+                        </div>
+                    }
+                    @if (_mlModels.Count == 0)
+                    {
+                        <div class="text-secondary small">No models trained yet.</div>
+                    }
+                </div>
+            </div>
+        </div>
+        break;
+
+    case "📚 Knowledge Base (RAG)":
+        <div class="row g-3">
+            <div class="col-lg-5">
+                <div class="ab-card">
+                    <b class="d-block mb-2">Documents</b>
+                    <p class="small text-secondary">Upload PDF, Word (docx), Excel (xlsx), CSV, TXT, MD — lalu tanyakan isinya.</p>
+                    <InputFile OnChange="UploadDocAsync" class="form-control form-control-sm mb-2" />
+                    @if (_busy)
+                    {
+                        <div class="small text-secondary">Indexing…</div>
+                    }
+                    @foreach (var doc in _documents)
+                    {
+                        var current = doc;
+                        <div class="d-flex align-items-center gap-2 border rounded p-2 mb-1">
+                            <span>📄</span>
+                            <span style="flex:1" class="small">@current.FileName
+                                <span class="ab-badge @(current.Status == "indexed" ? "success" : "danger")">@current.Status</span>
+                                <span class="text-secondary">· @current.ChunkCount chunks</span>
+                            </span>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteDocAsync(current)">🗑️</button>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="col-lg-7">
+                <div class="ab-card">
+                    <b class="d-block mb-2">Ask the knowledge base</b>
+                    <div class="d-flex gap-2 mb-2">
+                        <input class="form-control" @bind="_ragQuestion" placeholder="Pertanyaan tentang dokumen…"
+                               @onkeydown="OnRagKeyAsync" />
+                        <button class="btn btn-primary" disabled="@_busy" @onclick="AskRagAsync">Ask</button>
+                    </div>
+                    @if (_ragAnswer is not null)
+                    {
+                        <div class="ab-msg-content">
+                            @((MarkupString)Markdown.ToHtml(_ragAnswer.Answer))
+                            <div class="small text-secondary mt-2">Sources: @string.Join(", ", _ragAnswer.Sources)</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        break;
+
+    case "🧪 AI Testing":
+        <div class="ab-card" style="max-width:1000px">
+            <p class="small text-secondary">Generate test cases otomatis untuk form atau workflow.</p>
+            <div class="d-flex gap-2 mb-2 flex-wrap">
+                <select class="form-select form-select-sm" style="max-width:160px" @bind="_testItemType">
+                    <option value="form">Form</option>
+                    <option value="workflow">Workflow</option>
+                </select>
+                <select class="form-select form-select-sm" style="max-width:320px" @bind="_testItemId">
+                    <option value="">— pilih item —</option>
+                    @if (_testItemType == "form")
+                    {
+                        @foreach (var form in _allForms)
+                        {
+                            <option value="@form.Id">@form.Name</option>
+                        }
+                    }
+                    else
+                    {
+                        @foreach (var workflow in _allWorkflows)
+                        {
+                            <option value="@workflow.Id">@workflow.Name</option>
+                        }
+                    }
+                </select>
+                <button class="btn btn-primary btn-sm" disabled="@(_busy || string.IsNullOrEmpty(_testItemId))"
+                        @onclick="GenerateTestsAsync">
+                    @(_busy ? "Generating…" : "✨ Generate Test Cases")
+                </button>
+            </div>
+            @if (!string.IsNullOrEmpty(_testCases))
+            {
+                <div class="ab-msg-content">@((MarkupString)Markdown.ToHtml(_testCases))</div>
+            }
+        </div>
+        break;
+
+    case "🚢 Deployment Advisor":
+        <div class="ab-card" style="max-width:1000px">
+            <p class="small text-secondary">Rekomendasi scaling, database, dan storage berdasarkan penggunaan platform saat ini.</p>
+            <button class="btn btn-primary" disabled="@_busy" @onclick="GetAdviceAsync">
+                @(_busy ? "Analyzing…" : "✨ Get Deployment Advice")
+            </button>
+            @if (!string.IsNullOrEmpty(_advice))
+            {
+                <div class="ab-msg-content mt-3">@((MarkupString)Markdown.ToHtml(_advice))</div>
+            }
+        </div>
+        break;
+}
+
+@code {
+    private readonly string[] _tabs =
+    [
+        "🪄 Schema Generator", "🏗️ Prompt-to-App", "⚡ Workflow Assistant", "📊 Dashboard Generator",
+        "🧮 Model Builder", "📚 Knowledge Base (RAG)", "🧪 AI Testing", "🚢 Deployment Advisor"
+    ];
+    private string _tab = "🪄 Schema Generator";
+    private bool _busy;
+    private string _error = "";
+
+    private List<EntityDefinition> _entities = [];
+    private List<FormDefinition> _allForms = [];
+    private List<WorkflowDefinition> _allWorkflows = [];
+
+    // schema
+    private string _schemaPrompt = "";
+    private List<EntityDefinition> _generatedEntities = [];
+    // app
+    private string _appPrompt = "";
+    private PromptToAppResult? _appResult;
+    // workflow
+    private string _workflowPrompt = "";
+    private WorkflowDefinition? _suggestedWorkflow;
+    // dashboard
+    private string _dashboardEntity = "";
+    private List<DashboardWidget> _widgets = [];
+    private readonly Dictionary<string, Dictionary<string, double>> _widgetData = [];
+    // model builder
+    private string _modelName = "My Model";
+    private string _modelEntity = "";
+    private string _modelType = "linear_regression";
+    private string _modelTarget = "";
+    private string _modelFeatures = "";
+    private List<MlModelDefinition> _mlModels = [];
+    private readonly Dictionary<string, string> _predictInputs = [];
+    private readonly Dictionary<string, string> _predictions = [];
+    // rag
+    private List<KnowledgeDocument> _documents = [];
+    private string _ragQuestion = "";
+    private RagAnswer? _ragAnswer;
+    // testing
+    private string _testItemType = "form";
+    private string _testItemId = "";
+    private string _testCases = "";
+    // deployment
+    private string _advice = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _entities = await DataHub.GetEntitiesAsync();
+        _allForms = await Forms.GetAllAsync();
+        _allWorkflows = await Workflows.GetAllAsync();
+        _documents = await Rag.GetDocumentsAsync();
+        _mlModels = await Models.GetModelsAsync();
+        foreach (var model in _mlModels) _predictInputs.TryAdd(model.Id, "{}");
+    }
+
+    private async Task Run(Func<Task> action)
+    {
+        _busy = true;
+        _error = "";
+        StateHasChanged();
+        try { await action(); }
+        catch (Exception ex) { _error = $"{ex.Message} — pastikan AI provider dikonfigurasi di appsettings.json (AI:Providers)."; }
+        finally { _busy = false; }
+    }
+
+    private Task GenerateSchemaAsync() => Run(async () =>
+    {
+        _generatedEntities = await Studio.GenerateSchemaAsync(_schemaPrompt);
+        _entities = await DataHub.GetEntitiesAsync();
+    });
+
+    private Task GenerateAppAsync() => Run(async () =>
+    {
+        _appResult = await Studio.GenerateAppAsync(_appPrompt);
+        _entities = await DataHub.GetEntitiesAsync();
+        _allForms = await Forms.GetAllAsync();
+        _allWorkflows = await Workflows.GetAllAsync();
+    });
+
+    private Task SuggestWorkflowAsync() => Run(async () =>
+    {
+        _suggestedWorkflow = await Studio.SuggestWorkflowAsync(_workflowPrompt);
+    });
+
+    private Task SaveSuggestedWorkflowAsync() => Run(async () =>
+    {
+        if (_suggestedWorkflow is null) return;
+        var saved = await Workflows.SaveAsync(_suggestedWorkflow, "AI suggested");
+        Nav.NavigateTo($"/workflows/designer/{saved.Id}");
+    });
+
+    private Task GenerateDashboardAsync() => Run(async () =>
+    {
+        _widgets = await Studio.GenerateDashboardAsync(_dashboardEntity);
+        _widgetData.Clear();
+        var result = await DataHub.QueryAsync(_dashboardEntity, new QueryOptions { PageSize = 500 });
+        foreach (var widget in _widgets)
+        {
+            var data = new Dictionary<string, double>();
+            foreach (var record in result.Records)
+            {
+                var row = record.Data;
+                var key = string.IsNullOrEmpty(widget.GroupBy) ? "total"
+                    : TemplateEngine.ToText(row.GetValueOrDefault(widget.GroupBy));
+                if (key.Length == 0) key = "(none)";
+                double value = 1;
+                if (!string.IsNullOrEmpty(widget.ValueField) &&
+                    double.TryParse(TemplateEngine.ToText(row.GetValueOrDefault(widget.ValueField)),
+                        System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v))
+                    value = v;
+                data[key] = data.GetValueOrDefault(key) + value;
+            }
+            if (widget.Aggregate == "avg" && data.Count > 0)
+            {
+                var counts = result.Records
+                    .GroupBy(r => TemplateEngine.ToText(r.Data.GetValueOrDefault(widget.GroupBy ?? "")))
+                    .ToDictionary(g => g.Key.Length == 0 ? "(none)" : g.Key, g => g.Count());
+                foreach (var key in data.Keys.ToList())
+                    if (counts.TryGetValue(key, out var count) && count > 0) data[key] /= count;
+            }
+            _widgetData[widget.Title] = data;
+        }
+    });
+
+    private Task TrainModelAsync() => Run(async () =>
+    {
+        var features = _modelFeatures.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        var model = await Models.TrainAsync(_modelName, _modelEntity, _modelTarget, features, _modelType);
+        _mlModels = await Models.GetModelsAsync();
+        _predictInputs.TryAdd(model.Id, "{}");
+    });
+
+    private Task PredictAsync(MlModelDefinition model) => Run(async () =>
+    {
+        var input = JsonUtil.ToClrDictionary(_predictInputs.GetValueOrDefault(model.Id, "{}"));
+        var prediction = await Models.PredictAsync(model.Id, input);
+        _predictions[model.Id] = TemplateEngine.ToText(prediction);
+    });
+
+    private Task DeleteModelAsync(MlModelDefinition model) => Run(async () =>
+    {
+        await Models.DeleteAsync(model.Id);
+        _mlModels = await Models.GetModelsAsync();
+    });
+
+    private Task UploadDocAsync(InputFileChangeEventArgs e) => Run(async () =>
+    {
+        var file = e.File;
+        await using var stream = file.OpenReadStream(50 * 1024 * 1024);
+        await Rag.IngestAsync(file.Name, file.ContentType, stream);
+        _documents = await Rag.GetDocumentsAsync();
+    });
+
+    private Task DeleteDocAsync(KnowledgeDocument doc) => Run(async () =>
+    {
+        await Rag.DeleteDocumentAsync(doc.Id);
+        _documents = await Rag.GetDocumentsAsync();
+    });
+
+    private Task AskRagAsync() => Run(async () =>
+    {
+        _ragAnswer = await Rag.AskAsync(_ragQuestion);
+    });
+
+    private async Task OnRagKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !_busy && !string.IsNullOrWhiteSpace(_ragQuestion))
+            await AskRagAsync();
+    }
+
+    private Task GenerateTestsAsync() => Run(async () =>
+    {
+        string json = "";
+        if (_testItemType == "form")
+        {
+            var form = _allForms.FirstOrDefault(f => f.Id == _testItemId);
+            json = JsonUtil.Serialize(form, indented: true);
+        }
+        else
+        {
+            var workflow = _allWorkflows.FirstOrDefault(w => w.Id == _testItemId);
+            json = JsonUtil.Serialize(workflow, indented: true);
+        }
+        _testCases = await Studio.GenerateTestCasesAsync(_testItemType, json);
+    });
+
+    private Task GetAdviceAsync() => Run(async () =>
+    {
+        _advice = await Studio.GetDeploymentAdviceAsync();
+    });
+}

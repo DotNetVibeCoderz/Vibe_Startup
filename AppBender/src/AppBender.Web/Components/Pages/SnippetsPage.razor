@@ -1,0 +1,121 @@
+@page "/snippets"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject ISnippetService Snippets
+@inject IJSRuntime JS
+
+<PageTitle>Snippets — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">✂️ Code Snippet Library</h1>
+        <div class="ab-page-sub">Siap pakai: API calls, validation, looping, dan pattern umum lainnya.</div>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+        <input class="form-control form-control-sm" style="max-width:220px" placeholder="Search…"
+               @bind="_search" @bind:after="LoadAsync" />
+        <button class="btn btn-primary btn-sm" @onclick="NewSnippet">➕ New</button>
+    </div>
+</div>
+
+@foreach (var group in _snippets.GroupBy(s => s.Category))
+{
+    <h5 class="fw-bold mt-3 mb-2">@group.Key</h5>
+    <div class="ab-grid ab-grid-2">
+        @foreach (var snippet in group)
+        {
+            var current = snippet;
+            <div class="ab-card">
+                <div class="d-flex align-items-center mb-1">
+                    <b>@current.Title</b>
+                    <span class="ab-badge info ms-2">@current.Language</span>
+                    <span class="ms-auto d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-secondary" title="Copy"
+                                @onclick="() => CopyAsync(current)">📋</button>
+                        @if (!current.IsBuiltIn)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => Edit(current)">✏️</button>
+                        }
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(current)">🗑️</button>
+                    </span>
+                </div>
+                <div class="small text-secondary mb-1">@current.Description</div>
+                <pre class="ab-code" style="max-height:220px;overflow:auto">@current.Code</pre>
+            </div>
+        }
+    </div>
+}
+@if (_snippets.Count == 0)
+{
+    <div class="ab-empty"><span class="ab-empty-icon">✂️</span>No snippets found.</div>
+}
+
+<Modal @bind-Visible="_showEditor" Title="Snippet" Large="true">
+    <ChildContent>
+        <div class="row g-2 mb-2">
+            <div class="col-md-6">
+                <label class="form-label small fw-semibold">Title</label>
+                <input class="form-control form-control-sm" @bind="_editing.Title" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold">Language</label>
+                <select class="form-select form-select-sm" @bind="_editing.Language">
+                    <option>csharp</option><option>javascript</option><option>python</option>
+                    <option>sql</option><option>json</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold">Category</label>
+                <input class="form-control form-control-sm" @bind="_editing.Category" />
+            </div>
+        </div>
+        <label class="form-label small fw-semibold">Description</label>
+        <input class="form-control form-control-sm mb-2" @bind="_editing.Description" />
+        <label class="form-label small fw-semibold">Code</label>
+        <textarea class="form-control ab-codearea" rows="10" @bind="_editing.Code"></textarea>
+    </ChildContent>
+    <Footer>
+        <button class="btn btn-outline-secondary" @onclick="() => _showEditor = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="SaveAsync">💾 Save</button>
+    </Footer>
+</Modal>
+
+@code {
+    private List<CodeSnippet> _snippets = [];
+    private string _search = "";
+    private bool _showEditor;
+    private CodeSnippet _editing = new();
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+        => _snippets = await Snippets.GetAllAsync(search: string.IsNullOrWhiteSpace(_search) ? null : _search);
+
+    private async Task CopyAsync(CodeSnippet snippet)
+        => await JS.InvokeVoidAsync("appBender.copyText", snippet.Code);
+
+    private void NewSnippet()
+    {
+        _editing = new CodeSnippet { Category = "General" };
+        _showEditor = true;
+    }
+
+    private void Edit(CodeSnippet snippet)
+    {
+        _editing = snippet;
+        _showEditor = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        await Snippets.SaveAsync(_editing);
+        _showEditor = false;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(CodeSnippet snippet)
+    {
+        await Snippets.DeleteAsync(snippet.Id);
+        await LoadAsync();
+    }
+}

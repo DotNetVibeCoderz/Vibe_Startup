@@ -1,0 +1,63 @@
+<div>
+    <NavLink class="ab-nav-item" href="/" Match="NavLinkMatch.All">
+        <span class="ab-nav-icon">🏠</span> Home
+    </NavLink>
+    <NavLink class="ab-nav-item" href="/apps">
+        <span class="ab-nav-icon">🚀</span> Apps
+    </NavLink>
+
+    <AuthorizeView Roles="Admin,Developer">
+        <div class="ab-nav-section">Build</div>
+        <NavLink class="ab-nav-item" href="/datahub">
+            <span class="ab-nav-icon">🗄️</span> Data Hub
+        </NavLink>
+        <NavLink class="ab-nav-item" href="/forms">
+            <span class="ab-nav-icon">📄</span> Forms
+        </NavLink>
+        <NavLink class="ab-nav-item" href="/workflows">
+            <span class="ab-nav-icon">⚡</span> Workflows
+        </NavLink>
+        <NavLink class="ab-nav-item" href="/connectors">
+            <span class="ab-nav-icon">🔌</span> Connectors
+        </NavLink>
+        <NavLink class="ab-nav-item" href="/snippets">
+            <span class="ab-nav-icon">✂️</span> Snippets
+        </NavLink>
+    </AuthorizeView>
+
+    <AuthorizeView>
+        <div class="ab-nav-section">AI</div>
+        <NavLink class="ab-nav-item" href="/chat">
+            <span class="ab-nav-icon">🤖</span> App Guru
+        </NavLink>
+    </AuthorizeView>
+    <AuthorizeView Roles="Admin,Developer">
+        <NavLink class="ab-nav-item" href="/ai-studio">
+            <span class="ab-nav-icon">🧠</span> AI Studio
+        </NavLink>
+
+        <div class="ab-nav-section">Operate</div>
+        <NavLink class="ab-nav-item" href="/monitoring">
+            <span class="ab-nav-icon">📈</span> Analytics
+        </NavLink>
+        <NavLink class="ab-nav-item" href="/workflows/runs">
+            <span class="ab-nav-icon">🛰️</span> Workflow Runs
+        </NavLink>
+        <NavLink class="ab-nav-item" href="/monitoring/audit">
+            <span class="ab-nav-icon">🧾</span> Audit Logs
+        </NavLink>
+        <NavLink class="ab-nav-item" href="/import-export">
+            <span class="ab-nav-icon">📦</span> Import / Export
+        </NavLink>
+    </AuthorizeView>
+
+    <AuthorizeView Roles="Admin">
+        <div class="ab-nav-section">Admin</div>
+        <NavLink class="ab-nav-item" href="/admin/users">
+            <span class="ab-nav-icon">👤</span> Users
+        </NavLink>
+        <NavLink class="ab-nav-item" href="/admin/settings">
+            <span class="ab-nav-icon">⚙️</span> Settings
+        </NavLink>
+    </AuthorizeView>
+</div>

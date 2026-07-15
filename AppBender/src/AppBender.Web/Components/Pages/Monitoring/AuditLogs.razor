@@ -1,0 +1,62 @@
+@page "/monitoring/audit"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IAuditService Audit
+
+<PageTitle>Audit Logs — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">🧾 Audit Logs</h1>
+        <div class="ab-page-sub">Who did what, and when — for governance and troubleshooting.</div>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+        <select class="form-select form-select-sm" style="width:auto" @bind="_itemType" @bind:after="LoadAsync">
+            <option value="">All types</option>
+            <option value="entity">entity</option>
+            <option value="record">record</option>
+            <option value="form">form</option>
+            <option value="workflow">workflow</option>
+            <option value="app">app</option>
+            <option value="connector">connector</option>
+            <option value="package">package</option>
+            <option value="user">user</option>
+        </select>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadAsync">🔄</button>
+    </div>
+</div>
+
+<div class="ab-card ab-table-wrap">
+    <table class="table table-sm table-hover align-middle">
+        <thead><tr><th>Time (UTC)</th><th>User</th><th>Action</th><th>Type</th><th>Item</th><th>Details</th></tr></thead>
+        <tbody>
+            @foreach (var log in _logs)
+            {
+                <tr>
+                    <td class="text-nowrap">@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td>@log.UserName</td>
+                    <td><span class="ab-badge @(log.Action switch { "delete" => "danger", "create" => "success", "publish" => "info", _ => "" })">@log.Action</span></td>
+                    <td>@log.ItemType</td>
+                    <td class="small"><code>@Truncate(log.ItemId, 14)</code></td>
+                    <td class="small">@log.Details</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    @if (_logs.Count == 0)
+    {
+        <div class="text-secondary text-center py-3">No audit entries.</div>
+    }
+</div>
+
+@code {
+    private List<AuditLog> _logs = [];
+    private string _itemType = "";
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+        => _logs = await Audit.GetRecentAsync(300, string.IsNullOrEmpty(_itemType) ? null : _itemType);
+
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max] + "…";
+}

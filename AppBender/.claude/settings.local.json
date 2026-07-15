@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(dotnet --list-sdks; dotnet --version)",
+      "PowerShell(dotnet new *)",
+      "PowerShell(dotnet sln add src/AppBender.Web src/AppBender.Core tests/AppBender.Tests; dotnet add src/AppBender.Web reference src/AppBender.Core; dotnet add tests/AppBender.Tests reference src/AppBender.Core)",
+      "PowerShell(\\(Invoke-RestMethod \"https://api.nuget.org/v3-flatcontainer/uglytoad.pdfpig/index.json\"\\).versions | Select-Object -Last 6; \\(Invoke-RestMethod \"https://api.nuget.org/v3-flatcontainer/microsoft.codeanalysis.csharp.scripting/index.json\"\\).versions | Where-Object {$_ -notmatch '-'} | Select-Object -Last 5)",
+      "PowerShell(\\(Invoke-RestMethod \"https://api.nuget.org/v3-flatcontainer/uglytoad.pdfpig/index.json\"\\).versions | Select-Object -Last 12)",
+      "PowerShell(\\(Invoke-RestMethod \"https://api.nuget.org/v3-flatcontainer/uglytoad.pdfpig/index.json\"\\).versions)",
+      "PowerShell(Set-Content *)",
+      "PowerShell(dotnet run *)",
+      "PowerShell($deadline = \\(Get-Date\\).AddSeconds\\(60\\); do { Start-Sleep -Milliseconds 1500; try { $r = Invoke-WebRequest http://localhost:5210/ -UseBasicParsing -TimeoutSec 3; break } catch {} } while \\(\\(Get-Date\\) -lt $deadline\\); if \\($r\\) { \"HOME: $\\($r.StatusCode\\)\" } else { \"HOME: no response\" })",
+      "PowerShell($deadline = \\(Get-Date\\).AddSeconds\\(45\\); $r = $null; do { Start-Sleep -Milliseconds 1500; try { $r = Invoke-WebRequest http://localhost:5210/ -UseBasicParsing -TimeoutSec 3 } catch {} } while \\(-not $r -and \\(Get-Date\\) -lt $deadline\\); if \\($r\\) { \"HOME: $\\($r.StatusCode\\) len=$\\($r.Content.Length\\)\" } else { \"HOME: no response\" })",
+      "PowerShell(Select-String -Path src\\\\AppBender.Web\\\\wwwroot\\\\lib\\\\bootstrap\\\\dist\\\\css\\\\bootstrap.min.css -Pattern \"Bootstrap v[0-9.]+\" | Select-Object -First 1 | ForEach-Object { $_.Matches[0].Value })",
+      "PowerShell(Get-Content src\\\\AppBender.Web\\\\wwwroot\\\\lib\\\\bootstrap\\\\dist\\\\css\\\\bootstrap.min.css -TotalCount 1 | ForEach-Object { $_.Substring\\(0, [Math]::Min\\(200, $_.Length\\)\\) }; Select-String -Path src\\\\AppBender.Web\\\\wwwroot\\\\lib\\\\bootstrap\\\\dist\\\\css\\\\bootstrap.min.css -Pattern \"data-bs-theme\" -SimpleMatch -Quiet)",
+      "PowerShell(\\(Invoke-RestMethod \"https://api.nuget.org/v3-flatcontainer/pomelo.entityframeworkcore.mysql/index.json\"\\).versions | Select-Object -Last 5; \"---\"; \\(Invoke-RestMethod \"https://api.nuget.org/v3-flatcontainer/npgsql.entityframeworkcore.postgresql/index.json\"\\).versions | Where-Object {$_ -notmatch '-'} | Select-Object -Last 3)",
+      "PowerShell(\\(Invoke-RestMethod \"https://api.nuget.org/v3-flatcontainer/mysql.entityframeworkcore/index.json\"\\).versions | Select-Object -Last 5)",
+      "PowerShell(dotnet add *)"
+    ]
+  }
+}

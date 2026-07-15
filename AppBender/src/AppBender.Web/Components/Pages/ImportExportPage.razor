@@ -1,0 +1,104 @@
+@page "/import-export"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IImportExportService ImportExport
+@inject IJSRuntime JS
+
+<PageTitle>Import / Export — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">📦 Import / Export</h1>
+        <div class="ab-page-sub">Pindahkan form, workflow, schema, dan dataset antar-instance sebagai file JSON.</div>
+    </div>
+</div>
+
+<div class="ab-grid ab-grid-2">
+    <div class="ab-card">
+        <b class="d-block mb-2">⬇️ Export workspace</b>
+        <p class="small text-secondary">Menghasilkan satu file JSON berisi semua entity, form, workflow, dan app.</p>
+        <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" @bind="_includeRecords" id="incRecords" />
+            <label class="form-check-label small" for="incRecords">Include dataset records (data)</label>
+        </div>
+        <button class="btn btn-primary" disabled="@_busy" @onclick="ExportAsync">
+            @(_busy ? "Exporting…" : "⬇️ Export to JSON")
+        </button>
+    </div>
+
+    <div class="ab-card">
+        <b class="d-block mb-2">⬆️ Import package</b>
+        <p class="small text-secondary">Upload file export AppBender (.json). Item dengan nama/slug sama akan diperbarui.</p>
+        <InputFile OnChange="ImportAsync" class="form-control form-control-sm mb-2" accept=".json" />
+        @if (_busy)
+        {
+            <div class="small text-secondary">Importing…</div>
+        }
+        @if (_result is not null)
+        {
+            <div class="alert alert-success py-2 mt-2">
+                ✔ Imported: @_result.Entities entities, @_result.Records records, @_result.Forms forms,
+                @_result.Workflows workflows, @_result.Apps apps.
+            </div>
+            @if (_result.Warnings.Count > 0)
+            {
+                <div class="alert alert-warning py-2 small">
+                    @foreach (var warning in _result.Warnings.Take(10))
+                    {
+                        <div>⚠ @warning</div>
+                    }
+                </div>
+            }
+        }
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger py-2 mt-2">@_error</div>
+        }
+    </div>
+</div>
+
+<div class="ab-card mt-3">
+    <b class="d-block mb-1">API equivalents</b>
+    <div class="small text-secondary">
+        <div><code>GET /api/package/export?includeRecords=true</code> — download the same package via API.</div>
+        <div><code>POST /api/package/import</code> — multipart upload of a package file.</div>
+        <div>Individual forms/workflows can be exported from their list pages (⭳ button).</div>
+    </div>
+</div>
+
+@code {
+    private bool _includeRecords;
+    private bool _busy;
+    private ImportResult? _result;
+    private string _error = "";
+
+    private async Task ExportAsync()
+    {
+        _busy = true;
+        try
+        {
+            var json = await ImportExport.ExportAsync(_includeRecords);
+            await JS.InvokeVoidAsync("appBender.downloadText",
+                $"appbender-export-{DateTime.UtcNow:yyyyMMdd-HHmm}.json", json, "application/json");
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ImportAsync(InputFileChangeEventArgs e)
+    {
+        _busy = true;
+        _error = "";
+        _result = null;
+        try
+        {
+            using var reader = new StreamReader(e.File.OpenReadStream(100 * 1024 * 1024));
+            var json = await reader.ReadToEndAsync();
+            _result = await ImportExport.ImportAsync(json);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally { _busy = false; }
+    }
+}

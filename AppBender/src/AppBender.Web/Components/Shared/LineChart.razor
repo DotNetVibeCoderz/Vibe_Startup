@@ -1,0 +1,49 @@
+@* Simple responsive SVG line chart over ordered points. *@
+<div class="ab-card">
+    @if (!string.IsNullOrEmpty(Title))
+    {
+        <div class="ab-chart-title">@Title</div>
+    }
+    @if (Data.Count < 2)
+    {
+        <div class="text-secondary small">Not enough data</div>
+    }
+    else
+    {
+        var max = Math.Max(Data.Values.Max(), 1);
+        var stepX = (Width - 50.0) / (Data.Count - 1);
+        var points = string.Join(" ", Data.Values.Select((v, idx) =>
+            $"{F(30 + idx * stepX)},{F(Height - 35 - v / max * (Height - 60))}"));
+        <svg class="ab-chart-svg" viewBox="0 0 @Width @Height" preserveAspectRatio="xMidYMid meet">
+            <polyline points="@points" fill="none" stroke="#4f6ef7" stroke-width="2.5" stroke-linejoin="round" />
+            @{ var i = 0; }
+            @foreach (var (label, value) in Data)
+            {
+                var x = 30 + i * stepX;
+                var y = Height - 35 - value / max * (Height - 60);
+                <circle cx="@F(x)" cy="@F(y)" r="3.4" fill="#4f6ef7">
+                    <title>@label: @value.ToString("0.##")</title>
+                </circle>
+                @if (i % Math.Max(1, Data.Count / 8) == 0)
+                {
+                    @SvgText(x, Height - 15, Trim(label))
+                }
+                i++;
+            }
+        </svg>
+    }
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public Dictionary<string, double> Data { get; set; } = [];
+    [Parameter] public int Width { get; set; } = 560;
+    [Parameter] public int Height { get; set; } = 240;
+
+    private static string F(double d) => d.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    private static string Trim(string s) => s.Length > 8 ? s[..7] + "…" : s;
+
+    private static MarkupString SvgText(double x, double y, string content) => new(
+        $"<text x=\"{F(x)}\" y=\"{F(y)}\" text-anchor=\"middle\" font-size=\"9.5\" fill=\"currentColor\">" +
+        System.Net.WebUtility.HtmlEncode(content) + "</text>");
+}

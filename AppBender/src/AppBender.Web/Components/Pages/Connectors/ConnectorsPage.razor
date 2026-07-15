@@ -1,0 +1,297 @@
+@page "/connectors"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IConnectorRuntime Runtime
+
+<PageTitle>Connectors — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">🔌 Connectors</h1>
+        <div class="ab-page-sub">Built-in connectors + custom connector builder (JSON-defined).</div>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+        <button class="btn btn-outline-primary" @onclick="NewCustom">🧩 New Custom Connector</button>
+        <button class="btn btn-primary" @onclick="NewInstance">➕ New Connection</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert alert-info py-2">@_message</div>
+}
+
+<h5 class="fw-bold mb-2">Configured connections</h5>
+@if (_definitions.Count == 0)
+{
+    <div class="ab-empty mb-4"><span class="ab-empty-icon">🔌</span>No connections yet.</div>
+}
+else
+{
+    <div class="ab-grid ab-grid-3 mb-4">
+        @foreach (var def in _definitions)
+        {
+            <div class="ab-tile" @onclick="() => Edit(def)">
+                <span class="ab-tile-icon">@def.Icon</span>
+                <span style="flex:1">
+                    <span class="ab-tile-title d-block">@def.Name</span>
+                    <span class="ab-tile-sub d-block">@def.Provider · @def.Category @(def.IsCustom ? "· custom" : "")</span>
+                    <span class="ab-badge @(def.IsEnabled ? "success" : "warn")">@(def.IsEnabled ? "Enabled" : "Disabled")</span>
+                </span>
+                <span class="d-flex flex-column gap-1">
+                    <button class="btn btn-sm btn-outline-primary" title="Test console"
+                            @onclick:stopPropagation="true" @onclick="() => OpenTest(def)">🧪</button>
+                    <button class="btn btn-sm btn-outline-danger" title="Delete"
+                            @onclick:stopPropagation="true" @onclick="() => DeleteAsync(def)">🗑️</button>
+                </span>
+            </div>
+        }
+    </div>
+}
+
+<h5 class="fw-bold mb-2">Available providers</h5>
+<div class="ab-grid ab-grid-4">
+    @foreach (var provider in Runtime.Providers)
+    {
+        <div class="ab-stat">
+            <div>@provider.Icon <b>@provider.DisplayName</b></div>
+            <div class="ab-stat-label">@provider.Category · @(provider.Actions.Count) actions</div>
+        </div>
+    }
+</div>
+
+@* ---------- editor modal ---------- *@
+<Modal @bind-Visible="_showEditor" Title="@(_editing.IsCustom ? "🧩 Custom Connector Builder" : "Connection settings")" Large="true">
+    <ChildContent>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger py-2">@_error</div>
+        }
+        <div class="row g-2 mb-2">
+            <div class="col-md-5">
+                <label class="form-label small fw-semibold">Name</label>
+                <input class="form-control form-control-sm" @bind="_editing.Name" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold">Provider</label>
+                <select class="form-select form-select-sm" @bind="_editing.Provider" disabled="@_editing.IsCustom">
+                    @foreach (var provider in Runtime.Providers)
+                    {
+                        <option value="@provider.Provider">@provider.DisplayName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-semibold">Icon</label>
+                <input class="form-control form-control-sm" @bind="_editing.Icon" maxlength="4" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-semibold">Enabled</label>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" @bind="_editing.IsEnabled" />
+                </div>
+            </div>
+        </div>
+        <label class="form-label small fw-semibold">Description</label>
+        <input class="form-control form-control-sm mb-3" @bind="_editing.Description" />
+
+        <b class="small d-block mb-1">Configuration</b>
+        @foreach (var key in ConfigKeysFor(_editing))
+        {
+            var configKey = key;
+            <div class="d-flex gap-2 align-items-center mb-1">
+                <span class="small" style="min-width:140px"><code>@configKey</code></span>
+                <input class="form-control form-control-sm" type="@(IsSecret(configKey) ? "password" : "text")"
+                       value="@_editingConfig.GetValueOrDefault(configKey)"
+                       @onchange="e => _editingConfig[configKey] = e.Value?.ToString() ?? string.Empty" />
+            </div>
+        }
+
+        @if (_editing.IsCustom)
+        {
+            <hr />
+            <b class="small d-block mb-1">Connector spec (JSON) — baseUrl, authType (none|apikey_header|apikey_query|bearer|basic), actions with {{param}} templates</b>
+            <textarea class="form-control ab-codearea" rows="12" @bind="_specJson"></textarea>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="btn btn-outline-secondary" @onclick="() => _showEditor = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="SaveAsync">💾 Save</button>
+    </Footer>
+</Modal>
+
+@* ---------- test console ---------- *@
+<Modal @bind-Visible="_showTest" Title="🧪 Test console" Large="true">
+    <ChildContent>
+        @if (_testTarget is not null)
+        {
+            <div class="mb-2"><b>@_testTarget.Icon @_testTarget.Name</b> (@_testTarget.Provider)</div>
+            <div class="row g-2 mb-2">
+                <div class="col-md-4">
+                    <label class="form-label small fw-semibold">Action</label>
+                    @if (TestActions.Count > 0)
+                    {
+                        <select class="form-select form-select-sm" @bind="_testAction">
+                            @foreach (var action in TestActions)
+                            {
+                                <option value="@action.Key">@action.Name</option>
+                            }
+                        </select>
+                    }
+                    else
+                    {
+                        <input class="form-control form-control-sm" @bind="_testAction" placeholder="action key" />
+                    }
+                </div>
+                <div class="col-md-8">
+                    <label class="form-label small fw-semibold">Input (JSON)</label>
+                    <textarea class="form-control form-control-sm ab-codearea" rows="3" @bind="_testInput"></textarea>
+                </div>
+            </div>
+            <button class="btn btn-primary btn-sm" disabled="@_testing" @onclick="RunTestAsync">
+                @(_testing ? "Running…" : "▶ Execute")
+            </button>
+            @if (_testResult is not null)
+            {
+                <pre class="ab-code mt-2" style="max-height:300px;overflow:auto">@_testResult</pre>
+            }
+        }
+    </ChildContent>
+</Modal>
+
+@code {
+    private List<ConnectorDefinition> _definitions = [];
+    private bool _showEditor;
+    private ConnectorDefinition _editing = new();
+    private Dictionary<string, string> _editingConfig = [];
+    private string _specJson = "";
+    private string _error = "";
+    private string _message = "";
+
+    private bool _showTest;
+    private ConnectorDefinition? _testTarget;
+    private string _testAction = "";
+    private string _testInput = "{}";
+    private string? _testResult;
+    private bool _testing;
+
+    private List<ConnectorActionDescriptor> TestActions =>
+        _testTarget is null ? [] :
+        _testTarget.IsCustom
+            ? _testTarget.Spec.Actions.Select(a => new ConnectorActionDescriptor { Key = a.Key, Name = a.Name, Inputs = a.Inputs }).ToList()
+            : Runtime.Providers.FirstOrDefault(p => p.Provider == _testTarget.Provider)?.Actions.ToList() ?? [];
+
+    protected override async Task OnInitializedAsync() => _definitions = await Runtime.GetDefinitionsAsync();
+
+    private IEnumerable<string> ConfigKeysFor(ConnectorDefinition def) =>
+        Runtime.Providers.FirstOrDefault(p => p.Provider == def.Provider)?.ConfigKeys ?? ["apiKey"];
+
+    private static bool IsSecret(string key) =>
+        key.Contains("key", StringComparison.OrdinalIgnoreCase) ||
+        key.Contains("secret", StringComparison.OrdinalIgnoreCase) ||
+        key.Contains("password", StringComparison.OrdinalIgnoreCase) ||
+        key.Contains("token", StringComparison.OrdinalIgnoreCase) ||
+        key.Contains("connectionString", StringComparison.OrdinalIgnoreCase);
+
+    private void NewInstance()
+    {
+        _editing = new ConnectorDefinition { Provider = "rest", Category = "API" };
+        _editingConfig = [];
+        _specJson = "{}";
+        _error = "";
+        _showEditor = true;
+    }
+
+    private void NewCustom()
+    {
+        _editing = new ConnectorDefinition { Provider = "custom", Category = "Custom", IsCustom = true, Icon = "🧩" };
+        _editingConfig = [];
+        _specJson = JsonUtil.Serialize(new CustomConnectorSpec
+        {
+            BaseUrl = "https://api.example.com",
+            AuthType = "apikey_header",
+            AuthParamName = "X-Api-Key",
+            Actions =
+            [
+                new CustomConnectorAction
+                {
+                    Key = "get_item",
+                    Name = "Get item",
+                    Method = "GET",
+                    PathTemplate = "/items/{{id}}",
+                    Inputs = ["id"]
+                }
+            ]
+        }, indented: true);
+        _error = "";
+        _showEditor = true;
+    }
+
+    private void Edit(ConnectorDefinition def)
+    {
+        _editing = def;
+        _editingConfig = def.Config;
+        _specJson = JsonUtil.Serialize(def.Spec, indented: true);
+        _error = "";
+        _showEditor = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            _error = "";
+            _editing.Config = _editingConfig;
+            if (_editing.IsCustom)
+            {
+                var spec = JsonUtil.Deserialize<CustomConnectorSpec>(_specJson);
+                if (spec is null) { _error = "Spec JSON is invalid."; return; }
+                _editing.Spec = spec;
+            }
+            await Runtime.SaveDefinitionAsync(_editing);
+            _showEditor = false;
+            _definitions = await Runtime.GetDefinitionsAsync();
+            _message = "✔ Connector saved.";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task DeleteAsync(ConnectorDefinition def)
+    {
+        await Runtime.DeleteDefinitionAsync(def.Id);
+        _definitions = await Runtime.GetDefinitionsAsync();
+    }
+
+    private void OpenTest(ConnectorDefinition def)
+    {
+        _testTarget = def;
+        _testAction = TestActions.FirstOrDefault()?.Key ?? "";
+        _testInput = "{}";
+        _testResult = null;
+        _showTest = true;
+    }
+
+    private async Task RunTestAsync()
+    {
+        if (_testTarget is null) return;
+        _testing = true;
+        _testResult = null;
+        try
+        {
+            var input = JsonUtil.ToClrDictionary(_testInput);
+            var result = await Runtime.ExecuteAsync(_testTarget.Id, _testAction, input);
+            _testResult = JsonUtil.Serialize(result, indented: true);
+        }
+        catch (Exception ex)
+        {
+            _testResult = $"ERROR: {ex.Message}";
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+}

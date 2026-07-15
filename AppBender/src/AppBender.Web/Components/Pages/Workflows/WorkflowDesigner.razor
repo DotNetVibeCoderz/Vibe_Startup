@@ -1,0 +1,446 @@
+@page "/workflows/designer"
+@page "/workflows/designer/{WorkflowId}"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IWorkflowService Workflows
+@inject IDataHubService DataHub
+@inject IConnectorRuntime Connectors
+@inject WorkflowRunner Runner
+@inject NavigationManager Nav
+
+<PageTitle>Workflow Designer — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">🧱 Workflow Designer</h1>
+        <div class="ab-page-sub">Click an action to add it · click a step to edit · containers hold nested steps.</div>
+    </div>
+    <div class="ms-auto d-flex gap-2 align-items-center">
+        <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" @bind="_workflow.IsEnabled" id="wfEnabled" />
+            <label class="form-check-label small" for="wfEnabled">Enabled</label>
+        </div>
+        <button class="btn btn-outline-secondary" @onclick="() => _showJson = true">{} JSON</button>
+        <button class="btn btn-outline-primary" @onclick="TestRunAsync">▶ Test Run</button>
+        <button class="btn btn-outline-secondary" @onclick='() => Nav.NavigateTo("/workflows")'>Back</button>
+        <button class="btn btn-primary" @onclick="SaveAsync">💾 Save</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert @(_message.StartsWith("✔") ? "alert-success" : "alert-info") py-2">@((MarkupString)_message)</div>
+}
+
+<div class="ab-card mb-3">
+    <div class="row g-2">
+        <div class="col-md-3">
+            <label class="form-label small fw-semibold">Name</label>
+            <input class="form-control form-control-sm" @bind="_workflow.Name" />
+        </div>
+        <div class="col-md-1">
+            <label class="form-label small fw-semibold">Icon</label>
+            <input class="form-control form-control-sm" @bind="_workflow.Icon" maxlength="4" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small fw-semibold">Description</label>
+            <input class="form-control form-control-sm" @bind="_workflow.Description" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small fw-semibold">Trigger</label>
+            <select class="form-select form-select-sm" @bind="_workflow.TriggerType">
+                @foreach (var trigger in Enum.GetValues<TriggerType>())
+                {
+                    <option value="@trigger">@trigger</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            @if (_workflow.TriggerType == TriggerType.Schedule)
+            {
+                <label class="form-label small fw-semibold">Cron (UTC, 5 fields)</label>
+                <input class="form-control form-control-sm" placeholder="*/5 * * * *"
+                       value="@_triggerConfig.GetValueOrDefault("cron")" @onchange='e => SetTrigger("cron", e)' />
+            }
+            else if (_workflow.TriggerType == TriggerType.Webhook)
+            {
+                <label class="form-label small fw-semibold">Webhook key → /api/webhooks/{key}</label>
+                <input class="form-control form-control-sm" placeholder="my-hook"
+                       value="@_triggerConfig.GetValueOrDefault("webhookKey")" @onchange='e => SetTrigger("webhookKey", e)' />
+            }
+            else if (_workflow.TriggerType is TriggerType.EntityCreated or TriggerType.EntityUpdated or TriggerType.EntityDeleted)
+            {
+                <label class="form-label small fw-semibold">Entity</label>
+                <select class="form-select form-select-sm"
+                        value="@_triggerConfig.GetValueOrDefault("entityName")" @onchange='e => SetTrigger("entityName", e)'>
+                    <option value="">— any —</option>
+                    @foreach (var entity in _entities)
+                    {
+                        <option value="@entity.Name">@entity.Name</option>
+                    }
+                </select>
+            }
+            else if (_workflow.TriggerType == TriggerType.FormSubmitted)
+            {
+                <label class="form-label small fw-semibold">Form Id (empty = any)</label>
+                <input class="form-control form-control-sm"
+                       value="@_triggerConfig.GetValueOrDefault("formId")" @onchange='e => SetTrigger("formId", e)' />
+            }
+        </div>
+    </div>
+</div>
+
+<div class="ab-designer">
+    <div class="ab-card" style="max-height:75vh;overflow-y:auto">
+        <b class="d-block mb-2">🧰 Actions</b>
+        @foreach (var group in ActionCatalog.All.GroupBy(a => a.Category))
+        {
+            <div class="ab-nav-section" style="padding-left:0">@group.Key</div>
+            @foreach (var action in group)
+            {
+                <div class="ab-palette-item" title="@action.Description" @onclick="() => AddStep(action.Type)">
+                    <span>@action.Icon</span> @action.Name
+                </div>
+            }
+        }
+    </div>
+
+    <div class="ab-canvas" style="min-height:60vh">
+        <div class="mb-2 small text-secondary">
+            Trigger: <b>@_workflow.TriggerType</b> — new steps are added
+            @(_addTarget == _steps ? "at the end" : "into the selected branch ⤵")
+            @if (_addTarget != _steps)
+            {
+                <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="() => _addTarget = _steps">reset target</button>
+            }
+        </div>
+        @{ RenderSteps(_steps); }
+    </div>
+
+    <div class="ab-card" style="max-height:75vh;overflow-y:auto">
+        <b class="d-block mb-2">⚙️ Step properties</b>
+        @if (_selected is null)
+        {
+            <div class="text-secondary small">Select a step.</div>
+        }
+        else
+        {
+            var descriptor = ActionCatalog.Find(_selected.Type);
+            <div class="small text-secondary mb-2">@descriptor?.Icon @descriptor?.Name — @descriptor?.Description</div>
+            <label class="form-label small fw-semibold">Step name (output at {{steps.name.output}})</label>
+            <input class="form-control form-control-sm mb-2" @bind="_selected.Name" />
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" @bind="_selected.Disabled" id="stepDisabled" />
+                <label class="form-check-label small" for="stepDisabled">Disabled</label>
+            </div>
+
+            @foreach (var field in descriptor?.ConfigFields ?? [])
+            {
+                var key = field.Key;
+                <label class="form-label small fw-semibold">@field.Label</label>
+                @if (field.Kind == "select" && field.Options is not null)
+                {
+                    <select class="form-select form-select-sm mb-2"
+                            value="@_selected.Cfg(key)" @onchange="e => SetCfg(key, e)">
+                        <option value="">—</option>
+                        @foreach (var option in field.Options)
+                        {
+                            <option value="@option">@option</option>
+                        }
+                    </select>
+                }
+                else if (field.Kind is "textarea" or "json" or "code")
+                {
+                    <textarea class="form-control form-control-sm mb-2 ab-codearea" rows="@(field.Kind == "code" ? 6 : 3)"
+                              placeholder="@field.Placeholder"
+                              value="@_selected.Cfg(key)" @onchange="e => SetCfg(key, e)"></textarea>
+                }
+                else if (field.Kind == "entity")
+                {
+                    <select class="form-select form-select-sm mb-2"
+                            value="@_selected.Cfg(key)" @onchange="e => SetCfg(key, e)">
+                        <option value="">—</option>
+                        @foreach (var entity in _entities)
+                        {
+                            <option value="@entity.Name">@entity.Name</option>
+                        }
+                    </select>
+                }
+                else if (field.Kind == "workflow")
+                {
+                    <select class="form-select form-select-sm mb-2"
+                            value="@_selected.Cfg(key)" @onchange="e => SetCfg(key, e)">
+                        <option value="">—</option>
+                        @foreach (var workflow in _allWorkflows.Where(w => w.Id != _workflow.Id))
+                        {
+                            <option value="@workflow.Id">@workflow.Name</option>
+                        }
+                    </select>
+                }
+                else if (field.Kind == "connector")
+                {
+                    <select class="form-select form-select-sm mb-2"
+                            value="@_selected.Cfg(key)" @onchange="e => SetCfg(key, e)">
+                        <option value="">—</option>
+                        @foreach (var connector in _connectorDefs)
+                        {
+                            <option value="@connector.Id">@connector.Name (@connector.Provider)</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <input class="form-control form-control-sm mb-2" placeholder="@field.Placeholder"
+                           value="@_selected.Cfg(key)" @onchange="e => SetCfg(key, e)" />
+                }
+            }
+
+            @if (_selected.Type == "switch")
+            {
+                <hr />
+                <b class="small">Cases</b>
+                @foreach (var caseKey in _selected.Cases.Keys.ToList())
+                {
+                    var ck = caseKey;
+                    <div class="d-flex gap-1 my-1">
+                        <input class="form-control form-control-sm" value="@ck" disabled />
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => _selected.Cases.Remove(ck)">🗑️</button>
+                    </div>
+                }
+                <div class="d-flex gap-1 mt-1">
+                    <input class="form-control form-control-sm" placeholder="case value" @bind="_newCaseKey" />
+                    <button class="btn btn-sm btn-outline-primary" @onclick="AddCase">➕</button>
+                </div>
+            }
+
+            <hr />
+            <div class="small text-secondary">
+                💡 Templates: <code>{{trigger.body.x}}</code>, <code>{{vars.x}}</code>,
+                <code>{{steps.step_name.output}}</code>, <code>{{utcNow}}</code>, <code>{{guid}}</code>
+            </div>
+        }
+    </div>
+</div>
+
+<Modal @bind-Visible="_showJson" Title="Steps JSON (advanced mode)" Large="true">
+    <ChildContent>
+        <textarea class="form-control ab-codearea" rows="18" @bind="_jsonText"></textarea>
+        @if (!string.IsNullOrEmpty(_jsonError))
+        {
+            <div class="text-danger small mt-1">@_jsonError</div>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="btn btn-outline-secondary" @onclick="() => _showJson = false">Close</button>
+        <button class="btn btn-primary" @onclick="ApplyJson">Apply JSON</button>
+    </Footer>
+</Modal>
+
+@{
+    void RenderSteps(List<WorkflowStep> steps)
+    {
+        foreach (var step in steps)
+        {
+            var current = step;
+            var descriptor = ActionCatalog.Find(current.Type);
+            <div class="ab-step @(_selected == current ? "selected" : "") @(current.Disabled ? "disabled" : "")"
+                 @onclick:stopPropagation="true" @onclick="() => _selected = current">
+                <div class="ab-step-head">
+                    <span>@(descriptor?.Icon ?? "▫️")</span>
+                    <span class="ab-step-title">@(string.IsNullOrEmpty(current.Name) ? descriptor?.Name ?? current.Type : current.Name)</span>
+                    <span class="ab-step-type">@current.Type</span>
+                    <span class="ms-auto d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Move up"
+                                @onclick:stopPropagation="true" @onclick="() => MoveStep(steps, current, -1)">↑</button>
+                        <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Move down"
+                                @onclick:stopPropagation="true" @onclick="() => MoveStep(steps, current, 1)">↓</button>
+                        <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Remove"
+                                @onclick:stopPropagation="true" @onclick="() => RemoveStep(steps, current)">✕</button>
+                    </span>
+                </div>
+
+                @if (current.Type == "condition")
+                {
+                    <div class="ab-step-branch">
+                        <div class="ab-branch-label">✅ TRUE</div>
+                        @{ RenderSteps(current.TrueSteps); }
+                        <button class="ab-add-step" @onclick:stopPropagation="true"
+                                @onclick="() => SetTarget(current.TrueSteps)">➕ add to true</button>
+                        <div class="ab-branch-label">❌ FALSE</div>
+                        @{ RenderSteps(current.FalseSteps); }
+                        <button class="ab-add-step" @onclick:stopPropagation="true"
+                                @onclick="() => SetTarget(current.FalseSteps)">➕ add to false</button>
+                    </div>
+                }
+                else if (current.Type == "switch")
+                {
+                    <div class="ab-step-branch">
+                        @foreach (var kase in current.Cases)
+                        {
+                            var branch = kase.Value;
+                            <div class="ab-branch-label">◈ CASE "@kase.Key"</div>
+                            RenderSteps(branch);
+                            <button class="ab-add-step" @onclick:stopPropagation="true"
+                                    @onclick="() => SetTarget(branch)">➕ add to "@kase.Key"</button>
+                        }
+                    </div>
+                }
+                else if (ActionCatalog.ContainerTypes.Contains(current.Type))
+                {
+                    <div class="ab-step-branch">
+                        @{ RenderSteps(current.Children); }
+                        <button class="ab-add-step" @onclick:stopPropagation="true"
+                                @onclick="() => SetTarget(current.Children)">➕ add inside</button>
+                    </div>
+                }
+            </div>
+        }
+        if (steps == _steps)
+        {
+            <button class="ab-add-step mt-1" @onclick="() => SetTarget(_steps)">
+                ➕ add step at end @(_addTarget == _steps ? "(target)" : "")
+            </button>
+        }
+    }
+}
+
+@code {
+    [Parameter] public string? WorkflowId { get; set; }
+
+    private WorkflowDefinition _workflow = new();
+    private List<WorkflowStep> _steps = [];
+    private Dictionary<string, string> _triggerConfig = [];
+    private WorkflowStep? _selected;
+    private List<WorkflowStep> _addTarget = [];
+    private List<EntityDefinition> _entities = [];
+    private List<WorkflowDefinition> _allWorkflows = [];
+    private List<ConnectorDefinition> _connectorDefs = [];
+    private string _message = "";
+    private string _newCaseKey = "";
+    private bool _showJson;
+    private string _jsonText = "";
+    private string _jsonError = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _entities = await DataHub.GetEntitiesAsync();
+        _allWorkflows = await Workflows.GetAllAsync();
+        _connectorDefs = await Connectors.GetDefinitionsAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrEmpty(WorkflowId))
+        {
+            var existing = await Workflows.GetAsync(WorkflowId);
+            if (existing is not null)
+            {
+                _workflow = existing;
+                _steps = existing.Steps;
+                _triggerConfig = existing.TriggerConfig;
+                _addTarget = _steps;
+                SyncJson();
+                return;
+            }
+        }
+        _workflow = new WorkflowDefinition { Name = "New Workflow" };
+        _steps = [];
+        _triggerConfig = [];
+        _addTarget = _steps;
+        SyncJson();
+    }
+
+    private void SyncJson() => _jsonText = JsonUtil.Serialize(_steps, indented: true);
+
+    private void SetTrigger(string key, ChangeEventArgs e) => _triggerConfig[key] = e.Value?.ToString() ?? "";
+
+    private void SetCfg(string key, ChangeEventArgs e)
+    {
+        if (_selected is not null) _selected.Config[key] = e.Value?.ToString() ?? "";
+    }
+
+    private void SetTarget(List<WorkflowStep> target) => _addTarget = target;
+
+    private void AddStep(string type)
+    {
+        var descriptor = ActionCatalog.Find(type);
+        var step = new WorkflowStep { Type = type, Name = descriptor?.Name ?? type };
+        (_addTarget ?? _steps).Add(step);
+        _selected = step;
+        SyncJson();
+    }
+
+    private void AddCase()
+    {
+        if (_selected is null || string.IsNullOrWhiteSpace(_newCaseKey)) return;
+        _selected.Cases[_newCaseKey.Trim()] = [];
+        _newCaseKey = "";
+    }
+
+    private void MoveStep(List<WorkflowStep> list, WorkflowStep step, int delta)
+    {
+        var index = list.IndexOf(step);
+        var target = index + delta;
+        if (index < 0 || target < 0 || target >= list.Count) return;
+        (list[index], list[target]) = (list[target], list[index]);
+    }
+
+    private void RemoveStep(List<WorkflowStep> list, WorkflowStep step)
+    {
+        list.Remove(step);
+        if (_selected == step) _selected = null;
+        if (_addTarget == step.Children || _addTarget == step.TrueSteps || _addTarget == step.FalseSteps)
+            _addTarget = _steps;
+        SyncJson();
+    }
+
+    private void ApplyJson()
+    {
+        try
+        {
+            _jsonError = "";
+            var parsed = JsonUtil.Deserialize<List<WorkflowStep>>(_jsonText);
+            if (parsed is null) { _jsonError = "Invalid JSON."; return; }
+            _steps = parsed;
+            _addTarget = _steps;
+            _selected = null;
+            _showJson = false;
+        }
+        catch (Exception ex)
+        {
+            _jsonError = ex.Message;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            _workflow.Steps = _steps;
+            _workflow.TriggerConfig = _triggerConfig;
+            _workflow = await Workflows.SaveAsync(_workflow);
+            _message = $"✔ Saved (v{_workflow.Version}).";
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+        }
+    }
+
+    private async Task TestRunAsync()
+    {
+        _workflow.Steps = _steps;
+        _workflow.TriggerConfig = _triggerConfig;
+        _message = "Running…";
+        StateHasChanged();
+        var run = await Runner.RunAsync(_workflow,
+            new Dictionary<string, object?> { ["type"] = "test" }, "test");
+        var logs = string.Join("<br/>", run.Logs.Select(l =>
+            $"{(l.Status == "failed" ? "✖" : "✔")} <b>{System.Net.WebUtility.HtmlEncode(l.StepName)}</b> ({l.DurationMs}ms)" +
+            (l.Error is null ? "" : $" — {System.Net.WebUtility.HtmlEncode(l.Error)}") +
+            (string.IsNullOrEmpty(l.Output) ? "" : $" → {System.Net.WebUtility.HtmlEncode(l.Output.Length > 160 ? l.Output[..160] + "…" : l.Output)}")));
+        _message = run.Status == RunStatus.Succeeded
+            ? $"✔ Test run OK.<br/>{logs}"
+            : $"✖ Failed: {System.Net.WebUtility.HtmlEncode(run.Error ?? "")}<br/>{logs}";
+    }
+}

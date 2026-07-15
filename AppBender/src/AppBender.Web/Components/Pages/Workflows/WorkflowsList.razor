@@ -1,0 +1,113 @@
+@page "/workflows"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IWorkflowService Workflows
+@inject WorkflowRunner Runner
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<PageTitle>Workflows — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">⚡ Workflows</h1>
+        <div class="ab-page-sub">Trigger → action → condition automation, like Power Automate.</div>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="/workflows/runs">🛰️ Run history</a>
+        <a class="btn btn-primary" href="/workflows/designer">➕ New Workflow</a>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert alert-info py-2">@_message</div>
+}
+
+@if (_workflows is null)
+{
+    <p>Loading…</p>
+}
+else if (_workflows.Count == 0)
+{
+    <div class="ab-empty"><span class="ab-empty-icon">⚡</span>No workflows yet.</div>
+}
+else
+{
+    <div class="ab-grid ab-grid-3">
+        @foreach (var workflow in _workflows)
+        {
+            <div class="ab-tile" @onclick='() => Nav.NavigateTo($"/workflows/designer/{workflow.Id}")'>
+                <span class="ab-tile-icon">@workflow.Icon</span>
+                <span style="flex:1">
+                    <span class="ab-tile-title d-block">@workflow.Name</span>
+                    <span class="ab-tile-sub d-block">@workflow.TriggerType · v@(workflow.Version)</span>
+                    <span class="ab-badge @(workflow.IsEnabled ? "success" : "warn")">@(workflow.IsEnabled ? "Enabled" : "Disabled")</span>
+                    @if (workflow.TriggerType == TriggerType.Webhook)
+                    {
+                        <span class="ab-tile-sub d-block mt-1">
+                            <code>/api/webhooks/@workflow.TriggerConfig.GetValueOrDefault("webhookKey")</code>
+                        </span>
+                    }
+                </span>
+                <span class="d-flex flex-column gap-1">
+                    <button class="btn btn-sm btn-outline-primary" title="Run now"
+                            @onclick:stopPropagation="true" @onclick="() => RunAsync(workflow)">▶</button>
+                    <button class="btn btn-sm btn-outline-secondary" title="Export JSON"
+                            @onclick:stopPropagation="true" @onclick="() => ExportAsync(workflow)">⭳</button>
+                    <button class="btn btn-sm btn-outline-danger" title="Delete"
+                            @onclick:stopPropagation="true" @onclick="() => AskDelete(workflow)">🗑️</button>
+                </span>
+            </div>
+        }
+    </div>
+}
+
+<Modal @bind-Visible="_confirmDelete" Title="Delete workflow?">
+    <ChildContent>
+        <p>Delete <b>@_deleteTarget?.Name</b>?</p>
+    </ChildContent>
+    <Footer>
+        <button class="btn btn-outline-secondary" @onclick="() => _confirmDelete = false">Cancel</button>
+        <button class="btn btn-danger" @onclick="DeleteAsync">Delete</button>
+    </Footer>
+</Modal>
+
+@code {
+    private List<WorkflowDefinition>? _workflows;
+    private bool _confirmDelete;
+    private WorkflowDefinition? _deleteTarget;
+    private string _message = "";
+
+    protected override async Task OnInitializedAsync() => _workflows = await Workflows.GetAllAsync();
+
+    private async Task RunAsync(WorkflowDefinition workflow)
+    {
+        _message = $"Running '{workflow.Name}'…";
+        var run = await Runner.RunAsync(workflow,
+            new Dictionary<string, object?> { ["type"] = "manual" }, "manual");
+        _message = run.Status == RunStatus.Succeeded
+            ? $"✔ '{workflow.Name}' finished in {(run.FinishedAt - run.StartedAt)?.TotalSeconds:0.#}s. See run history for details."
+            : $"✖ '{workflow.Name}' failed: {run.Error}";
+    }
+
+    private async Task ExportAsync(WorkflowDefinition workflow)
+    {
+        var json = JsonUtil.Serialize(workflow, indented: true);
+        await JS.InvokeVoidAsync("appBender.downloadText",
+            $"workflow-{workflow.Name.Replace(' ', '-').ToLowerInvariant()}.json", json, "application/json");
+    }
+
+    private void AskDelete(WorkflowDefinition workflow)
+    {
+        _deleteTarget = workflow;
+        _confirmDelete = true;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_deleteTarget is not null) await Workflows.DeleteAsync(_deleteTarget.Id);
+        _confirmDelete = false;
+        _workflows = await Workflows.GetAllAsync();
+    }
+}

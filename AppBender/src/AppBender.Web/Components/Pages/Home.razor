@@ -1,0 +1,109 @@
+@page "/"
+@rendermode InteractiveServer
+@inject IDataHubService DataHub
+@inject IFormService Forms
+@inject IWorkflowService Workflows
+@inject IAppService Apps
+
+<PageTitle>AppBender — Home</PageTitle>
+
+<AuthorizeView>
+    <Authorized>
+        <div class="ab-page-head">
+            <div>
+                <h1 class="ab-page-title">Welcome back 👋</h1>
+                <div class="ab-page-sub">Low-code platform: build apps, automate workflows, and let AI help.</div>
+            </div>
+        </div>
+
+        <div class="ab-grid ab-grid-4 mb-4">
+            <div class="ab-stat"><div class="ab-stat-value">@_entityCount</div><div class="ab-stat-label">🗄️ Entities</div></div>
+            <div class="ab-stat"><div class="ab-stat-value">@_formCount</div><div class="ab-stat-label">📄 Forms</div></div>
+            <div class="ab-stat"><div class="ab-stat-value">@_workflowCount</div><div class="ab-stat-label">⚡ Workflows</div></div>
+            <div class="ab-stat"><div class="ab-stat-value">@_appCount</div><div class="ab-stat-label">🚀 Apps</div></div>
+        </div>
+
+        <h5 class="fw-bold mb-2">Quick actions</h5>
+        <div class="ab-grid ab-grid-3 mb-4">
+            <a class="ab-tile" href="/ai-studio">
+                <span class="ab-tile-icon">🪄</span>
+                <span><span class="ab-tile-title d-block">Prompt-to-App</span>
+                <span class="ab-tile-sub">Describe an app, AI builds schema + forms + workflow</span></span>
+            </a>
+            <a class="ab-tile" href="/forms/designer">
+                <span class="ab-tile-icon">📄</span>
+                <span><span class="ab-tile-title d-block">Design a Form</span>
+                <span class="ab-tile-sub">Drag &amp; drop components with live preview</span></span>
+            </a>
+            <a class="ab-tile" href="/workflows/designer">
+                <span class="ab-tile-icon">⚡</span>
+                <span><span class="ab-tile-title d-block">Build a Workflow</span>
+                <span class="ab-tile-sub">Trigger → action → condition, like Power Automate</span></span>
+            </a>
+            <a class="ab-tile" href="/datahub">
+                <span class="ab-tile-icon">🗄️</span>
+                <span><span class="ab-tile-title d-block">Data Hub</span>
+                <span class="ab-tile-sub">Entities, relationships, auto REST/GraphQL API</span></span>
+            </a>
+            <a class="ab-tile" href="/chat">
+                <span class="ab-tile-icon">🤖</span>
+                <span><span class="ab-tile-title d-block">Ask App Guru</span>
+                <span class="ab-tile-sub">AI assistant with search, calculator &amp; dataset tools</span></span>
+            </a>
+            <a class="ab-tile" href="/monitoring">
+                <span class="ab-tile-icon">📈</span>
+                <span><span class="ab-tile-title d-block">Analytics</span>
+                <span class="ab-tile-sub">Usage, performance and workflow monitoring</span></span>
+            </a>
+        </div>
+
+        @if (_publishedApps.Count > 0)
+        {
+            <h5 class="fw-bold mb-2">Published apps</h5>
+            <div class="ab-grid ab-grid-3">
+                @foreach (var app in _publishedApps)
+                {
+                    <a class="ab-tile" href="/a/@app.Slug">
+                        <span class="ab-tile-icon">@app.Icon</span>
+                        <span>
+                            <span class="ab-tile-title d-block">@app.Name</span>
+                            <span class="ab-tile-sub">@app.Description</span>
+                        </span>
+                    </a>
+                }
+            </div>
+        }
+    </Authorized>
+    <NotAuthorized>
+        <div class="text-center py-5">
+            <div style="font-size:3.4rem">⚡</div>
+            <h1 class="ab-page-title mb-2">AppBender</h1>
+            <p class="ab-page-sub mb-4">Low-code platform + Data Hub + AI-assisted development.<br />
+                Build forms, automate workflows, and publish apps — fast.</p>
+            <a class="btn btn-primary btn-lg" href="/Account/Login">Login to start</a>
+            <div class="mt-4 small text-secondary">
+                Sample users: admin@appbender.io / Admin123! · dev@appbender.io / Dev123! · user@appbender.io / User123!
+            </div>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private int _entityCount, _formCount, _workflowCount, _appCount;
+    private List<AppDefinition> _publishedApps = [];
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is null) return;
+        var auth = await AuthState;
+        if (auth.User.Identity?.IsAuthenticated != true) return;
+
+        _entityCount = (await DataHub.GetEntitiesAsync()).Count;
+        _formCount = (await Forms.GetAllAsync()).Count;
+        _workflowCount = (await Workflows.GetAllAsync()).Count;
+        var apps = await Apps.GetAllAsync();
+        _appCount = apps.Count;
+        _publishedApps = apps.Where(a => a.IsPublished).ToList();
+    }
+}

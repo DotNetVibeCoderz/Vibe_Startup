@@ -1,0 +1,15 @@
+## .NET
+bin/
+obj/
+publish/
+*.user
+
+## AppBender runtime artifacts
+appbender.db*
+storage/
+src/AppBender.Web/storage/
+
+## IDE
+.vs/
+.idea/
+*.swp

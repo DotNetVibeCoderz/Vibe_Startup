@@ -1,0 +1,161 @@
+@page "/admin/users"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@inject UserManager<ApplicationUser> UserManager
+@inject IAuditService Audit
+
+<PageTitle>Users — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">👤 Users &amp; Roles</h1>
+        <div class="ab-page-sub">Role-based access: Admin (everything), Developer (build), EndUser (run apps).</div>
+    </div>
+    <div class="ms-auto">
+        <button class="btn btn-primary" @onclick="NewUser">➕ New User</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert alert-info py-2">@_message</div>
+}
+
+<div class="ab-card ab-table-wrap">
+    <table class="table table-hover align-middle">
+        <thead><tr><th>User</th><th>Email</th><th>Job title</th><th>Role</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var entry in _users)
+            {
+                var current = entry;
+                <tr>
+                    <td><span class="ab-avatar me-2">@Initials(current.User.DisplayName)</span>@current.User.DisplayName</td>
+                    <td>@current.User.Email</td>
+                    <td>@current.User.JobTitle</td>
+                    <td>
+                        <select class="form-select form-select-sm" style="max-width:140px"
+                                value="@current.Role" @onchange="e => ChangeRoleAsync(current.User, e)">
+                            @foreach (var role in AppRoles.All)
+                            {
+                                <option value="@role">@role</option>
+                            }
+                        </select>
+                    </td>
+                    <td><span class="ab-badge @(current.User.IsActive ? "success" : "danger")">@(current.User.IsActive ? "Active" : "Disabled")</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleActiveAsync(current.User)">
+                            @(current.User.IsActive ? "⏸ Disable" : "▶ Enable")
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<Modal @bind-Visible="_showNew" Title="New user">
+    <ChildContent>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger py-2">@_error</div>
+        }
+        <label class="form-label small fw-semibold">Display name</label>
+        <input class="form-control form-control-sm mb-2" @bind="_newName" />
+        <label class="form-label small fw-semibold">Email</label>
+        <input class="form-control form-control-sm mb-2" type="email" @bind="_newEmail" />
+        <label class="form-label small fw-semibold">Password</label>
+        <input class="form-control form-control-sm mb-2" type="password" @bind="_newPassword" />
+        <label class="form-label small fw-semibold">Role</label>
+        <select class="form-select form-select-sm" @bind="_newRole">
+            @foreach (var role in AppRoles.All)
+            {
+                <option value="@role">@role</option>
+            }
+        </select>
+    </ChildContent>
+    <Footer>
+        <button class="btn btn-outline-secondary" @onclick="() => _showNew = false">Cancel</button>
+        <button class="btn btn-primary" @onclick="CreateAsync">Create</button>
+    </Footer>
+</Modal>
+
+@code {
+    private record UserRow(ApplicationUser User, string Role);
+    private List<UserRow> _users = [];
+    private bool _showNew;
+    private string _newName = "", _newEmail = "", _newPassword = "", _newRole = "EndUser";
+    private string _error = "", _message = "";
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var users = await UserManager.Users.AsNoTracking().ToListAsync();
+        _users = [];
+        foreach (var user in users)
+        {
+            var roles = await UserManager.GetRolesAsync(user);
+            _users.Add(new UserRow(user, roles.FirstOrDefault() ?? "EndUser"));
+        }
+    }
+
+    private void NewUser()
+    {
+        _newName = ""; _newEmail = ""; _newPassword = ""; _newRole = "EndUser"; _error = "";
+        _showNew = true;
+    }
+
+    private async Task CreateAsync()
+    {
+        _error = "";
+        var user = new ApplicationUser
+        {
+            UserName = _newEmail,
+            Email = _newEmail,
+            EmailConfirmed = true,
+            DisplayName = _newName,
+            OrganizationId = TenantContext.DefaultTenant
+        };
+        var result = await UserManager.CreateAsync(user, _newPassword);
+        if (!result.Succeeded)
+        {
+            _error = string.Join(" ", result.Errors.Select(e => e.Description));
+            return;
+        }
+        await UserManager.AddToRoleAsync(user, _newRole);
+        await Audit.LogAsync("create", "user", user.Id, _newEmail);
+        _showNew = false;
+        _message = $"✔ User {_newEmail} created.";
+        await LoadAsync();
+    }
+
+    private async Task ChangeRoleAsync(ApplicationUser user, ChangeEventArgs e)
+    {
+        var managed = await UserManager.FindByIdAsync(user.Id);
+        if (managed is null) return;
+        var newRole = e.Value?.ToString() ?? "EndUser";
+        var current = await UserManager.GetRolesAsync(managed);
+        await UserManager.RemoveFromRolesAsync(managed, current);
+        await UserManager.AddToRoleAsync(managed, newRole);
+        await Audit.LogAsync("update", "user", managed.Id, $"role={newRole}");
+        _message = $"✔ {managed.Email} role changed to {newRole} (takes effect at next login).";
+        await LoadAsync();
+    }
+
+    private async Task ToggleActiveAsync(ApplicationUser user)
+    {
+        var managed = await UserManager.FindByIdAsync(user.Id);
+        if (managed is null) return;
+        managed.IsActive = !managed.IsActive;
+        managed.LockoutEnd = managed.IsActive ? null : DateTimeOffset.MaxValue;
+        managed.LockoutEnabled = true;
+        await UserManager.UpdateAsync(managed);
+        await Audit.LogAsync("update", "user", managed.Id, managed.IsActive ? "enabled" : "disabled");
+        await LoadAsync();
+    }
+
+    private static string Initials(string name)
+        => string.IsNullOrEmpty(name) ? "?" : new string(name.Split(' ').Take(2).Select(w => w[0]).ToArray());
+}

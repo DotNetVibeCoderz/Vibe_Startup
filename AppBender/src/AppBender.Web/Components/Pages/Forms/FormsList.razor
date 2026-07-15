@@ -1,0 +1,90 @@
+@page "/forms"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IFormService Forms
+@inject IImportExportService ImportExport
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<PageTitle>Forms — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">📄 Forms</h1>
+        <div class="ab-page-sub">Visual form designer with drag &amp; drop and real-time preview.</div>
+    </div>
+    <div class="ms-auto">
+        <a class="btn btn-primary" href="/forms/designer">➕ New Form</a>
+    </div>
+</div>
+
+@if (_forms is null)
+{
+    <p>Loading…</p>
+}
+else if (_forms.Count == 0)
+{
+    <div class="ab-empty"><span class="ab-empty-icon">📄</span>No forms yet.</div>
+}
+else
+{
+    <div class="ab-grid ab-grid-3">
+        @foreach (var form in _forms)
+        {
+            <div class="ab-tile" @onclick='() => Nav.NavigateTo($"/forms/designer/{form.Id}")'>
+                <span class="ab-tile-icon">@form.Icon</span>
+                <span style="flex:1">
+                    <span class="ab-tile-title d-block">@form.Name</span>
+                    <span class="ab-tile-sub d-block">@(form.EntityName ?? "no entity") · v@(form.Version)</span>
+                    <span class="ab-badge @(form.IsPublished ? "success" : "")">@(form.IsPublished ? "Published" : "Draft")</span>
+                </span>
+                <span class="d-flex flex-column gap-1">
+                    <button class="btn btn-sm btn-outline-primary" title="Fill / run form"
+                            @onclick:stopPropagation="true"
+                            @onclick='() => Nav.NavigateTo($"/forms/run/{form.Slug}")'>▶</button>
+                    <button class="btn btn-sm btn-outline-secondary" title="Export JSON"
+                            @onclick:stopPropagation="true" @onclick="() => ExportAsync(form)">⭳</button>
+                    <button class="btn btn-sm btn-outline-danger" title="Delete"
+                            @onclick:stopPropagation="true" @onclick="() => AskDelete(form)">🗑️</button>
+                </span>
+            </div>
+        }
+    </div>
+}
+
+<Modal @bind-Visible="_confirmDelete" Title="Delete form?">
+    <ChildContent>
+        <p>Delete <b>@_deleteTarget?.Name</b>?</p>
+    </ChildContent>
+    <Footer>
+        <button class="btn btn-outline-secondary" @onclick="() => _confirmDelete = false">Cancel</button>
+        <button class="btn btn-danger" @onclick="DeleteAsync">Delete</button>
+    </Footer>
+</Modal>
+
+@code {
+    private List<FormDefinition>? _forms;
+    private bool _confirmDelete;
+    private FormDefinition? _deleteTarget;
+
+    protected override async Task OnInitializedAsync() => _forms = await Forms.GetAllAsync();
+
+    private async Task ExportAsync(FormDefinition form)
+    {
+        var json = JsonUtil.Serialize(form, indented: true);
+        await JS.InvokeVoidAsync("appBender.downloadText", $"form-{form.Slug}.json", json, "application/json");
+    }
+
+    private void AskDelete(FormDefinition form)
+    {
+        _deleteTarget = form;
+        _confirmDelete = true;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_deleteTarget is not null) await Forms.DeleteAsync(_deleteTarget.Id);
+        _confirmDelete = false;
+        _forms = await Forms.GetAllAsync();
+    }
+}

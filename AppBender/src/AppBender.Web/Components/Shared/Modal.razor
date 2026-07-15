@@ -1,0 +1,35 @@
+@if (Visible)
+{
+    <div class="ab-modal-backdrop" @onclick="OnBackdrop">
+        <div class="ab-modal @(Large ? "lg" : "")" @onclick:stopPropagation="true">
+            <div class="ab-modal-head">
+                <span>@Title</span>
+                <button class="btn btn-sm btn-outline-secondary ms-auto" @onclick="CloseAsync">✕</button>
+            </div>
+            <div class="ab-modal-body">
+                @ChildContent
+            </div>
+            @if (Footer is not null)
+            {
+                <div class="ab-modal-foot">@Footer</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public bool Large { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+
+    private async Task CloseAsync()
+    {
+        Visible = false;
+        await VisibleChanged.InvokeAsync(false);
+    }
+
+    private Task OnBackdrop() => CloseAsync();
+}

@@ -1,0 +1,112 @@
+@page "/forms/run/{Slug}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject IFormService Forms
+@inject IWorkflowService Workflows
+@inject WorkflowRunner Runner
+
+<PageTitle>Form — AppBender</PageTitle>
+
+@if (_form is null)
+{
+    <div class="ab-empty"><span class="ab-empty-icon">❓</span>Form not found.</div>
+}
+else
+{
+    <div class="ab-page-head">
+        <div>
+            <h1 class="ab-page-title">@_form.Icon @_form.Name</h1>
+            <div class="ab-page-sub">@_form.Description</div>
+        </div>
+    </div>
+
+    @if (_submitted)
+    {
+        <div class="ab-card text-center py-5">
+            <div style="font-size:2.6rem">✅</div>
+            <h4 class="fw-bold">Terima kasih!</h4>
+            <p class="text-secondary">Data berhasil dikirim@(string.IsNullOrEmpty(_recordId) ? "" : $" (id: {_recordId})").</p>
+            <button class="btn btn-outline-primary" @onclick="Reset">Submit another response</button>
+        </div>
+    }
+    else
+    {
+        <div class="ab-card" style="max-width:900px">
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <div class="alert alert-danger py-2">@_error</div>
+            }
+            <FormRenderer Components="_layout" Values="_values" OnButtonSubmit="SubmitAsync" />
+            <button class="btn btn-primary mt-3" disabled="@_busy" @onclick="SubmitAsync">
+                @(_busy ? "Submitting…" : _form.SubmitLabel)
+            </button>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    private FormDefinition? _form;
+    private List<FormComponent> _layout = [];
+    private Dictionary<string, string> _values = [];
+    private bool _submitted;
+    private bool _busy;
+    private string _error = "";
+    private string _recordId = "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _form = await Forms.GetBySlugAsync(Slug);
+        _layout = _form?.Layout ?? [];
+        Reset();
+    }
+
+    private void Reset()
+    {
+        _values = [];
+        _submitted = false;
+        _error = "";
+        _recordId = "";
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null || _busy) return;
+        _busy = true;
+        _error = "";
+        try
+        {
+            var data = _values
+                .Where(kv => kv.Value.Length > 0)
+                .ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+            _recordId = await Forms.SubmitAsync(_form, data);
+
+            // fire the optional on-submit workflow
+            if (!string.IsNullOrEmpty(_form.SubmitWorkflowId))
+            {
+                var workflow = await Workflows.GetAsync(_form.SubmitWorkflowId);
+                if (workflow is not null)
+                {
+                    var trigger = new Dictionary<string, object?>
+                    {
+                        ["type"] = "form_submitted",
+                        ["formId"] = _form.Id,
+                        ["values"] = data,
+                        ["recordId"] = _recordId
+                    };
+                    _ = Task.Run(() => Runner.RunAsync(workflow, trigger, $"form:{_form.Name}"));
+                }
+            }
+            _submitted = true;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

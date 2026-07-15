@@ -1,0 +1,91 @@
+@page "/monitoring"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Developer")]
+@inject IUsageService Usage
+@inject IWorkflowService Workflows
+
+<PageTitle>Analytics — AppBender</PageTitle>
+
+<div class="ab-page-head">
+    <div>
+        <h1 class="ab-page-title">📈 Analytics &amp; Performance</h1>
+        <div class="ab-page-sub">Usage, LLM tokens, workflow activity, and response times (last @_days days).</div>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+        <select class="form-select form-select-sm" style="width:auto" @bind="_days" @bind:after="LoadAsync">
+            <option value="1">24 hours</option>
+            <option value="7">7 days</option>
+            <option value="30">30 days</option>
+        </select>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadAsync">🔄</button>
+    </div>
+</div>
+
+<div class="ab-grid ab-grid-4 mb-3">
+    <div class="ab-stat"><div class="ab-stat-value">@Total("page_view")</div><div class="ab-stat-label">👁️ Page views</div></div>
+    <div class="ab-stat"><div class="ab-stat-value">@(Total("api_request") + Total("api_query"))</div><div class="ab-stat-label">🧬 API calls</div></div>
+    <div class="ab-stat"><div class="ab-stat-value">@Total("workflow_run")</div><div class="ab-stat-label">⚡ Workflow runs</div></div>
+    <div class="ab-stat"><div class="ab-stat-value">@((Total("llm_tokens_in") + Total("llm_tokens_out")).ToString("N0"))</div><div class="ab-stat-label">🤖 LLM tokens</div></div>
+    <div class="ab-stat"><div class="ab-stat-value">@Total("record_op")</div><div class="ab-stat-label">🗄️ Record operations</div></div>
+    <div class="ab-stat"><div class="ab-stat-value">@_avgResponse.ToString("0") ms</div><div class="ab-stat-label">⏱️ Avg response time</div></div>
+    <div class="ab-stat"><div class="ab-stat-value">@Total("connector_call")</div><div class="ab-stat-label">🔌 Connector calls</div></div>
+    <div class="ab-stat"><div class="ab-stat-value">@_failedRuns</div><div class="ab-stat-label">✖ Failed runs</div></div>
+</div>
+
+<div class="ab-grid ab-grid-2 mb-3">
+    <LineChart Title="Traffic (page views + API per hour/day)" Data="_traffic" />
+    <LineChart Title="Response time trend (ms)" Data="_responseTrend" />
+    <BarChart Title="LLM tokens by day" Data="_tokenTrend" />
+    <PieChart Title="Workflow runs by status" Data="_runStatus" />
+</div>
+
+@code {
+    private int _days = 7;
+    private Dictionary<string, double> _totals = [];
+    private Dictionary<string, double> _traffic = [];
+    private Dictionary<string, double> _responseTrend = [];
+    private Dictionary<string, double> _tokenTrend = [];
+    private Dictionary<string, double> _runStatus = [];
+    private double _avgResponse;
+    private int _failedRuns;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private double Total(string type) => _totals.GetValueOrDefault(type);
+
+    private async Task LoadAsync()
+    {
+        var from = DateTime.UtcNow.AddDays(-_days);
+        var to = DateTime.UtcNow;
+        _totals = await Usage.TotalsAsync(from, to);
+
+        var metrics = await Usage.QueryAsync(null, from, to);
+        string Bucket(DateTime t) => _days <= 1 ? t.ToString("HH:00") : t.ToString("MM-dd");
+
+        _traffic = metrics
+            .Where(m => m.Type is "page_view" or "api_request" or "api_query")
+            .GroupBy(m => Bucket(m.Timestamp))
+            .OrderBy(g => g.Key)
+            .ToDictionary(g => g.Key, g => g.Sum(m => m.Value));
+
+        var responses = metrics.Where(m => m.Type == "response_ms").ToList();
+        _avgResponse = responses.Count > 0 ? responses.Average(m => m.Value) : 0;
+        _responseTrend = responses
+            .GroupBy(m => Bucket(m.Timestamp))
+            .OrderBy(g => g.Key)
+            .ToDictionary(g => g.Key, g => Math.Round(g.Average(m => m.Value), 1));
+
+        _tokenTrend = metrics
+            .Where(m => m.Type is "llm_tokens_in" or "llm_tokens_out")
+            .GroupBy(m => Bucket(m.Timestamp))
+            .OrderBy(g => g.Key)
+            .ToDictionary(g => g.Key, g => g.Sum(m => m.Value));
+
+        var runs = await Workflows.GetRunsAsync(count: 500);
+        var recent = runs.Where(r => r.StartedAt >= from).ToList();
+        _failedRuns = recent.Count(r => r.Status == RunStatus.Failed);
+        _runStatus = recent
+            .GroupBy(r => r.Status.ToString())
+            .ToDictionary(g => g.Key, g => (double)g.Count());
+    }
+}
