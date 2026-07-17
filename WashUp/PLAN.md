@@ -214,6 +214,7 @@
 | 16.4 | SQLite support | ✅ |
 | 16.5 | PostgreSQL support | ✅ |
 | 16.6 | SQL Server support | ✅ |
+| 16.7 | MySQL support (Pomelo) | ✅ |
 
 ---
 
@@ -273,3 +274,12 @@ Perbaikan besar setelah audit menyeluruh:
 - **UI/UX**: tema "Ungu Bersih" dark/light dirombak, Plus Jakarta Sans, drawer mobile, modal/empty-state/timeline, focus states, print stylesheet.
 
 **✨ BUILD STATUS: SUCCESS (0 errors) — diverifikasi end-to-end: login/logout, reset password, JWT API, export CSV, simulator IoT & GPS menulis data.**
+
+## 🔁 Revisi Tambahan (Juli 2026, ronde 2)
+
+- **Chat**: contoh prompt siap-klik (harga, cek order, hitung biaya, tips noda, lokasi cabang, ringkasan bisnis, dll).
+- **Peta kurir nyata**: Leaflet + OpenStreetMap dengan marker kurir 🛵, tujuan 🏁, garis rute, jejak perjalanan, popup detail, tombol fokuskan; auto-update tiap 3 detik.
+- **GPS simulator disempurnakan**: berangkat dari cabang order, bergerak dengan kecepatan realistis 18–45 km/j (haversine), ETA dihitung ulang tiap tick, tiba dalam radius 60 m → status Arrived → otomatis Completed setelah 45 dtk dan order delivery ditandai "Dikirim".
+- **Foto profil**: upload avatar di halaman Profil (maks 5 MB), tampil di sidebar & topbar.
+- **Halaman notifikasi** `/notifications`: semua notifikasi + filter belum dibaca + tombol "Sudah baca semua"; tertaut dari dropdown lonceng.
+- **Database MySQL** didukung via Pomelo (`DatabaseProvider: "MySQL"` + connection string `MySQL`).

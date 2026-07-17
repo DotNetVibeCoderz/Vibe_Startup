@@ -26,7 +26,17 @@
       "Bash(curl -s -b /tmp/wu-cookies.txt http://localhost:5262/courier -o /tmp/wu-cour.html)",
       "Bash(echo \"final build errors: $?\")",
       "Bash(curl -s -b /tmp/wu-v2.txt http://localhost:5262/courier -o /tmp/wu-vc2.html)",
-      "Bash(curl -s -b /tmp/wu-f1.txt http://localhost:5262/notifications -o /tmp/wu-fn.html -w \"notifications: %{http_code}\\\\n\")"
+      "Bash(curl -s -b /tmp/wu-f1.txt http://localhost:5262/notifications -o /tmp/wu-fn.html -w \"notifications: %{http_code}\\\\n\")",
+      "Bash(curl -s -b /tmp/wu-g1.txt http://localhost:5262/courier -o /tmp/wu-t1.html)",
+      "Bash(curl -s -b /tmp/wu-g1.txt http://localhost:5262/courier -o /tmp/wu-t2.html)",
+      "PowerShell(Get-Process *)",
+      "Bash(curl -s -b /tmp/wu-g1.txt http://localhost:5262/courier -o /tmp/wu-t3.html)",
+      "Bash(dotnet add *)",
+      "PowerShell(Stop-Process *)",
+      "Bash(ASPNETCORE_URLS=http://localhost:5299 DatabaseProvider=MySQL timeout 25 dotnet run --no-build)",
+      "Bash(curl -s http://localhost:5262/api/health -w \"\\\\nhealth: %{http_code}\\\\n\")",
+      "Bash(sed -i 's/- \\\\*\\\\*Multi-Database\\\\*\\\\* - SQLite, PostgreSQL, SQL Server/- **Multi-Database** - SQLite, PostgreSQL, SQL Server, MySQL/; s|- \\\\*\\\\*Database\\\\*\\\\*: SQLite / PostgreSQL / SQL Server \\(EF Core\\)|- **Database**: SQLite / PostgreSQL / SQL Server / MySQL \\(EF Core\\)|' README.md)",
+      "Bash(sed -i 's|- \\\\*\\\\*Database\\\\*\\\\*: SQLite / PostgreSQL / SQL Server|- **Database**: SQLite / PostgreSQL / SQL Server / MySQL|' README-ID.md)"
     ]
   }
 }

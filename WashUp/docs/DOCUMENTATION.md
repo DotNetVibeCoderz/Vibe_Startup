@@ -215,12 +215,18 @@ dotnet publish -c Release -o ./publish
 
 ### 2. Database
 - Development: SQLite (auto-created)
-- Production: PostgreSQL atau SQL Server direkomendasikan
+- Production: PostgreSQL, SQL Server, atau MySQL direkomendasikan
+
+Provider dipilih lewat `DatabaseProvider`: `SQLite` | `PostgreSQL` | `SqlServer` | `MySQL`.
+Untuk MySQL (provider Pomelo), versi server di-pin lewat `MySqlServerVersion`
+(default `8.0.36`) agar tidak perlu koneksi AutoDetect saat startup.
 
 ### 3. Environment Variables
 ```bash
-DatabaseProvider=PostgreSQL
+DatabaseProvider=PostgreSQL          # atau MySQL / SqlServer / SQLite
 ConnectionStrings__PostgreSQL=Host=...
+ConnectionStrings__MySQL=Server=localhost;Port=3306;Database=WashUp;User=washup;Password=...
+MySqlServerVersion=8.0.36
 AI__Provider=OpenAI
 AI__OpenAI__ApiKey=sk-...
 ```

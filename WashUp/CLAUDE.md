@@ -35,7 +35,7 @@ Everything lives in one project (`WashUp.csproj`); `Program.cs` is the compositi
 
 Three subsystems select an implementation from `appsettings.json` at runtime via a string switch (not DI):
 
-- **Database**: `DatabaseProvider` = `SQLite` (default) / `PostgreSQL` / `SqlServer`, switched in `Program.cs`; each has its own connection string.
+- **Database**: `DatabaseProvider` = `SQLite` (default) / `PostgreSQL` / `SqlServer` / `MySQL` (Pomelo; server version pinned via `MySqlServerVersion` config, not AutoDetect), switched in `Program.cs`; each has its own connection string.
 - **Storage**: `FileStorage:Provider` = `FileSystem` / `AzureBlob` / `S3` / `MinIO`, switched inside `StorageService`.
 - **AI chat**: `AI:Provider` = `OpenAI` / `Anthropic` / `Gemini` / `Ollama`, switched inside `ChatBotService.Initialize()`. All providers go through the Semantic Kernel **OpenAI connector** pointed at provider-specific endpoints — there is no native Anthropic/Gemini connector. Chatbot persona ("Mbok Inem"), system prompt, and sampling settings come from the `ChatBot` config section; kernel functions (Tavily search, URL scrape, DB query, math) are defined in `ChatBotService`.
 

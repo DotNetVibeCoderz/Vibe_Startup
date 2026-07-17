@@ -48,7 +48,7 @@
 - **Analitik Tren** - Prediksi permintaan
 - **UI Dark/Light** - Tampilan modern dengan nuansa ungu
 - **REST API** - Minimal API + Swagger
-- **Multi-Database** - SQLite, PostgreSQL, SQL Server
+- **Multi-Database** - SQLite, PostgreSQL, SQL Server, MySQL
 - **Multi-Storage** - FileSystem, Azure Blob, S3, MinIO
 
 ---
@@ -57,7 +57,7 @@
 
 ### Prerequisites
 - .NET 10 SDK
-- SQLite (default) / PostgreSQL / SQL Server
+- SQLite (default) / PostgreSQL / SQL Server / MySQL
 
 ### Installation
 
@@ -87,7 +87,7 @@ dotnet run
 ## 🏗️ Tech Stack
 
 - **Framework**: .NET 10 + Blazor Server
-- **Database**: SQLite / PostgreSQL / SQL Server (EF Core)
+- **Database**: SQLite / PostgreSQL / SQL Server / MySQL (EF Core)
 - **Authentication**: ASP.NET Identity + Role-based Access
 - **AI/Chat**: Semantic Kernel + OpenAI/Anthropic/Gemini/Ollama
 - **Storage**: FileSystem / Azure Blob / AWS S3 / MinIO
@@ -137,9 +137,11 @@ WashUp/
 Edit `appsettings.json`:
 ```json
 {
-  "DatabaseProvider": "SQLite",  // or "PostgreSQL", "SqlServer"
+  "DatabaseProvider": "SQLite",  // or "PostgreSQL", "SqlServer", "MySQL"
+  "MySqlServerVersion": "8.0.36",
   "ConnectionStrings": {
-    "DefaultConnection": "Data Source=WashUp.db"
+    "DefaultConnection": "Data Source=WashUp.db",
+    "MySQL": "Server=localhost;Port=3306;Database=WashUp;User=root;Password=root;"
   }
 }
 ```

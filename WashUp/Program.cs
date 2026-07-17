@@ -20,6 +20,11 @@ var dbProvider = builder.Configuration["DatabaseProvider"] ?? "SQLite";
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? "Data Source=WashUp.db";
 
+// Versi server MySQL ditentukan dari config (hindari AutoDetect yang membuka
+// koneksi setiap kali DbContext dikonfigurasi)
+var mySqlVersion = new MySqlServerVersion(
+    Version.Parse(builder.Configuration["MySqlServerVersion"] ?? "8.0.36"));
+
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
     switch (dbProvider)
@@ -29,6 +34,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
             break;
         case "SqlServer":
             options.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer"));
+            break;
+        case "MySQL":
+            options.UseMySql(builder.Configuration.GetConnectionString("MySQL"), mySqlVersion);
             break;
         default:
             options.UseSqlite(connectionString);

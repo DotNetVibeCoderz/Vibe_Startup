@@ -71,7 +71,7 @@ Buka browser: **http://localhost:5000**
 ## 🏗️ Teknologi
 
 - **Framework**: .NET 10 + Blazor Server
-- **Database**: SQLite / PostgreSQL / SQL Server
+- **Database**: SQLite / PostgreSQL / SQL Server / MySQL
 - **Auth**: ASP.NET Identity + Role-based
 - **AI**: Semantic Kernel + Multi-model
 - **Storage**: FileSystem / Azure / S3 / MinIO
