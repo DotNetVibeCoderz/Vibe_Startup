@@ -1,0 +1,285 @@
+@page "/customers"
+@using WashUp.Data
+@using WashUp.Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin,Pemilik")]
+@inject AppDbContext Db
+@inject UserManager<ApplicationUser> UserManager
+
+<PageTitle>Pelanggan - WashUp</PageTitle>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2>👥 Manajemen Pelanggan</h2>
+    <button class="btn-primary btn-sm" @onclick="OpenAddForm">+ Pelanggan baru</button>
+</div>
+
+<div class="filter-bar">
+    <input type="text" class="form-control" placeholder="🔍 Cari nama atau email..."
+           @bind="_search" @bind:event="oninput" @bind:after="ApplyFilter" style="flex:1;min-width:220px" />
+    <select class="form-control" @bind="_filterTier" @bind:after="ApplyFilter">
+        <option value="">Semua tier</option>
+        <option value="Platinum">Platinum</option>
+        <option value="Gold">Gold</option>
+        <option value="Silver">Silver</option>
+        <option value="Regular">Regular</option>
+    </select>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Nama</th><th>Email</th><th>Telepon</th><th>Tier</th><th>Poin</th><th>Bergabung</th><th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_customers.Any())
+                {
+                    @foreach (var cust in _customers)
+                    {
+                        <tr class="row-link" @onclick="() => ShowDetail(cust)">
+                            <td>
+                                <div class="flex items-center gap-2">
+                                    <div class="avatar-sm">@Initials(cust.FullName)</div>
+                                    <strong>@cust.FullName</strong>
+                                </div>
+                            </td>
+                            <td>@cust.Email</td>
+                            <td>@cust.PhoneNumber</td>
+                            <td><span class="badge @GetTierBadge(cust.MembershipTier)">@cust.MembershipTier</span></td>
+                            <td class="num">@cust.LoyaltyPoints</td>
+                            <td>@cust.CreatedAt.ToString("dd/MM/yy")</td>
+                            <td @onclick:stopPropagation="true">
+                                <a href="/orders?customer=@cust.Id" class="btn-secondary btn-sm">📦 Order</a>
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr><td colspan="7" class="text-center text-muted p-4">Tidak ada pelanggan yang cocok dengan pencarian.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="flex items-center justify-between mt-4">
+    <span class="text-muted">Total: @_totalCustomers pelanggan</span>
+    <div class="flex gap-2 items-center">
+        <button class="btn-secondary btn-sm" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)">←</button>
+        <span class="px-3 py-1">@_page / @_totalPages</span>
+        <button class="btn-secondary btn-sm" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">→</button>
+    </div>
+</div>
+
+@* ---------- Detail pelanggan ---------- *@
+@if (_detail != null)
+{
+    <div class="modal-backdrop" @onclick="CloseDetail">
+        <div class="modal-panel" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div class="flex items-center gap-3">
+                    <div class="avatar-sm" style="width:44px;height:44px;font-size:1rem">@Initials(_detail.FullName)</div>
+                    <div>
+                        <h3>@_detail.FullName</h3>
+                        <span class="badge @GetTierBadge(_detail.MembershipTier)">@_detail.MembershipTier</span>
+                        <span class="text-sm text-muted ml-1">@_detail.LoyaltyPoints poin</span>
+                    </div>
+                </div>
+                <button class="icon-btn" @onclick="CloseDetail" title="Tutup">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="grid grid-2" style="gap:12px">
+                    <div>
+                        <h4 class="mb-2">Kontak</h4>
+                        <p class="text-sm">📧 @_detail.Email</p>
+                        <p class="text-sm">📞 @(_detail.PhoneNumber ?? "-")</p>
+                        <p class="text-sm">🏠 @(_detail.Address ?? "-")</p>
+                        <p class="text-sm">📅 Bergabung @_detail.CreatedAt.ToString("dd MMM yyyy")</p>
+                    </div>
+                    <div>
+                        <h4 class="mb-2">Preferensi layanan</h4>
+                        <p class="text-sm">🧺 Layanan: @(_detail.PreferredServiceType ?? "-")</p>
+                        <p class="text-sm">🧴 Detergen: @(_detail.PreferredDetergent ?? "-")</p>
+                        <p class="text-sm">🌸 Pewangi: @(_detail.PreferredFragrance ?? "-")</p>
+                    </div>
+                </div>
+
+                <h4 class="mt-4 mb-2">Riwayat transaksi terakhir</h4>
+                @if (_detailOrders.Any())
+                {
+                    <div class="table-container">
+                        <table>
+                            <thead><tr><th>No. Order</th><th>Layanan</th><th>Total</th><th>Status</th><th>Tanggal</th></tr></thead>
+                            <tbody>
+                                @foreach (var o in _detailOrders)
+                                {
+                                    <tr>
+                                        <td><a href="/orders/@o.OrderNumber" style="color:var(--accent)">@o.OrderNumber</a></td>
+                                        <td>@o.ServiceType</td>
+                                        <td class="num">Rp @o.TotalAmount.ToString("N0")</td>
+                                        <td><span class="badge @(o.Status is "Selesai" or "Dikirim" ? "badge-success" : "badge-info")">@o.Status</span></td>
+                                        <td>@o.CreatedAt.ToString("dd/MM/yy")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="text-sm text-muted mt-2">Total belanja: <strong>Rp @_detailOrders.Sum(o => o.TotalAmount).ToString("N0")</strong> dari @_detailOrderCount order</p>
+                }
+                else
+                {
+                    <p class="text-muted text-sm">Belum pernah order. Buatkan order pertama dari halaman Order.</p>
+                }
+            </div>
+            <div class="modal-footer">
+                <a href="/orders?customer=@_detail.Id" class="btn-secondary">Semua order</a>
+                <button class="btn-primary" @onclick="CloseDetail">Tutup</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---------- Tambah pelanggan ---------- *@
+@if (_showAddForm)
+{
+    <div class="modal-backdrop" @onclick="() => _showAddForm = false">
+        <div class="modal-panel" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Pelanggan baru</h3>
+                <button class="icon-btn" @onclick="() => _showAddForm = false" title="Tutup">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group"><label class="form-label">Nama lengkap</label><input class="form-control" @bind="_newName" /></div>
+                <div class="grid grid-2" style="gap:12px">
+                    <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-control" @bind="_newEmail" /></div>
+                    <div class="form-group"><label class="form-label">Telepon</label><input class="form-control" @bind="_newPhone" /></div>
+                </div>
+                <div class="form-group"><label class="form-label">Alamat</label><textarea class="form-control" rows="2" @bind="_newAddress"></textarea></div>
+                <p class="text-sm text-muted">Akun dibuat dengan password sementara <code>Pelanggan@123</code> — pelanggan bisa menggantinya lewat lupa password.</p>
+                @if (!string.IsNullOrEmpty(_addError))
+                {
+                    <div class="alert alert-error">@_addError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" @onclick="() => _showAddForm = false">Batal</button>
+                <button class="btn-primary" @onclick="AddCustomer" disabled="@_isSaving">@(_isSaving ? "Menyimpan..." : "Simpan pelanggan")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ApplicationUser> _customers = new();
+    private int _totalCustomers, _page = 1, _totalPages = 1;
+    private string _search = "", _filterTier = "";
+    private const int PageSize = 15;
+
+    private ApplicationUser? _detail;
+    private List<Order> _detailOrders = new();
+    private int _detailOrderCount;
+
+    private bool _showAddForm, _isSaving;
+    private string _newName = "", _newEmail = "", _newPhone = "", _newAddress = "", _addError = "";
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        // Hanya user dengan role Pelanggan (bukan admin/kurir/pemilik)
+        var customerIds = Db.UserRoles
+            .Where(ur => Db.Roles.Any(r => r.Id == ur.RoleId && r.Name == "Pelanggan"))
+            .Select(ur => ur.UserId);
+
+        var query = Db.Users.AsNoTracking().Where(u => customerIds.Contains(u.Id));
+
+        if (!string.IsNullOrEmpty(_search))
+            query = query.Where(u => u.FullName.Contains(_search) || (u.Email != null && u.Email.Contains(_search)));
+        if (!string.IsNullOrEmpty(_filterTier))
+            query = query.Where(u => u.MembershipTier == _filterTier);
+
+        _totalCustomers = await query.CountAsync();
+        _totalPages = Math.Max(1, (int)Math.Ceiling(_totalCustomers / (double)PageSize));
+        if (_page > _totalPages) _page = _totalPages;
+        _customers = await query.OrderByDescending(u => u.CreatedAt).Skip((_page - 1) * PageSize).Take(PageSize).ToListAsync();
+    }
+
+    private async Task ApplyFilter() { _page = 1; await LoadData(); }
+    private async Task ChangePage(int d) { _page += d; await LoadData(); }
+
+    private async Task ShowDetail(ApplicationUser cust)
+    {
+        _detail = cust;
+        _detailOrderCount = await Db.Orders.CountAsync(o => o.UserId == cust.Id);
+        _detailOrders = await Db.Orders.AsNoTracking()
+            .Where(o => o.UserId == cust.Id)
+            .OrderByDescending(o => o.CreatedAt).Take(5).ToListAsync();
+    }
+
+    private void CloseDetail() => _detail = null;
+
+    private void OpenAddForm()
+    {
+        _newName = _newEmail = _newPhone = _newAddress = _addError = "";
+        _showAddForm = true;
+    }
+
+    private async Task AddCustomer()
+    {
+        _addError = "";
+        if (string.IsNullOrWhiteSpace(_newName) || string.IsNullOrWhiteSpace(_newEmail))
+        {
+            _addError = "Nama dan email harus diisi.";
+            return;
+        }
+
+        _isSaving = true;
+        try
+        {
+            var user = new ApplicationUser
+            {
+                UserName = _newEmail.Trim(),
+                Email = _newEmail.Trim(),
+                FullName = _newName.Trim(),
+                PhoneNumber = string.IsNullOrWhiteSpace(_newPhone) ? null : _newPhone,
+                Address = string.IsNullOrWhiteSpace(_newAddress) ? null : _newAddress,
+                MembershipTier = "Regular",
+                IsActive = true,
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            var result = await UserManager.CreateAsync(user, "Pelanggan@123");
+            if (!result.Succeeded)
+            {
+                _addError = string.Join(" ", result.Errors.Select(e => e.Code == "DuplicateUserName" || e.Code == "DuplicateEmail" ? "Email sudah terdaftar." : e.Description));
+                return;
+            }
+            await UserManager.AddToRoleAsync(user, "Pelanggan");
+            _showAddForm = false;
+            await LoadData();
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 0 ? "?" : string.Concat(parts.Take(2).Select(p => p[0])).ToUpper();
+    }
+
+    private static string GetTierBadge(string? tier) => tier switch
+    {
+        "Platinum" => "badge-purple",
+        "Gold" => "badge-warning",
+        "Silver" => "badge-gray",
+        _ => "badge-info"
+    };
+}

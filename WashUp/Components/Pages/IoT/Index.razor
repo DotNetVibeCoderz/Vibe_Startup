@@ -1,0 +1,200 @@
+@page "/iot"
+@using WashUp.Data
+@using WashUp.Models
+@using WashUp.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin,Pemilik")]
+@implements IDisposable
+@inject AppDbContext Db
+@inject IoTSimulatorService IoTSimulator
+
+<PageTitle>IoT Monitoring - WashUp</PageTitle>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2>📡 IoT Monitoring</h2>
+    <div class="flex gap-2 items-center flex-wrap">
+        <span class="flex items-center gap-2">
+            Simulator:
+            <span class="badge @(IoTSimulator.IsRunning ? "badge-success" : "badge-danger")">
+                @(IoTSimulator.IsRunning ? "Berjalan" : "Berhenti")
+            </span>
+        </span>
+        <button class="btn-primary btn-sm" @onclick="ToggleSimulator">
+            @(IoTSimulator.IsRunning ? "⏹ Stop" : "▶ Start") simulator
+        </button>
+        <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" @bind="_autoRefresh" />
+            Auto-refresh (5 dtk)
+        </label>
+    </div>
+</div>
+
+<!-- IoT Device Cards -->
+<div class="iot-grid">
+    @foreach (var device in _devices)
+    {
+        var reading = _latestReadings.FirstOrDefault(r => r.IoTDeviceId == device.Id);
+        var history = _history.Where(r => r.IoTDeviceId == device.Id).OrderBy(r => r.Timestamp).ToList();
+        <div class="iot-device-card">
+            <div class="iot-device-header">
+                <div>
+                    <h4>@GetDeviceIcon(device.DeviceType) @device.Name</h4>
+                    <small class="text-muted">@device.DeviceId</small>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="iot-status @(device.Status == "Online" ? "online" : device.Status == "Running" ? "running" : "offline")"></span>
+                    <span class="text-sm">@device.Status</span>
+                </div>
+            </div>
+
+            @if (reading != null)
+            {
+                <div class="iot-reading">
+                    @reading.Value.ToString("F1")
+                    <span class="iot-unit">@reading.Unit</span>
+                </div>
+                @if (reading.SecondaryValue.HasValue)
+                {
+                    <div class="text-sm" style="color:var(--text-secondary)">
+                        @reading.SecondaryValue.Value.ToString("F1") @reading.SecondaryUnit
+                    </div>
+                }
+                <div class="text-xs mt-2" style="color:var(--text-muted)">
+                    Terakhir: @reading.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                    <span class="ml-2 badge @(reading.Status == "Normal" ? "badge-success" : "badge-warning")">@reading.Status</span>
+                </div>
+            }
+            else
+            {
+                <p class="text-muted">Belum ada pembacaan. Jalankan simulator untuk melihat data.</p>
+            }
+
+            <!-- Sparkline riwayat pembacaan -->
+            @if (history.Count >= 2)
+            {
+                <svg class="iot-sparkline" viewBox="0 0 100 28" preserveAspectRatio="none" role="img" aria-label="Riwayat pembacaan @device.Name">
+                    <polyline fill="none" stroke="var(--accent)" stroke-width="1.5" points="@Sparkline(history)" />
+                </svg>
+            }
+            else
+            {
+                <div class="iot-sparkline-empty">Riwayat muncul setelah beberapa pembacaan</div>
+            }
+        </div>
+    }
+</div>
+
+<!-- Readings Table -->
+<div class="card mt-4">
+    <div class="card-header">
+        <h3 class="card-title">📊 Riwayat pembacaan terbaru</h3>
+    </div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr><th>Waktu</th><th>Device</th><th>Nilai</th><th>Sekunder</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                @if (_allRecentReadings.Any())
+                {
+                    @foreach (var r in _allRecentReadings.Take(20))
+                    {
+                        <tr>
+                            <td>@r.Timestamp.ToLocalTime().ToString("HH:mm:ss")</td>
+                            <td>@r.Device?.Name</td>
+                            <td class="num"><strong>@r.Value.ToString("F1")</strong> @r.Unit</td>
+                            <td class="num">@(r.SecondaryValue.HasValue ? $"{r.SecondaryValue.Value:F1} {r.SecondaryUnit}" : "-")</td>
+                            <td><span class="badge @(r.Status == "Normal" ? "badge-success" : "badge-warning")">@r.Status</span></td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr><td colspan="5" class="text-center text-muted p-4">Belum ada data. Klik "▶ Start simulator" untuk mulai memantau.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<IoTDevice> _devices = new();
+    private List<IoTSensorReading> _latestReadings = new();
+    private List<IoTSensorReading> _allRecentReadings = new();
+    private List<IoTSensorReading> _history = new();
+    private bool _autoRefresh = true;
+    private System.Threading.Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshData();
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            if (!_autoRefresh) return;
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshData();
+                    StateHasChanged();
+                });
+            }
+            catch { /* halaman sudah ditutup */ }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task RefreshData()
+    {
+        _devices = await Db.IoTDevices.AsNoTracking().Where(d => d.IsActive).ToListAsync();
+
+        _allRecentReadings = await Db.IoTSensorReadings.AsNoTracking()
+            .Include(r => r.Device)
+            .OrderByDescending(r => r.Timestamp)
+            .Take(150)
+            .ToListAsync();
+
+        _latestReadings = _allRecentReadings
+            .GroupBy(r => r.IoTDeviceId)
+            .Select(g => g.OrderByDescending(r => r.Timestamp).First())
+            .ToList();
+
+        // 30 titik terakhir per device untuk sparkline
+        _history = _allRecentReadings
+            .GroupBy(r => r.IoTDeviceId)
+            .SelectMany(g => g.OrderByDescending(r => r.Timestamp).Take(30))
+            .ToList();
+    }
+
+    private static string Sparkline(List<IoTSensorReading> points)
+    {
+        var min = points.Min(p => p.Value);
+        var max = points.Max(p => p.Value);
+        var range = max - min;
+        if (range < 0.0001) range = 1;
+        return string.Join(" ", points.Select((p, i) =>
+        {
+            var x = i * 100.0 / (points.Count - 1);
+            var y = 26 - (p.Value - min) / range * 24; // padding 2px atas-bawah
+            return $"{x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)},{y.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}";
+        }));
+    }
+
+    private async Task ToggleSimulator()
+    {
+        await IoTSimulator.ToggleAsync();
+        await Task.Delay(500);
+        await RefreshData();
+    }
+
+    private static string GetDeviceIcon(string type) => type switch
+    {
+        "MesinCuci" => "🔄",
+        "Listrik" => "⚡",
+        "Air" => "💧",
+        "SensorSuhu" => "🌡️",
+        _ => "📡"
+    };
+
+    public void Dispose() => _timer?.Dispose();
+}

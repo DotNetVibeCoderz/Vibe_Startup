@@ -1,0 +1,248 @@
+@page "/admin/users"
+@using WashUp.Data
+@using WashUp.Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin,Pemilik")]
+@inject AppDbContext Db
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Pengguna & Role - WashUp</PageTitle>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2>🛡️ Pengguna & Role</h2>
+</div>
+
+<div class="filter-bar">
+    <input type="text" class="form-control" placeholder="🔍 Cari nama atau email..."
+           @bind="_search" @bind:event="oninput" @bind:after="ApplyFilter" style="flex:1;min-width:220px" />
+    <select class="form-control" @bind="_filterRole" @bind:after="ApplyFilter">
+        <option value="">Semua role</option>
+        <option>Pemilik</option><option>Admin</option><option>Kurir</option><option>Pelanggan</option>
+    </select>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Pengguna</th><th>Email</th><th>Role</th><th>Status</th><th>Login terakhir</th><th>Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var row in _rows)
+                {
+                    <tr>
+                        <td>
+                            <div class="flex items-center gap-2">
+                                <div class="avatar-sm">@Initials(row.User.FullName)</div>
+                                <strong>@row.User.FullName</strong>
+                            </div>
+                        </td>
+                        <td>@row.User.Email</td>
+                        <td>
+                            @foreach (var role in row.Roles)
+                            {
+                                <span class="badge @RoleBadge(role)">@role</span>
+                            }
+                        </td>
+                        <td><span class="badge @(row.User.IsActive ? "badge-success" : "badge-danger")">@(row.User.IsActive ? "Aktif" : "Nonaktif")</span></td>
+                        <td>@(row.User.LastLoginAt?.ToLocalTime().ToString("dd/MM/yy HH:mm") ?? "-")</td>
+                        <td>
+                            <div class="flex gap-1">
+                                <button class="btn-secondary btn-sm" @onclick="() => OpenRoleEditor(row)">Ubah role</button>
+                                @if (row.User.Id != _currentUserId)
+                                {
+                                    <button class="btn-secondary btn-sm" @onclick="() => ToggleActive(row.User.Id)">
+                                        @(row.User.IsActive ? "Nonaktifkan" : "Aktifkan")
+                                    </button>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="flex items-center justify-between mt-4">
+    <span class="text-muted">Total: @_total pengguna</span>
+    <div class="flex gap-2 items-center">
+        <button class="btn-secondary btn-sm" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)">←</button>
+        <span class="px-3 py-1">@_page / @_totalPages</span>
+        <button class="btn-secondary btn-sm" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">→</button>
+    </div>
+</div>
+
+@* ---------- Modal ubah role ---------- *@
+@if (_editing != null)
+{
+    <div class="modal-backdrop" @onclick="() => _editing = null">
+        <div class="modal-panel" style="max-width:420px" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Role untuk @_editing.User.FullName</h3>
+                <button class="icon-btn" @onclick="() => _editing = null" title="Tutup">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-sm text-muted mb-3">Role menentukan menu dan hak akses pengguna.</p>
+                @foreach (var role in AllRoles)
+                {
+                    <label class="check-tile mb-2">
+                        <input type="checkbox" checked="@_editRoles.Contains(role)"
+                               @onchange="e => ToggleRoleSelection(role, (bool)e.Value!)" />
+                        <span>@RoleIcon(role) @role — <span class="text-sm text-muted">@RoleDescription(role)</span></span>
+                    </label>
+                }
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <div class="alert alert-error mt-2">@_error</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" @onclick="() => _editing = null">Batal</button>
+                <button class="btn-primary" @onclick="SaveRoles">Simpan role</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] AllRoles = { "Pemilik", "Admin", "Kurir", "Pelanggan" };
+
+    private sealed class UserRow
+    {
+        public ApplicationUser User { get; init; } = default!;
+        public List<string> Roles { get; init; } = new();
+    }
+
+    private List<UserRow> _rows = new();
+    private int _total, _page = 1, _totalPages = 1;
+    private string _search = "", _filterRole = "";
+    private const int PageSize = 15;
+    private string? _currentUserId;
+
+    private UserRow? _editing;
+    private HashSet<string> _editRoles = new();
+    private string _error = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _currentUserId = auth.User.FindFirstValue(System.Security.Claims.ClaimTypes.NameIdentifier);
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        var query = Db.Users.AsNoTracking().AsQueryable();
+
+        if (!string.IsNullOrEmpty(_search))
+            query = query.Where(u => u.FullName.Contains(_search) || (u.Email != null && u.Email.Contains(_search)));
+
+        if (!string.IsNullOrEmpty(_filterRole))
+        {
+            var roleUserIds = Db.UserRoles
+                .Where(ur => Db.Roles.Any(r => r.Id == ur.RoleId && r.Name == _filterRole))
+                .Select(ur => ur.UserId);
+            query = query.Where(u => roleUserIds.Contains(u.Id));
+        }
+
+        _total = await query.CountAsync();
+        _totalPages = Math.Max(1, (int)Math.Ceiling(_total / (double)PageSize));
+        if (_page > _totalPages) _page = _totalPages;
+
+        var users = await query.OrderBy(u => u.FullName).Skip((_page - 1) * PageSize).Take(PageSize).ToListAsync();
+        var ids = users.Select(u => u.Id).ToList();
+
+        var roleMap = await (from ur in Db.UserRoles
+                             join r in Db.Roles on ur.RoleId equals r.Id
+                             where ids.Contains(ur.UserId)
+                             select new { ur.UserId, r.Name })
+            .ToListAsync();
+
+        _rows = users.Select(u => new UserRow
+        {
+            User = u,
+            Roles = roleMap.Where(m => m.UserId == u.Id).Select(m => m.Name!).ToList()
+        }).ToList();
+    }
+
+    private async Task ApplyFilter() { _page = 1; await LoadData(); }
+    private async Task ChangePage(int d) { _page += d; await LoadData(); }
+
+    private void OpenRoleEditor(UserRow row)
+    {
+        _editing = row;
+        _editRoles = row.Roles.ToHashSet();
+        _error = "";
+    }
+
+    private void ToggleRoleSelection(string role, bool on)
+    {
+        if (on) _editRoles.Add(role);
+        else _editRoles.Remove(role);
+    }
+
+    private async Task SaveRoles()
+    {
+        if (_editing == null) return;
+        if (_editRoles.Count == 0) { _error = "Pilih minimal satu role."; return; }
+
+        var user = await UserManager.FindByIdAsync(_editing.User.Id);
+        if (user == null) return;
+
+        var current = await UserManager.GetRolesAsync(user);
+        var toRemove = current.Except(_editRoles).ToList();
+        var toAdd = _editRoles.Except(current).ToList();
+
+        // Jangan biarkan admin mencabut role Pemilik terakhir
+        if (toRemove.Contains("Pemilik"))
+        {
+            var ownerRoleId = await Db.Roles.Where(r => r.Name == "Pemilik").Select(r => r.Id).FirstAsync();
+            var ownerCount = await Db.UserRoles.CountAsync(ur => ur.RoleId == ownerRoleId);
+            if (ownerCount <= 1) { _error = "Tidak bisa mencabut role Pemilik terakhir."; return; }
+        }
+
+        if (toRemove.Count > 0) await UserManager.RemoveFromRolesAsync(user, toRemove);
+        if (toAdd.Count > 0) await UserManager.AddToRolesAsync(user, toAdd);
+
+        _editing = null;
+        await LoadData();
+    }
+
+    private async Task ToggleActive(string userId)
+    {
+        var user = await Db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null) return;
+        user.IsActive = !user.IsActive;
+        await Db.SaveChangesAsync();
+        await LoadData();
+    }
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 0 ? "?" : string.Concat(parts.Take(2).Select(p => p[0])).ToUpper();
+    }
+
+    private static string RoleBadge(string role) => role switch
+    {
+        "Pemilik" => "badge-purple",
+        "Admin" => "badge-info",
+        "Kurir" => "badge-warning",
+        _ => "badge-gray"
+    };
+
+    private static string RoleIcon(string role) => role switch
+    {
+        "Pemilik" => "👑", "Admin" => "🛠️", "Kurir" => "🚚", _ => "👤"
+    };
+
+    private static string RoleDescription(string role) => role switch
+    {
+        "Pemilik" => "akses penuh semua cabang & pengaturan",
+        "Admin" => "operasional: order, keuangan, inventaris",
+        "Kurir" => "tugas antar-jemput & tracking",
+        _ => "order & layanan pelanggan",
+    };
+}

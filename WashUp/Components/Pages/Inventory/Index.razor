@@ -1,0 +1,307 @@
+@page "/inventory"
+@using WashUp.Data
+@using WashUp.Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin,Pemilik")]
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Inventaris - WashUp</PageTitle>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2>🧴 Inventaris & Stok</h2>
+    <button class="btn-primary btn-sm" @onclick="OpenAddForm">+ Tambah item</button>
+</div>
+
+@if (_lowStockItems.Any())
+{
+    <div class="alert alert-warning">
+        ⚠️ <strong>@_lowStockItems.Count item</strong> stoknya di bawah batas minimum: @string.Join(", ", _lowStockItems.Select(i => i.Name)). Segera restock.
+    </div>
+}
+
+<div class="card">
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr><th>Nama item</th><th>Kategori</th><th>Stok</th><th>Min</th><th>Status</th><th>Terakhir restock</th><th>Aksi</th></tr>
+            </thead>
+            <tbody>
+                @if (_items.Any())
+                {
+                    @foreach (var item in _items)
+                    {
+                        var isLow = item.CurrentStock <= item.MinimumStock;
+                        var isNear = !isLow && item.CurrentStock <= item.MinimumStock * 1.5;
+                        <tr>
+                            <td><strong>@item.Name</strong><div class="text-xs text-muted">@item.Description</div></td>
+                            <td>@CategoryLabel(item.Category)</td>
+                            <td class="num"><strong>@item.CurrentStock</strong> @item.Unit</td>
+                            <td class="num">@item.MinimumStock</td>
+                            <td><span class="badge @(isLow ? "badge-danger" : isNear ? "badge-warning" : "badge-success")">@(isLow ? "Kritis" : isNear ? "Menipis" : "Aman")</span></td>
+                            <td>@(item.LastRestockedAt?.ToString("dd/MM/yyyy") ?? "-")</td>
+                            <td>
+                                <div class="flex gap-1">
+                                    <button class="btn-secondary btn-sm" @onclick="() => OpenMovement(item, true)" title="Stok masuk">＋ Masuk</button>
+                                    <button class="btn-secondary btn-sm" @onclick="() => OpenMovement(item, false)" title="Stok keluar">－ Pakai</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr><td colspan="7" class="text-center text-muted p-4">Belum ada item. Tambahkan bahan seperti detergen, pewangi, atau plastik.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="grid grid-2 mt-4">
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">📜 Riwayat pergerakan stok</h3></div>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Waktu</th><th>Item</th><th>Tipe</th><th>Jumlah</th><th>Catatan</th></tr></thead>
+                <tbody>
+                    @if (_movements.Any())
+                    {
+                        @foreach (var m in _movements)
+                        {
+                            <tr>
+                                <td>@m.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                                <td>@m.InventoryItem?.Name</td>
+                                <td><span class="badge @(m.MovementType == "In" ? "badge-success" : "badge-warning")">@(m.MovementType == "In" ? "Masuk" : "Keluar")</span></td>
+                                <td class="num">@m.Quantity @m.InventoryItem?.Unit</td>
+                                <td class="text-sm text-muted">@m.Notes</td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr><td colspan="5" class="text-center text-muted p-4">Belum ada pergerakan stok tercatat.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">📈 Pemakaian 30 hari terakhir</h3></div>
+        @if (_usage.Any())
+        {
+            @foreach (var u in _usage)
+            {
+                var pct = _maxUsage > 0 ? (int)(u.Total / _maxUsage * 100) : 0;
+                <div class="usage-row">
+                    <div class="flex items-center justify-between text-sm">
+                        <span>@u.Name</span>
+                        <span class="text-muted">@u.Total.ToString("0.#") @u.Unit</span>
+                    </div>
+                    <div class="usage-bar"><div class="usage-fill" style="width:@(pct)%"></div></div>
+                </div>
+            }
+        }
+        else
+        {
+            <p class="text-muted p-2">Belum ada pemakaian tercatat bulan ini. Catat pemakaian lewat tombol "－ Pakai".</p>
+        }
+    </div>
+</div>
+
+@* ---------- Modal tambah item ---------- *@
+@if (_showAddForm)
+{
+    <div class="modal-backdrop" @onclick="() => _showAddForm = false">
+        <div class="modal-panel" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Tambah item inventaris</h3>
+                <button class="icon-btn" @onclick="() => _showAddForm = false" title="Tutup">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group"><label class="form-label">Nama item</label><input class="form-control" @bind="_newItem.Name" placeholder="cth: Detergen Cair Premium" /></div>
+                <div class="grid grid-2" style="gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Kategori</label>
+                        <select class="form-control" @bind="_newItem.Category">
+                            <option value="Detergent">Detergen</option>
+                            <option value="Fragrance">Pewangi</option>
+                            <option value="Plastic">Plastik</option>
+                            <option value="Other">Lainnya</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Satuan</label>
+                        <select class="form-control" @bind="_newItem.Unit">
+                            <option>pcs</option><option>kg</option><option>liter</option><option>pack</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-2" style="gap:12px">
+                    <div class="form-group"><label class="form-label">Stok awal</label><input type="number" min="0" class="form-control" @bind="_newItem.CurrentStock" /></div>
+                    <div class="form-group"><label class="form-label">Stok minimum (alert)</label><input type="number" min="0" class="form-control" @bind="_newItem.MinimumStock" /></div>
+                </div>
+                <div class="form-group"><label class="form-label">Deskripsi (opsional)</label><input class="form-control" @bind="_newItem.Description" /></div>
+                @if (!string.IsNullOrEmpty(_formError))
+                {
+                    <div class="alert alert-error">@_formError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" @onclick="() => _showAddForm = false">Batal</button>
+                <button class="btn-primary" @onclick="AddItem">Simpan item</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---------- Modal stok masuk/keluar ---------- *@
+@if (_movementItem != null)
+{
+    <div class="modal-backdrop" @onclick="() => _movementItem = null">
+        <div class="modal-panel" style="max-width:420px" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>@(_movementIn ? "Stok masuk" : "Catat pemakaian") — @_movementItem.Name</h3>
+                <button class="icon-btn" @onclick="() => _movementItem = null" title="Tutup">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-sm text-muted mb-3">Stok saat ini: <strong>@_movementItem.CurrentStock @_movementItem.Unit</strong></p>
+                <div class="form-group">
+                    <label class="form-label">Jumlah (@_movementItem.Unit)</label>
+                    <input type="number" step="0.1" min="0" class="form-control" @bind="_movementQty" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Catatan (opsional)</label>
+                    <input class="form-control" @bind="_movementNotes" placeholder="@(_movementIn ? "cth: pembelian dari supplier" : "cth: pemakaian harian mesin #1")" />
+                </div>
+                @if (!string.IsNullOrEmpty(_formError))
+                {
+                    <div class="alert alert-error">@_formError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" @onclick="() => _movementItem = null">Batal</button>
+                <button class="btn-primary" @onclick="SaveMovement">Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<InventoryItem> _items = new();
+    private List<InventoryItem> _lowStockItems = new();
+    private List<StockMovement> _movements = new();
+    private List<UsageRow> _usage = new();
+    private double _maxUsage;
+    private string? _userId;
+
+    private bool _showAddForm;
+    private InventoryItem _newItem = new();
+    private string _formError = "";
+
+    private InventoryItem? _movementItem;
+    private bool _movementIn;
+    private double _movementQty;
+    private string _movementNotes = "";
+
+    private sealed record UsageRow(string Name, string Unit, double Total);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirstValue(System.Security.Claims.ClaimTypes.NameIdentifier);
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _items = await Db.InventoryItems.Where(i => i.IsActive).OrderBy(i => i.Category).ThenBy(i => i.Name).ToListAsync();
+        _lowStockItems = _items.Where(i => i.CurrentStock <= i.MinimumStock).ToList();
+        _movements = await Db.StockMovements.AsNoTracking()
+            .Include(m => m.InventoryItem)
+            .OrderByDescending(m => m.CreatedAt).Take(15).ToListAsync();
+
+        var monthAgo = DateTime.UtcNow.AddDays(-30);
+        var usageRaw = await Db.StockMovements.AsNoTracking()
+            .Include(m => m.InventoryItem)
+            .Where(m => m.MovementType == "Out" && m.CreatedAt >= monthAgo)
+            .ToListAsync();
+        _usage = usageRaw
+            .GroupBy(m => new { m.InventoryItem!.Name, m.InventoryItem.Unit })
+            .Select(g => new UsageRow(g.Key.Name, g.Key.Unit, g.Sum(x => x.Quantity)))
+            .OrderByDescending(u => u.Total)
+            .Take(8)
+            .ToList();
+        _maxUsage = _usage.Count > 0 ? _usage.Max(u => u.Total) : 0;
+    }
+
+    private void OpenAddForm()
+    {
+        _newItem = new InventoryItem { Category = "Detergent", Unit = "liter", BranchId = 1 };
+        _formError = "";
+        _showAddForm = true;
+    }
+
+    private async Task AddItem()
+    {
+        if (string.IsNullOrWhiteSpace(_newItem.Name)) { _formError = "Nama item harus diisi."; return; }
+        _newItem.MaximumStock = Math.Max(_newItem.MaximumStock, _newItem.MinimumStock * 5);
+        _newItem.CreatedAt = DateTime.UtcNow;
+        _newItem.LastRestockedAt = _newItem.CurrentStock > 0 ? DateTime.UtcNow : null;
+        Db.InventoryItems.Add(_newItem);
+        await Db.SaveChangesAsync();
+        _showAddForm = false;
+        await LoadData();
+    }
+
+    private void OpenMovement(InventoryItem item, bool stockIn)
+    {
+        _movementItem = item;
+        _movementIn = stockIn;
+        _movementQty = 0;
+        _movementNotes = "";
+        _formError = "";
+    }
+
+    private async Task SaveMovement()
+    {
+        if (_movementItem == null) return;
+        if (_movementQty <= 0) { _formError = "Jumlah harus lebih dari 0."; return; }
+        if (!_movementIn && _movementQty > _movementItem.CurrentStock)
+        { _formError = $"Stok tidak cukup (tersisa {_movementItem.CurrentStock} {_movementItem.Unit})."; return; }
+
+        Db.StockMovements.Add(new StockMovement
+        {
+            InventoryItemId = _movementItem.Id,
+            MovementType = _movementIn ? "In" : "Out",
+            Quantity = _movementQty,
+            Notes = string.IsNullOrWhiteSpace(_movementNotes) ? null : _movementNotes,
+            RecordedByUserId = _userId,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        if (_movementIn)
+        {
+            _movementItem.CurrentStock += _movementQty;
+            _movementItem.LastRestockedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            _movementItem.CurrentStock -= _movementQty;
+        }
+
+        await Db.SaveChangesAsync();
+        _movementItem = null;
+        await LoadData();
+    }
+
+    private static string CategoryLabel(string c) => c switch
+    {
+        "Detergent" => "Detergen",
+        "Fragrance" => "Pewangi",
+        "Plastic" => "Plastik",
+        _ => "Lainnya"
+    };
+}

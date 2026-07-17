@@ -1,0 +1,151 @@
+@page "/auth/register"
+@page "/register"
+@attribute [ExcludeFromInteractiveRouting]
+@layout WashUp.Components.Layout.EmptyLayout
+@using Microsoft.AspNetCore.Identity
+@using WashUp.Models
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager Navigation
+
+<PageTitle>Daftar - WashUp</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="auth-logo">🧺</div>
+        <h1 class="auth-title">Daftar ke WashUp</h1>
+        <p class="auth-subtitle">Buat akun dan nikmati laundry tanpa repot</p>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="alert alert-error">@_errorMessage</div>
+        }
+
+        <EditForm Model="Input" FormName="register" OnValidSubmit="HandleRegister" method="post">
+            <div class="form-group">
+                <label class="form-label" for="reg-name">Nama lengkap</label>
+                <InputText id="reg-name" class="form-control" @bind-Value="Input.FullName" placeholder="Nama lengkap Anda" />
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="reg-email">Email</label>
+                <InputText id="reg-email" type="email" class="form-control" @bind-Value="Input.Email" placeholder="nama@email.com" autocomplete="username" />
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="reg-phone">Nomor telepon</label>
+                <InputText id="reg-phone" class="form-control" @bind-Value="Input.Phone" placeholder="08xxxxxxxxxx" />
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="reg-address">Alamat</label>
+                <InputTextArea id="reg-address" class="form-control" @bind-Value="Input.Address" placeholder="Alamat penjemputan/pengantaran" rows="2" />
+            </div>
+            <div class="grid grid-2" style="gap:12px">
+                <div class="form-group">
+                    <label class="form-label" for="reg-service">Layanan favorit</label>
+                    <InputSelect id="reg-service" class="form-control" @bind-Value="Input.PreferredService">
+                        <option value="">Pilih nanti</option>
+                        <option value="CuciKering">Cuci Kering</option>
+                        <option value="Setrika">Setrika</option>
+                        <option value="Express">Express</option>
+                        <option value="Kiloan">Kiloan</option>
+                    </InputSelect>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="reg-fragrance">Pewangi favorit</label>
+                    <InputSelect id="reg-fragrance" class="form-control" @bind-Value="Input.PreferredFragrance">
+                        <option value="">Pilih nanti</option>
+                        <option>Lavender</option>
+                        <option>Rose</option>
+                        <option>Fresh Linen</option>
+                        <option>Ocean Breeze</option>
+                        <option>Baby Powder</option>
+                    </InputSelect>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="reg-password">Password</label>
+                <InputText id="reg-password" type="password" class="form-control" @bind-Value="Input.Password" placeholder="Min. 6 karakter, ada huruf besar & angka" autocomplete="new-password" />
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="reg-confirm">Konfirmasi password</label>
+                <InputText id="reg-confirm" type="password" class="form-control" @bind-Value="Input.ConfirmPassword" placeholder="Ulangi password" autocomplete="new-password" />
+            </div>
+            <button type="submit" class="btn-primary btn-block">Daftar</button>
+        </EditForm>
+
+        <div class="auth-link">
+            Sudah punya akun? <a href="/auth/login">Masuk</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private RegisterInput Input { get; set; } = new();
+
+    private string? _errorMessage;
+
+    private async Task HandleRegister()
+    {
+        if (string.IsNullOrWhiteSpace(Input.FullName) || string.IsNullOrWhiteSpace(Input.Email) || string.IsNullOrWhiteSpace(Input.Password))
+        {
+            _errorMessage = "Nama, email, dan password harus diisi.";
+            return;
+        }
+        if (Input.Password != Input.ConfirmPassword)
+        {
+            _errorMessage = "Password dan konfirmasi password tidak cocok.";
+            return;
+        }
+
+        var user = new ApplicationUser
+        {
+            UserName = Input.Email,
+            Email = Input.Email,
+            FullName = Input.FullName.Trim(),
+            PhoneNumber = Input.Phone,
+            Address = Input.Address,
+            PreferredServiceType = string.IsNullOrEmpty(Input.PreferredService) ? null : Input.PreferredService,
+            PreferredFragrance = string.IsNullOrEmpty(Input.PreferredFragrance) ? null : Input.PreferredFragrance,
+            MembershipTier = "Regular",
+            LoyaltyPoints = 0,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        var result = await UserManager.CreateAsync(user, Input.Password);
+
+        if (result.Succeeded)
+        {
+            await UserManager.AddToRoleAsync(user, "Pelanggan");
+            await SignInManager.SignInAsync(user, isPersistent: false);
+            Navigation.NavigateTo("/dashboard");
+        }
+        else
+        {
+            _errorMessage = string.Join(" ", result.Errors.Select(e => TranslateError(e)));
+        }
+    }
+
+    private static string TranslateError(IdentityError e) => e.Code switch
+    {
+        "DuplicateUserName" or "DuplicateEmail" => "Email sudah terdaftar.",
+        "PasswordTooShort" => "Password minimal 6 karakter.",
+        "PasswordRequiresDigit" => "Password harus mengandung angka.",
+        "PasswordRequiresUpper" => "Password harus mengandung huruf besar.",
+        "PasswordRequiresLower" => "Password harus mengandung huruf kecil.",
+        "InvalidEmail" => "Format email tidak valid.",
+        _ => e.Description
+    };
+
+    private sealed class RegisterInput
+    {
+        public string FullName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Phone { get; set; } = "";
+        public string Address { get; set; } = "";
+        public string PreferredService { get; set; } = "";
+        public string PreferredFragrance { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

@@ -1,0 +1,363 @@
+@page "/chat"
+@using WashUp.Data
+@using WashUp.Models
+@using WashUp.Services
+@using Microsoft.EntityFrameworkCore
+@using Markdig
+@inject AppDbContext Db
+@inject ChatBotService ChatBot
+@inject StorageService Storage
+@inject IJSRuntime Js
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Mbok Inem Chat - WashUp</PageTitle>
+
+<div class="chat-container">
+    <div class="chat-sidebar">
+        <div class="chat-sessions-header">
+            <h4>💬 Percakapan</h4>
+            <button class="btn-primary btn-sm" @onclick="CreateNewSession">+ Baru</button>
+        </div>
+        <div class="chat-sessions-list">
+            @if (_sessions.Any())
+            {
+                @foreach (var session in _sessions.OrderByDescending(s => s.LastMessageAt ?? s.CreatedAt))
+                {
+                    <div class="chat-session-item @(session.Id == _activeSessionId ? "active" : "")"
+                         @onclick="() => SelectSession(session.Id)">
+                        <div>
+                            <div class="font-bold text-sm">@session.Title</div>
+                            <small class="text-muted">@(session.LastMessageAt?.ToLocalTime().ToString("dd/MM HH:mm") ?? session.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm"))</small>
+                        </div>
+                        <button class="chip-close" @onclick="() => DeleteSession(session.Id)"
+                                @onclick:stopPropagation="true" title="Hapus percakapan">🗑️</button>
+                    </div>
+                }
+            }
+            else
+            {
+                <p class="text-center text-muted p-4">Belum ada percakapan. Klik "+ Baru" untuk mulai ngobrol dengan Mbok Inem.</p>
+            }
+        </div>
+        <div class="chat-provider">
+            <label class="form-label text-xs">Model AI</label>
+            <select class="form-control" @bind="_selectedProvider" @bind:after="SaveSessionProvider" style="font-size:0.8rem">
+                <option value="OpenAI">🤖 OpenAI</option>
+                <option value="Anthropic">🧠 Anthropic</option>
+                <option value="Gemini">🌟 Gemini</option>
+                <option value="Ollama">🦙 Ollama</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="chat-main">
+        @if (_activeSessionId == 0)
+        {
+            <div class="flex items-center justify-center" style="height:100%">
+                <div class="text-center" style="max-width:560px;padding:0 16px">
+                    <div class="chat-hero">🧕</div>
+                    <h2 class="mt-4">Halo! Aku Mbok Inem</h2>
+                    <p class="text-muted">Asisten virtual WashUp. Tanya harga, cek status order,<br />atau minta tips merawat pakaian kesayanganmu.</p>
+                    <div class="suggestion-chips mt-4">
+                        @foreach (var s in SuggestedPrompts)
+                        {
+                            <button class="suggestion-chip" @onclick="() => SendSuggestion(s.Prompt)">@s.Icon @s.Label</button>
+                        }
+                    </div>
+                    <button class="btn-primary mt-4" @onclick="CreateNewSession">💬 Mulai chat baru</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="chat-messages" id="chat-messages-container">
+                @if (!_messages.Any())
+                {
+                    <div class="text-center p-8">
+                        <div class="chat-hero">🧺</div>
+                        <h3>Mbok Inem siap membantu, Cah Bagus/Cah Ayu!</h3>
+                        <p class="text-muted mb-3">Coba salah satu pertanyaan ini, atau ketik sendiri:</p>
+                        <div class="suggestion-chips">
+                            @foreach (var s in SuggestedPrompts)
+                            {
+                                <button class="suggestion-chip" @onclick="() => SendSuggestion(s.Prompt)">@s.Icon @s.Label</button>
+                            }
+                        </div>
+                    </div>
+                }
+                @foreach (var msg in _messages)
+                {
+                    <div class="chat-message @msg.Role">
+                        <div class="chat-avatar">@(msg.Role == "user" ? "👤" : "🧕")</div>
+                        <div class="chat-bubble">
+                            @if (!string.IsNullOrEmpty(msg.ImageUrl))
+                            {
+                                <img src="@msg.ImageUrl" alt="Lampiran gambar" class="chat-attachment-img" />
+                            }
+                            @if (!string.IsNullOrEmpty(msg.DocumentUrl))
+                            {
+                                <div class="mb-2"><a href="@msg.DocumentUrl" target="_blank" class="badge badge-info" style="text-decoration:none">📎 @(msg.DocumentName ?? "Dokumen")</a></div>
+                            }
+                            @((MarkupString)RenderMarkdown(msg.Content))
+                            <div class="chat-meta">
+                                @msg.CreatedAt.ToLocalTime().ToString("HH:mm")
+                                @if (!string.IsNullOrEmpty(msg.ModelUsed))
+                                {
+                                    <span> · @msg.ModelUsed</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+                @if (_isLoading)
+                {
+                    <div class="chat-message assistant">
+                        <div class="chat-avatar">🧕</div>
+                        <div class="chat-bubble">
+                            <div class="flex items-center gap-2">
+                                <div class="loading-spinner" style="width:16px;height:16px"></div>
+                                <span>Mbok Inem lagi mikir...</span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @if (_pendingImageUrl != null || _pendingDocumentUrl != null)
+            {
+                <div class="chat-pending">
+                    @if (_pendingImageUrl != null)
+                    {
+                        <span class="badge badge-purple">🖼️ Gambar terlampir <button class="chip-close" @onclick="() => _pendingImageUrl = null">✕</button></span>
+                    }
+                    @if (_pendingDocumentUrl != null)
+                    {
+                        <span class="badge badge-info">📎 @_pendingDocumentName <button class="chip-close" @onclick="ClearPendingDocument">✕</button></span>
+                    }
+                </div>
+            }
+
+            <div class="chat-input-area">
+                <InputFile accept="image/*" OnChange="HandleImageUpload" style="display:none" id="image-upload" />
+                <label for="image-upload" class="icon-btn" style="cursor:pointer" title="Lampirkan gambar">🖼️</label>
+                <InputFile accept=".pdf,.doc,.docx,.txt,.csv,.md" OnChange="HandleDocumentUpload" style="display:none" id="doc-upload" />
+                <label for="doc-upload" class="icon-btn" style="cursor:pointer" title="Lampirkan dokumen">📎</label>
+                <textarea @bind="_inputMessage" @bind:event="oninput" @onkeydown="HandleKeyDown"
+                          placeholder="Ketik pesan untuk Mbok Inem... (Enter untuk kirim)" rows="1" disabled="@_isLoading"></textarea>
+                <button class="btn-primary btn-sm" @onclick="SendMessage" disabled="@_isLoading" title="Kirim">➤</button>
+                <button class="icon-btn" @onclick="ResetSession" title="Bersihkan percakapan ini">🔄</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<ChatSession> _sessions = new();
+    private List<ChatMessage> _messages = new();
+    private int _activeSessionId;
+    private string _inputMessage = "";
+    private string _selectedProvider = "OpenAI";
+    private bool _isLoading;
+    private string? _pendingImageUrl;
+    private string? _pendingDocumentUrl;
+    private string? _pendingDocumentName;
+    private string _currentUserId = "";
+    private bool _shouldScroll;
+
+    private sealed record Suggestion(string Icon, string Label, string Prompt);
+
+    private static readonly List<Suggestion> SuggestedPrompts = new()
+    {
+        new("💸", "Harga layanan", "Berapa harga semua layanan laundry WashUp? Tampilkan dalam bentuk tabel ya."),
+        new("📦", "Cek order", "Cek status order terbaru atas nama Rina Melati dong."),
+        new("🧮", "Hitung biaya", "Hitung biaya cuci kiloan 4,5 kg dengan diskon member Gold 10% plus pajak 10%."),
+        new("🧼", "Tips noda", "Bagaimana cara menghilangkan noda kopi yang sudah mengering di kemeja putih?"),
+        new("📍", "Lokasi cabang", "Di mana saja cabang WashUp? Sebutkan alamat lengkapnya."),
+        new("📊", "Ringkasan bisnis", "Berikan ringkasan bisnis bulan ini: jumlah order, pemasukan, dan profit."),
+        new("👕", "Tips merawat batik", "Bagaimana cara mencuci dan merawat kain batik supaya warnanya awet?"),
+        new("🕐", "Jam & tanggal", "Sekarang hari apa dan jam berapa WIB?"),
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        _currentUserId = authState.User.FindFirstValue(System.Security.Claims.ClaimTypes.NameIdentifier) ?? "";
+        _selectedProvider = ChatBotDefaultProvider();
+        await LoadSessions();
+    }
+
+    private string ChatBotDefaultProvider() => "OpenAI";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shouldScroll)
+        {
+            _shouldScroll = false;
+            await Js.InvokeVoidAsync("washup.scrollToBottom", "chat-messages-container");
+        }
+    }
+
+    private async Task LoadSessions() =>
+        _sessions = await Db.ChatSessions.Where(s => s.UserId == _currentUserId && s.IsActive).ToListAsync();
+
+    private async Task CreateNewSession()
+    {
+        var session = new ChatSession { UserId = _currentUserId, Title = "Chat Baru", ModelProvider = _selectedProvider, CreatedAt = DateTime.UtcNow };
+        Db.ChatSessions.Add(session);
+        await Db.SaveChangesAsync();
+        await LoadSessions();
+        await SelectSession(session.Id);
+    }
+
+    private async Task SelectSession(int sessionId)
+    {
+        _activeSessionId = sessionId;
+        _messages = await Db.ChatMessages.Where(m => m.ChatSessionId == sessionId).OrderBy(m => m.CreatedAt).ToListAsync();
+        _pendingImageUrl = null;
+        _pendingDocumentUrl = null;
+        _selectedProvider = _sessions.FirstOrDefault(s => s.Id == sessionId)?.ModelProvider ?? _selectedProvider;
+        _shouldScroll = true;
+    }
+
+    private async Task SaveSessionProvider()
+    {
+        if (_activeSessionId == 0) return;
+        var session = await Db.ChatSessions.FindAsync(_activeSessionId);
+        if (session != null)
+        {
+            session.ModelProvider = _selectedProvider;
+            await Db.SaveChangesAsync();
+        }
+    }
+
+    private async Task DeleteSession(int sessionId)
+    {
+        var s = await Db.ChatSessions.FindAsync(sessionId);
+        if (s != null)
+        {
+            s.IsActive = false;
+            await Db.SaveChangesAsync();
+        }
+        if (_activeSessionId == sessionId)
+        {
+            _activeSessionId = 0;
+            _messages.Clear();
+        }
+        await LoadSessions();
+    }
+
+    private async Task ResetSession()
+    {
+        if (_activeSessionId == 0) return;
+        var msgs = await Db.ChatMessages.Where(m => m.ChatSessionId == _activeSessionId).ToListAsync();
+        Db.ChatMessages.RemoveRange(msgs);
+        await Db.SaveChangesAsync();
+        _messages.Clear();
+        _pendingImageUrl = null;
+        _pendingDocumentUrl = null;
+    }
+
+    private async Task HandleImageUpload(InputFileChangeEventArgs e)
+    {
+        if (e.File == null) return;
+        _pendingImageUrl = await Storage.UploadBrowserFileAsync(e.File, "chat-images");
+    }
+
+    private async Task HandleDocumentUpload(InputFileChangeEventArgs e)
+    {
+        if (e.File == null) return;
+        _pendingDocumentUrl = await Storage.UploadBrowserFileAsync(e.File, "chat-documents");
+        _pendingDocumentName = e.File.Name;
+    }
+
+    private void ClearPendingDocument()
+    {
+        _pendingDocumentUrl = null;
+        _pendingDocumentName = null;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) await SendMessage();
+    }
+
+    private async Task SendSuggestion(string prompt)
+    {
+        if (_isLoading) return;
+        if (_activeSessionId == 0) await CreateNewSession();
+        _inputMessage = prompt;
+        await SendMessage();
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_inputMessage) || _isLoading || _activeSessionId == 0) return;
+        var userMsg = _inputMessage.Trim();
+        _inputMessage = "";
+        _isLoading = true;
+
+        // Riwayat SEBELUM pesan baru (agar tidak dobel di ChatBotService)
+        var history = _messages.Select(m => new ChatMessage { Role = m.Role, Content = m.Content }).ToList();
+
+        var chatMsg = new ChatMessage
+        {
+            ChatSessionId = _activeSessionId,
+            Role = "user",
+            Content = userMsg,
+            ImageUrl = _pendingImageUrl,
+            DocumentUrl = _pendingDocumentUrl,
+            DocumentName = _pendingDocumentName,
+            CreatedAt = DateTime.UtcNow
+        };
+        Db.ChatMessages.Add(chatMsg);
+        var session = await Db.ChatSessions.FindAsync(_activeSessionId);
+        if (session != null && session.Title == "Chat Baru")
+            session.Title = userMsg.Length > 40 ? userMsg[..40] + "..." : userMsg;
+        await Db.SaveChangesAsync();
+        _messages.Add(chatMsg);
+        _shouldScroll = true;
+        StateHasChanged();
+
+        try
+        {
+            var imageUrl = _pendingImageUrl;
+            var docUrl = _pendingDocumentUrl;
+            var docName = _pendingDocumentName;
+            _pendingImageUrl = null;
+            _pendingDocumentUrl = null;
+            _pendingDocumentName = null;
+
+            var response = await ChatBot.GetResponseAsync(userMsg, history, imageUrl, docUrl, docName, _selectedProvider);
+            var aiMsg = new ChatMessage
+            {
+                ChatSessionId = _activeSessionId,
+                Role = "assistant",
+                Content = response,
+                ModelUsed = _selectedProvider,
+                CreatedAt = DateTime.UtcNow
+            };
+            Db.ChatMessages.Add(aiMsg);
+            if (session != null) session.LastMessageAt = DateTime.UtcNow;
+            await Db.SaveChangesAsync();
+            _messages.Add(aiMsg);
+        }
+        catch (Exception ex)
+        {
+            _messages.Add(new ChatMessage { ChatSessionId = _activeSessionId, Role = "assistant", Content = "❌ Waduh, ada gangguan: " + ex.Message, CreatedAt = DateTime.UtcNow });
+        }
+        finally
+        {
+            _isLoading = false;
+            _shouldScroll = true;
+        }
+    }
+
+    private static readonly MarkdownPipeline Pipeline =
+        new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+
+    private string RenderMarkdown(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        return Markdown.ToHtml(text, Pipeline);
+    }
+}

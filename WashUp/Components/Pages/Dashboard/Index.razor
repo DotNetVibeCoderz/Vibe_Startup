@@ -1,0 +1,330 @@
+@page "/dashboard"
+@page "/"
+@using WashUp.Data
+@using WashUp.Models
+@using Microsoft.EntityFrameworkCore
+@using ApexCharts
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Dashboard - WashUp</PageTitle>
+
+@if (_isLoading)
+{
+    <div class="flex items-center justify-center" style="height: 60vh;">
+        <div class="loading-spinner"></div>
+        <span class="ml-3">Memuat dashboard...</span>
+    </div>
+}
+else
+{
+    <!-- Welcome Banner -->
+    <div class="welcome-banner mb-4">
+        <div>
+            <h2>👋 Selamat datang, @_userName!</h2>
+            <p>@_greetingMessage</p>
+        </div>
+        <div class="welcome-art">🧺</div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon purple">📦</div>
+            <div class="stat-info">
+                <div class="stat-label">@(_isStaff ? "Total order" : "Order saya")</div>
+                <div class="stat-value">@_totalOrders</div>
+                <div class="stat-change positive">@_activeOrders sedang dikerjakan</div>
+            </div>
+        </div>
+        @if (_isStaff)
+        {
+            <div class="stat-card">
+                <div class="stat-icon green">💰</div>
+                <div class="stat-info">
+                    <div class="stat-label">Pemasukan bulan ini</div>
+                    <div class="stat-value">Rp @_monthRevenue.ToString("N0")</div>
+                    <div class="stat-change @(_monthProfit >= 0 ? "positive" : "negative")">Profit: Rp @_monthProfit.ToString("N0")</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon blue">👥</div>
+                <div class="stat-info">
+                    <div class="stat-label">Total pelanggan</div>
+                    <div class="stat-value">@_totalCustomers</div>
+                    <div class="stat-change">@_newCustomers baru bulan ini</div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="stat-card">
+                <div class="stat-icon green">⭐</div>
+                <div class="stat-info">
+                    <div class="stat-label">Poin loyalty</div>
+                    <div class="stat-value">@_loyaltyPoints</div>
+                    <div class="stat-change">Tier @_membershipTier</div>
+                </div>
+            </div>
+        }
+        <div class="stat-card">
+            <div class="stat-icon orange">✅</div>
+            <div class="stat-info">
+                <div class="stat-label">Order selesai</div>
+                <div class="stat-value">@_completedOrders</div>
+                <div class="stat-change positive">Rate: @_completionRate%</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-2">
+        <!-- Recent Orders -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">📦 Order terbaru</h3>
+                <a href="/orders" class="btn-secondary btn-sm">Lihat semua</a>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr><th>No. Order</th><th>Pelanggan</th><th>Layanan</th><th>Status</th><th>Total</th></tr>
+                    </thead>
+                    <tbody>
+                        @if (_recentOrders.Any())
+                        {
+                            @foreach (var order in _recentOrders)
+                            {
+                                <tr>
+                                    <td><a href="/orders/@order.OrderNumber" class="table-link">@order.OrderNumber</a></td>
+                                    <td>@order.User?.FullName</td>
+                                    <td>@order.ServiceType</td>
+                                    <td><span class="badge @GetStatusBadge(order.Status)">@order.Status</span></td>
+                                    <td class="num">Rp @order.TotalAmount.ToString("N0")</td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr><td colspan="5" class="text-center text-muted p-4">Belum ada order. Mulai dengan tombol "+ Order baru" di halaman Order.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div>
+            @if (_isStaff)
+            {
+                <!-- Revenue mini chart -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h3 class="card-title">💰 Pemasukan 14 hari</h3>
+                        <a href="/reports" class="btn-secondary btn-sm">Laporan</a>
+                    </div>
+                    @if (_dailyIncome.Any(p => p.Value > 0))
+                    {
+                        <ApexChart TItem="DayPoint" Options="_sparkOptions" Height="140">
+                            <ApexPointSeries TItem="DayPoint" Items="_dailyIncome" Name="Pemasukan"
+                                             SeriesType="SeriesType.Area" XValue="p => p.Label" YValue="p => p.Value" />
+                        </ApexChart>
+                    }
+                    else
+                    {
+                        <p class="text-muted p-2 text-sm">Belum ada pemasukan 14 hari terakhir.</p>
+                    }
+                </div>
+
+                <!-- Low Stock Alert -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h3 class="card-title">⚠️ Stok menipis</h3>
+                        <a href="/inventory" class="btn-secondary btn-sm">Kelola</a>
+                    </div>
+                    @if (_lowStockItems.Any())
+                    {
+                        @foreach (var item in _lowStockItems.Take(4))
+                        {
+                            <div class="list-row">
+                                <span>@item.Name</span>
+                                <span class="badge badge-warning">@item.CurrentStock @item.Unit (min @item.MinimumStock)</span>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <p class="text-muted p-2">✅ Semua stok aman!</p>
+                    }
+                </div>
+
+                <!-- IoT Status -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">📡 Status IoT</h3>
+                        <a href="/iot" class="btn-secondary btn-sm">Monitor</a>
+                    </div>
+                    @foreach (var device in _iotDevices.Take(4))
+                    {
+                        <div class="list-row">
+                            <span>@device.Name</span>
+                            <span class="flex items-center gap-2">
+                                <span class="iot-status @(device.Status == "Online" ? "online" : device.Status == "Running" ? "running" : "offline")"></span>
+                                @device.Status
+                            </span>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <!-- Customer: order aktif -->
+                <div class="card mb-3">
+                    <div class="card-header"><h3 class="card-title">🧺 Order aktif saya</h3></div>
+                    @if (_myActiveOrders.Any())
+                    {
+                        @foreach (var o in _myActiveOrders)
+                        {
+                            <a href="/orders/@o.OrderNumber" class="list-row" style="text-decoration:none;color:inherit">
+                                <div>
+                                    <div class="font-bold text-sm">@o.OrderNumber</div>
+                                    <div class="text-xs text-muted">Estimasi selesai @o.EstimatedCompletion.ToLocalTime().ToString("dd MMM")</div>
+                                </div>
+                                <span class="badge @GetStatusBadge(o.Status)">@o.Status</span>
+                            </a>
+                        }
+                    }
+                    else
+                    {
+                        <p class="text-muted p-2">Tidak ada order aktif. Yuk cuci! 🧼</p>
+                    }
+                </div>
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">🏪 Promo & layanan</h3></div>
+                    <div class="list-row"><span>Express 6 jam</span><span class="badge badge-purple">Rp 12.000/kg</span></div>
+                    <div class="list-row"><span>Kiloan hemat</span><span class="badge badge-purple">Rp 7.000/kg</span></div>
+                    <div class="list-row"><span>Diskon member Platinum</span><span class="badge badge-success">15%</span></div>
+                    <a href="/marketplace" class="btn-secondary btn-sm mt-3" style="display:inline-block">Lihat marketplace</a>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private sealed record DayPoint(string Label, decimal Value);
+
+    private bool _isLoading = true;
+    private bool _isStaff;
+    private string? _userId;
+    private string _userName = "Pengguna";
+    private string _greetingMessage = "Semoga harimu menyenangkan!";
+    private int _totalOrders, _activeOrders, _totalCustomers, _newCustomers, _completedOrders, _completionRate, _loyaltyPoints;
+    private decimal _monthRevenue, _monthProfit;
+    private string _membershipTier = "Regular";
+    private List<Order> _recentOrders = new();
+    private List<Order> _myActiveOrders = new();
+    private List<InventoryItem> _lowStockItems = new();
+    private List<IoTDevice> _iotDevices = new();
+    private List<DayPoint> _dailyIncome = new();
+    private ApexChartOptions<DayPoint> _sparkOptions = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = authState.User;
+        _userName = user.FindFirstValue("FullName") ?? user.Identity?.Name ?? "Pengguna";
+        _userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        var roles = user.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+        _isStaff = roles.Any(r => r is "Admin" or "Pemilik" or "Kurir");
+
+        var hour = DateTime.Now.Hour;
+        _greetingMessage = hour switch
+        {
+            < 10 => "Pagi yang cerah! Yuk cek orderan hari ini. 🌅",
+            < 14 => "Selamat siang! Saatnya produktif! ☀️",
+            < 18 => "Sore yang santai! Cek update laundry yuk. 🌤️",
+            _ => "Malam yang tenang! Review kerjaan hari ini ya. 🌙"
+        };
+
+        _sparkOptions = new ApexChartOptions<DayPoint>
+        {
+            Colors = new List<string> { "#8b5cf6" },
+            Chart = new Chart { Background = "transparent", ForeColor = "#8a8d91", Sparkline = new ChartSparkline { Enabled = true } },
+            Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+            Tooltip = new Tooltip { Y = new TooltipY { Formatter = "function(val){ return 'Rp ' + val.toLocaleString('id-ID'); }" } }
+        };
+
+        try
+        {
+            var today = DateTime.UtcNow.Date;
+            var thisMonth = new DateTime(today.Year, today.Month, 1);
+
+            if (_isStaff)
+            {
+                _totalOrders = await Db.Orders.CountAsync();
+                _activeOrders = await Db.Orders.CountAsync(o => o.Status != "Selesai" && o.Status != "Dikirim");
+                _completedOrders = await Db.Orders.CountAsync(o => o.Status == "Selesai" || o.Status == "Dikirim");
+
+                _monthRevenue = await Db.FinancialTransactions
+                    .Where(t => t.TransactionType == "Income" && t.TransactionDate >= thisMonth).SumAsync(t => t.Amount);
+                var monthExpense = await Db.FinancialTransactions
+                    .Where(t => t.TransactionType == "Expense" && t.TransactionDate >= thisMonth).SumAsync(t => t.Amount);
+                _monthProfit = _monthRevenue - monthExpense;
+
+                var customerIds = Db.UserRoles
+                    .Where(ur => Db.Roles.Any(r => r.Id == ur.RoleId && r.Name == "Pelanggan"))
+                    .Select(ur => ur.UserId);
+                _totalCustomers = await Db.Users.CountAsync(u => customerIds.Contains(u.Id));
+                _newCustomers = await Db.Users.CountAsync(u => customerIds.Contains(u.Id) && u.CreatedAt >= thisMonth);
+
+                _recentOrders = await Db.Orders.AsNoTracking().Include(o => o.User)
+                    .OrderByDescending(o => o.CreatedAt).Take(8).ToListAsync();
+
+                _lowStockItems = await Db.InventoryItems.AsNoTracking()
+                    .Where(i => i.IsActive && i.CurrentStock <= i.MinimumStock).ToListAsync();
+
+                _iotDevices = await Db.IoTDevices.AsNoTracking().Where(d => d.IsActive).ToListAsync();
+
+                // Pemasukan harian 14 hari
+                var start = today.AddDays(-13);
+                var income = await Db.FinancialTransactions.AsNoTracking()
+                    .Where(t => t.TransactionType == "Income" && t.TransactionDate >= start)
+                    .Select(t => new { t.TransactionDate, t.Amount })
+                    .ToListAsync();
+                _dailyIncome = Enumerable.Range(0, 14)
+                    .Select(i => start.AddDays(i))
+                    .Select(d => new DayPoint(d.ToString("dd/MM"), income.Where(t => t.TransactionDate.Date == d).Sum(t => t.Amount)))
+                    .ToList();
+            }
+            else if (_userId != null)
+            {
+                _totalOrders = await Db.Orders.CountAsync(o => o.UserId == _userId);
+                _activeOrders = await Db.Orders.CountAsync(o => o.UserId == _userId && o.Status != "Selesai" && o.Status != "Dikirim");
+                _completedOrders = _totalOrders - _activeOrders;
+
+                var me = await Db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == _userId);
+                _loyaltyPoints = me?.LoyaltyPoints ?? 0;
+                _membershipTier = me?.MembershipTier ?? "Regular";
+
+                _recentOrders = await Db.Orders.AsNoTracking().Include(o => o.User)
+                    .Where(o => o.UserId == _userId)
+                    .OrderByDescending(o => o.CreatedAt).Take(8).ToListAsync();
+                _myActiveOrders = _recentOrders.Where(o => o.Status != "Selesai" && o.Status != "Dikirim").Take(4).ToList();
+            }
+
+            _completionRate = _totalOrders > 0 ? (int)((double)_completedOrders / _totalOrders * 100) : 0;
+        }
+        catch { /* DB belum siap */ }
+
+        _isLoading = false;
+    }
+
+    private static string GetStatusBadge(string status) => status switch
+    {
+        "Diterima" => "badge-info",
+        "Dicuci" => "badge-warning",
+        "Disetrika" => "badge-purple",
+        "Selesai" => "badge-success",
+        "Dikirim" => "badge-success",
+        _ => "badge-gray"
+    };
+}

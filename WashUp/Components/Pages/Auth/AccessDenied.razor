@@ -1,0 +1,17 @@
+@page "/auth/access-denied"
+@attribute [ExcludeFromInteractiveRouting]
+@layout WashUp.Components.Layout.EmptyLayout
+
+<PageTitle>Akses Dibatasi - WashUp</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card text-center">
+        <div class="auth-logo">🔒</div>
+        <h1 class="auth-title">Akses dibatasi</h1>
+        <p class="auth-subtitle">Akun Anda tidak memiliki izin untuk membuka halaman tersebut.</p>
+        <a href="/dashboard" class="btn-primary btn-block">Kembali ke dashboard</a>
+        <div class="auth-link">
+            <a href="/auth/logout">Masuk dengan akun lain</a>
+        </div>
+    </div>
+</div>

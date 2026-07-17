@@ -1,0 +1,28 @@
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <RedirectToLogin />
+            </NotAuthorized>
+            <Authorizing>
+                <div class="flex items-center justify-center min-h-screen">
+                    <div class="loading-spinner"></div>
+                    <span class="ml-3">Memuat...</span>
+                </div>
+            </Authorizing>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>404 - Tidak Ditemukan</PageTitle>
+        <LayoutView Layout="typeof(Layout.MainLayout)">
+            <div class="flex items-center justify-center" style="height:60vh">
+                <div class="text-center">
+                    <h1 style="font-size:6rem;color:var(--accent)">404</h1>
+                    <p>Halaman tidak ditemukan</p>
+                    <a href="/dashboard" class="btn-primary mt-4" style="display:inline-block">Kembali</a>
+                </div>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

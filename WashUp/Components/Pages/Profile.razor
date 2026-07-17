@@ -1,0 +1,275 @@
+@page "/profile"
+@using WashUp.Data
+@using WashUp.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using WashUp.Services
+@inject AppDbContext Db
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthState
+@inject StorageService Storage
+
+<PageTitle>Profil - WashUp</PageTitle>
+
+<h2 class="mb-4">👤 Profil Saya</h2>
+
+@if (_user != null)
+{
+    <div class="grid grid-2">
+        <div>
+            <div class="card mb-3">
+                <div class="text-center mb-4">
+                    <div class="avatar-upload mx-auto">
+                        @if (!string.IsNullOrEmpty(_user.AvatarUrl))
+                        {
+                            <img src="@_user.AvatarUrl" alt="Foto profil @_user.FullName" class="avatar-photo" />
+                        }
+                        else
+                        {
+                            <div class="avatar-lg">@Initials(_user.FullName)</div>
+                        }
+                        <InputFile accept="image/*" OnChange="HandleAvatarUpload" style="display:none" id="avatar-upload" />
+                        <label for="avatar-upload" class="avatar-edit" title="Ganti foto profil">📷</label>
+                    </div>
+                    @if (_isUploadingAvatar)
+                    {
+                        <div class="text-sm text-muted mt-2">Mengunggah foto...</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_avatarMsg))
+                    {
+                        <div class="text-sm @(_avatarOk ? "text-success" : "text-danger") mt-2">@_avatarMsg</div>
+                    }
+                    <h3 class="mt-3">@_user.FullName</h3>
+                    <span class="badge @GetTierBadge(_user.MembershipTier)">@_user.MembershipTier</span>
+                </div>
+                <table class="detail-table">
+                    <tr><td class="text-muted">Email</td><td><strong>@_user.Email</strong></td></tr>
+                    <tr><td class="text-muted">Telepon</td><td>@(_user.PhoneNumber ?? "-")</td></tr>
+                    <tr><td class="text-muted">Alamat</td><td>@(_user.Address ?? "-")</td></tr>
+                    <tr><td class="text-muted">Poin loyalty</td><td><strong>@_user.LoyaltyPoints</strong> poin</td></tr>
+                    <tr><td class="text-muted">Bergabung</td><td>@_user.CreatedAt.ToString("dd MMMM yyyy")</td></tr>
+                    <tr><td class="text-muted">Login terakhir</td><td>@(_user.LastLoginAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "-")</td></tr>
+                </table>
+            </div>
+
+            <!-- Loyalty Info -->
+            <div class="card">
+                <h3 class="card-title mb-3">⭐ Loyalty & membership</h3>
+                <div class="loyalty-summary">
+                    <div><span class="text-muted text-sm">Tier</span><div class="font-bold">@_user.MembershipTier</div></div>
+                    <div><span class="text-muted text-sm">Poin</span><div class="font-bold">@_user.LoyaltyPoints</div></div>
+                    <div><span class="text-muted text-sm">Diskon</span><div class="font-bold">@GetDiscount()%</div></div>
+                </div>
+                <hr class="section-divider" />
+                <h4 class="text-sm mb-2">Cara mendapatkan poin</h4>
+                <ul class="text-sm point-list">
+                    <li>Setiap order selesai <strong>+50 poin</strong></li>
+                    <li>Order Express <strong>+100 poin</strong></li>
+                    <li>Beri ulasan order <strong>+20 poin</strong></li>
+                    <li>Referral teman <strong>+500 poin</strong></li>
+                </ul>
+            </div>
+        </div>
+
+        <div>
+            <!-- Edit Profile -->
+            <div class="card mb-3">
+                <h3 class="card-title mb-4">Edit profil</h3>
+                <div class="form-group"><label class="form-label">Nama lengkap</label><input class="form-control" @bind="_editName" /></div>
+                <div class="form-group"><label class="form-label">Telepon</label><input class="form-control" @bind="_editPhone" /></div>
+                <div class="form-group"><label class="form-label">Alamat</label><textarea class="form-control" @bind="_editAddress" rows="2"></textarea></div>
+
+                <h4 class="text-sm mb-2 mt-4">Preferensi layanan</h4>
+                <div class="grid grid-2" style="gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Layanan favorit</label>
+                        <select class="form-control" @bind="_editService">
+                            <option value="">Tidak ada</option>
+                            <option value="CuciKering">Cuci Kering</option>
+                            <option value="Setrika">Setrika</option>
+                            <option value="Express">Express</option>
+                            <option value="Kiloan">Kiloan</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Detergen</label>
+                        <select class="form-control" @bind="_editDetergent">
+                            <option value="">Tidak ada</option>
+                            <option>Standard</option>
+                            <option>Hypoallergenic</option>
+                            <option>Eco-friendly</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Pewangi favorit</label>
+                    <select class="form-control" @bind="_editFragrance">
+                        <option value="">Tidak ada</option>
+                        <option>Lavender</option><option>Rose</option><option>Fresh Linen</option>
+                        <option>Ocean Breeze</option><option>Baby Powder</option>
+                    </select>
+                </div>
+
+                <button class="btn-primary" @onclick="UpdateProfile">Simpan perubahan</button>
+                @if (!string.IsNullOrEmpty(_profileMsg))
+                {
+                    <div class="alert alert-success mt-3">@_profileMsg</div>
+                }
+            </div>
+
+            <!-- Ganti Password -->
+            <div class="card">
+                <h3 class="card-title mb-4">🔒 Ganti password</h3>
+                <div class="form-group"><label class="form-label">Password saat ini</label><input type="password" class="form-control" @bind="_currentPassword" autocomplete="current-password" /></div>
+                <div class="form-group"><label class="form-label">Password baru</label><input type="password" class="form-control" @bind="_newPassword" autocomplete="new-password" /></div>
+                <div class="form-group"><label class="form-label">Konfirmasi password baru</label><input type="password" class="form-control" @bind="_confirmPassword" autocomplete="new-password" /></div>
+                <button class="btn-primary" @onclick="ChangePassword">Ubah password</button>
+                @if (!string.IsNullOrEmpty(_passwordMsg))
+                {
+                    <div class="alert @(_passwordOk ? "alert-success" : "alert-error") mt-3">@_passwordMsg</div>
+                }
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card text-center p-8">
+        <p>Memuat profil...</p>
+        <div class="loading-spinner mx-auto mt-4"></div>
+    </div>
+}
+
+@code {
+    private ApplicationUser? _user;
+    private string _editName = "", _editPhone = "", _editAddress = "", _profileMsg = "";
+    private string _editService = "", _editDetergent = "", _editFragrance = "";
+    private string _currentPassword = "", _newPassword = "", _confirmPassword = "", _passwordMsg = "";
+    private bool _passwordOk;
+    private bool _isUploadingAvatar, _avatarOk;
+    private string _avatarMsg = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!string.IsNullOrEmpty(userId))
+        {
+            _user = await Db.Users.FindAsync(userId);
+            if (_user != null)
+            {
+                _editName = _user.FullName;
+                _editPhone = _user.PhoneNumber ?? "";
+                _editAddress = _user.Address ?? "";
+                _editService = _user.PreferredServiceType ?? "";
+                _editDetergent = _user.PreferredDetergent ?? "";
+                _editFragrance = _user.PreferredFragrance ?? "";
+            }
+        }
+    }
+
+    private async Task UpdateProfile()
+    {
+        if (_user == null || string.IsNullOrWhiteSpace(_editName)) return;
+
+        _user.FullName = _editName.Trim();
+        _user.PhoneNumber = string.IsNullOrWhiteSpace(_editPhone) ? null : _editPhone;
+        _user.Address = string.IsNullOrWhiteSpace(_editAddress) ? null : _editAddress;
+        _user.PreferredServiceType = string.IsNullOrEmpty(_editService) ? null : _editService;
+        _user.PreferredDetergent = string.IsNullOrEmpty(_editDetergent) ? null : _editDetergent;
+        _user.PreferredFragrance = string.IsNullOrEmpty(_editFragrance) ? null : _editFragrance;
+        await Db.SaveChangesAsync();
+        _profileMsg = "Profil berhasil diperbarui.";
+    }
+
+    private async Task HandleAvatarUpload(InputFileChangeEventArgs e)
+    {
+        _avatarMsg = "";
+        _avatarOk = false;
+        if (_user == null || e.File == null) return;
+
+        if (!e.File.ContentType.StartsWith("image/"))
+        {
+            _avatarMsg = "File harus berupa gambar (JPG/PNG/WebP).";
+            return;
+        }
+        if (e.File.Size > 5 * 1024 * 1024)
+        {
+            _avatarMsg = "Ukuran maksimal 5 MB.";
+            return;
+        }
+
+        _isUploadingAvatar = true;
+        try
+        {
+            var url = await Storage.UploadBrowserFileAsync(e.File, "avatars");
+            _user.AvatarUrl = url;
+            await Db.SaveChangesAsync();
+            _avatarOk = true;
+            _avatarMsg = "Foto profil diperbarui.";
+        }
+        catch (Exception ex)
+        {
+            _avatarMsg = "Gagal mengunggah: " + ex.Message;
+        }
+        finally
+        {
+            _isUploadingAvatar = false;
+        }
+    }
+
+    private async Task ChangePassword()
+    {
+        _passwordOk = false;
+        if (_user == null) return;
+        if (string.IsNullOrEmpty(_currentPassword) || string.IsNullOrEmpty(_newPassword))
+        {
+            _passwordMsg = "Isi password saat ini dan password baru.";
+            return;
+        }
+        if (_newPassword != _confirmPassword)
+        {
+            _passwordMsg = "Konfirmasi password baru tidak cocok.";
+            return;
+        }
+
+        var identityUser = await UserManager.FindByIdAsync(_user.Id);
+        if (identityUser == null) return;
+
+        var result = await UserManager.ChangePasswordAsync(identityUser, _currentPassword, _newPassword);
+        if (result.Succeeded)
+        {
+            _passwordOk = true;
+            _passwordMsg = "Password berhasil diubah.";
+            _currentPassword = _newPassword = _confirmPassword = "";
+        }
+        else
+        {
+            _passwordMsg = string.Join(" ", result.Errors.Select(e => e.Code switch
+            {
+                "PasswordMismatch" => "Password saat ini salah.",
+                "PasswordTooShort" => "Password baru minimal 6 karakter.",
+                "PasswordRequiresDigit" => "Password baru harus mengandung angka.",
+                "PasswordRequiresUpper" => "Password baru harus mengandung huruf besar.",
+                "PasswordRequiresLower" => "Password baru harus mengandung huruf kecil.",
+                _ => e.Description
+            }));
+        }
+    }
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 0 ? "?" : string.Concat(parts.Take(2).Select(p => p[0])).ToUpper();
+    }
+
+    private static string GetTierBadge(string? tier) => tier switch
+    {
+        "Platinum" => "badge-purple", "Gold" => "badge-warning", "Silver" => "badge-gray", _ => "badge-info"
+    };
+
+    private int GetDiscount() => _user?.MembershipTier switch
+    {
+        "Platinum" => 15, "Gold" => 10, "Silver" => 5, _ => 0
+    };
+}

@@ -1,0 +1,271 @@
+@page "/reports"
+@using WashUp.Data
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using ApexCharts
+@attribute [Authorize(Roles = "Admin,Pemilik")]
+@inject AppDbContext Db
+@inject IJSRuntime Js
+
+<PageTitle>Laporan - WashUp</PageTitle>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2>📈 Laporan & Analitik</h2>
+    <div class="flex gap-2 flex-wrap print-hide">
+        <button class="btn-secondary btn-sm" @onclick="ExportOrders">⬇️ Export order (CSV)</button>
+        <button class="btn-secondary btn-sm" @onclick="ExportFinance">⬇️ Export keuangan (CSV)</button>
+        <button class="btn-primary btn-sm" @onclick="PrintPdf">🖨️ Cetak / PDF</button>
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon green">📊</div><div class="stat-info"><div class="stat-label">Order bulan ini</div><div class="stat-value">@_monthOrders</div><div class="stat-change @(_orderGrowth >= 0 ? "positive" : "negative")">@(_orderGrowth >= 0 ? "▲" : "▼") @Math.Abs(_orderGrowth)% vs bulan lalu</div></div></div>
+    <div class="stat-card"><div class="stat-icon purple">💰</div><div class="stat-info"><div class="stat-label">Pendapatan bulan ini</div><div class="stat-value">Rp @_monthRevenue.ToString("N0")</div><div class="stat-change @(_revenueGrowth >= 0 ? "positive" : "negative")">@(_revenueGrowth >= 0 ? "▲" : "▼") @Math.Abs(_revenueGrowth)% vs bulan lalu</div></div></div>
+    <div class="stat-card"><div class="stat-icon orange">⭐</div><div class="stat-info"><div class="stat-label">Rata-rata rating</div><div class="stat-value">@_avgRating.ToString("F1")</div><div class="stat-change">dari @_reviewCount ulasan</div></div></div>
+    <div class="stat-card"><div class="stat-icon blue">🔥</div><div class="stat-info"><div class="stat-label">Layanan favorit</div><div class="stat-value" style="font-size:1.1rem">@_topService</div><div class="stat-change">@_monthComplaints komplain bulan ini</div></div></div>
+</div>
+
+<div class="grid grid-2">
+    <div class="card">
+        <h3 class="card-title mb-4">💰 Pemasukan vs pengeluaran (6 bulan)</h3>
+        @if (_monthlyFinance.Any())
+        {
+            <ApexChart TItem="MonthPoint" Options="_financeOptions" Height="280" XAxisType="XAxisType.Category">
+                <ApexPointSeries TItem="MonthPoint" Items="_monthlyFinance" Name="Pemasukan"
+                                 SeriesType="SeriesType.Area" XValue="p => p.Label" YValue="p => p.Income" />
+                <ApexPointSeries TItem="MonthPoint" Items="_monthlyFinance" Name="Pengeluaran"
+                                 SeriesType="SeriesType.Area" XValue="p => p.Label" YValue="p => p.Expense" />
+            </ApexChart>
+        }
+        else
+        {
+            <p class="text-muted p-4">Belum ada transaksi keuangan untuk digambarkan.</p>
+        }
+    </div>
+
+    <div class="card">
+        <h3 class="card-title mb-4">🧺 Distribusi layanan (90 hari)</h3>
+        @if (_serviceDist.Any())
+        {
+            <ApexChart TItem="ServicePoint" Options="_donutOptions" Height="280">
+                <ApexPointSeries TItem="ServicePoint" Items="_serviceDist" Name="Order"
+                                 SeriesType="SeriesType.Donut" XValue="p => p.Label" YValue="p => p.Count" />
+            </ApexChart>
+        }
+        else
+        {
+            <p class="text-muted p-4">Belum ada order untuk digambarkan.</p>
+        }
+    </div>
+</div>
+
+<div class="grid grid-2 mt-4">
+    <div class="card">
+        <h3 class="card-title mb-4">📅 Order per hari (60 hari terakhir)</h3>
+        @if (_weekdayOrders.Any())
+        {
+            <ApexChart TItem="ServicePoint" Options="_barOptions" Height="260" XAxisType="XAxisType.Category">
+                <ApexPointSeries TItem="ServicePoint" Items="_weekdayOrders" Name="Order"
+                                 SeriesType="SeriesType.Bar" XValue="p => p.Label" YValue="p => p.Count" />
+            </ApexChart>
+        }
+    </div>
+
+    <!-- Analitik Tren (dihitung dari data, bukan teks statis) -->
+    <div class="card">
+        <h3 class="card-title mb-4">🔮 Analitik tren</h3>
+        <div class="trend-list">
+            <div class="trend-item">
+                <div class="trend-icon">📈</div>
+                <div>
+                    <h4>Prediksi permintaan</h4>
+                    <p class="text-muted text-sm">
+                        @if (_orderGrowth >= 0)
+                        {
+                            <text>Order tumbuh @_orderGrowth% dibanding bulan lalu. Jika tren berlanjut, siapkan kapasitas untuk ±@_predictedOrders order bulan depan.</text>
+                        }
+                        else
+                        {
+                            <text>Order turun @Math.Abs(_orderGrowth)% dibanding bulan lalu. Estimasi bulan depan ±@_predictedOrders order — pertimbangkan promo untuk mendongkrak permintaan.</text>
+                        }
+                    </p>
+                </div>
+            </div>
+            <div class="trend-item">
+                <div class="trend-icon">🔥</div>
+                <div>
+                    <h4>Layanan trending</h4>
+                    <p class="text-muted text-sm">@_trendingServiceText</p>
+                </div>
+            </div>
+            <div class="trend-item">
+                <div class="trend-icon">⏰</div>
+                <div>
+                    <h4>Hari tersibuk</h4>
+                    <p class="text-muted text-sm">
+                        Order terbanyak masuk hari <strong>@_peakDay</strong>. Pastikan staff dan stok detergen siap di hari tersebut.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private sealed record MonthPoint(string Label, decimal Income, decimal Expense);
+    private sealed record ServicePoint(string Label, int Count);
+
+    // Palet tervalidasi (lolos cek CVD & kontras untuk mode terang dan gelap)
+    private static readonly List<string> Palette = new() { "#8b5cf6", "#0d9488", "#d97706", "#3b82f6", "#ec4899" };
+
+    private int _monthOrders, _monthComplaints, _reviewCount, _orderGrowth, _revenueGrowth, _predictedOrders;
+    private decimal _monthRevenue;
+    private double _avgRating;
+    private string _topService = "-", _peakDay = "-", _trendingServiceText = "Belum cukup data untuk membaca tren layanan.";
+
+    private List<MonthPoint> _monthlyFinance = new();
+    private List<ServicePoint> _serviceDist = new();
+    private List<ServicePoint> _weekdayOrders = new();
+
+    private ApexChartOptions<MonthPoint> _financeOptions = default!;
+    private ApexChartOptions<ServicePoint> _donutOptions = default!;
+    private ApexChartOptions<ServicePoint> _barOptions = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        BuildChartOptions();
+        await LoadStats();
+        await LoadCharts();
+    }
+
+    private void BuildChartOptions()
+    {
+        var rupiahFormatter = "function(val){ return val >= 1000000 ? (val/1000000).toFixed(1) + ' jt' : val >= 1000 ? Math.round(val/1000) + ' rb' : val; }";
+
+        _financeOptions = new ApexChartOptions<MonthPoint>
+        {
+            Colors = new List<string> { Palette[0], Palette[2] },
+            Chart = new Chart { Background = "transparent", ForeColor = "#8a8d91", Toolbar = new Toolbar { Show = false } },
+            Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+            DataLabels = new DataLabels { Enabled = false },
+            Grid = new Grid { BorderColor = "rgba(138,141,145,0.2)" },
+            Legend = new Legend { Position = LegendPosition.Top },
+            Yaxis = new List<YAxis> { new YAxis { Labels = new YAxisLabels { Formatter = rupiahFormatter } } }
+        };
+
+        _donutOptions = new ApexChartOptions<ServicePoint>
+        {
+            Colors = Palette,
+            Chart = new Chart { Background = "transparent", ForeColor = "#8a8d91" },
+            Legend = new Legend { Position = LegendPosition.Bottom },
+            Stroke = new Stroke { Width = 2, Colors = new List<string> { "transparent" } }
+        };
+
+        _barOptions = new ApexChartOptions<ServicePoint>
+        {
+            Colors = new List<string> { Palette[0] },
+            Chart = new Chart { Background = "transparent", ForeColor = "#8a8d91", Toolbar = new Toolbar { Show = false } },
+            PlotOptions = new PlotOptions { Bar = new PlotOptionsBar { BorderRadius = 4, ColumnWidth = "55%" } },
+            DataLabels = new DataLabels { Enabled = false },
+            Grid = new Grid { BorderColor = "rgba(138,141,145,0.2)" }
+        };
+    }
+
+    private async Task LoadStats()
+    {
+        var now = DateTime.UtcNow;
+        var thisMonth = new DateTime(now.Year, now.Month, 1);
+        var lastMonth = thisMonth.AddMonths(-1);
+
+        _monthOrders = await Db.Orders.CountAsync(o => o.CreatedAt >= thisMonth);
+        var lastMonthOrders = await Db.Orders.CountAsync(o => o.CreatedAt >= lastMonth && o.CreatedAt < thisMonth);
+        _orderGrowth = lastMonthOrders > 0 ? (int)Math.Round((_monthOrders - lastMonthOrders) * 100.0 / lastMonthOrders) : 0;
+        _predictedOrders = Math.Max(0, (int)(_monthOrders * (1 + _orderGrowth / 100.0)));
+
+        _monthRevenue = await Db.FinancialTransactions
+            .Where(t => t.TransactionType == "Income" && t.TransactionDate >= thisMonth).SumAsync(t => t.Amount);
+        var lastRevenue = await Db.FinancialTransactions
+            .Where(t => t.TransactionType == "Income" && t.TransactionDate >= lastMonth && t.TransactionDate < thisMonth).SumAsync(t => t.Amount);
+        _revenueGrowth = lastRevenue > 0 ? (int)Math.Round((double)((_monthRevenue - lastRevenue) * 100 / lastRevenue)) : 0;
+
+        _monthComplaints = await Db.Complaints.CountAsync(c => c.CreatedAt >= thisMonth);
+        _reviewCount = await Db.Reviews.CountAsync();
+        _avgRating = _reviewCount > 0 ? await Db.Reviews.AverageAsync(r => (double)r.Rating) : 0;
+
+        var top = await Db.Orders.Where(o => o.CreatedAt >= thisMonth.AddMonths(-2))
+            .GroupBy(o => o.ServiceType)
+            .Select(g => new { Service = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count).FirstOrDefaultAsync();
+        _topService = top?.Service ?? "-";
+
+        // Layanan dengan pertumbuhan tertinggi (bulan ini vs bulan lalu)
+        var byService = await Db.Orders
+            .Where(o => o.CreatedAt >= lastMonth)
+            .GroupBy(o => new { o.ServiceType, IsThisMonth = o.CreatedAt >= thisMonth })
+            .Select(g => new { g.Key.ServiceType, g.Key.IsThisMonth, Count = g.Count() })
+            .ToListAsync();
+        var growth = byService.Where(x => x.IsThisMonth)
+            .Select(cur => new
+            {
+                cur.ServiceType,
+                Cur = cur.Count,
+                Prev = byService.FirstOrDefault(p => !p.IsThisMonth && p.ServiceType == cur.ServiceType)?.Count ?? 0
+            })
+            .Where(x => x.Prev > 0)
+            .Select(x => new { x.ServiceType, Pct = (x.Cur - x.Prev) * 100 / x.Prev })
+            .OrderByDescending(x => x.Pct)
+            .FirstOrDefault();
+        if (growth != null)
+            _trendingServiceText = growth.Pct >= 0
+                ? $"{growth.ServiceType} tumbuh paling cepat: +{growth.Pct}% dibanding bulan lalu."
+                : $"Semua layanan melambat; penurunan terkecil di {growth.ServiceType} ({growth.Pct}%).";
+    }
+
+    private async Task LoadCharts()
+    {
+        var now = DateTime.UtcNow;
+        var start6 = new DateTime(now.Year, now.Month, 1).AddMonths(-5);
+
+        var trans = await Db.FinancialTransactions.AsNoTracking()
+            .Where(t => t.TransactionDate >= start6)
+            .Select(t => new { t.TransactionDate, t.TransactionType, t.Amount })
+            .ToListAsync();
+
+        _monthlyFinance = Enumerable.Range(0, 6)
+            .Select(i => start6.AddMonths(i))
+            .Select(m => new MonthPoint(
+                m.ToString("MMM yy"),
+                trans.Where(t => t.TransactionType == "Income" && t.TransactionDate.Year == m.Year && t.TransactionDate.Month == m.Month).Sum(t => t.Amount),
+                trans.Where(t => t.TransactionType == "Expense" && t.TransactionDate.Year == m.Year && t.TransactionDate.Month == m.Month).Sum(t => t.Amount)))
+            .ToList();
+
+        var start90 = now.AddDays(-90);
+        var services = await Db.Orders.AsNoTracking()
+            .Where(o => o.CreatedAt >= start90)
+            .GroupBy(o => o.ServiceType)
+            .Select(g => new { Service = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count)
+            .ToListAsync();
+        _serviceDist = services.Select(s => new ServicePoint(s.Service, s.Count)).ToList();
+
+        var start60 = now.AddDays(-60);
+        var orderDates = await Db.Orders.AsNoTracking()
+            .Where(o => o.CreatedAt >= start60)
+            .Select(o => o.CreatedAt)
+            .ToListAsync();
+        string[] dayNames = { "Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu" };
+        _weekdayOrders = Enumerable.Range(1, 7)
+            .Select(i => i % 7) // Senin..Minggu
+            .Select(d => new ServicePoint(dayNames[d], orderDates.Count(x => (int)x.DayOfWeek == d)))
+            .ToList();
+        _peakDay = _weekdayOrders.OrderByDescending(w => w.Count).FirstOrDefault()?.Label ?? "-";
+    }
+
+    private async Task ExportOrders() =>
+        await Js.InvokeVoidAsync("washup.download", "/api/reports/export/orders?from=" + DateTime.UtcNow.AddMonths(-6).ToString("yyyy-MM-dd"));
+
+    private async Task ExportFinance() =>
+        await Js.InvokeVoidAsync("washup.download", "/api/reports/export/finance?from=" + DateTime.UtcNow.AddMonths(-6).ToString("yyyy-MM-dd"));
+
+    private async Task PrintPdf() => await Js.InvokeVoidAsync("washup.print");
+}

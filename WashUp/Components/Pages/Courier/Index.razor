@@ -1,0 +1,276 @@
+@page "/courier"
+@using WashUp.Data
+@using WashUp.Models
+@using WashUp.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin,Pemilik,Kurir")]
+@implements IAsyncDisposable
+@inject AppDbContext Db
+@inject GpsSimulatorService GpsSimulator
+@inject IJSRuntime Js
+
+<PageTitle>Kurir & Tracking - WashUp</PageTitle>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2>🚚 Kurir & Tracking</h2>
+    <div class="flex gap-2 items-center flex-wrap">
+        <span class="flex items-center gap-2">
+            GPS Simulator:
+            <span class="badge @(GpsSimulator.IsRunning ? "badge-success" : "badge-danger")">
+                @(GpsSimulator.IsRunning ? "Berjalan" : "Berhenti")
+            </span>
+        </span>
+        <button class="btn-primary btn-sm" @onclick="ToggleGpsSimulator">
+            @(GpsSimulator.IsRunning ? "⏹ Stop" : "▶ Start") GPS
+        </button>
+        <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" @bind="_autoRefresh" />
+            Auto-refresh (3 dtk)
+        </label>
+    </div>
+</div>
+
+<div class="grid grid-2">
+    <!-- Active Courier Assignments -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">📋 Tugas kurir aktif</h3>
+        </div>
+        @if (_assignments.Any())
+        {
+            @foreach (var assignment in _assignments)
+            {
+                <div class="list-row" style="align-items:flex-start">
+                    <div>
+                        <div class="font-bold">@assignment.Courier?.FullName</div>
+                        <div class="text-sm text-muted">
+                            @(assignment.AssignmentType == "Pickup" ? "🛵 Jemput" : "🚚 Antar") ·
+                            <a href="/orders/@assignment.Order?.OrderNumber" class="table-link">@assignment.Order?.OrderNumber</a>
+                        </div>
+                        @if (assignment.CurrentLatitude.HasValue)
+                        {
+                            <div class="text-xs text-muted">📍 @assignment.CurrentLatitude.Value.ToString("F4"), @assignment.CurrentLongitude!.Value.ToString("F4")</div>
+                        }
+                        @if (assignment.EstimatedArrival.HasValue && assignment.Status != "Arrived")
+                        {
+                            <div class="text-xs">ETA: @assignment.EstimatedArrival.Value.ToLocalTime().ToString("HH:mm") (@EtaText(assignment))</div>
+                        }
+                    </div>
+                    <span class="badge @(assignment.Status == "InTransit" ? "badge-info" : assignment.Status == "Arrived" ? "badge-success" : "badge-warning")">
+                        @StatusLabel(assignment.Status)
+                    </span>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="empty-state" style="padding:24px">
+                <div class="empty-icon">🛵</div>
+                <p class="text-muted">Tidak ada tugas kurir aktif.<br />Tugaskan kurir dari halaman detail order.</p>
+            </div>
+        }
+    </div>
+
+    <!-- Peta posisi kurir (Leaflet + OpenStreetMap) -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">🗺️ Peta posisi kurir</h3>
+            <button class="btn-secondary btn-sm" @onclick="FitMap">🎯 Fokuskan</button>
+        </div>
+        <div class="courier-map-wrap">
+            <div id="courier-map" class="courier-map"></div>
+            @if (!_mapReady)
+            {
+                <div class="courier-map-overlay">
+                    <div class="text-center">
+                        <div style="font-size:2.4rem">🗺️</div>
+                        <p class="text-sm">Memuat peta OpenStreetMap...</p>
+                        <small class="text-muted">Butuh koneksi internet untuk tile peta.</small>
+                    </div>
+                </div>
+            }
+            else if (!_assignments.Any(a => a.CurrentLatitude.HasValue))
+            {
+                <div class="courier-map-hint">
+                    Belum ada kurir bergerak — tugaskan kurir dari detail order, lalu jalankan GPS simulator.
+                </div>
+            }
+        </div>
+        <div class="map-legend">
+            <span>🛵 Kurir (klik untuk detail)</span>
+            <span>🏁 Tujuan</span>
+            <span style="color:var(--accent)">— jejak & rute</span>
+        </div>
+    </div>
+</div>
+
+<!-- Recent GPS Logs -->
+<div class="card mt-4">
+    <div class="card-header">
+        <h3 class="card-title">📶 GPS tracking log</h3>
+    </div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr><th>Waktu</th><th>Kurir</th><th>Latitude</th><th>Longitude</th><th>Kecepatan</th></tr>
+            </thead>
+            <tbody>
+                @if (_trackingLogs.Any())
+                {
+                    @foreach (var log in _trackingLogs.Take(15))
+                    {
+                        <tr>
+                            <td>@log.Timestamp.ToLocalTime().ToString("HH:mm:ss")</td>
+                            <td>@log.CourierAssignment?.Courier?.FullName</td>
+                            <td class="num">@log.Latitude.ToString("F5")</td>
+                            <td class="num">@log.Longitude.ToString("F5")</td>
+                            <td class="num">@log.SpeedKmh km/j</td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr><td colspan="5" class="text-center text-muted p-4">Belum ada data tracking. Jalankan GPS simulator.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Courier Staff List -->
+<div class="card mt-4">
+    <div class="card-header">
+        <h3 class="card-title">👷 Daftar kurir</h3>
+    </div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr><th>Nama</th><th>Cabang</th><th>Tugas aktif</th><th>Total tugas</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var courier in _couriers)
+                {
+                    <tr>
+                        <td><strong>@courier.FullName</strong></td>
+                        <td>@courier.Branch?.Name</td>
+                        <td class="num">@courier.CourierAssignments.Count(a => a.Status is "Assigned" or "InTransit")</td>
+                        <td class="num">@courier.CourierAssignments.Count</td>
+                        <td><span class="badge @(courier.IsActive ? "badge-success" : "badge-danger")">@(courier.IsActive ? "Aktif" : "Nonaktif")</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<CourierAssignment> _assignments = new();
+    private List<GpsTrackingLog> _trackingLogs = new();
+    private List<StaffMember> _couriers = new();
+    private bool _autoRefresh = true;
+    private bool _mapReady;
+    private System.Threading.Timer? _timer;
+
+    private sealed record MapCourier(int Id, string Name, double Lat, double Lng, double? DestLat, double? DestLng, string Status, string? Eta);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshData();
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            if (!_autoRefresh) return;
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshData();
+                    StateHasChanged();
+                });
+            }
+            catch { /* halaman ditutup */ }
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Sinkronkan marker peta setiap render (data di-refresh oleh timer)
+        var couriers = _assignments
+            .Where(a => a.CurrentLatitude.HasValue)
+            .Select(a => new MapCourier(
+                a.Id,
+                a.Courier?.FullName ?? "Kurir",
+                a.CurrentLatitude!.Value,
+                a.CurrentLongitude!.Value,
+                a.DestinationLatitude,
+                a.DestinationLongitude,
+                $"{(a.AssignmentType == "Pickup" ? "Jemput" : "Antar")} · {StatusLabel(a.Status)} · {a.Order?.OrderNumber}",
+                a.EstimatedArrival.HasValue && a.Status != "Arrived" ? EtaText(a) : null))
+            .ToList();
+
+        try
+        {
+            var ok = await Js.InvokeAsync<bool>("washup.updateCourierMap", "courier-map", couriers);
+            if (ok != _mapReady)
+            {
+                _mapReady = ok;
+                StateHasChanged();
+            }
+        }
+        catch { /* prerender atau JS belum siap */ }
+    }
+
+    private async Task FitMap()
+    {
+        try { await Js.InvokeVoidAsync("washup.fitCourierMap", "courier-map"); } catch { }
+    }
+
+    private async Task RefreshData()
+    {
+        _assignments = await Db.CourierAssignments.AsNoTracking()
+            .Include(c => c.Courier)
+            .Include(c => c.Order)
+            .Where(c => c.Status != "Completed" && c.Status != "Cancelled")
+            .ToListAsync();
+
+        _trackingLogs = await Db.GpsTrackingLogs.AsNoTracking()
+            .Include(l => l.CourierAssignment)
+            .ThenInclude(a => a!.Courier)
+            .OrderByDescending(l => l.Timestamp)
+            .Take(30)
+            .ToListAsync();
+
+        _couriers = await Db.StaffMembers.AsNoTracking()
+            .Include(s => s.Branch)
+            .Include(s => s.CourierAssignments)
+            .Where(s => s.Position == "Kurir")
+            .ToListAsync();
+    }
+
+    private string EtaText(CourierAssignment a)
+    {
+        var mins = (a.EstimatedArrival!.Value - DateTime.UtcNow).TotalMinutes;
+        return mins <= 0 ? "segera tiba" : $"±{(int)mins} menit lagi";
+    }
+
+    private static string StatusLabel(string s) => s switch
+    {
+        "Assigned" => "Ditugaskan",
+        "InTransit" => "Dalam perjalanan",
+        "Arrived" => "Tiba",
+        _ => s
+    };
+
+    private async Task ToggleGpsSimulator()
+    {
+        await GpsSimulator.ToggleAsync();
+        await Task.Delay(500);
+        await RefreshData();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _timer?.Dispose();
+        try { await Js.InvokeVoidAsync("washup.disposeCourierMap", "courier-map"); } catch { }
+    }
+}

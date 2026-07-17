@@ -1,0 +1,162 @@
+@page "/notifications"
+@using WashUp.Data
+@using WashUp.Models
+@using WashUp.Services
+@inject NotificationService NotifService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Notifikasi - WashUp</PageTitle>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2>🔔 Notifikasi</h2>
+    <button class="btn-secondary btn-sm" @onclick="MarkAllRead" disabled="@(_unreadCount == 0)">
+        ✓ Sudah baca semua @(_unreadCount > 0 ? $"({_unreadCount})" : "")
+    </button>
+</div>
+
+<div class="tabs mb-4">
+    <button class="tab @(!_unreadOnly ? "active" : "")" @onclick="@(() => SetFilter(false))">Semua</button>
+    <button class="tab @(_unreadOnly ? "active" : "")" @onclick="@(() => SetFilter(true))">Belum dibaca @(_unreadCount > 0 ? $"({_unreadCount})" : "")</button>
+</div>
+
+<div class="card" style="padding:0">
+    @if (_items.Any())
+    {
+        @foreach (var n in _items)
+        {
+            <div class="notif-row @(n.IsRead ? "" : "unread")" @onclick="() => OpenNotification(n)">
+                <div class="notif-icon">@TypeIcon(n.Type)</div>
+                <div class="notif-body">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="font-bold text-sm">@n.Title</span>
+                        @if (!n.IsRead)
+                        {
+                            <span class="unread-dot" title="Belum dibaca"></span>
+                        }
+                        @if (n.Priority == "High")
+                        {
+                            <span class="badge badge-danger">Penting</span>
+                        }
+                    </div>
+                    @if (!string.IsNullOrEmpty(n.Message))
+                    {
+                        <div class="text-sm text-muted">@n.Message</div>
+                    }
+                    <div class="text-xs text-muted mt-1">
+                        @TypeLabel(n.Type) · @RelativeTime(n.CreatedAt)
+                        @if (!string.IsNullOrEmpty(n.ActionUrl))
+                        {
+                            <span> · klik untuk membuka</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="empty-state">
+            <div class="empty-icon">🔕</div>
+            <h3>@(_unreadOnly ? "Tidak ada notifikasi belum dibaca" : "Belum ada notifikasi")</h3>
+            <p class="text-muted">Kabar order, promo, dan pengumuman akan muncul di sini.</p>
+        </div>
+    }
+</div>
+
+@if (_totalPages > 1)
+{
+    <div class="flex items-center justify-between mt-4">
+        <span class="text-muted">Total: @_total notifikasi</span>
+        <div class="flex gap-2 items-center">
+            <button class="btn-secondary btn-sm" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)">←</button>
+            <span class="px-3 py-1">@_page / @_totalPages</span>
+            <button class="btn-secondary btn-sm" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">→</button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Notification> _items = new();
+    private int _total, _page = 1, _totalPages = 1, _unreadCount;
+    private bool _unreadOnly;
+    private string? _userId;
+    private const int PageSize = 15;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirstValue(System.Security.Claims.ClaimTypes.NameIdentifier);
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        if (_userId == null) return;
+        var (items, total) = await NotifService.GetPagedForUserAsync(_userId, _page, PageSize, _unreadOnly);
+        _items = items;
+        _total = total;
+        _totalPages = Math.Max(1, (int)Math.Ceiling(_total / (double)PageSize));
+
+        var (_, unread) = await NotifService.GetPagedForUserAsync(_userId, 1, 1, unreadOnly: true);
+        _unreadCount = unread;
+    }
+
+    private async Task SetFilter(bool unreadOnly)
+    {
+        _unreadOnly = unreadOnly;
+        _page = 1;
+        await LoadData();
+    }
+
+    private async Task ChangePage(int d)
+    {
+        _page += d;
+        await LoadData();
+    }
+
+    private async Task MarkAllRead()
+    {
+        if (_userId == null) return;
+        await NotifService.MarkAllAsReadAsync(_userId);
+        await LoadData();
+    }
+
+    private async Task OpenNotification(Notification n)
+    {
+        if (!n.IsRead)
+        {
+            await NotifService.MarkAsReadAsync(n.Id);
+            n.IsRead = true;
+            _unreadCount = Math.Max(0, _unreadCount - 1);
+        }
+        if (!string.IsNullOrEmpty(n.ActionUrl))
+            Nav.NavigateTo(n.ActionUrl);
+    }
+
+    private static string TypeIcon(string type) => type switch
+    {
+        "OrderUpdate" => "📦",
+        "Promo" => "🎉",
+        "Announcement" => "📢",
+        _ => "⚙️"
+    };
+
+    private static string TypeLabel(string type) => type switch
+    {
+        "OrderUpdate" => "Update order",
+        "Promo" => "Promo",
+        "Announcement" => "Pengumuman",
+        _ => "Sistem"
+    };
+
+    private static string RelativeTime(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        return span.TotalMinutes < 1 ? "baru saja"
+            : span.TotalMinutes < 60 ? $"{(int)span.TotalMinutes} menit lalu"
+            : span.TotalHours < 24 ? $"{(int)span.TotalHours} jam lalu"
+            : span.TotalDays < 7 ? $"{(int)span.TotalDays} hari lalu"
+            : utc.ToLocalTime().ToString("dd MMM yyyy");
+    }
+}

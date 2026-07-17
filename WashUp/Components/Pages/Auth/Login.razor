@@ -1,0 +1,110 @@
+@page "/auth/login"
+@page "/login"
+@attribute [ExcludeFromInteractiveRouting]
+@layout WashUp.Components.Layout.EmptyLayout
+@using Microsoft.AspNetCore.Identity
+@using WashUp.Models
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager Navigation
+
+<PageTitle>Masuk - WashUp</PageTitle>
+
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="auth-logo">🧺</div>
+        <h1 class="auth-title">Selamat datang kembali</h1>
+        <p class="auth-subtitle">Masuk untuk melanjutkan ke WashUp</p>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="alert alert-error">@_errorMessage</div>
+        }
+
+        <EditForm Model="Input" FormName="login" OnValidSubmit="HandleLogin" method="post">
+            <DataAnnotationsValidator />
+            <div class="form-group">
+                <label class="form-label" for="login-email">Email</label>
+                <InputText id="login-email" type="email" class="form-control" @bind-Value="Input.Email" placeholder="nama@email.com" autocomplete="username" />
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="login-password">Password</label>
+                <InputText id="login-password" type="password" class="form-control" @bind-Value="Input.Password" placeholder="Password Anda" autocomplete="current-password" />
+            </div>
+            <div class="flex items-center justify-between mb-4">
+                <label class="flex items-center gap-2 text-sm">
+                    <InputCheckbox @bind-Value="Input.RememberMe" />
+                    Ingat saya
+                </label>
+                <a href="/auth/forgot-password" class="text-sm" style="color: var(--accent)">Lupa password?</a>
+            </div>
+            <button type="submit" class="btn-primary btn-block">Masuk</button>
+        </EditForm>
+
+        <div class="auth-link">
+            Belum punya akun? <a href="/auth/register">Daftar sekarang</a>
+        </div>
+
+        <details class="demo-accounts">
+            <summary>🔑 Akun demo</summary>
+            <table class="demo-table">
+                <tr><td>Pemilik</td><td>owner@washup.id</td><td>WashUp@2024</td></tr>
+                <tr><td>Admin</td><td>admin@washup.id</td><td>WashUp@2024</td></tr>
+                <tr><td>Kurir</td><td>kurir1@washup.id</td><td>WashUp@2024</td></tr>
+                <tr><td>Pelanggan</td><td>pelanggan1@email.com</td><td>Pelanggan@123</td></tr>
+            </table>
+        </details>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private LoginInput Input { get; set; } = new();
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    private string? _errorMessage;
+
+    protected override void OnInitialized()
+    {
+        if (HttpContext.User.Identity?.IsAuthenticated == true)
+            Navigation.NavigateTo("/dashboard");
+    }
+
+    private async Task HandleLogin()
+    {
+        if (string.IsNullOrWhiteSpace(Input.Email) || string.IsNullOrWhiteSpace(Input.Password))
+        {
+            _errorMessage = "Email dan password harus diisi.";
+            return;
+        }
+
+        var result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+
+        if (result.Succeeded)
+        {
+            var user = await UserManager.FindByEmailAsync(Input.Email);
+            if (user != null)
+            {
+                user.LastLoginAt = DateTime.UtcNow;
+                await UserManager.UpdateAsync(user);
+            }
+            Navigation.NavigateTo(string.IsNullOrEmpty(ReturnUrl) ? "/dashboard" : ReturnUrl);
+        }
+        else if (result.IsLockedOut)
+            _errorMessage = "Akun terkunci. Silakan coba lagi nanti.";
+        else
+            _errorMessage = "Email atau password salah.";
+    }
+
+    private sealed class LoginInput
+    {
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+        public bool RememberMe { get; set; }
+    }
+}

@@ -1,0 +1,792 @@
+@page "/orders"
+@page "/orders/{OrderNumber}"
+@using WashUp.Data
+@using WashUp.Models
+@using WashUp.Services
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthState
+@inject InvoiceService Invoices
+@inject NotificationService Notifications
+
+<PageTitle>Manajemen Order - WashUp</PageTitle>
+
+@if (OrderNumber != null)
+{
+    @* ================= DETAIL ORDER ================= *@
+    @if (_order == null && !_isDetailLoading)
+    {
+        <div class="card empty-state">
+            <div class="empty-icon">🔍</div>
+            <h2>Order tidak ditemukan</h2>
+            <p class="text-muted">Order @OrderNumber tidak ada atau sudah dihapus.</p>
+            <a href="/orders" class="btn-primary mt-4">Kembali ke daftar order</a>
+        </div>
+    }
+    else if (_order != null)
+    {
+        <div class="mb-4">
+            <a href="/orders" class="btn-secondary btn-sm">← Kembali</a>
+        </div>
+        <div class="card mb-4">
+            <div class="card-header">
+                <div>
+                    <h3 class="card-title">Order #@_order.OrderNumber</h3>
+                    <span class="text-sm text-muted">Dibuat @_order.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm") · Estimasi selesai @_order.EstimatedCompletion.ToLocalTime().ToString("dd MMM yyyy")</span>
+                </div>
+                <span class="badge @GetStatusBadge(_order.Status)">@_order.Status</span>
+            </div>
+            <div class="tracking-progress">
+                @foreach (var step in TrackingSteps)
+                {
+                    var stepStatus = GetStepStatus(step);
+                    <div class="tracking-step @stepStatus">
+                        <div class="tracking-dot">@(stepStatus == "completed" ? "✓" : stepStatus == "current" ? "●" : "○")</div>
+                        <span class="tracking-label">@step</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="grid grid-2">
+            <div class="card">
+                <h4 class="card-title mb-4">Detail order</h4>
+                <table class="detail-table">
+                    <tr><td class="text-muted">Pelanggan</td><td><strong>@_order.User?.FullName</strong></td></tr>
+                    <tr><td class="text-muted">Cabang</td><td>@(_order.Branch?.Name ?? "-")</td></tr>
+                    <tr><td class="text-muted">Layanan</td><td>@ServiceLabel(_order.ServiceType)</td></tr>
+                    <tr><td class="text-muted">Berat</td><td>@_order.WeightKg kg @(_order.ItemCount != null ? $"({_order.ItemCount} item)" : "")</td></tr>
+                    @if (!string.IsNullOrEmpty(_order.ItemDescription))
+                    {
+                        <tr><td class="text-muted">Deskripsi</td><td>@_order.ItemDescription</td></tr>
+                    }
+                    <tr><td class="text-muted">Harga/kg</td><td>Rp @_order.PricePerKg.ToString("N0")</td></tr>
+                    <tr><td class="text-muted">Subtotal</td><td>Rp @_order.Subtotal.ToString("N0")</td></tr>
+                    <tr><td class="text-muted">Diskon member</td><td>- Rp @_order.Discount.ToString("N0")</td></tr>
+                    <tr><td class="text-muted">Pajak (10%)</td><td>Rp @_order.TaxAmount.ToString("N0")</td></tr>
+                    <tr class="font-bold"><td class="text-muted">Total</td><td>Rp @_order.TotalAmount.ToString("N0")</td></tr>
+                    <tr>
+                        <td class="text-muted">Pembayaran</td>
+                        <td>
+                            <span class="badge @(_order.PaymentStatus == "Lunas" ? "badge-success" : "badge-warning")">@_order.PaymentStatus</span>
+                            @if (!string.IsNullOrEmpty(_order.PaymentMethod)) { <span class="text-sm text-muted">via @_order.PaymentMethod</span> }
+                        </td>
+                    </tr>
+                    @if (!string.IsNullOrEmpty(_order.Notes))
+                    {
+                        <tr><td class="text-muted">Catatan</td><td>@_order.Notes</td></tr>
+                    }
+                </table>
+
+                @if (_order.Invoice != null)
+                {
+                    <div class="invoice-strip mt-4">
+                        🧾 Invoice <strong>@_order.Invoice.InvoiceNumber</strong>
+                        <span class="badge @(_order.Invoice.PaymentStatus == "Paid" ? "badge-success" : "badge-warning")">@_order.Invoice.PaymentStatus</span>
+                        <span class="text-sm text-muted">jatuh tempo @_order.Invoice.DueDate.ToString("dd/MM/yyyy")</span>
+                    </div>
+                }
+            </div>
+
+            <div>
+                @if (_isStaff)
+                {
+                    <div class="card mb-3">
+                        <h4 class="card-title mb-4">Update status</h4>
+                        <div class="flex gap-2">
+                            <select class="form-control" @bind="_newStatus" style="flex:1">
+                                <option value="">-- Pilih status --</option>
+                                @foreach (var s in TrackingSteps)
+                                {
+                                    <option value="@s">@s</option>
+                                }
+                            </select>
+                            <button class="btn-primary" @onclick="UpdateStatus" disabled="@string.IsNullOrEmpty(_newStatus)">Simpan</button>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_statusMsg))
+                        {
+                            <div class="alert alert-success mt-3">@_statusMsg</div>
+                        }
+
+                        @if (_order.CourierAssignment == null)
+                        {
+                            <hr class="section-divider" />
+                            <h4 class="card-title mb-3">Tugaskan kurir</h4>
+                            <div class="flex gap-2">
+                                <select class="form-control" @bind="_selectedCourierId" style="flex:1">
+                                    <option value="0">-- Pilih kurir --</option>
+                                    @foreach (var c in _courierStaff)
+                                    {
+                                        <option value="@c.Id">@c.FullName (@c.Branch?.Name)</option>
+                                    }
+                                </select>
+                                <button class="btn-secondary" @onclick="AssignCourier" disabled="@(_selectedCourierId == 0)">Tugaskan</button>
+                            </div>
+                            <p class="text-xs text-muted mt-2">Kurir yang ditugaskan akan muncul di halaman Kurir & Tracking dan digerakkan simulator GPS.</p>
+                        }
+                        else
+                        {
+                            <hr class="section-divider" />
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <div class="font-bold">🚚 @_order.CourierAssignment.Courier?.FullName</div>
+                                    <div class="text-sm text-muted">@_order.CourierAssignment.AssignmentType · @_order.CourierAssignment.Status</div>
+                                </div>
+                                <a href="/courier" class="btn-secondary btn-sm">Lacak</a>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="card">
+                    <h4 class="card-title mb-4">Riwayat status</h4>
+                    @if (_statusLogs.Any())
+                    {
+                        <div class="timeline">
+                            @foreach (var log in _statusLogs.OrderByDescending(l => l.ChangedAt))
+                            {
+                                <div class="timeline-item">
+                                    <div class="timeline-dot"></div>
+                                    <div>
+                                        <div class="font-bold text-sm">@log.OldStatus → @log.NewStatus</div>
+                                        <div class="text-xs text-muted">@log.ChangedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted text-sm">Belum ada perubahan status.</p>
+                    }
+                </div>
+
+                @if (_order.Review != null)
+                {
+                    <div class="card mt-3">
+                        <h4 class="card-title mb-2">Ulasan pelanggan</h4>
+                        <div class="rating-stars">@(new string('★', _order.Review.Rating))@(new string('☆', 5 - _order.Review.Rating))</div>
+                        <p class="text-sm mt-2">@_order.Review.Comment</p>
+                    </div>
+                }
+                else if (_isCustomerOwner && (_order.Status == "Selesai" || _order.Status == "Dikirim"))
+                {
+                    <div class="card mt-3">
+                        <h4 class="card-title mb-3">Beri ulasan</h4>
+                        <div class="rating-input mb-3">
+                            @for (int star = 1; star <= 5; star++)
+                            {
+                                var s = star;
+                                <button class="star-btn @(s <= _reviewRating ? "on" : "")" @onclick="() => _reviewRating = s">★</button>
+                            }
+                        </div>
+                        <textarea class="form-control mb-3" rows="2" placeholder="Bagaimana hasil laundry-nya?" @bind="_reviewComment"></textarea>
+                        <button class="btn-primary btn-sm" @onclick="SubmitReview" disabled="@(_reviewRating == 0)">Kirim ulasan (+20 poin)</button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+else
+{
+    @* ================= DAFTAR ORDER ================= *@
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2>📦 @(_isStaff ? "Manajemen Order" : "Order Saya")</h2>
+        <button class="btn-primary" @onclick="OpenCreateForm">+ Order baru</button>
+    </div>
+
+    <div class="filter-bar">
+        <select class="form-control" @bind="_filterStatus" @bind:after="ApplyFilter">
+            <option value="">Semua status</option>
+            @foreach (var s in TrackingSteps)
+            {
+                <option value="@s">@s</option>
+            }
+        </select>
+        <input type="text" class="form-control" placeholder="🔍 Cari nomor order / pelanggan..."
+               @bind="_searchTerm" @bind:event="oninput" @bind:after="ApplyFilter" style="flex:1;min-width:220px" />
+        @if (_customerFilterName != null)
+        {
+            <span class="badge badge-purple filter-chip">
+                Pelanggan: @_customerFilterName
+                <button class="chip-close" @onclick="ClearCustomerFilter" title="Hapus filter">✕</button>
+            </span>
+        }
+    </div>
+
+    <div class="card">
+        <div class="table-container">
+            <table>
+                <thead><tr><th>No. Order</th><th>Pelanggan</th><th>Layanan</th><th>Berat</th><th>Total</th><th>Status</th><th>Bayar</th><th>Tanggal</th></tr></thead>
+                <tbody>
+                    @if (_orders.Any())
+                    {
+                        @foreach (var order in _orders)
+                        {
+                            var url = "/orders/" + order.OrderNumber;
+                            <tr class="row-link" @onclick="() => Nav.NavigateTo(url)">
+                                <td><strong>@order.OrderNumber</strong></td>
+                                <td>@order.User?.FullName</td>
+                                <td>@ServiceLabel(order.ServiceType)</td>
+                                <td>@order.WeightKg kg</td>
+                                <td class="num">Rp @order.TotalAmount.ToString("N0")</td>
+                                <td><span class="badge @GetStatusBadge(order.Status)">@order.Status</span></td>
+                                <td><span class="badge @(order.PaymentStatus == "Lunas" ? "badge-success" : "badge-warning")">@order.PaymentStatus</span></td>
+                                <td>@order.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy")</td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr><td colspan="8" class="text-center text-muted p-4">Tidak ada order yang cocok. Buat order baru dengan tombol di atas.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="flex items-center justify-between mt-4">
+        <span class="text-muted">Total: @_totalOrders order</span>
+        <div class="flex gap-2 items-center">
+            <button class="btn-secondary btn-sm" disabled="@(_currentPage <= 1)" @onclick="() => ChangePage(-1)">←</button>
+            <span class="px-3 py-1">@_currentPage / @_totalPages</span>
+            <button class="btn-secondary btn-sm" disabled="@(_currentPage >= _totalPages)" @onclick="() => ChangePage(1)">→</button>
+        </div>
+    </div>
+
+    @* ================= MODAL ORDER BARU ================= *@
+    @if (_showCreateForm)
+    {
+        <div class="modal-backdrop" @onclick="CloseCreateForm">
+            <div class="modal-panel" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h3>Order baru</h3>
+                    <button class="icon-btn" @onclick="CloseCreateForm" title="Tutup">✕</button>
+                </div>
+                <div class="modal-body">
+                    @if (_isStaff)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Pelanggan</label>
+                            <select class="form-control" @bind="_form.UserId" @bind:after="RecalcTotals">
+                                <option value="">-- Pilih pelanggan --</option>
+                                @foreach (var c in _customerOptions)
+                                {
+                                    <option value="@c.Id">@c.FullName (@c.MembershipTier)</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    <div class="grid grid-2" style="gap:12px">
+                        <div class="form-group">
+                            <label class="form-label">Layanan</label>
+                            <select class="form-control" @bind="_form.ServiceType" @bind:after="RecalcTotals">
+                                <option value="CuciKering">Cuci Kering — Rp 8.000/kg</option>
+                                <option value="Setrika">Setrika — Rp 6.000/kg</option>
+                                <option value="Express">Express 6 Jam — Rp 12.000/kg</option>
+                                <option value="Kiloan">Kiloan — Rp 7.000/kg</option>
+                                <option value="CuciLipat">Cuci Lipat — Rp 8.000/kg</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Cabang</label>
+                            <select class="form-control" @bind="_form.BranchId">
+                                @foreach (var b in _branchOptions)
+                                {
+                                    <option value="@b.Id">@b.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-2" style="gap:12px">
+                        <div class="form-group">
+                            <label class="form-label">Berat (kg)</label>
+                            <input type="number" step="0.1" min="0.5" class="form-control" @bind="_form.WeightKg" @bind:after="RecalcTotals" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Jumlah item (opsional)</label>
+                            <input type="number" min="0" class="form-control" @bind="_form.ItemCount" />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Deskripsi cucian (opsional)</label>
+                        <input class="form-control" @bind="_form.ItemDescription" placeholder="cth: 5 kemeja, 3 celana, 2 sprei" />
+                    </div>
+                    <div class="grid grid-2" style="gap:12px">
+                        <label class="check-tile">
+                            <input type="checkbox" @bind="_form.IsPickupRequested" />
+                            <span>🛵 Jemput cucian</span>
+                        </label>
+                        <label class="check-tile">
+                            <input type="checkbox" @bind="_form.IsDeliveryRequested" />
+                            <span>🚚 Antar setelah selesai</span>
+                        </label>
+                    </div>
+                    @if (_form.IsPickupRequested || _form.IsDeliveryRequested)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Alamat jemput/antar</label>
+                            <textarea class="form-control" rows="2" @bind="_form.Address" placeholder="Alamat lengkap"></textarea>
+                        </div>
+                    }
+                    <div class="grid grid-2" style="gap:12px">
+                        <div class="form-group">
+                            <label class="form-label">Metode pembayaran</label>
+                            <select class="form-control" @bind="_form.PaymentMethod">
+                                <option value="">Bayar nanti</option>
+                                <option>Cash</option><option>OVO</option><option>GoPay</option>
+                                <option>Dana</option><option>QRIS</option><option>Transfer</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Catatan (opsional)</label>
+                            <input class="form-control" @bind="_form.Notes" placeholder="cth: jangan pakai pemutih" />
+                        </div>
+                    </div>
+
+                    <div class="order-summary">
+                        <div class="summary-row"><span>Subtotal (@_form.WeightKg kg × Rp @PriceFor(_form.ServiceType).ToString("N0"))</span><span>Rp @_calcSubtotal.ToString("N0")</span></div>
+                        <div class="summary-row"><span>Diskon member @(_discountLabel)</span><span>- Rp @_calcDiscount.ToString("N0")</span></div>
+                        <div class="summary-row"><span>Pajak 10%</span><span>Rp @_calcTax.ToString("N0")</span></div>
+                        <div class="summary-row total"><span>Total</span><span>Rp @_calcTotal.ToString("N0")</span></div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(_formError))
+                    {
+                        <div class="alert alert-error">@_formError</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" @onclick="CloseCreateForm">Batal</button>
+                    <button class="btn-primary" @onclick="CreateOrder" disabled="@_isSaving">
+                        @(_isSaving ? "Menyimpan..." : "Buat order")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string? OrderNumber { get; set; }
+
+    [SupplyParameterFromQuery(Name = "customer")]
+    public string? CustomerFilter { get; set; }
+
+    [SupplyParameterFromQuery(Name = "new")]
+    public int? OpenNew { get; set; }
+
+    [SupplyParameterFromQuery(Name = "branchId")]
+    public int? PreselectBranchId { get; set; }
+
+    private static readonly List<string> TrackingSteps = new() { "Diterima", "Dicuci", "Disetrika", "Selesai", "Dikirim" };
+
+    private Order? _order;
+    private bool _isDetailLoading = true;
+    private List<OrderStatusLog> _statusLogs = new();
+    private string _newStatus = "";
+    private string _statusMsg = "";
+    private int _selectedCourierId;
+    private List<StaffMember> _courierStaff = new();
+
+    private List<Order> _orders = new();
+    private int _totalOrders, _currentPage = 1, _totalPages = 1;
+    private string _filterStatus = "", _searchTerm = "";
+    private string? _customerFilterName;
+    private const int PageSize = 15;
+
+    private string? _userId;
+    private bool _isStaff;      // Admin, Pemilik, Kurir
+    private bool _isCustomerOwner;
+
+    // form state
+    private bool _showCreateForm, _isSaving;
+    private string _formError = "";
+    private OrderForm _form = new();
+    private List<ApplicationUser> _customerOptions = new();
+    private List<Branch> _branchOptions = new();
+    private decimal _calcSubtotal, _calcDiscount, _calcTax, _calcTotal;
+    private string _discountLabel = "";
+
+    // review state
+    private int _reviewRating;
+    private string _reviewComment = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirstValue(System.Security.Claims.ClaimTypes.NameIdentifier);
+        var roles = auth.User.FindAll(System.Security.Claims.ClaimTypes.Role).Select(c => c.Value).ToList();
+        _isStaff = roles.Any(r => r is "Admin" or "Pemilik" or "Kurir");
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (OrderNumber != null)
+        {
+            _isDetailLoading = true;
+            await LoadOrderDetail();
+            _isDetailLoading = false;
+        }
+        else
+        {
+            await LoadOrders();
+            if (OpenNew == 1 && !_showCreateForm)
+            {
+                await OpenCreateForm();
+                if (PreselectBranchId is int b && _branchOptions.Any(x => x.Id == b))
+                    _form.BranchId = b;
+            }
+        }
+    }
+
+    private async Task LoadOrderDetail()
+    {
+        _order = await Db.Orders
+            .Include(o => o.User)
+            .Include(o => o.Branch)
+            .Include(o => o.Review)
+            .Include(o => o.Invoice)
+            .Include(o => o.CourierAssignment).ThenInclude(c => c!.Courier)
+            .FirstOrDefaultAsync(o => o.OrderNumber == OrderNumber);
+
+        if (_order != null)
+        {
+            _statusLogs = await Db.OrderStatusLogs.Where(l => l.OrderId == _order.Id).ToListAsync();
+            _isCustomerOwner = _order.UserId == _userId;
+            if (_isStaff)
+                _courierStaff = await Db.StaffMembers.Include(s => s.Branch)
+                    .Where(s => s.Position == "Kurir" && s.IsActive).ToListAsync();
+        }
+    }
+
+    private async Task LoadOrders()
+    {
+        var query = Db.Orders.AsNoTracking().Include(o => o.User).AsQueryable();
+
+        if (!_isStaff && _userId != null)
+            query = query.Where(o => o.UserId == _userId);
+
+        if (!string.IsNullOrEmpty(CustomerFilter))
+        {
+            query = query.Where(o => o.UserId == CustomerFilter);
+            _customerFilterName ??= (await Db.Users.FindAsync(CustomerFilter))?.FullName ?? CustomerFilter;
+        }
+
+        if (!string.IsNullOrEmpty(_filterStatus)) query = query.Where(o => o.Status == _filterStatus);
+        if (!string.IsNullOrEmpty(_searchTerm))
+            query = query.Where(o => o.OrderNumber.Contains(_searchTerm) || (o.User != null && o.User.FullName.Contains(_searchTerm)));
+
+        _totalOrders = await query.CountAsync();
+        _totalPages = Math.Max(1, (int)Math.Ceiling(_totalOrders / (double)PageSize));
+        if (_currentPage > _totalPages) _currentPage = _totalPages;
+        _orders = await query.OrderByDescending(o => o.CreatedAt)
+            .Skip((_currentPage - 1) * PageSize).Take(PageSize).ToListAsync();
+    }
+
+    private async Task ApplyFilter()
+    {
+        _currentPage = 1;
+        await LoadOrders();
+    }
+
+    private void ClearCustomerFilter() => Nav.NavigateTo("/orders");
+
+    private async Task ChangePage(int d)
+    {
+        _currentPage += d;
+        await LoadOrders();
+    }
+
+    // ---------- Order baru ----------
+    private async Task OpenCreateForm()
+    {
+        _form = new OrderForm();
+        _formError = "";
+        _branchOptions = await Db.Branches.AsNoTracking().Where(b => b.IsActive).ToListAsync();
+        _form.BranchId = _branchOptions.FirstOrDefault()?.Id ?? 1;
+
+        if (_isStaff)
+        {
+            var customerIds = Db.UserRoles
+                .Where(ur => Db.Roles.Any(r => r.Id == ur.RoleId && r.Name == "Pelanggan"))
+                .Select(ur => ur.UserId);
+            _customerOptions = await Db.Users.AsNoTracking()
+                .Where(u => customerIds.Contains(u.Id) && u.IsActive)
+                .OrderBy(u => u.FullName).ToListAsync();
+        }
+        else if (_userId != null)
+        {
+            _form.UserId = _userId;
+            _selfTier = (await Db.Users.FindAsync(_userId))?.MembershipTier;
+        }
+
+        RecalcTotals();
+        _showCreateForm = true;
+    }
+
+    private void CloseCreateForm() => _showCreateForm = false;
+
+    private static decimal PriceFor(string service) => service switch
+    {
+        "Express" => 12000m,
+        "Kiloan" => 7000m,
+        "Setrika" => 6000m,
+        _ => 8000m
+    };
+
+    private string? _selfTier;
+
+    private void RecalcTotals()
+    {
+        var tier = _isStaff
+            ? _customerOptions.FirstOrDefault(c => c.Id == _form.UserId)?.MembershipTier
+            : _selfTier;
+        RecalcTotals(tier);
+    }
+
+    private void RecalcTotals(string? tier)
+    {
+        _calcSubtotal = (decimal)_form.WeightKg * PriceFor(_form.ServiceType);
+        var rate = tier switch { "Platinum" => 0.15m, "Gold" => 0.10m, "Silver" => 0.05m, _ => 0m };
+        _discountLabel = rate > 0 ? $"({tier} {rate:P0})" : "";
+        _calcDiscount = Math.Round(_calcSubtotal * rate);
+        _calcTax = Math.Round((_calcSubtotal - _calcDiscount) * 0.1m);
+        _calcTotal = _calcSubtotal - _calcDiscount + _calcTax;
+    }
+
+    private async Task CreateOrder()
+    {
+        _formError = "";
+        if (string.IsNullOrEmpty(_form.UserId)) { _formError = "Pilih pelanggan dulu."; return; }
+        if (_form.WeightKg <= 0) { _formError = "Berat harus lebih dari 0 kg."; return; }
+        if ((_form.IsPickupRequested || _form.IsDeliveryRequested) && string.IsNullOrWhiteSpace(_form.Address))
+        { _formError = "Isi alamat jemput/antar."; return; }
+
+        _isSaving = true;
+        try
+        {
+            var customer = await Db.Users.FindAsync(_form.UserId);
+            RecalcTotals(customer?.MembershipTier);
+
+            var seq = await Db.Orders.CountAsync(o => o.CreatedAt.Date == DateTime.UtcNow.Date) + 1;
+            var order = new Order
+            {
+                OrderNumber = $"WO-{DateTime.UtcNow:yyyyMMdd}-{seq:D4}",
+                UserId = _form.UserId,
+                BranchId = _form.BranchId,
+                ServiceType = _form.ServiceType,
+                WeightKg = _form.WeightKg,
+                ItemCount = _form.ItemCount > 0 ? _form.ItemCount : null,
+                ItemDescription = string.IsNullOrWhiteSpace(_form.ItemDescription) ? null : _form.ItemDescription,
+                DetergentPreference = customer?.PreferredDetergent,
+                FragrancePreference = customer?.PreferredFragrance,
+                PricePerKg = PriceFor(_form.ServiceType),
+                Subtotal = _calcSubtotal,
+                Discount = _calcDiscount,
+                TaxAmount = _calcTax,
+                TotalAmount = _calcTotal,
+                Status = "Diterima",
+                ReceivedAt = DateTime.UtcNow,
+                EstimatedCompletion = DateTime.UtcNow.AddDays(_form.ServiceType == "Express" ? 0.25 : 2),
+                IsPickupRequested = _form.IsPickupRequested,
+                IsDeliveryRequested = _form.IsDeliveryRequested,
+                PickupAddress = _form.IsPickupRequested ? _form.Address : null,
+                DeliveryAddress = _form.IsDeliveryRequested ? _form.Address : null,
+                PaymentStatus = "BelumBayar",
+                PaymentMethod = string.IsNullOrEmpty(_form.PaymentMethod) ? null : _form.PaymentMethod,
+                Notes = string.IsNullOrWhiteSpace(_form.Notes) ? null : _form.Notes,
+                CreatedAt = DateTime.UtcNow
+            };
+            Db.Orders.Add(order);
+            await Db.SaveChangesAsync();
+
+            // Invoice otomatis + notifikasi ke pelanggan
+            await Invoices.GenerateInvoiceAsync(order.Id);
+            await Notifications.SendAsync(order.UserId, "OrderUpdate",
+                $"Order {order.OrderNumber} diterima",
+                $"Order {ServiceLabel(order.ServiceType)} {order.WeightKg} kg sudah kami terima. Total Rp {order.TotalAmount:N0}.",
+                $"/orders/{order.OrderNumber}");
+
+            _showCreateForm = false;
+            Nav.NavigateTo($"/orders/{order.OrderNumber}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    // ---------- Update status ----------
+    private async Task UpdateStatus()
+    {
+        if (_order == null || string.IsNullOrEmpty(_newStatus) || _newStatus == _order.Status) return;
+
+        Db.OrderStatusLogs.Add(new OrderStatusLog
+        {
+            OrderId = _order.Id,
+            OldStatus = _order.Status,
+            NewStatus = _newStatus,
+            ChangedByUserId = _userId,
+            ChangedAt = DateTime.UtcNow
+        });
+
+        _order.Status = _newStatus;
+        _order.UpdatedAt = DateTime.UtcNow;
+
+        switch (_newStatus)
+        {
+            case "Dicuci": _order.WashedAt = DateTime.UtcNow; break;
+            case "Disetrika": _order.IronedAt = DateTime.UtcNow; break;
+            case "Selesai":
+                _order.CompletedAt = DateTime.UtcNow;
+                await AwardLoyaltyPoints();
+                break;
+            case "Dikirim":
+                _order.DeliveredAt = DateTime.UtcNow;
+                await SettlePayment();
+                break;
+        }
+
+        await Db.SaveChangesAsync();
+        await Notifications.NotifyOrderStatusChange(_order.UserId, _order.OrderNumber, _newStatus);
+
+        _statusMsg = $"Status diubah ke {_newStatus}.";
+        _newStatus = "";
+        await LoadOrderDetail();
+    }
+
+    private async Task AwardLoyaltyPoints()
+    {
+        if (_order == null) return;
+        var customer = await Db.Users.FindAsync(_order.UserId);
+        if (customer == null) return;
+        var points = _order.ServiceType == "Express" ? 100 : 50;
+        customer.LoyaltyPoints += points;
+        await Notifications.SendAsync(customer.Id, "OrderUpdate",
+            $"+{points} poin loyalty!",
+            $"Order {_order.OrderNumber} selesai. Poin kamu sekarang {customer.LoyaltyPoints}.",
+            "/profile");
+    }
+
+    private async Task SettlePayment()
+    {
+        if (_order == null || _order.PaymentStatus == "Lunas") { if (_order != null) _order.PaymentStatus = "Lunas"; return; }
+
+        _order.PaymentStatus = "Lunas";
+        _order.PaymentMethod ??= "Cash";
+
+        var invoice = await Db.Invoices.FirstOrDefaultAsync(i => i.OrderId == _order.Id);
+        if (invoice != null)
+        {
+            invoice.PaymentStatus = "Paid";
+            invoice.PaidAt = DateTime.UtcNow;
+            invoice.PaymentMethod = _order.PaymentMethod;
+        }
+
+        Db.FinancialTransactions.Add(new FinancialTransaction
+        {
+            TransactionType = "Income",
+            Category = "OrderPayment",
+            Description = $"Pembayaran order {_order.OrderNumber}",
+            Amount = _order.TotalAmount,
+            OrderId = _order.Id,
+            BranchId = _order.BranchId,
+            TransactionDate = DateTime.UtcNow,
+            RecordedByUserId = _userId
+        });
+    }
+
+    // ---------- Review pelanggan ----------
+    private async Task SubmitReview()
+    {
+        if (_order == null || _reviewRating == 0 || _userId == null) return;
+
+        Db.Reviews.Add(new Review
+        {
+            OrderId = _order.Id,
+            UserId = _userId,
+            Rating = _reviewRating,
+            Comment = string.IsNullOrWhiteSpace(_reviewComment) ? null : _reviewComment,
+            CreatedAt = DateTime.UtcNow,
+            IsVisible = true
+        });
+
+        var customer = await Db.Users.FindAsync(_userId);
+        if (customer != null) customer.LoyaltyPoints += 20;
+
+        await Db.SaveChangesAsync();
+        _reviewRating = 0;
+        _reviewComment = "";
+        await LoadOrderDetail();
+    }
+
+    private async Task AssignCourier()
+    {
+        if (_order == null || _selectedCourierId == 0) return;
+
+        var branch = _order.Branch ?? await Db.Branches.FindAsync(_order.BranchId ?? 1);
+        var rand = new Random();
+        Db.CourierAssignments.Add(new CourierAssignment
+        {
+            OrderId = _order.Id,
+            StaffMemberId = _selectedCourierId,
+            AssignmentType = _order.IsPickupRequested && _order.Status == "Diterima" ? "Pickup" : "Delivery",
+            Status = "Assigned",
+            AssignedAt = DateTime.UtcNow,
+            EstimatedArrival = DateTime.UtcNow.AddMinutes(rand.Next(20, 60)),
+            // Tujuan di sekitar cabang (simulasi alamat pelanggan)
+            DestinationLatitude = (branch?.Latitude ?? -6.2088) + (rand.NextDouble() - 0.5) * 0.04,
+            DestinationLongitude = (branch?.Longitude ?? 106.8456) + (rand.NextDouble() - 0.5) * 0.04
+        });
+        await Db.SaveChangesAsync();
+        _selectedCourierId = 0;
+        await LoadOrderDetail();
+    }
+
+    // ---------- Helpers ----------
+    private string GetStepStatus(string step)
+    {
+        if (_order == null) return "";
+        var ci = TrackingSteps.IndexOf(_order.Status);
+        var si = TrackingSteps.IndexOf(step);
+        if (si < ci) return "completed";
+        if (si == ci) return "current";
+        return "";
+    }
+
+    private static string ServiceLabel(string s) => s switch
+    {
+        "CuciKering" => "Cuci Kering",
+        "CuciLipat" => "Cuci Lipat",
+        "Express" => "Express 6 Jam",
+        _ => s
+    };
+
+    private static string GetStatusBadge(string s) => s switch
+    {
+        "Diterima" => "badge-info",
+        "Dicuci" => "badge-warning",
+        "Disetrika" => "badge-purple",
+        "Selesai" => "badge-success",
+        "Dikirim" => "badge-success",
+        _ => "badge-gray"
+    };
+
+    private sealed class OrderForm
+    {
+        public string UserId { get; set; } = "";
+        public int BranchId { get; set; } = 1;
+        public string ServiceType { get; set; } = "CuciKering";
+        public double WeightKg { get; set; } = 3;
+        public int ItemCount { get; set; }
+        public string ItemDescription { get; set; } = "";
+        public bool IsPickupRequested { get; set; }
+        public bool IsDeliveryRequested { get; set; }
+        public string Address { get; set; } = "";
+        public string PaymentMethod { get; set; } = "";
+        public string Notes { get; set; } = "";
+    }
+}

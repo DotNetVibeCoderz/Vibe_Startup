@@ -1,0 +1,345 @@
+@page "/finance"
+@using WashUp.Data
+@using WashUp.Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin,Pemilik")]
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Keuangan - WashUp</PageTitle>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2>💰 Keuangan & Tagihan</h2>
+    <button class="btn-primary btn-sm" @onclick="OpenTransactionForm">+ Catat transaksi</button>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon green">💰</div><div class="stat-info"><div class="stat-label">Pemasukan bulan ini</div><div class="stat-value">Rp @_monthIncome.ToString("N0")</div></div></div>
+    <div class="stat-card"><div class="stat-icon orange">📤</div><div class="stat-info"><div class="stat-label">Pengeluaran bulan ini</div><div class="stat-value">Rp @_monthExpense.ToString("N0")</div></div></div>
+    <div class="stat-card"><div class="stat-icon blue">📈</div><div class="stat-info"><div class="stat-label">Profit</div><div class="stat-value">Rp @((_monthIncome - _monthExpense).ToString("N0"))</div></div></div>
+    <div class="stat-card"><div class="stat-icon purple">🧾</div><div class="stat-info"><div class="stat-label">Piutang berjalan</div><div class="stat-value">Rp @_receivableTotal.ToString("N0")</div><div class="stat-change">@_receivables.Count order belum lunas</div></div></div>
+</div>
+
+<div class="tabs mb-4">
+    <button class="tab @(_tab == "income" ? "active" : "")" @onclick="@(() => SwitchTab("income"))">💰 Pemasukan</button>
+    <button class="tab @(_tab == "expense" ? "active" : "")" @onclick="@(() => SwitchTab("expense"))">📤 Pengeluaran</button>
+    <button class="tab @(_tab == "invoice" ? "active" : "")" @onclick="@(() => SwitchTab("invoice"))">🧾 Invoice</button>
+    <button class="tab @(_tab == "receivable" ? "active" : "")" @onclick="@(() => SwitchTab("receivable"))">💳 Piutang</button>
+    <button class="tab @(_tab == "tax" ? "active" : "")" @onclick="@(() => SwitchTab("tax"))">🏛️ Pajak</button>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        @if (_tab == "income" || _tab == "expense")
+        {
+            <table>
+                <thead><tr><th>Tanggal</th><th>Kategori</th><th>Deskripsi</th><th>Jumlah</th><th>Cabang</th></tr></thead>
+                <tbody>
+                    @if (_transactions.Any())
+                    {
+                        @foreach (var t in _transactions)
+                        {
+                            var isIncome = t.TransactionType == "Income";
+                            <tr>
+                                <td>@t.TransactionDate.ToString("dd/MM/yyyy")</td>
+                                <td>@t.Category</td>
+                                <td>@t.Description</td>
+                                <td class="num font-bold" style="color: @(isIncome ? "var(--success)" : "var(--danger)")">
+                                    @(isIncome ? "+" : "-")Rp @t.Amount.ToString("N0")
+                                </td>
+                                <td>@BranchName(t.BranchId)</td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr><td colspan="5" class="text-center text-muted p-4">Belum ada transaksi. Catat lewat tombol "+ Catat transaksi".</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else if (_tab == "invoice")
+        {
+            <table>
+                <thead><tr><th>No. Invoice</th><th>Order</th><th>Total</th><th>Status</th><th>Jatuh tempo</th></tr></thead>
+                <tbody>
+                    @if (_invoices.Any())
+                    {
+                        @foreach (var inv in _invoices)
+                        {
+                            <tr>
+                                <td><strong>@inv.InvoiceNumber</strong></td>
+                                <td><a href="/orders/@inv.Order?.OrderNumber" class="table-link">@inv.Order?.OrderNumber</a></td>
+                                <td class="num"><strong>Rp @inv.TotalAmount.ToString("N0")</strong></td>
+                                <td><span class="badge @(inv.PaymentStatus == "Paid" ? "badge-success" : "badge-warning")">@(inv.PaymentStatus == "Paid" ? "Lunas" : "Belum bayar")</span></td>
+                                <td>@inv.DueDate.ToString("dd/MM/yyyy")</td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr><td colspan="5" class="text-center text-muted p-4">Belum ada invoice. Invoice dibuat otomatis saat order dibuat.</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else if (_tab == "receivable")
+        {
+            <table>
+                <thead><tr><th>No. Order</th><th>Pelanggan</th><th>Total</th><th>Status order</th><th>Umur piutang</th></tr></thead>
+                <tbody>
+                    @if (_receivables.Any())
+                    {
+                        @foreach (var o in _receivables)
+                        {
+                            var age = (DateTime.UtcNow - o.CreatedAt).Days;
+                            <tr>
+                                <td><a href="/orders/@o.OrderNumber" class="table-link">@o.OrderNumber</a></td>
+                                <td>@o.User?.FullName</td>
+                                <td class="num"><strong>Rp @o.TotalAmount.ToString("N0")</strong></td>
+                                <td><span class="badge badge-info">@o.Status</span></td>
+                                <td><span class="badge @(age > 14 ? "badge-danger" : age > 7 ? "badge-warning" : "badge-gray")">@age hari</span></td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr><td colspan="5" class="text-center text-muted p-4">🎉 Tidak ada piutang — semua order sudah lunas.</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else if (_tab == "tax")
+        {
+            <table>
+                <thead><tr><th>Periode</th><th>Revenue</th><th>PPh (10%)</th><th>PPN (11%)</th><th>Status</th><th>Aksi</th></tr></thead>
+                <tbody>
+                    @if (_taxRecords.Any())
+                    {
+                        @foreach (var tax in _taxRecords)
+                        {
+                            <tr>
+                                <td>@tax.Month/@tax.Year</td>
+                                <td class="num">Rp @tax.TotalRevenue.ToString("N0")</td>
+                                <td class="num">Rp @tax.PphAmount.ToString("N0")</td>
+                                <td class="num">Rp @tax.PpnAmount.ToString("N0")</td>
+                                <td><span class="badge @(tax.Status == "Paid" ? "badge-success" : tax.Status == "Reported" ? "badge-info" : "badge-warning")">@TaxStatusLabel(tax.Status)</span></td>
+                                <td>
+                                    @if (tax.Status == "Draft")
+                                    {
+                                        <button class="btn-secondary btn-sm" @onclick="@(() => AdvanceTax(tax.Id, "Reported"))">Laporkan</button>
+                                    }
+                                    else if (tax.Status == "Reported")
+                                    {
+                                        <button class="btn-secondary btn-sm" @onclick="@(() => AdvanceTax(tax.Id, "Paid"))">Tandai dibayar</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr><td colspan="6" class="text-center text-muted p-4">Belum ada data pajak. Hitung PPh bulan lalu dengan tombol di bawah.</td></tr>
+                    }
+                </tbody>
+            </table>
+            <div class="p-3">
+                <button class="btn-secondary btn-sm" @onclick="GenerateTaxRecord">🧮 Hitung pajak bulan lalu</button>
+                @if (!string.IsNullOrEmpty(_taxMsg))
+                {
+                    <span class="text-sm text-muted ml-2">@_taxMsg</span>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@* ---------- Modal catat transaksi ---------- *@
+@if (_showTransactionForm)
+{
+    <div class="modal-backdrop" @onclick="() => _showTransactionForm = false">
+        <div class="modal-panel" style="max-width:460px" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Catat transaksi</h3>
+                <button class="icon-btn" @onclick="() => _showTransactionForm = false" title="Tutup">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="grid grid-2" style="gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Tipe</label>
+                        <select class="form-control" @bind="_newType">
+                            <option value="Income">Pemasukan</option>
+                            <option value="Expense">Pengeluaran</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Kategori</label>
+                        <select class="form-control" @bind="_newCategory">
+                            @if (_newType == "Income")
+                            {
+                                <option>OrderPayment</option><option>Subscription</option><option>Other</option>
+                            }
+                            else
+                            {
+                                <option>Supplies</option><option>Salary</option><option>Utility</option><option>Maintenance</option><option>Tax</option><option>Other</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group"><label class="form-label">Jumlah (Rp)</label><input type="number" min="0" class="form-control" @bind="_newAmount" /></div>
+                <div class="form-group"><label class="form-label">Deskripsi</label><input class="form-control" @bind="_newDescription" placeholder="cth: beli detergen 20 liter" /></div>
+                <div class="form-group">
+                    <label class="form-label">Cabang</label>
+                    <select class="form-control" @bind="_newBranchId">
+                        @foreach (var b in _branches)
+                        {
+                            <option value="@b.Id">@b.Name</option>
+                        }
+                    </select>
+                </div>
+                @if (!string.IsNullOrEmpty(_formError))
+                {
+                    <div class="alert alert-error">@_formError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" @onclick="() => _showTransactionForm = false">Batal</button>
+                <button class="btn-primary" @onclick="SaveTransaction">Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string _tab = "income";
+    private decimal _monthIncome, _monthExpense, _receivableTotal;
+    private List<FinancialTransaction> _transactions = new();
+    private List<Invoice> _invoices = new();
+    private List<TaxRecord> _taxRecords = new();
+    private List<Order> _receivables = new();
+    private List<Branch> _branches = new();
+    private string? _userId;
+    private string _taxMsg = "";
+
+    private bool _showTransactionForm;
+    private string _newType = "Income", _newCategory = "OrderPayment", _newDescription = "", _formError = "";
+    private decimal _newAmount;
+    private int _newBranchId = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirstValue(System.Security.Claims.ClaimTypes.NameIdentifier);
+        _branches = await Db.Branches.AsNoTracking().ToListAsync();
+        await LoadSummary();
+        await SwitchTab("income");
+    }
+
+    private async Task LoadSummary()
+    {
+        var m = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+        _monthIncome = await Db.FinancialTransactions.Where(t => t.TransactionType == "Income" && t.TransactionDate >= m).SumAsync(t => t.Amount);
+        _monthExpense = await Db.FinancialTransactions.Where(t => t.TransactionType == "Expense" && t.TransactionDate >= m).SumAsync(t => t.Amount);
+        _receivables = await Db.Orders.AsNoTracking().Include(o => o.User)
+            .Where(o => o.PaymentStatus != "Lunas")
+            .OrderBy(o => o.CreatedAt).ToListAsync();
+        _receivableTotal = _receivables.Sum(o => o.TotalAmount);
+    }
+
+    private async Task SwitchTab(string tab)
+    {
+        _tab = tab;
+        if (tab == "income") _transactions = await Db.FinancialTransactions.AsNoTracking().Where(t => t.TransactionType == "Income").OrderByDescending(t => t.TransactionDate).Take(30).ToListAsync();
+        else if (tab == "expense") _transactions = await Db.FinancialTransactions.AsNoTracking().Where(t => t.TransactionType == "Expense").OrderByDescending(t => t.TransactionDate).Take(30).ToListAsync();
+        else if (tab == "invoice") _invoices = await Db.Invoices.AsNoTracking().Include(i => i.Order).OrderByDescending(i => i.CreatedAt).Take(30).ToListAsync();
+        else if (tab == "tax") _taxRecords = await Db.TaxRecords.AsNoTracking().OrderByDescending(t => t.Year).ThenByDescending(t => t.Month).Take(12).ToListAsync();
+    }
+
+    private void OpenTransactionForm()
+    {
+        _newType = "Income";
+        _newCategory = "OrderPayment";
+        _newAmount = 0;
+        _newDescription = "";
+        _newBranchId = _branches.FirstOrDefault()?.Id ?? 1;
+        _formError = "";
+        _showTransactionForm = true;
+    }
+
+    private async Task SaveTransaction()
+    {
+        if (_newAmount <= 0) { _formError = "Jumlah harus lebih dari 0."; return; }
+
+        Db.FinancialTransactions.Add(new FinancialTransaction
+        {
+            TransactionType = _newType,
+            Category = _newCategory,
+            Description = string.IsNullOrWhiteSpace(_newDescription) ? null : _newDescription,
+            Amount = _newAmount,
+            BranchId = _newBranchId,
+            TransactionDate = DateTime.UtcNow,
+            RecordedByUserId = _userId
+        });
+        await Db.SaveChangesAsync();
+        _showTransactionForm = false;
+        await LoadSummary();
+        await SwitchTab(_tab);
+    }
+
+    private async Task GenerateTaxRecord()
+    {
+        var lastMonth = DateTime.UtcNow.AddMonths(-1);
+        var exists = await Db.TaxRecords.AnyAsync(t => t.Month == lastMonth.Month && t.Year == lastMonth.Year);
+        if (exists) { _taxMsg = "Pajak bulan lalu sudah dihitung."; return; }
+
+        var start = new DateTime(lastMonth.Year, lastMonth.Month, 1);
+        var end = start.AddMonths(1);
+        var revenue = await Db.FinancialTransactions
+            .Where(t => t.TransactionType == "Income" && t.TransactionDate >= start && t.TransactionDate < end)
+            .SumAsync(t => t.Amount);
+
+        Db.TaxRecords.Add(new TaxRecord
+        {
+            Month = lastMonth.Month,
+            Year = lastMonth.Year,
+            TotalRevenue = revenue,
+            TaxableAmount = revenue,
+            PphRate = 0.1m,
+            PphAmount = revenue * 0.1m,
+            PpnAmount = revenue * 0.11m,
+            Status = "Draft",
+            CreatedAt = DateTime.UtcNow
+        });
+        await Db.SaveChangesAsync();
+        _taxMsg = $"Pajak {lastMonth:MM/yyyy} dihitung dari revenue Rp {revenue:N0}.";
+        await SwitchTab("tax");
+    }
+
+    private async Task AdvanceTax(int id, string status)
+    {
+        var tax = await Db.TaxRecords.FindAsync(id);
+        if (tax == null) return;
+        tax.Status = status;
+        if (status == "Reported") tax.ReportedAt = DateTime.UtcNow;
+        if (status == "Paid")
+        {
+            tax.PaidAt = DateTime.UtcNow;
+            Db.FinancialTransactions.Add(new FinancialTransaction
+            {
+                TransactionType = "Expense",
+                Category = "Tax",
+                Description = $"Pembayaran PPh {tax.Month}/{tax.Year}",
+                Amount = tax.PphAmount,
+                TransactionDate = DateTime.UtcNow,
+                RecordedByUserId = _userId
+            });
+        }
+        await Db.SaveChangesAsync();
+        await LoadSummary();
+        await SwitchTab("tax");
+    }
+
+    private string BranchName(int? id) => _branches.FirstOrDefault(b => b.Id == id)?.Name.Replace("WashUp ", "") ?? "-";
+    private static string TaxStatusLabel(string s) => s switch { "Paid" => "Dibayar", "Reported" => "Dilaporkan", _ => "Draft" };
+}

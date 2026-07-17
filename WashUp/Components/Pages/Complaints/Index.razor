@@ -1,0 +1,246 @@
+@page "/complaints"
+@using WashUp.Data
+@using WashUp.Models
+@using WashUp.Services
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+@inject NotificationService Notifications
+
+<PageTitle>Komplain - WashUp</PageTitle>
+
+<h2 class="mb-4">📝 Layanan Komplain</h2>
+
+<div class="tabs mb-4">
+    <button class="tab @(_tab == "list" ? "active" : "")" @onclick="@(() => _tab = "list")">📋 @(_isStaff ? "Semua komplain" : "Komplain saya")</button>
+    <button class="tab @(_tab == "new" ? "active" : "")" @onclick="@(() => _tab = "new")">➕ Komplain baru</button>
+</div>
+
+@if (_tab == "list")
+{
+    <div class="card">
+        <div class="table-container">
+            <table>
+                <thead><tr><th>No.</th><th>Pelanggan</th><th>Kategori</th><th>Subjek</th><th>Prioritas</th><th>Status</th><th>Tanggal</th></tr></thead>
+                <tbody>
+                    @if (_complaints.Any())
+                    {
+                        @foreach (var c in _complaints)
+                        {
+                            <tr class="row-link" @onclick="() => _selected = c">
+                                <td><strong>@c.ComplaintNumber</strong></td>
+                                <td>@c.User?.FullName</td>
+                                <td>@c.Category</td>
+                                <td>@c.Subject</td>
+                                <td><span class="badge @PriorityBadge(c.Priority)">@c.Priority</span></td>
+                                <td><span class="badge @StatusBadge(c.Status)">@c.Status</span></td>
+                                <td>@c.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy")</td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr><td colspan="7" class="text-center text-muted p-4">Belum ada komplain — semoga tetap begitu! 🙌</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card" style="max-width:600px">
+        <h3 class="card-title mb-4">Form komplain baru</h3>
+        <div class="form-group">
+            <label class="form-label">Order terkait (opsional)</label>
+            <select class="form-control" @bind="_newOrderId">
+                <option value="0">Tidak terkait order tertentu</option>
+                @foreach (var o in _myOrders)
+                {
+                    <option value="@o.Id">@o.OrderNumber — @o.ServiceType (@o.CreatedAt.ToString("dd/MM"))</option>
+                }
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Kategori</label>
+            <select class="form-control" @bind="_newCategory">
+                <option value="">Pilih kategori...</option>
+                <option>Kualitas</option><option>Keterlambatan</option><option>Kehilangan</option><option>Kerusakan</option><option>Lainnya</option>
+            </select>
+        </div>
+        <div class="form-group"><label class="form-label">Subjek</label><input class="form-control" @bind="_newSubject" placeholder="Ringkasan singkat masalah" /></div>
+        <div class="form-group"><label class="form-label">Deskripsi</label><textarea class="form-control" @bind="_newDescription" rows="4" placeholder="Ceritakan detail kejadiannya..."></textarea></div>
+        <button class="btn-primary" @onclick="SubmitComplaint">Kirim komplain</button>
+        @if (!string.IsNullOrEmpty(_msg))
+        {
+            <div class="alert alert-info mt-3">@_msg</div>
+        }
+    </div>
+}
+
+@* ---------- Detail & tindak lanjut ---------- *@
+@if (_selected != null)
+{
+    <div class="modal-backdrop" @onclick="() => _selected = null">
+        <div class="modal-panel" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div>
+                    <h3>@_selected.ComplaintNumber</h3>
+                    <span class="badge @StatusBadge(_selected.Status)">@_selected.Status</span>
+                    <span class="badge @PriorityBadge(_selected.Priority)">@_selected.Priority</span>
+                </div>
+                <button class="icon-btn" @onclick="() => _selected = null" title="Tutup">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-sm text-muted mb-1">@_selected.User?.FullName · @_selected.Category · @_selected.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</p>
+                <h4 class="mb-2">@_selected.Subject</h4>
+                <p class="text-sm mb-4">@_selected.Description</p>
+
+                @if (!string.IsNullOrEmpty(_selected.Resolution))
+                {
+                    <div class="alert alert-success">
+                        <strong>Penyelesaian:</strong> @_selected.Resolution
+                        <div class="text-xs mt-1">@_selected.ResolvedAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm")</div>
+                    </div>
+                }
+
+                @if (_isStaff && _selected.Status != "Selesai" && _selected.Status != "Ditolak")
+                {
+                    <hr class="section-divider" />
+                    <h4 class="mb-3">Tindak lanjut</h4>
+                    <div class="grid grid-2" style="gap:12px">
+                        <div class="form-group">
+                            <label class="form-label">Status</label>
+                            <select class="form-control" @bind="_updateStatus">
+                                <option value="Diterima">Diterima</option>
+                                <option value="Diproses">Diproses</option>
+                                <option value="Selesai">Selesai</option>
+                                <option value="Ditolak">Ditolak</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Prioritas</label>
+                            <select class="form-control" @bind="_updatePriority">
+                                <option>Low</option><option>Normal</option><option>High</option><option>Urgent</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Catatan penyelesaian</label>
+                        <textarea class="form-control" rows="2" @bind="_updateResolution" placeholder="cth: sudah dicuci ulang dan diantar kembali, gratis"></textarea>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" @onclick="() => _selected = null">Tutup</button>
+                @if (_isStaff && _selected.Status != "Selesai" && _selected.Status != "Ditolak")
+                {
+                    <button class="btn-primary" @onclick="UpdateComplaint">Simpan tindak lanjut</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string _tab = "list";
+    private List<Complaint> _complaints = new();
+    private List<Order> _myOrders = new();
+    private string _newCategory = "", _newSubject = "", _newDescription = "", _msg = "";
+    private int _newOrderId;
+
+    private Complaint? _selected;
+    private string _updateStatus = "Diproses", _updatePriority = "Normal", _updateResolution = "";
+
+    private string? _userId;
+    private bool _isStaff;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirstValue(System.Security.Claims.ClaimTypes.NameIdentifier);
+        var roles = auth.User.FindAll(System.Security.Claims.ClaimTypes.Role).Select(c => c.Value).ToList();
+        _isStaff = roles.Any(r => r is "Admin" or "Pemilik");
+
+        await LoadComplaints();
+        if (_userId != null)
+            _myOrders = await Db.Orders.AsNoTracking()
+                .Where(o => _isStaff || o.UserId == _userId)
+                .OrderByDescending(o => o.CreatedAt).Take(20).ToListAsync();
+    }
+
+    private async Task LoadComplaints()
+    {
+        var query = Db.Complaints.AsNoTracking().Include(c => c.User).AsQueryable();
+        if (!_isStaff && _userId != null)
+            query = query.Where(c => c.UserId == _userId);
+        _complaints = await query.OrderByDescending(c => c.CreatedAt).Take(50).ToListAsync();
+    }
+
+    private async Task SubmitComplaint()
+    {
+        if (string.IsNullOrWhiteSpace(_newCategory) || string.IsNullOrWhiteSpace(_newSubject))
+        {
+            _msg = "Kategori dan subjek harus diisi.";
+            return;
+        }
+        if (_userId == null) return;
+
+        var complaint = new Complaint
+        {
+            ComplaintNumber = "CMP-" + DateTime.UtcNow.ToString("yyyyMMdd") + "-" + Random.Shared.Next(1000, 9999),
+            UserId = _userId,
+            OrderId = _newOrderId > 0 ? _newOrderId : null,
+            Subject = _newSubject.Trim(),
+            Category = _newCategory,
+            Description = _newDescription,
+            Status = "Diterima",
+            Priority = "Normal",
+            CreatedAt = DateTime.UtcNow
+        };
+        Db.Complaints.Add(complaint);
+        await Db.SaveChangesAsync();
+
+        _msg = $"Komplain {complaint.ComplaintNumber} terkirim. Tim kami akan menindaklanjuti maksimal 1×24 jam.";
+        _newCategory = _newSubject = _newDescription = "";
+        _newOrderId = 0;
+        _tab = "list";
+        await LoadComplaints();
+    }
+
+    private async Task UpdateComplaint()
+    {
+        if (_selected == null) return;
+
+        var complaint = await Db.Complaints.FindAsync(_selected.Id);
+        if (complaint == null) return;
+
+        complaint.Status = _updateStatus;
+        complaint.Priority = _updatePriority;
+        complaint.UpdatedAt = DateTime.UtcNow;
+        if (_updateStatus is "Selesai" or "Ditolak")
+        {
+            complaint.Resolution = string.IsNullOrWhiteSpace(_updateResolution) ? complaint.Resolution : _updateResolution;
+            complaint.ResolvedAt = DateTime.UtcNow;
+            complaint.ResolvedByUserId = _userId;
+        }
+        await Db.SaveChangesAsync();
+
+        await Notifications.SendAsync(complaint.UserId, "OrderUpdate",
+            $"Komplain {complaint.ComplaintNumber}: {_updateStatus}",
+            string.IsNullOrWhiteSpace(_updateResolution) ? $"Status komplain Anda diperbarui menjadi {_updateStatus}." : _updateResolution,
+            "/complaints");
+
+        _selected = null;
+        await LoadComplaints();
+    }
+
+    private static string PriorityBadge(string p) => p is "Urgent" or "High" ? "badge-danger" : p == "Normal" ? "badge-info" : "badge-gray";
+    private static string StatusBadge(string s) => s switch
+    {
+        "Selesai" => "badge-success",
+        "Diproses" => "badge-warning",
+        "Ditolak" => "badge-danger",
+        _ => "badge-info"
+    };
+}

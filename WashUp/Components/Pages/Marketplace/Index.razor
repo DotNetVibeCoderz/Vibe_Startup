@@ -1,0 +1,109 @@
+@page "/marketplace"
+@using WashUp.Data
+@using WashUp.Models
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+@inject NavigationManager Nav
+
+<PageTitle>Marketplace - WashUp</PageTitle>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2>🏪 Marketplace Laundry</h2>
+    <select class="form-control" style="width:auto" @bind="_areaFilter" @bind:after="ApplyFilter">
+        <option value="">Semua area</option>
+        @foreach (var area in _areas)
+        {
+            <option value="@area">@area</option>
+        }
+    </select>
+</div>
+
+<div class="grid grid-3">
+    @foreach (var listing in _filtered)
+    {
+        <div class="card listing-card">
+            @if (listing.IsFeatured)
+            {
+                <span class="badge badge-warning mb-2">🌟 Unggulan</span>
+            }
+            <h3 class="mb-2">@listing.Title</h3>
+            <p class="text-sm text-muted mb-3">@listing.Description</p>
+            <div class="flex items-center justify-between mb-2">
+                <span class="listing-price">Rp @listing.PricePerKg.ToString("N0")<span class="text-sm text-muted">/kg</span></span>
+                <span class="badge badge-purple">⭐ @listing.AverageRating.ToString("F1") (@listing.ReviewCount)</span>
+            </div>
+            <p class="text-sm text-muted">📍 @listing.ServiceArea</p>
+            <p class="text-sm text-muted mb-3">🏢 @listing.Branch?.Name</p>
+            <button class="btn-primary btn-block" @onclick="() => OrderNow(listing)">Pesan sekarang</button>
+        </div>
+    }
+</div>
+
+@if (!_filtered.Any())
+{
+    <div class="card empty-state">
+        <div class="empty-icon">🏪</div>
+        <h3>Tidak ada layanan di area ini</h3>
+        <p class="text-muted">Coba pilih area lain atau tampilkan semua area.</p>
+    </div>
+}
+
+@* ---------- Ulasan pelanggan ---------- *@
+@if (_reviews.Any())
+{
+    <div class="card mt-4">
+        <div class="card-header"><h3 class="card-title">💬 Kata pelanggan kami</h3></div>
+        <div class="grid grid-3">
+            @foreach (var r in _reviews)
+            {
+                <div class="review-card">
+                    <div class="rating-stars">@(new string('★', r.Rating))@(new string('☆', 5 - r.Rating))</div>
+                    <p class="text-sm mt-2">"@r.Comment"</p>
+                    <p class="text-xs text-muted mt-2">— @r.User?.FullName, @r.CreatedAt.ToString("MMM yyyy")</p>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<MarketplaceListing> _listings = new();
+    private List<MarketplaceListing> _filtered = new();
+    private List<Review> _reviews = new();
+    private List<string> _areas = new();
+    private string _areaFilter = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _listings = await Db.MarketplaceListings.AsNoTracking()
+            .Include(l => l.Branch)
+            .Where(l => l.IsActive)
+            .OrderByDescending(l => l.IsFeatured)
+            .ThenByDescending(l => l.AverageRating)
+            .ToListAsync();
+        _filtered = _listings;
+
+        _areas = _listings
+            .SelectMany(l => (l.ServiceArea ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            .Distinct().OrderBy(a => a).ToList();
+
+        _reviews = await Db.Reviews.AsNoTracking()
+            .Include(r => r.User)
+            .Where(r => r.IsVisible && r.Rating >= 4 && r.Comment != null)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(6).ToListAsync();
+    }
+
+    private void ApplyFilter()
+    {
+        _filtered = string.IsNullOrEmpty(_areaFilter)
+            ? _listings
+            : _listings.Where(l => (l.ServiceArea ?? "").Contains(_areaFilter)).ToList();
+    }
+
+    private void OrderNow(MarketplaceListing listing)
+    {
+        // Arahkan ke halaman order; form dibuka otomatis dengan cabang terpilih
+        Nav.NavigateTo($"/orders?new=1&branchId={listing.BranchId}");
+    }
+}

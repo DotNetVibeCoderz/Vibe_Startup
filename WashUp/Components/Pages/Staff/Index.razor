@@ -1,0 +1,239 @@
+@page "/staff"
+@using WashUp.Data
+@using WashUp.Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin,Pemilik")]
+@inject AppDbContext Db
+
+<PageTitle>Staff - WashUp</PageTitle>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2>👷 Manajemen Staff</h2>
+    <button class="btn-primary btn-sm" @onclick="OpenAddForm">+ Tambah staff</button>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon purple">👷</div><div class="stat-info"><div class="stat-label">Total staff</div><div class="stat-value">@_staff.Count</div></div></div>
+    <div class="stat-card"><div class="stat-icon green">✅</div><div class="stat-info"><div class="stat-label">Staff aktif</div><div class="stat-value">@_staff.Count(s => s.IsActive)</div></div></div>
+    <div class="stat-card"><div class="stat-icon blue">💰</div><div class="stat-info"><div class="stat-label">Total gaji/bulan</div><div class="stat-value">Rp @_staff.Where(s => s.IsActive).Sum(s => s.BaseSalary).ToString("N0")</div></div></div>
+    <div class="stat-card"><div class="stat-icon orange">⭐</div><div class="stat-info"><div class="stat-label">Rating rata-rata</div><div class="stat-value">@(_avgPerformance > 0 ? _avgPerformance.ToString("F1") : "-")</div></div></div>
+</div>
+
+<div class="card">
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Nama</th><th>Posisi</th><th>Cabang</th><th>Tipe</th><th>Gaji</th><th>Mulai kerja</th><th>Status</th><th>Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var staff in _staff)
+                {
+                    <tr>
+                        <td><strong>@staff.FullName</strong></td>
+                        <td>@staff.Position</td>
+                        <td>@staff.Branch?.Name</td>
+                        <td>@staff.EmploymentType</td>
+                        <td class="num">Rp @staff.BaseSalary.ToString("N0")</td>
+                        <td>@staff.HireDate.ToString("dd/MM/yyyy")</td>
+                        <td><span class="badge @(staff.IsActive ? "badge-success" : "badge-danger")">@(staff.IsActive ? "Aktif" : "Nonaktif")</span></td>
+                        <td>
+                            <button class="btn-secondary btn-sm" @onclick="() => ToggleActive(staff.Id)">
+                                @(staff.IsActive ? "Nonaktifkan" : "Aktifkan")
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="grid grid-2 mt-4">
+    <!-- Jadwal kerja -->
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">📅 Jadwal kerja (Senin–Jumat)</h3></div>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Staff</th><th>Sen</th><th>Sel</th><th>Rab</th><th>Kam</th><th>Jum</th></tr></thead>
+                <tbody>
+                    @foreach (var staff in _staff.Where(s => s.IsActive))
+                    {
+                        <tr>
+                            <td><strong>@staff.FullName</strong></td>
+                            @for (int d = 1; d <= 5; d++)
+                            {
+                                var schedule = staff.Schedules.FirstOrDefault(s => s.DayOfWeek == (DayOfWeek)d);
+                                <td class="text-sm">@(schedule?.IsActive == true ? $"{schedule.StartTime:hh\\:mm}-{schedule.EndTime:hh\\:mm}" : "-")</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Performa -->
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">🏆 Performa bulan lalu</h3></div>
+        @if (_performances.Any())
+        {
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>Staff</th><th>Order</th><th>Rating</th><th>Komplain</th><th>Hadir</th></tr></thead>
+                    <tbody>
+                        @foreach (var p in _performances)
+                        {
+                            <tr>
+                                <td><strong>@p.StaffMember?.FullName</strong></td>
+                                <td class="num">@p.OrdersCompleted</td>
+                                <td>@p.AverageRating.ToString("F1") ★</td>
+                                <td class="num">@p.CustomerComplaints</td>
+                                <td class="num">@p.AttendanceDays hari</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <p class="text-muted p-2">Belum ada data performa. Data terisi otomatis tiap akhir bulan dari order & review.</p>
+        }
+    </div>
+</div>
+
+@* ---------- Modal tambah staff ---------- *@
+@if (_showAddForm)
+{
+    <div class="modal-backdrop" @onclick="() => _showAddForm = false">
+        <div class="modal-panel" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Tambah staff</h3>
+                <button class="icon-btn" @onclick="() => _showAddForm = false" title="Tutup">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group"><label class="form-label">Nama lengkap</label><input class="form-control" @bind="_newStaff.FullName" /></div>
+                <div class="grid grid-2" style="gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Posisi</label>
+                        <select class="form-control" @bind="_newStaff.Position">
+                            <option>Operator</option><option>Kurir</option><option>Admin</option><option>Manager</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Cabang</label>
+                        <select class="form-control" @bind="_newStaff.BranchId">
+                            @foreach (var b in _branches)
+                            {
+                                <option value="@b.Id">@b.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-2" style="gap:12px">
+                    <div class="form-group"><label class="form-label">Gaji pokok (Rp)</label><input type="number" min="0" class="form-control" @bind="_newStaff.BaseSalary" /></div>
+                    <div class="form-group">
+                        <label class="form-label">Tipe kerja</label>
+                        <select class="form-control" @bind="_newStaff.EmploymentType">
+                            <option value="FullTime">Full Time</option>
+                            <option value="PartTime">Part Time</option>
+                            <option value="Contract">Kontrak</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-2" style="gap:12px">
+                    <div class="form-group"><label class="form-label">Telepon</label><input class="form-control" @bind="_newStaff.Phone" /></div>
+                    <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-control" @bind="_newStaff.Email" /></div>
+                </div>
+                @if (!string.IsNullOrEmpty(_formError))
+                {
+                    <div class="alert alert-error">@_formError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" @onclick="() => _showAddForm = false">Batal</button>
+                <button class="btn-primary" @onclick="AddStaff">Simpan staff</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<StaffMember> _staff = new();
+    private List<StaffPerformance> _performances = new();
+    private List<Branch> _branches = new();
+    private double _avgPerformance;
+
+    private bool _showAddForm;
+    private StaffMember _newStaff = new();
+    private string _formError = "";
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        _staff = await Db.StaffMembers
+            .Include(s => s.Branch)
+            .Include(s => s.Schedules)
+            .OrderBy(s => s.Position).ThenBy(s => s.FullName)
+            .ToListAsync();
+
+        var lastMonth = DateTime.UtcNow.AddMonths(-1);
+        _performances = await Db.StaffPerformances.AsNoTracking()
+            .Include(p => p.StaffMember)
+            .Where(p => p.Month == lastMonth.Month && p.Year == lastMonth.Year)
+            .OrderByDescending(p => p.AverageRating)
+            .ToListAsync();
+        _avgPerformance = _performances.Count > 0 ? _performances.Average(p => p.AverageRating) : 0;
+
+        _branches = await Db.Branches.AsNoTracking().Where(b => b.IsActive).ToListAsync();
+    }
+
+    private void OpenAddForm()
+    {
+        _newStaff = new StaffMember
+        {
+            Position = "Operator",
+            EmploymentType = "FullTime",
+            BranchId = _branches.FirstOrDefault()?.Id ?? 1,
+            BaseSalary = 4000000,
+            HireDate = DateTime.UtcNow,
+            IsActive = true
+        };
+        _formError = "";
+        _showAddForm = true;
+    }
+
+    private async Task AddStaff()
+    {
+        if (string.IsNullOrWhiteSpace(_newStaff.FullName)) { _formError = "Nama staff harus diisi."; return; }
+        Db.StaffMembers.Add(_newStaff);
+        await Db.SaveChangesAsync();
+
+        // Jadwal default Senin–Jumat 08:00–17:00
+        for (int d = 1; d <= 5; d++)
+        {
+            Db.StaffSchedules.Add(new StaffSchedule
+            {
+                StaffMemberId = _newStaff.Id,
+                DayOfWeek = (DayOfWeek)d,
+                StartTime = new TimeSpan(8, 0, 0),
+                EndTime = new TimeSpan(17, 0, 0),
+                IsActive = true
+            });
+        }
+        await Db.SaveChangesAsync();
+
+        _showAddForm = false;
+        await LoadData();
+    }
+
+    private async Task ToggleActive(int id)
+    {
+        var staff = await Db.StaffMembers.FindAsync(id);
+        if (staff == null) return;
+        staff.IsActive = !staff.IsActive;
+        staff.TerminationDate = staff.IsActive ? null : DateTime.UtcNow;
+        await Db.SaveChangesAsync();
+        await LoadData();
+    }
+}

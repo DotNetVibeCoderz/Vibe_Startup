@@ -1,0 +1,346 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NotificationService Notifications
+@inject AppDbContext Db
+@inject IJSRuntime Js
+
+<div class="app-container">
+    <!-- Mobile overlay -->
+    @if (_mobileNavOpen)
+    {
+        <div class="sidebar-overlay" @onclick="CloseMobileNav"></div>
+    }
+
+    <!-- Sidebar -->
+    <aside class="sidebar @(_sidebarCollapsed ? "collapsed" : "") @(_mobileNavOpen ? "mobile-open" : "")">
+        <div class="sidebar-header">
+            <a href="/" class="logo">
+                <span class="logo-icon">🧺</span>
+                @if (!_sidebarCollapsed)
+                {
+                    <span class="logo-text">WashUp</span>
+                }
+            </a>
+            <button class="sidebar-toggle" @onclick="ToggleSidebar" title="Kecilkan/besarkan sidebar">
+                <span>@(_sidebarCollapsed ? "▶" : "◀")</span>
+            </button>
+        </div>
+
+        <nav class="sidebar-nav">
+            @foreach (var group in _menuGroups)
+            {
+                var visible = group.Items.Where(CanSee).ToList();
+                if (visible.Count == 0) continue;
+
+                @if (!_sidebarCollapsed && !string.IsNullOrEmpty(group.Label))
+                {
+                    <div class="nav-group-label">@group.Label</div>
+                }
+                @foreach (var item in visible)
+                {
+                    <a href="@item.Url" class="nav-item @(IsActive(item.Url) ? "active" : "")" title="@item.Title" @onclick="CloseMobileNav">
+                        <span class="nav-icon">@item.Icon</span>
+                        @if (!_sidebarCollapsed)
+                        {
+                            <span class="nav-text">@item.Title</span>
+                        }
+                    </a>
+                }
+            }
+        </nav>
+
+        <div class="sidebar-footer">
+            @if (!_sidebarCollapsed)
+            {
+                <div class="user-info-mini">
+                    @if (!string.IsNullOrEmpty(_avatarUrl))
+                    {
+                        <img src="@_avatarUrl" alt="" class="avatar-sm avatar-img" />
+                    }
+                    else
+                    {
+                        <div class="avatar-sm">@_userInitials</div>
+                    }
+                    <div class="user-details">
+                        <span class="user-name">@_userName</span>
+                        <span class="user-role">@_userRole</span>
+                    </div>
+                </div>
+            }
+            <button class="theme-toggle" @onclick="ToggleTheme" title="Ganti mode terang/gelap">
+                <span>@(_isDarkMode ? "☀️" : "🌙")</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content @(_sidebarCollapsed ? "expanded" : "")">
+        <!-- Topbar -->
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn mobile-nav-btn" @onclick="OpenMobileNav" title="Menu">☰</button>
+                <h1 class="page-title">@_pageTitle</h1>
+            </div>
+            <div class="topbar-right">
+                <!-- Notifications -->
+                <div class="relative">
+                    <button class="icon-btn" @onclick="ToggleNotifications" title="Notifikasi">
+                        🔔
+                        @if (_unreadCount > 0)
+                        {
+                            <span class="notification-badge">@(_unreadCount > 99 ? "99+" : _unreadCount.ToString())</span>
+                        }
+                    </button>
+                    @if (_showNotifications)
+                    {
+                        <div class="dropdown-menu notifications-dropdown">
+                            <div class="dropdown-header">Notifikasi</div>
+                            @if (_notifications.Any())
+                            {
+                                @foreach (var notif in _notifications.Take(8))
+                                {
+                                    <div class="dropdown-item @(notif.IsRead ? "" : "unread")" @onclick="() => OpenNotification(notif)">
+                                        <div class="notif-title">@notif.Title</div>
+                                        @if (!string.IsNullOrEmpty(notif.Message))
+                                        {
+                                            <div class="notif-message">@notif.Message</div>
+                                        }
+                                        <div class="notif-time">@notif.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</div>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="dropdown-item text-muted">Belum ada notifikasi. Semua kabar order dan promo muncul di sini.</div>
+                            }
+                            <div class="dropdown-footer">
+                                <a href="/notifications" class="table-link text-sm" @onclick="CloseMenus">Lihat semua notifikasi →</a>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <!-- User Menu -->
+                <div class="relative">
+                    <button class="user-btn" @onclick="ToggleUserMenu">
+                        @if (!string.IsNullOrEmpty(_avatarUrl))
+                        {
+                            <img src="@_avatarUrl" alt="" class="avatar-sm avatar-img" />
+                        }
+                        else
+                        {
+                            <span class="avatar-sm">@_userInitials</span>
+                        }
+                        <span class="hidden sm:inline ml-2">@_userName</span>
+                        <span class="ml-1 caret">▾</span>
+                    </button>
+                    @if (_showUserMenu)
+                    {
+                        <div class="dropdown-menu user-dropdown">
+                            <a href="/profile" class="dropdown-item" @onclick="CloseMenus">👤 Profil saya</a>
+                            <a href="/orders" class="dropdown-item" @onclick="CloseMenus">📦 Order saya</a>
+                            <hr class="dropdown-divider" />
+                            <button class="dropdown-item text-red" @onclick="Logout">🚪 Keluar</button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </header>
+
+        <!-- Page Content -->
+        <div class="page-content" @onclick="CloseMenus">
+            @Body
+        </div>
+    </main>
+</div>
+
+@code {
+    private bool _sidebarCollapsed;
+    private bool _mobileNavOpen;
+    private bool _isDarkMode;
+    private bool _showNotifications;
+    private bool _showUserMenu;
+    private string _userName = "Pengguna";
+    private string _userInitials = "U";
+    private string? _avatarUrl;
+    private string _userRole = "Pelanggan";
+    private string? _userId;
+    private List<string> _userRoles = new();
+    private string _pageTitle = "Dashboard";
+    private int _unreadCount;
+    private List<Notification> _notifications = new();
+
+    private record MenuItem(string Title, string Url, string Icon, string Roles = "");
+    private record MenuGroup(string Label, List<MenuItem> Items);
+
+    private readonly List<MenuGroup> _menuGroups = new()
+    {
+        new("", new()
+        {
+            new("Dashboard", "/dashboard", "📊"),
+            new("Order", "/orders", "📦"),
+            new("Chat Mbok Inem", "/chat", "🤖"),
+        }),
+        new("Operasional", new()
+        {
+            new("Pelanggan", "/customers", "👥", "Admin,Pemilik"),
+            new("Keuangan", "/finance", "💰", "Admin,Pemilik"),
+            new("Laporan", "/reports", "📈", "Admin,Pemilik"),
+            new("Inventaris", "/inventory", "🧴", "Admin,Pemilik"),
+            new("Staff", "/staff", "👷", "Admin,Pemilik"),
+            new("Kurir & Tracking", "/courier", "🚚", "Admin,Pemilik,Kurir"),
+            new("IoT Monitoring", "/iot", "📡", "Admin,Pemilik"),
+        }),
+        new("Layanan", new()
+        {
+            new("Marketplace", "/marketplace", "🏪"),
+            new("Komplain", "/complaints", "📝"),
+        }),
+        new("Pengaturan", new()
+        {
+            new("Cabang", "/branches", "🏢", "Pemilik"),
+            new("Pengguna & Role", "/admin/users", "🛡️", "Admin,Pemilik"),
+            new("Profil", "/profile", "👤"),
+        }),
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            _userName = user.FindFirstValue("FullName") ?? user.Identity.Name ?? "Pengguna";
+            _userInitials = string.Concat(_userName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(w => w[0])).ToUpper();
+            if (string.IsNullOrEmpty(_userInitials)) _userInitials = "U";
+            _userRoles = user.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+            _userRole = _userRoles.FirstOrDefault() ?? "Pelanggan";
+            _userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        }
+
+        UpdatePageTitle();
+        await LoadNotificationsAsync();
+
+        try
+        {
+            if (_userId != null)
+                _avatarUrl = await Db.Users.AsNoTracking()
+                    .Where(u => u.Id == _userId)
+                    .Select(u => u.AvatarUrl)
+                    .FirstOrDefaultAsync();
+        }
+        catch { /* DB belum siap */ }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var theme = await Js.InvokeAsync<string>("washup.getTheme");
+            var dark = theme == "dark";
+            if (dark != _isDarkMode)
+            {
+                _isDarkMode = dark;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private bool CanSee(MenuItem item) =>
+        string.IsNullOrEmpty(item.Roles) || item.Roles.Split(',').Any(r => _userRoles.Contains(r));
+
+    private async Task LoadNotificationsAsync()
+    {
+        try
+        {
+            if (_userId == null) return;
+            _notifications = await Notifications.GetForUserAsync(_userId);
+            _unreadCount = _notifications.Count(n => !n.IsRead);
+        }
+        catch { /* DB belum siap saat prerender */ }
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        UpdatePageTitle();
+        _showNotifications = _showUserMenu = false;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdatePageTitle()
+    {
+        var path = "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Split('?')[0].TrimEnd('/');
+        var item = _menuGroups.SelectMany(g => g.Items)
+            .Where(m => path.Equals(m.Url, StringComparison.OrdinalIgnoreCase)
+                        || path.StartsWith(m.Url + "/", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(m => m.Url.Length)
+            .FirstOrDefault();
+        _pageTitle = item?.Title ?? "WashUp";
+    }
+
+    private bool IsActive(string url)
+    {
+        var path = "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Split('?')[0].TrimEnd('/');
+        if (url == "/dashboard") return path == "/dashboard" || path == "/";
+        return path.Equals(url, StringComparison.OrdinalIgnoreCase)
+               || path.StartsWith(url + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ToggleSidebar() => _sidebarCollapsed = !_sidebarCollapsed;
+    private void OpenMobileNav() => _mobileNavOpen = true;
+    private void CloseMobileNav() => _mobileNavOpen = false;
+
+    private async Task ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+        await Js.InvokeVoidAsync("washup.setTheme", _isDarkMode ? "dark" : "light");
+    }
+
+    private async Task ToggleNotifications()
+    {
+        _showUserMenu = false;
+        _showNotifications = !_showNotifications;
+        if (_showNotifications) await LoadNotificationsAsync();
+    }
+
+    private void ToggleUserMenu()
+    {
+        _showNotifications = false;
+        _showUserMenu = !_showUserMenu;
+    }
+
+    private void CloseMenus()
+    {
+        if (_showNotifications || _showUserMenu)
+        {
+            _showNotifications = _showUserMenu = false;
+        }
+    }
+
+    private async Task OpenNotification(Notification notif)
+    {
+        if (!notif.IsRead)
+        {
+            await Notifications.MarkAsReadAsync(notif.Id);
+            notif.IsRead = true;
+            _unreadCount = _notifications.Count(n => !n.IsRead);
+        }
+        _showNotifications = false;
+        if (!string.IsNullOrEmpty(notif.ActionUrl))
+            Navigation.NavigateTo(notif.ActionUrl);
+    }
+
+    private void Logout()
+    {
+        // Sign-out harus lewat request HTTP biasa (endpoint statis), bukan circuit SignalR,
+        // karena cookie tidak bisa diubah setelah respons interaktif dimulai.
+        Navigation.NavigateTo("/auth/logout", true);
+    }
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

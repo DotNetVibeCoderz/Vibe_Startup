@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build *)",
+      "Read(//c/Users/mifma/.nuget/packages/blazor-apexcharts/5.0.1/lib/**)",
+      "Read(//c/Users/mifma/.nuget/packages/blazor-apexcharts/5.0.1/**)",
+      "Bash(grep -oE '<member name=\"[TPM]:ApexCharts\\\\.\\(ApexChart`1|ApexPointSeries`1\\)[^\"]*\"' ~/.nuget/packages/blazor-apexcharts/5.0.1/lib/net8.0/Blazor-ApexCharts.xml)",
+      "Bash(grep -oE '<member name=\"P:ApexCharts\\\\.ApexPointSeries`1\\\\.[^\"]*\"' ~/.nuget/packages/blazor-apexcharts/5.0.1/lib/net8.0/Blazor-ApexCharts.xml)",
+      "Bash(grep -oE '<member name=\"[PM]:ApexCharts\\\\.ApexChart`1\\\\.\\(Options|Title|XAxisType|Width\\)[^\"]*\"' ~/.nuget/packages/blazor-apexcharts/5.0.1/lib/net8.0/Blazor-ApexCharts.xml)",
+      "Skill(dataviz)",
+      "Bash(node scripts/validate_palette.js \"#7c3aed,#0d9488,#d97706,#2563eb,#db2777\" --mode light)",
+      "Bash(node scripts/validate_palette.js \"#a78bfa,#2dd4bf,#fbbf24,#60a5fa,#f472b6\" --mode dark --surface \"#1e1640\")",
+      "Bash(node scripts/validate_palette.js \"#8b5cf6,#14b8a6,#f59e0b,#3b82f6,#ec4899\" --mode dark --surface \"#1e1640\")",
+      "Bash(node scripts/validate_palette.js \"#8b5cf6,#0d9488,#d97706,#3b82f6,#ec4899\" --mode dark --surface \"#1e1640\")",
+      "Bash(node scripts/validate_palette.js \"#8b5cf6,#0d9488,#d97706,#3b82f6,#ec4899\" --mode light)",
+      "Bash(python *)",
+      "Bash(ASPNETCORE_URLS=http://localhost:5262 dotnet run --no-build)",
+      "Bash(curl -s -o /dev/null -w \"health: %{http_code}\\\\n\" http://localhost:5262/api/health)",
+      "Bash(curl -s http://localhost:5262/api/health)",
+      "Bash(curl -s -c /tmp/wu-cookies.txt http://localhost:5262/auth/login -o /tmp/wu-login.html)",
+      "Read(//tmp/**)",
+      "Bash(curl -s -b /tmp/wu-cookies.txt \"http://localhost:5262/api/reports/export/orders\" -o /tmp/wu-orders.csv -w \"csv orders: %{http_code}\\\\n\")",
+      "Bash(curl -s -X POST http://localhost:5262/api/auth/token -H \"Content-Type: application/json\" -d '{\"email\":\"admin@washup.id\",\"password\":\"WashUp@2024\"}' -o /tmp/wu-token.json -w \"token: %{http_code}\\\\n\")",
+      "Bash(sed -E 's/.*\"access_token\":\"\\([^\"]+\\)\".*/\\\\1/' /tmp/wu-token.json)",
+      "Bash(curl -s -b /tmp/wu-cookies.txt http://localhost:5262/iot -o /tmp/wu-iot.html)",
+      "Bash(curl -s -b /tmp/wu-cookies.txt http://localhost:5262/courier -o /tmp/wu-cour.html)",
+      "Bash(echo \"final build errors: $?\")",
+      "Bash(curl -s -b /tmp/wu-v2.txt http://localhost:5262/courier -o /tmp/wu-vc2.html)",
+      "Bash(curl -s -b /tmp/wu-f1.txt http://localhost:5262/notifications -o /tmp/wu-fn.html -w \"notifications: %{http_code}\\\\n\")"
+    ]
+  }
+}

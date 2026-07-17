@@ -1,0 +1,221 @@
+@page "/branches"
+@using WashUp.Data
+@using WashUp.Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Pemilik")]
+@inject AppDbContext Db
+
+<PageTitle>Cabang - WashUp</PageTitle>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2>🏢 Multi Cabang Management</h2>
+    <button class="btn-primary btn-sm" @onclick="() => OpenForm(null)">+ Tambah cabang</button>
+</div>
+
+<div class="grid grid-3">
+    @foreach (var branch in _branches)
+    {
+        <div class="card branch-card">
+            <div class="flex items-center gap-3 mb-3">
+                <div class="branch-icon">🏢</div>
+                <div>
+                    <h3>@branch.Name</h3>
+                    <span class="badge @(branch.IsActive ? "badge-success" : "badge-danger")">@(branch.IsActive ? "Aktif" : "Nonaktif")</span>
+                </div>
+            </div>
+            <p class="text-sm text-muted mb-2">📍 @branch.Address</p>
+            <p class="text-sm">📞 @branch.Phone</p>
+            <p class="text-sm">📧 @branch.Email</p>
+            <div class="flex gap-2 mt-3 flex-wrap">
+                <span class="badge badge-info">@branch.OrderCount order</span>
+                <span class="badge badge-purple">@branch.StaffCount staff</span>
+                <span class="badge badge-gray">Rp @branch.MonthRevenue.ToString("N0")/bln</span>
+            </div>
+            <div class="flex gap-2 mt-3">
+                <button class="btn-secondary btn-sm" @onclick="() => OpenForm(branch)">✏️ Edit</button>
+                <button class="btn-secondary btn-sm" @onclick="() => ToggleActive(branch.Id)">
+                    @(branch.IsActive ? "Nonaktifkan" : "Aktifkan")
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@if (!_branches.Any())
+{
+    <div class="card empty-state">
+        <div class="empty-icon">🏢</div>
+        <h3>Belum ada cabang</h3>
+        <p class="text-muted">Tambahkan cabang pertama untuk mulai mengelola outlet.</p>
+    </div>
+}
+
+@* ---------- Laporan lintas cabang ---------- *@
+<div class="card mt-4">
+    <div class="card-header"><h3 class="card-title">📊 Perbandingan antar cabang (bulan ini)</h3></div>
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Cabang</th><th>Order</th><th>Pendapatan</th><th>Pengeluaran</th><th>Profit</th></tr></thead>
+            <tbody>
+                @foreach (var b in _branches)
+                {
+                    <tr>
+                        <td><strong>@b.Name</strong></td>
+                        <td class="num">@b.MonthOrders</td>
+                        <td class="num">Rp @b.MonthRevenue.ToString("N0")</td>
+                        <td class="num">Rp @b.MonthExpense.ToString("N0")</td>
+                        <td class="num @(b.MonthRevenue - b.MonthExpense >= 0 ? "text-success" : "text-danger")">
+                            Rp @((b.MonthRevenue - b.MonthExpense).ToString("N0"))
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@* ---------- Form tambah/edit ---------- *@
+@if (_showForm)
+{
+    <div class="modal-backdrop" @onclick="CloseForm">
+        <div class="modal-panel" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>@(_editId == null ? "Tambah cabang" : "Edit cabang")</h3>
+                <button class="icon-btn" @onclick="CloseForm" title="Tutup">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group"><label class="form-label">Nama cabang</label><input class="form-control" @bind="_formName" placeholder="cth: WashUp Cabang - Yogyakarta" /></div>
+                <div class="form-group"><label class="form-label">Alamat</label><textarea class="form-control" rows="2" @bind="_formAddress"></textarea></div>
+                <div class="grid grid-2" style="gap:12px">
+                    <div class="form-group"><label class="form-label">Telepon</label><input class="form-control" @bind="_formPhone" /></div>
+                    <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-control" @bind="_formEmail" /></div>
+                </div>
+                <div class="grid grid-2" style="gap:12px">
+                    <div class="form-group"><label class="form-label">Latitude</label><input type="number" step="0.0001" class="form-control" @bind="_formLat" /></div>
+                    <div class="form-group"><label class="form-label">Longitude</label><input type="number" step="0.0001" class="form-control" @bind="_formLng" /></div>
+                </div>
+                @if (!string.IsNullOrEmpty(_formError))
+                {
+                    <div class="alert alert-error">@_formError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" @onclick="CloseForm">Batal</button>
+                <button class="btn-primary" @onclick="SaveBranch">Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private sealed record BranchRow(int Id, string Name, string? Address, string? Phone, string? Email,
+        double? Latitude, double? Longitude, bool IsActive,
+        int OrderCount, int StaffCount, int MonthOrders, decimal MonthRevenue, decimal MonthExpense);
+
+    private List<BranchRow> _branches = new();
+
+    private bool _showForm;
+    private int? _editId;
+    private string _formName = "", _formAddress = "", _formPhone = "", _formEmail = "", _formError = "";
+    private double? _formLat, _formLng;
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        var thisMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+
+        var branches = await Db.Branches.AsNoTracking().OrderBy(b => b.Id).ToListAsync();
+        var orderStats = await Db.Orders.AsNoTracking()
+            .GroupBy(o => o.BranchId)
+            .Select(g => new { BranchId = g.Key, Total = g.Count(), Month = g.Count(o => o.CreatedAt >= thisMonth) })
+            .ToListAsync();
+        var staffStats = await Db.StaffMembers.AsNoTracking()
+            .GroupBy(s => s.BranchId)
+            .Select(g => new { BranchId = g.Key, Count = g.Count() })
+            .ToListAsync();
+        var finStats = await Db.FinancialTransactions.AsNoTracking()
+            .Where(t => t.TransactionDate >= thisMonth)
+            .GroupBy(t => t.BranchId)
+            .Select(g => new
+            {
+                BranchId = g.Key,
+                Income = g.Where(t => t.TransactionType == "Income").Sum(t => t.Amount),
+                Expense = g.Where(t => t.TransactionType == "Expense").Sum(t => t.Amount)
+            })
+            .ToListAsync();
+
+        _branches = branches.Select(b =>
+        {
+            var o = orderStats.FirstOrDefault(x => x.BranchId == b.Id);
+            var s = staffStats.FirstOrDefault(x => x.BranchId == b.Id);
+            var f = finStats.FirstOrDefault(x => x.BranchId == b.Id);
+            return new BranchRow(b.Id, b.Name, b.Address, b.Phone, b.Email, b.Latitude, b.Longitude, b.IsActive,
+                o?.Total ?? 0, s?.Count ?? 0, o?.Month ?? 0, f?.Income ?? 0, f?.Expense ?? 0);
+        }).ToList();
+    }
+
+    private void OpenForm(BranchRow? branch)
+    {
+        _editId = branch?.Id;
+        _formName = branch?.Name ?? "";
+        _formAddress = branch?.Address ?? "";
+        _formPhone = branch?.Phone ?? "";
+        _formEmail = branch?.Email ?? "";
+        _formLat = branch?.Latitude;
+        _formLng = branch?.Longitude;
+        _formError = "";
+        _showForm = true;
+    }
+
+    private void CloseForm() => _showForm = false;
+
+    private async Task SaveBranch()
+    {
+        if (string.IsNullOrWhiteSpace(_formName))
+        {
+            _formError = "Nama cabang harus diisi.";
+            return;
+        }
+
+        if (_editId == null)
+        {
+            Db.Branches.Add(new Branch
+            {
+                Name = _formName.Trim(),
+                Address = _formAddress,
+                Phone = _formPhone,
+                Email = _formEmail,
+                Latitude = _formLat,
+                Longitude = _formLng,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            var branch = await Db.Branches.FindAsync(_editId.Value);
+            if (branch == null) return;
+            branch.Name = _formName.Trim();
+            branch.Address = _formAddress;
+            branch.Phone = _formPhone;
+            branch.Email = _formEmail;
+            branch.Latitude = _formLat;
+            branch.Longitude = _formLng;
+        }
+
+        await Db.SaveChangesAsync();
+        _showForm = false;
+        await LoadData();
+    }
+
+    private async Task ToggleActive(int id)
+    {
+        var branch = await Db.Branches.FindAsync(id);
+        if (branch == null) return;
+        branch.IsActive = !branch.IsActive;
+        await Db.SaveChangesAsync();
+        await LoadData();
+    }
+}

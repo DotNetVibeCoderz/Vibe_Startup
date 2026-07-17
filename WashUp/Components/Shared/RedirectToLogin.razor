@@ -1,0 +1,35 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Navigation
+
+@if (_isAuthenticated)
+{
+    @* Sudah login tapi role tidak punya akses ke halaman ini *@
+    <div class="card empty-state" style="max-width:480px;margin:60px auto">
+        <div class="empty-icon">🔒</div>
+        <h2>Akses dibatasi</h2>
+        <p class="text-muted">Akun Anda tidak memiliki izin untuk membuka halaman ini.</p>
+        <a href="/dashboard" class="btn-primary mt-4" style="display:inline-flex">Kembali ke dashboard</a>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _isAuthenticated;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthStateTask != null)
+        {
+            var state = await AuthStateTask;
+            _isAuthenticated = state.User.Identity?.IsAuthenticated == true;
+        }
+
+        if (!_isAuthenticated)
+        {
+            var returnUrl = Uri.EscapeDataString(new Uri(Navigation.Uri).PathAndQuery);
+            Navigation.NavigateTo($"/auth/login?returnUrl={returnUrl}", true);
+        }
+    }
+}
