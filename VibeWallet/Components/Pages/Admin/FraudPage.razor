@@ -1,0 +1,71 @@
+@page "/admin/fraud"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject VibeWallet.Data.VibeWalletDbContext Db
+@inject ISecurityService SecurityService
+
+<PageTitle>Fraud Detection - Admin</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">🚨 Fraud Detection</h2>
+
+    <div class="grid grid-4 mb-lg">
+        <div class="card-flat p-md text-center"><div class="text-sm text-muted">Total Alerts</div><div class="font-bold text-xl">@_total</div></div>
+        <div class="card-flat p-md text-center"><div class="text-sm text-muted">Unresolved</div><div class="font-bold text-xl" style="color:var(--accent-danger)">@_unresolved</div></div>
+        <div class="card-flat p-md text-center"><div class="text-sm text-muted">Critical</div><div class="font-bold text-xl" style="color:red">@_critical</div></div>
+        <div class="card-flat p-md text-center"><div class="text-sm text-muted">Resolved</div><div class="font-bold text-xl" style="color:var(--accent-success)">@_resolved</div></div>
+    </div>
+
+    <div class="card-neumorph">
+        <h3>🔍 Fraud Alerts</h3>
+        @if (_alerts.Any())
+        {
+            foreach (var a in _alerts)
+            {
+                <div class="card-flat p-md mb-md" style="border-left:4px solid @GetAlertColor(a.AlertLevel);">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <strong>@_userNames.GetValueOrDefault(a.UserId, "?")</strong>
+                            <span class="badge @GetLevelBadge(a.AlertLevel) ml-sm">@a.AlertLevel</span>
+                            <span class="badge @(a.IsResolved ? "badge-success" : "badge-warning") ml-sm">@(a.IsResolved ? "Resolved" : "Unresolved")</span>
+                            <div class="text-sm mt-sm">@a.Description</div>
+                            <div class="text-sm text-muted">@a.CreatedAt.ToString("dd MMM yyyy HH:mm") | Ref: @a.TransactionRef</div>
+                        </div>
+                        @if (!a.IsResolved)
+                        {
+                            <button class="btn btn-sm btn-success" @onclick="() => ResolveAlert(a.Id)">✅ Resolve</button>
+                        }
+                    </div>
+                </div>
+            }
+        }
+        else { <p class="text-muted p-md">No fraud alerts.</p> }
+    </div>
+</div>
+
+@code {
+    private List<FraudAlert> _alerts = new();
+    private Dictionary<Guid, string> _userNames = new();
+    private int _total, _unresolved, _critical, _resolved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _total = await Db.FraudAlerts.CountAsync();
+        _unresolved = await Db.FraudAlerts.CountAsync(f => !f.IsResolved);
+        _critical = await Db.FraudAlerts.CountAsync(f => f.AlertLevel == FraudAlertLevel.Critical && !f.IsResolved);
+        _resolved = await Db.FraudAlerts.CountAsync(f => f.IsResolved);
+        _alerts = await Db.FraudAlerts.OrderByDescending(f => f.CreatedAt).Take(50).ToListAsync();
+        var ids = _alerts.Select(a => a.UserId).Distinct().ToList();
+        _userNames = await Db.Users.Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName);
+    }
+
+    private async Task ResolveAlert(Guid id)
+    {
+        await SecurityService.ResolveFraudAlertAsync(id, "Reviewed by admin", "Admin");
+        _alerts = await Db.FraudAlerts.OrderByDescending(f => f.CreatedAt).Take(50).ToListAsync();
+        _unresolved = await Db.FraudAlerts.CountAsync(f => !f.IsResolved);
+    }
+
+    private string GetAlertColor(FraudAlertLevel l) => l switch { FraudAlertLevel.Critical => "#ef4444", FraudAlertLevel.High => "#f59e0b", FraudAlertLevel.Medium => "#3b82f6", _ => "#94a3b8" };
+    private string GetLevelBadge(FraudAlertLevel l) => l switch { FraudAlertLevel.Critical => "badge-danger", FraudAlertLevel.High => "badge-warning", _ => "badge-info" };
+}

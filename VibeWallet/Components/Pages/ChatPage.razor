@@ -1,0 +1,276 @@
+@page "/chat"
+@page "/chat/{SessionId:guid}"
+@inject IChatService ChatService
+@inject IStorageService StorageService
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize]
+
+<PageTitle>Mbak Selvi - VibeWallet</PageTitle>
+
+<div class="chat-page animate-fade-in" style="display:flex;height:calc(100vh - 140px);gap:0;">
+    <div class="chat-sidebar card-flat" style="width:280px;display:flex;flex-direction:column;">
+        <div class="p-md" style="border-bottom:1px solid var(--border-color);">
+            <button class="btn btn-primary w-full" @onclick="CreateNewSession">💬 Chat Baru</button>
+        </div>
+        <div class="chat-sessions-list" style="flex:1;overflow-y:auto;">
+            @foreach (var session in _sessions)
+            {
+                <div class="chat-session-item @(session.Id == _currentSessionId ? "active" : "")"
+                     @onclick="() => SelectSession(session.Id)">
+                    <div class="session-title">@session.Title</div>
+                    <div class="session-meta text-sm text-muted">
+                        @session.MessageCount pesan · @(session.LastMessageAt?.ToString("HH:mm") ?? "")
+                        <span class="delete-session" @onclick="() => DeleteSession(session.Id)" @onclick:stopPropagation="true" title="Hapus">🗑️</span>
+                    </div>
+                </div>
+            }
+        </div>
+        <div class="p-md" style="border-top:1px solid var(--border-color);">
+            <div class="text-sm text-muted mb-sm">🤖 Model: @_selectedModel</div>
+            <select class="form-input form-input-sm" @bind="_selectedModel" @bind:after="UpdateModelConfig">
+                @foreach (var model in _availableModels)
+                {
+                    <option value="@model">@model</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    <div class="chat-main" style="flex:1;display:flex;flex-direction:column;">
+        @if (_currentSessionId == Guid.Empty)
+        {
+            <div class="chat-welcome" style="flex:1;display:flex;align-items:center;justify-content:center;">
+                <div class="text-center">
+                    <div style="font-size:5rem;margin-bottom:16px;">🤖</div>
+                    <h2>Halo! Saya <span class="text-gradient">Mbak Selvi</span></h2>
+                    <p class="text-muted">Asisten virtual VibeWallet yang siap membantu kamu</p>
+                    <p class="text-sm text-muted">Mulai chat baru atau pilih sesi yang ada</p>
+                    <div class="flex gap-sm justify-center mt-md" style="flex-wrap:wrap;">
+                        <button class="btn btn-sm btn-outline" @onclick="() => QuickAskBalance()">💰 Cek Saldo</button>
+                        <button class="btn btn-sm btn-outline" @onclick="() => QuickAskPromo()">🎉 Promo</button>
+                        <button class="btn btn-sm btn-outline" @onclick="() => QuickAskTopUp()">📥 Top Up</button>
+                        <button class="btn btn-sm btn-outline" @onclick="() => QuickAskTransfer()">💸 Transfer</button>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="chat-header card-flat p-md flex justify-between items-center">
+                <div><strong>@_currentSessionTitle</strong></div>
+                <div class="flex gap-sm">
+                    <button class="btn btn-sm btn-secondary" @onclick="ResetSession">🔄 Reset</button>
+                </div>
+            </div>
+            <div class="chat-messages" style="flex:1;overflow-y:auto;padding:20px;">
+                @foreach (var msg in _messages)
+                {
+                    <div class="chat-message @(msg.Role == "user" ? "user-message" : "assistant-message")">
+                        @if (msg.Role == "assistant") { <div class="chat-avatar">🤖</div> }
+                        <div class="message-bubble @(msg.Role == "user" ? "user-bubble" : "assistant-bubble")">
+                            @if (msg.Attachments.Any())
+                            {
+                                <div class="message-attachments">
+                                    @foreach (var att in msg.Attachments)
+                                    {
+                                        if (att.Type == AttachmentType.Image) { <img src="@att.FileUrl" alt="@att.FileName" class="attachment-image" /> }
+                                        else { <a href="@att.FileUrl" target="_blank" class="attachment-link">📎 @att.FileName</a> }
+                                    }
+                                </div>
+                            }
+                            <div class="message-content">
+                                @if (!string.IsNullOrEmpty(msg.RenderedContent)) { @((MarkupString)msg.RenderedContent) }
+                                else { @msg.Content }
+                            </div>
+                            <div class="message-time text-sm text-muted">
+                                @msg.CreatedAt.ToString("HH:mm")
+                                @if (msg.TotalTokens.HasValue) { <span class="token-info">· @msg.TotalTokens tokens</span> }
+                            </div>
+                        </div>
+                        @if (msg.Role == "user") { <div class="chat-avatar">👤</div> }
+                    </div>
+                }
+                @if (_isLoading)
+                {
+                    <div class="chat-message assistant-message">
+                        <div class="chat-avatar">🤖</div>
+                        <div class="message-bubble assistant-bubble">
+                            <div class="typing-indicator"><span></span><span></span><span></span></div>
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="chat-input-area card-flat p-md">
+                <InputFile id="fileInput" multiple accept="image/*,.pdf,.doc,.docx" hidden OnChange="HandleFileUpload" />
+                <div class="flex gap-sm" style="align-items:flex-end;">
+                    <button class="btn btn-sm btn-secondary btn-icon" @onclick="TriggerFileInput" title="Lampirkan file">📎</button>
+                    <textarea class="form-input chat-textarea" @bind="_messageText" @bind:event="oninput"
+                              @onkeydown="HandleKeyDown" placeholder="Ketik pesan untuk Mbak Selvi..."
+                              rows="2" style="resize:none;flex:1;"></textarea>
+                    <button class="btn btn-primary" @onclick="SendMessage"
+                            disabled="@(string.IsNullOrWhiteSpace(_messageText) || _isLoading)">Kirim ➤</button>
+                </div>
+                @if (_attachments.Any())
+                {
+                    <div class="flex gap-sm mt-sm">
+                        @foreach (var att in _attachments)
+                        {
+                            <div class="attachment-preview">
+                                <span>📎 @att.FileName</span>
+                                <button class="btn btn-sm" @onclick="() => RemoveAttachment(att)">✕</button>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private Guid _currentSessionId = Guid.Empty;
+    private string _currentSessionTitle = "";
+    private List<ChatSession> _sessions = new();
+    private List<ChatMessage> _messages = new();
+    private string _messageText = "";
+    private bool _isLoading = false;
+    private string _selectedModel = "gpt-4o (OpenAI)";
+    private List<string> _availableModels = new();
+    private List<ChatAttachment> _attachments = new();
+    private Guid _userId;
+
+    [Parameter] public Guid SessionId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var userIdClaim = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        if (userIdClaim != null) _userId = Guid.Parse(userIdClaim.Value);
+        _availableModels = await ChatService.GetAvailableModelsAsync();
+        _sessions = await ChatService.GetUserSessionsAsync(_userId);
+        if (SessionId != Guid.Empty) await SelectSession(SessionId);
+    }
+
+    private async Task CreateNewSession()
+    {
+        var session = await ChatService.CreateSessionAsync(_userId);
+        _sessions.Insert(0, session);
+        await SelectSession(session.Id);
+    }
+
+    private async Task SelectSession(Guid sessionId)
+    {
+        _currentSessionId = sessionId;
+        _messages = await ChatService.GetSessionMessagesAsync(sessionId);
+        var session = _sessions.FirstOrDefault(s => s.Id == sessionId);
+        _currentSessionTitle = session?.Title ?? "Chat";
+    }
+
+    private async Task DeleteSession(Guid sessionId)
+    {
+        await ChatService.DeleteSessionAsync(sessionId);
+        _sessions.RemoveAll(s => s.Id == sessionId);
+        if (_currentSessionId == sessionId) { _currentSessionId = Guid.Empty; _messages.Clear(); }
+    }
+
+    private async Task ResetSession()
+    {
+        if (_currentSessionId != Guid.Empty) { await ChatService.ResetSessionAsync(_currentSessionId); _messages.Clear(); }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_messageText) || _isLoading || _currentSessionId == Guid.Empty) return;
+        _isLoading = true;
+        var msg = _messageText; _messageText = "";
+        var atts = _attachments.ToList(); _attachments.Clear();
+        try
+        {
+            await ChatService.SendMessageAsync(_currentSessionId, msg, atts);
+            _messages = await ChatService.GetSessionMessagesAsync(_currentSessionId);
+            var idx = _sessions.FindIndex(s => s.Id == _currentSessionId);
+            if (idx >= 0) { var s = await ChatService.GetSessionAsync(_currentSessionId); if (s != null) _sessions[idx] = s; }
+        }
+        finally
+        {
+            _isLoading = false; StateHasChanged();
+            await JS.InvokeVoidAsync("eval", "var el=document.querySelector('.chat-messages');if(el)el.scrollTop=el.scrollHeight;");
+        }
+    }
+
+    private async Task QuickAskBalance() => await StartQuickMessage("Cek saldo saya");
+    private async Task QuickAskPromo() => await StartQuickMessage("Ada promo apa saja yang aktif?");
+    private async Task QuickAskTopUp() => await StartQuickMessage("Bagaimana cara top up saldo?");
+    private async Task QuickAskTransfer() => await StartQuickMessage("Bagaimana cara transfer ke sesama VibeWallet?");
+
+    private async Task StartQuickMessage(string msg)
+    {
+        if (_currentSessionId == Guid.Empty) await CreateNewSession();
+        _messageText = msg;
+        await SendMessage();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) await SendMessage();
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles(5))
+        {
+            using var stream = file.OpenReadStream(10 * 1024 * 1024);
+            var fileUrl = await StorageService.UploadFileAsync(stream, file.Name, file.ContentType, "chat");
+            var type = file.ContentType.StartsWith("image/") ? AttachmentType.Image : AttachmentType.Document;
+            _attachments.Add(new ChatAttachment { Type = type, FileName = file.Name, FileUrl = fileUrl, ContentType = file.ContentType, FileSize = file.Size });
+        }
+    }
+
+    private void RemoveAttachment(ChatAttachment att) { _attachments.Remove(att); }
+
+    private async Task TriggerFileInput() { await JS.InvokeVoidAsync("eval", "document.getElementById('fileInput').click();"); }
+
+    private async Task UpdateModelConfig()
+    {
+        if (_currentSessionId != Guid.Empty)
+        {
+            var provider = _selectedModel.Contains("OpenAI") ? ChatProvider.OpenAI
+                : _selectedModel.Contains("Anthropic") ? ChatProvider.Anthropic
+                : _selectedModel.Contains("Gemini") ? ChatProvider.Gemini : ChatProvider.Ollama;
+            await ChatService.UpdateSessionConfigAsync(_currentSessionId, provider, _selectedModel.Split(' ')[0], 0.7m);
+        }
+    }
+}
+
+<style>
+.chat-sidebar { border-right: 1px solid var(--border-color); }
+.chat-session-item { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--border-color); transition: background 0.15s ease; }
+.chat-session-item:hover { background: var(--hover-bg); }
+.chat-session-item.active { background: rgba(99,102,241,0.1); border-left: 3px solid var(--accent-primary); }
+.session-title { font-weight: 500; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-meta { display: flex; justify-content: space-between; }
+.delete-session { opacity: 0; transition: opacity 0.15s; cursor: pointer; }
+.chat-session-item:hover .delete-session { opacity: 0.7; }
+.chat-message { display: flex; gap: 12px; margin-bottom: 20px; align-items: flex-start; }
+.user-message { flex-direction: row-reverse; }
+.chat-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+.message-bubble { max-width: 75%; padding: 12px 16px; border-radius: var(--radius-lg); }
+.user-bubble { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border-bottom-right-radius: 4px; }
+.assistant-bubble { background: var(--card-bg); border: 1px solid var(--border-color); border-bottom-left-radius: 4px; }
+.message-content { line-height: 1.6; }
+.message-content ::deep pre { background: var(--bg-secondary); padding: 12px; border-radius: var(--radius-md); overflow-x: auto; }
+.message-content ::deep code { font-size: 0.85rem; }
+.message-content ::deep table { width: 100%; border-collapse: collapse; }
+.message-content ::deep th, .message-content ::deep td { border: 1px solid var(--border-color); padding: 8px; }
+.message-content ::deep img, .message-content ::deep video { max-width: 100%; border-radius: var(--radius-md); }
+.message-time { margin-top: 6px; }
+.attachment-image { max-width: 200px; max-height: 200px; border-radius: var(--radius-md); cursor: pointer; }
+.typing-indicator { display: flex; gap: 4px; padding: 8px 0; }
+.typing-indicator span { width: 8px; height: 8px; background: var(--text-muted); border-radius: 50%; animation: typing-bounce-anim 1.4s infinite; }
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+.chat-textarea:focus { box-shadow: none; }
+.attachment-preview { display: flex; align-items: center; gap: 4px; background: var(--bg-secondary); padding: 4px 8px; border-radius: var(--radius-sm); font-size: 0.85rem; }
+.form-input-sm { padding: 6px 10px; font-size: 0.8rem; }
+</style>

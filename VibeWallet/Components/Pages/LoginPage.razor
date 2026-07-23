@@ -1,0 +1,80 @@
+@page "/login"
+@inject NavigationManager Navigation
+
+@* ⚠️ Halaman Login Static SSR.
+   Form di bawah POST ke Minimal API /api/auth/login.
+   SignInManager dipanggil di endpoint API (bukan di sini),
+   jadi cookie auth bisa diset dengan aman sebelum response dikirim. *@
+
+<PageTitle>Login - VibeWallet</PageTitle>
+
+<div class="login-page" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg-primary);">
+    <div class="login-card card-neumorph" style="width:100%;max-width:420px;padding:40px;">
+        <div class="text-center mb-lg">
+            <div style="font-size:3rem;margin-bottom:8px;">💳</div>
+            <h1 class="text-gradient" style="font-size:1.8rem;margin:0;">VibeWallet</h1>
+            <p class="text-muted">Dompet Digital Indonesia</p>
+        </div>
+
+        @* Plain HTML form POST ke /api/auth/login — BUKAN Blazor interactive! *@
+        <form method="post" action="/api/auth/login">
+            @* Hidden input untuk ReturnUrl *@
+            <input type="hidden" name="ReturnUrl" value="@_returnUrl" />
+
+            <div class="form-group">
+                <label class="form-label" for="user">Email atau No. HP</label>
+                <input class="form-input" type="text" id="user" name="user"
+                       placeholder="email@example.com atau 08123456789" required />
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="pass">Password</label>
+                <input class="form-input" type="password" id="pass" name="pass"
+                       placeholder="Masukkan password" required />
+            </div>
+
+            @if (_error)
+            {
+                <div class="card-flat p-md mb-md" style="background:rgba(239,68,68,0.1);color:var(--accent-danger);">
+                    ❌ @_errorMessage
+                </div>
+            }
+
+            <button type="submit" class="btn btn-primary w-full">
+                Masuk 🔐
+            </button>
+        </form>
+
+        <div class="text-center mt-md">
+            <p class="text-muted text-sm">
+                Demo Accounts:<br/>
+                <code>budi@email.com</code> / <code>User123!</code><br/>
+                <code>siti@email.com</code> / <code>User123!</code>
+            </p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool _error;
+    private string _errorMessage = "";
+    private string _returnUrl = "/";
+
+    protected override void OnInitialized()
+    {
+        var uri = new Uri(Navigation.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var error = query["error"];
+        var ret = query["ReturnUrl"];
+
+        if (!string.IsNullOrEmpty(error))
+        {
+            _error = true;
+            _errorMessage = Uri.UnescapeDataString(error);
+        }
+
+        if (!string.IsNullOrEmpty(ret))
+        {
+            _returnUrl = ret;
+        }
+    }
+}

@@ -1,0 +1,46 @@
+<a href="@Url" class="quick-action-card card-neumorph">
+    <div class="qac-icon">@Icon</div>
+    <div class="qac-title">@Title</div>
+    <div class="qac-desc text-muted text-sm">@Description</div>
+</a>
+
+@code {
+    [Parameter] public string Icon { get; set; } = "📌";
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string Description { get; set; } = "";
+    [Parameter] public string Url { get; set; } = "/";
+}
+
+<style>
+.quick-action-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: all 0.3s ease;
+    cursor: pointer;
+    text-align: center;
+}
+
+.quick-action-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+}
+
+.qac-icon {
+    font-size: 2.5rem;
+    margin-bottom: 8px;
+}
+
+.qac-title {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 4px;
+}
+
+.qac-desc {
+    font-size: 0.8rem;
+}
+</style>

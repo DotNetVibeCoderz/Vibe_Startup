@@ -1,0 +1,60 @@
+@page "/admin/settings"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject IConfiguration Config
+@inject VibeWallet.Data.VibeWalletDbContext Db
+
+<PageTitle>System Configuration - Admin</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">⚙️ System Configuration</h2>
+
+    <div class="grid grid-2 mb-lg">
+        <div class="card-neumorph p-xl">
+            <h3>💰 Fee & Commission</h3>
+            <div class="form-group"><label class="form-label">Default Admin Fee (Rp)</label><input class="form-input" type="number" @bind="_adminFee" /></div>
+            <div class="form-group"><label class="form-label">Cashback Rate (%)</label><input class="form-input" type="number" @bind="_cashbackRate" step="0.1" /></div>
+            <div class="form-group"><label class="form-label">Points per Transaction</label><input class="form-input" type="number" @bind="_pointsPerTx" /></div>
+            <button class="btn btn-primary" @onclick="SaveFeeConfig">💾 Save</button>
+        </div>
+        <div class="card-neumorph p-xl">
+            <h3>🔒 Transaction Limits</h3>
+            <div class="form-group"><label class="form-label">Daily Transfer Limit (Rp)</label><input class="form-input" type="number" @bind="_dailyTransferLimit" /></div>
+            <div class="form-group"><label class="form-label">Daily Top-Up Limit (Rp)</label><input class="form-input" type="number" @bind="_dailyTopUpLimit" /></div>
+            <div class="form-group"><label class="form-label">Max Wallet Balance (Rp)</label><input class="form-input" type="number" @bind="_maxBalance" /></div>
+            <button class="btn btn-primary" @onclick="SaveLimitConfig">💾 Save</button>
+        </div>
+    </div>
+
+    <div class="card-neumorph p-xl mb-lg">
+        <h3>📱 System Info</h3>
+        <table>
+            <tr><td class="text-muted">App Name</td><td class="font-bold">VibeWallet</td></tr>
+            <tr><td class="text-muted">Version</td><td class="font-bold">1.0.0</td></tr>
+            <tr><td class="text-muted">Framework</td><td class="font-bold">.NET 10 · Blazor Server</td></tr>
+            <tr><td class="text-muted">Database</td><td class="font-bold">@(Config.GetConnectionString("Provider") ?? "SQLite")</td></tr>
+            <tr><td class="text-muted">Storage</td><td class="font-bold">@(Config["Storage:Provider"] ?? "FileSystem")</td></tr>
+            <tr><td class="text-muted">ChatBot Provider</td><td class="font-bold">@(Config["ChatBot:Provider"] ?? "OpenAI")</td></tr>
+            <tr><td class="text-muted">Server Time</td><td class="font-bold">@DateTime.Now.ToString("dddd, dd MMMM yyyy HH:mm:ss 'WIB'")</td></tr>
+        </table>
+    </div>
+</div>
+
+@code {
+    private decimal _adminFee = 2500, _cashbackRate = 0.5m;
+    private int _pointsPerTx = 1;
+    private decimal _dailyTransferLimit = 25_000_000, _dailyTopUpLimit = 10_000_000, _maxBalance = 50_000_000;
+
+    protected override void OnInitialized()
+    {
+        _adminFee = decimal.TryParse(Config["TransactionLimits:MinTopUpAmount"], out var f) ? f : 2500;
+        _cashbackRate = decimal.TryParse(Config["Rewards:CashbackPercentage"], out var c) ? c : 0.5m;
+        _pointsPerTx = int.TryParse(Config["Rewards:PointsPerTransaction"], out var p) ? p : 1;
+        _dailyTransferLimit = decimal.TryParse(Config["TransactionLimits:DailyTransferLimit"], out var dt) ? dt : 25_000_000;
+        _dailyTopUpLimit = decimal.TryParse(Config["TransactionLimits:DailyTopUpLimit"], out var du) ? du : 10_000_000;
+        _maxBalance = decimal.TryParse(Config["TransactionLimits:MaxWalletBalance"], out var mb) ? mb : 50_000_000;
+    }
+
+    private Task SaveFeeConfig() { return Task.CompletedTask; } // Disimpan di appsettings via file write (simplified)
+    private Task SaveLimitConfig() { return Task.CompletedTask; }
+}

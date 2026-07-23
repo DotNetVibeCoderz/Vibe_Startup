@@ -1,0 +1,124 @@
+@page "/topup"
+@inject IPaymentService PaymentService
+@inject IWalletService WalletService
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize]
+
+<PageTitle>Top Up - VibeWallet</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">📶 <span class="text-gradient">Top Up & Isi Ulang</span></h2>
+
+    <div class="grid grid-3 mb-lg">
+        <div class="card-neumorph p-md text-center" style="cursor:pointer;" @onclick="() => _topUpType = TopUpType.Pulsa">
+            <div style="font-size:2.5rem;">📞</div><div class="font-semibold">Pulsa</div>
+            @if (_topUpType == TopUpType.Pulsa) { <span class="badge badge-purple mt-sm">Dipilih</span> }
+        </div>
+        <div class="card-neumorph p-md text-center" style="cursor:pointer;" @onclick="() => _topUpType = TopUpType.DataPackage">
+            <div style="font-size:2.5rem;">📶</div><div class="font-semibold">Paket Data</div>
+            @if (_topUpType == TopUpType.DataPackage) { <span class="badge badge-purple mt-sm">Dipilih</span> }
+        </div>
+        <div class="card-neumorph p-md text-center" style="cursor:pointer;" @onclick="() => _topUpType = TopUpType.ElectricityToken">
+            <div style="font-size:2.5rem;">⚡</div><div class="font-semibold">Token Listrik</div>
+            @if (_topUpType == TopUpType.ElectricityToken) { <span class="badge badge-purple mt-sm">Dipilih</span> }
+        </div>
+    </div>
+
+    <div class="card-neumorph p-xl">
+        <h3>📝 Isi @_topUpType</h3>
+        <div class="grid grid-2 mt-md">
+            <div>
+                <div class="form-group">
+                    <label class="form-label">Provider</label>
+                    <select class="form-input" @bind="_provider" @bind:after="LoadProducts">
+                        <option value="">Pilih Provider</option>
+                        @foreach (var p in Enum.GetValues<ProviderType>().Where(x => _topUpType != TopUpType.ElectricityToken || x == ProviderType.PLN))
+                        { <option value="@p">@p</option> }
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nomor Telepon / ID Pelanggan</label>
+                    <input class="form-input" @bind="_phoneNumber" placeholder="08123456789" />
+                </div>
+            </div>
+            <div>
+                @if (_products.Any())
+                {
+                    <label class="form-label">Pilih Produk</label>
+                    <div style="max-height:300px;overflow-y:auto;">
+                        @foreach (var p in _products)
+                        {
+                            <div class="card-flat p-md mb-sm" style="cursor:pointer;@(p.Code == _selectedProduct ? "border:2px solid var(--accent-primary);" : "")"
+                                 @onclick="() => SelectProduct(p.Code, p.Price, p.Name)">
+                                <div class="flex justify-between">
+                                    <span>@p.Name</span>
+                                    <span class="font-bold">Rp @p.Price.ToString("N0")</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (_selectedAmount > 0)
+        {
+            <div class="card-flat p-lg mt-md" style="background:rgba(99,102,241,0.08);text-align:center;">
+                <div class="text-sm text-muted">Total Pembayaran</div>
+                <div style="font-size:2rem;font-weight:800;color:var(--accent-primary);">Rp @_selectedAmount.ToString("N0")</div>
+                <button class="btn btn-primary mt-md" @onclick="ProcessTopUp" disabled="@_isProcessing">
+                    @(_isProcessing ? "Memproses..." : "💳 Bayar Sekarang")
+                </button>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(_result))
+        {
+            <div class="mt-md" style="color:@(_success ? "var(--accent-success)" : "var(--accent-danger)")">@(_success ? "✅" : "❌") @_result</div>
+        }
+    </div>
+</div>
+
+@code {
+    private TopUpType _topUpType = TopUpType.Pulsa;
+    private ProviderType _provider;
+    private string _phoneNumber = "";
+    private string _selectedProduct = "";
+    private decimal _selectedAmount;
+    private bool _isProcessing;
+    private string _result = "";
+    private bool _success;
+    private List<(string Code, string Name, decimal Price)> _products = new();
+    private Guid _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var u = await AuthState.GetAuthenticationStateAsync();
+        var uid = u.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        if (uid != null) _userId = Guid.Parse(uid.Value);
+    }
+
+    private async Task LoadProducts()
+    {
+        if (_provider == default) return;
+        _products = await PaymentService.GetAvailableProductsAsync(_provider, _topUpType);
+    }
+
+    private void SelectProduct(string code, decimal price, string name)
+    {
+        _selectedProduct = code; _selectedAmount = price;
+    }
+
+    private async Task ProcessTopUp()
+    {
+        if (string.IsNullOrWhiteSpace(_phoneNumber)) { _result = "Masukkan nomor telepon."; _success = false; return; }
+        if (_selectedAmount <= 0) { _result = "Pilih produk dulu."; _success = false; return; }
+        _isProcessing = true;
+        try
+        {
+            var topUp = await PaymentService.ProcessTopUpAsync(_userId, _topUpType, _provider, _phoneNumber, _selectedProduct, _selectedAmount);
+            _result = $"Top-up berhasil! Ref: {topUp.TopUpRef}"; _success = true; _selectedAmount = 0; _products.Clear();
+        }
+        catch (Exception ex) { _result = ex.Message; _success = false; }
+        finally { _isProcessing = false; }
+    }
+}

@@ -1,0 +1,139 @@
+@page "/rewards"
+@inject IRewardsService RewardsService
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize]
+
+<PageTitle>Rewards - VibeWallet</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">🎁 <span class="text-gradient">Rewards & Promo</span></h2>
+
+    <div class="card-gradient p-xl mb-lg text-center">
+        <div style="font-size:3rem;">⭐</div>
+        <div style="font-size:2rem;font-weight:800;">@_points.ToString("N0") Points</div>
+        <p style="opacity:0.9;">Kumpulkan points setiap transaksi & tukarkan dengan voucher menarik!</p>
+        <p class="text-sm" style="opacity:0.8;">1 transaksi (min. Rp 10.000) = 1 point · 1.000 points = Rp 1.000</p>
+    </div>
+
+    <div class="grid grid-2 mb-lg">
+        <div class="card-neumorph p-xl">
+            <h3>🎫 Voucher Tersedia</h3>
+            @if (_vouchers.Any())
+            {
+                foreach (var v in _vouchers)
+                {
+                    <div class="card-flat p-md mb-md">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <div class="font-semibold">@v.Title</div>
+                                <div class="text-sm text-muted">@v.Description</div>
+                                <div class="flex gap-sm mt-sm">
+                                    <span class="badge badge-purple">@v.VoucherCode</span>
+                                    @if (v.PointsRequired > 0)
+                                    {
+                                        <span class="badge badge-info">@v.PointsRequired pts</span>
+                                    }
+                                    <span class="text-sm text-muted">s/d @v.ValidUntil.ToString("dd MMM yyyy")</span>
+                                </div>
+                            </div>
+                            <button class="btn btn-sm btn-outline" @onclick="() => ClaimVoucher(v.Id)" disabled="@(IsClaiming(v.Id))">
+                                @GetClaimButtonText(v.Id)
+                            </button>
+                        </div>
+                    </div>
+                }
+            }
+            else
+            {
+                <p class="text-muted">Belum ada voucher tersedia.</p>
+            }
+        </div>
+
+        <div class="card-neumorph p-xl">
+            <h3>🎉 Promo Aktif</h3>
+            @if (_promos.Any())
+            {
+                foreach (var p in _promos.Take(5))
+                {
+                    <div class="card-flat p-md mb-md">
+                        <div class="font-semibold">@p.Title</div>
+                        <div class="text-sm text-muted">@p.Description</div>
+                        <div class="flex gap-sm mt-sm">
+                            @if (!string.IsNullOrEmpty(p.MerchantName))
+                            {
+                                <span class="badge badge-success">@p.MerchantName</span>
+                            }
+                            @if (!string.IsNullOrEmpty(p.Category))
+                            {
+                                <span class="badge badge-info">@p.Category</span>
+                            }
+                            <span class="text-sm text-muted">s/d @p.ValidUntil.ToString("dd MMM yyyy")</span>
+                        </div>
+                    </div>
+                }
+            }
+            else
+            {
+                <p class="text-muted">Belum ada promo aktif.</p>
+            }
+        </div>
+    </div>
+
+    @if (_userVouchers.Any())
+    {
+        <div class="card-neumorph p-xl">
+            <h3>🎟️ Voucher Saya</h3>
+            @foreach (var uv in _userVouchers)
+            {
+                <div class="card-flat p-md mb-sm flex justify-between items-center">
+                    <div>
+                        <strong>@uv.Voucher?.Title</strong>
+                        <span class="badge @(uv.IsRedeemed ? "badge-success" : "badge-warning") ml-sm">
+                            @(uv.IsRedeemed ? "Dipakai" : "Belum dipakai")
+                        </span>
+                        <div class="text-sm text-muted">Diklaim: @uv.ClaimedAt.ToString("dd MMM yyyy")</div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private int _points;
+    private List<Voucher> _vouchers = new();
+    private List<Promo> _promos = new();
+    private List<UserVoucher> _userVouchers = new();
+    private Guid? _claimingId;
+    private Guid _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var u = await AuthState.GetAuthenticationStateAsync();
+        var uid = u.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        if (uid == null) return;
+        _userId = Guid.Parse(uid.Value);
+
+        _points = await RewardsService.GetUserPointsAsync(_userId);
+        _vouchers = await RewardsService.GetAvailableVouchersAsync();
+        _promos = await RewardsService.GetActivePromosAsync();
+        _userVouchers = await RewardsService.GetUserVouchersAsync(_userId);
+    }
+
+    private bool IsClaiming(Guid id) => _claimingId == id;
+    private string GetClaimButtonText(Guid id) => _claimingId == id ? "..." : "Klaim";
+
+    private async Task ClaimVoucher(Guid voucherId)
+    {
+        _claimingId = voucherId;
+        StateHasChanged();
+        try
+        {
+            await RewardsService.ClaimVoucherAsync(_userId, voucherId);
+            _vouchers = await RewardsService.GetAvailableVouchersAsync();
+            _userVouchers = await RewardsService.GetUserVouchersAsync(_userId);
+        }
+        catch { }
+        finally { _claimingId = null; StateHasChanged(); }
+    }
+}

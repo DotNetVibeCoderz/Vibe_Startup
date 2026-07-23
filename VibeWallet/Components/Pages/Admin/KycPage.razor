@@ -1,0 +1,73 @@
+@page "/admin/kyc"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject VibeWallet.Data.VibeWalletDbContext Db
+@inject IKycService KycService
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>KYC Verification - Admin</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">📄 KYC Verification</h2>
+    <div class="grid grid-3 mb-lg">
+        <div class="card-flat p-md text-center"><div class="text-sm text-muted">Pending</div><div style="font-size:2rem;font-weight:800;color:var(--accent-warning)">@_pending</div></div>
+        <div class="card-flat p-md text-center"><div class="text-sm text-muted">Verified</div><div style="font-size:2rem;font-weight:800;color:var(--accent-success)">@_verified</div></div>
+        <div class="card-flat p-md text-center"><div class="text-sm text-muted">Rejected</div><div style="font-size:2rem;font-weight:800;color:var(--accent-danger)">@_rejected</div></div>
+    </div>
+
+    <div class="card-neumorph">
+        <h3>📋 Pending Verifications</h3>
+        @if (_pendingDocs.Any())
+        {
+            foreach (var doc in _pendingDocs)
+            {
+                <div class="card-flat p-md mb-md flex justify-between items-center">
+                    <div>
+                        <strong>@doc.User?.FullName</strong>
+                        <span class="text-sm text-muted ml-sm">@doc.User?.PhoneNumber</span>
+                        <span class="badge badge-info ml-sm">@doc.DocumentType</span>
+                        <div class="text-sm text-muted">Submitted: @doc.CreatedAt.ToString("dd MMM yyyy HH:mm")</div>
+                    </div>
+                    <div class="flex gap-sm">
+                        <button class="btn btn-sm btn-success" @onclick="() => ApproveKyc(doc.UserId)">✅ Approve</button>
+                        <button class="btn btn-sm btn-danger" @onclick="() => ShowRejectPrompt(doc.UserId)">❌ Reject</button>
+                    </div>
+                </div>
+            }
+        }
+        else { <p class="text-muted p-md">No pending KYC verifications.</p> }
+    </div>
+</div>
+
+@code {
+    private int _pending, _verified, _rejected;
+    private List<KycDocument> _pendingDocs = new();
+    private string _adminName = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var u = await AuthState.GetAuthenticationStateAsync();
+        _adminName = u.User.Identity?.Name ?? "Admin";
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _pending = await Db.Users.CountAsync(x => x.KycStatus == Models.KycStatus.Submitted);
+        _verified = await Db.Users.CountAsync(x => x.KycStatus == Models.KycStatus.Verified);
+        _rejected = await Db.Users.CountAsync(x => x.KycStatus == Models.KycStatus.Rejected);
+        _pendingDocs = await Db.KycDocuments.Include(d => d.User).Where(d => d.Status == Models.KycStatus.Submitted && !d.IsDeleted).ToListAsync();
+    }
+
+    private async Task ApproveKyc(Guid userId)
+    {
+        await KycService.VerifyKycAsync(userId, _adminName);
+        await Load();
+    }
+
+    private async Task ShowRejectPrompt(Guid userId)
+    {
+        await KycService.RejectKycAsync(userId, "Rejected by admin", _adminName);
+        await Load();
+    }
+}

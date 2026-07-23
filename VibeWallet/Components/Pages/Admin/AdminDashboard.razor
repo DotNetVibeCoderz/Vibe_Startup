@@ -1,0 +1,101 @@
+@page "/admin"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject VibeWallet.Data.VibeWalletDbContext Db
+@inject IWalletService WalletService
+
+<PageTitle>Admin Dashboard - VibeWallet</PageTitle>
+
+<div class="animate-fade-in">
+    <div class="grid grid-4 mb-lg">
+        <StatCardSmall Icon="👥" Label="Total Users" Value="@_totalUsers.ToString("N0")" Color="var(--accent-primary)" />
+        <StatCardSmall Icon="💳" Label="Total Wallets" Value="@_totalWallets.ToString("N0")" Color="var(--accent-success)" />
+        <StatCardSmall Icon="💸" Label="Transaksi Hari Ini" Value="@_todayTx.ToString("N0")" Color="var(--accent-info)" />
+        <StatCardSmall Icon="🚨" Label="Fraud Alerts" Value="@_fraudCount.ToString("N0")" Color="var(--accent-danger)" />
+    </div>
+
+    <div class="grid grid-2 mb-lg">
+        <div class="card-neumorph p-xl">
+            <h3>📊 Quick Stats</h3>
+            <table class="mt-md">
+                <tr><td class="text-muted">Total Users</td><td class="font-bold text-right">@_totalUsers.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Verified (KYC)</td><td class="font-bold text-right">@_verifiedUsers.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Pending KYC</td><td class="font-bold text-right" style="color:var(--accent-warning)">@_pendingKyc.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Total Wallets</td><td class="font-bold text-right">@_totalWallets.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Active Sessions (Chat)</td><td class="font-bold text-right">@_chatSessions.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Active Promos</td><td class="font-bold text-right">@_activePromos.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Available Vouchers</td><td class="font-bold text-right">@_vouchers.ToString("N0")</td></tr>
+            </table>
+        </div>
+        <div class="card-neumorph p-xl">
+            <h3>💰 Financial Overview</h3>
+            <table class="mt-md">
+                <tr><td class="text-muted">Total Balance (All Users)</td><td class="font-bold text-right">Rp @_totalBalance.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Total Top-Up (All Time)</td><td class="font-bold text-right" style="color:var(--accent-success)">Rp @_totalTopUp.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Total Spending (All Time)</td><td class="font-bold text-right" style="color:var(--accent-danger)">Rp @_totalSpending.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Total Cashback Given</td><td class="font-bold text-right" style="color:var(--accent-primary)">Rp @_totalCashback.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Total Fees Collected</td><td class="font-bold text-right">Rp @_totalFees.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Transactions Today</td><td class="font-bold text-right">@_todayTx.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Volume Today</td><td class="font-bold text-right">Rp @_todayVolume.ToString("N0")</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="grid grid-3 mb-lg">
+        <div class="card-neumorph p-lg">
+            <h4>🔐 Security Status</h4>
+            <p class="text-sm text-muted">Fraud Alerts: <strong class="text-danger">@_fraudCount</strong></p>
+            <p class="text-sm text-muted">Unresolved: <strong style="color:var(--accent-warning)">@_unresolvedFraud</strong></p>
+            <p class="text-sm text-muted">Login Attempts (24h): <strong>@_loginAttempts</strong></p>
+            <p class="text-sm text-muted">Failed Logins (24h): <strong style="color:var(--accent-danger)">@_failedLogins</strong></p>
+        </div>
+        <div class="card-neumorph p-lg">
+            <h4>🎁 Marketing</h4>
+            <p class="text-sm text-muted">Active Promos: <strong>@_activePromos</strong></p>
+            <p class="text-sm text-muted">Vouchers Available: <strong>@_vouchers</strong></p>
+            <p class="text-sm text-muted">Vouchers Claimed: <strong>@_vouchersClaimed</strong></p>
+            <p class="text-sm text-muted">Total Points Distributed: <strong>@_totalPoints.ToString("N0")</strong></p>
+        </div>
+        <div class="card-neumorph p-lg">
+            <h4>⚡ Quick Actions</h4>
+            <a href="/admin/users" class="btn btn-sm btn-outline w-full mb-sm">👥 Manage Users</a>
+            <a href="/admin/kyc" class="btn btn-sm btn-outline w-full mb-sm">📄 Verify KYC (@_pendingKyc pending)</a>
+            <a href="/admin/promos" class="btn btn-sm btn-outline w-full mb-sm">🎉 Create Promo</a>
+            <a href="/admin/fraud" class="btn btn-sm btn-outline w-full mb-sm">🚨 Review Fraud Alerts</a>
+            <a href="/admin/reports" class="btn btn-sm btn-outline w-full">📊 View Reports</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    private int _totalUsers, _verifiedUsers, _pendingKyc, _totalWallets, _chatSessions;
+    private int _activePromos, _vouchers, _vouchersClaimed, _totalPoints;
+    private int _todayTx, _fraudCount, _unresolvedFraud, _loginAttempts, _failedLogins;
+    private decimal _totalBalance, _totalTopUp, _totalSpending, _totalCashback, _totalFees, _todayVolume;
+    private DateTime _today = DateTime.UtcNow.Date;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _totalUsers = await Db.Users.CountAsync();
+        _verifiedUsers = await Db.Users.CountAsync(u => u.KycStatus == Models.KycStatus.Verified);
+        _pendingKyc = await Db.Users.CountAsync(u => u.KycStatus == Models.KycStatus.Submitted);
+        _totalWallets = await Db.Wallets.CountAsync(w => !w.IsDeleted);
+        _chatSessions = await Db.ChatSessions.CountAsync(s => s.IsActive && !s.IsDeleted);
+        _activePromos = await Db.Promos.CountAsync(p => p.IsActive && !p.IsDeleted);
+        _vouchers = await Db.Vouchers.CountAsync(v => v.IsActive && !v.IsDeleted);
+        _vouchersClaimed = await Db.UserVouchers.CountAsync();
+        _totalPoints = await Db.Wallets.SumAsync(w => w.LoyaltyPoints);
+        _todayTx = await Db.WalletTransactions.CountAsync(t => t.CreatedAt >= _today);
+        _fraudCount = await Db.FraudAlerts.CountAsync();
+        _unresolvedFraud = await Db.FraudAlerts.CountAsync(f => !f.IsResolved);
+        var dayAgo = DateTime.UtcNow.AddDays(-1);
+        _loginAttempts = await Db.LoginAttempts.CountAsync(l => l.CreatedAt >= dayAgo);
+        _failedLogins = await Db.LoginAttempts.CountAsync(l => l.CreatedAt >= dayAgo && !l.IsSuccess);
+        _totalBalance = await Db.Wallets.Where(w => !w.IsDeleted).SumAsync(w => w.Balance);
+        _totalTopUp = await Db.Wallets.SumAsync(w => w.TotalTopUp);
+        _totalSpending = await Db.Wallets.SumAsync(w => w.TotalSpending);
+        _totalCashback = await Db.Cashbacks.SumAsync(c => c.Amount);
+        _totalFees = await Db.WalletTransactions.Where(t => t.Fee > 0).SumAsync(t => t.Fee);
+        _todayVolume = await Db.WalletTransactions.Where(t => t.CreatedAt >= _today).SumAsync(t => t.Amount);
+    }
+}

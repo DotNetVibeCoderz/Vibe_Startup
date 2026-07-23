@@ -1,0 +1,189 @@
+@page "/"
+@inject IWalletService WalletService
+@inject ITransactionService TransactionService
+@inject IRewardsService RewardsService
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize]
+
+<PageTitle>Dashboard - VibeWallet</PageTitle>
+
+<div class="dashboard animate-fade-in">
+    <!-- Welcome Banner -->
+    <div class="card-gradient p-xl mb-lg">
+        <div class="flex justify-between items-center">
+            <div>
+                <h1 style="font-size:1.8rem;margin:0 0 8px 0;">👋 Selamat Datang, @_userName!</h1>
+                <p style="opacity:0.9;margin:0;">Kelola keuangan digital kamu dengan mudah dan aman</p>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:0.8rem;opacity:0.8;">Total Saldo</div>
+                <div style="font-size:2rem;font-weight:800;">@_balanceText</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="grid grid-4 mb-lg">
+        <QuickActionCard Icon="📤" Title="Transfer" Description="Kirim uang" Url="/transfer" />
+        <QuickActionCard Icon="📱" Title="QRIS" Description="Scan & Bayar" Url="/payment/qris" />
+        <QuickActionCard Icon="📶" Title="Top Up" Description="Isi pulsa & data" Url="/topup" />
+        <QuickActionCard Icon="📋" Title="Bayar Tagihan" Description="Listrik, air, dll" Url="/payment/bills" />
+    </div>
+
+    <div class="grid grid-2 mb-lg">
+        <!-- Recent Transactions -->
+        <div class="card-neumorph">
+            <div class="flex justify-between items-center mb-md">
+                <h3 style="margin:0;">📊 Transaksi Terbaru</h3>
+                <a href="/wallet" class="btn btn-sm btn-outline">Lihat Semua</a>
+            </div>
+            @if (_recentTransactions.Any())
+            {
+                <div class="transaction-list">
+                    @foreach (var tx in _recentTransactions.Take(5))
+                    {
+                        <div class="transaction-item">
+                            <div class="tx-icon">
+                                @GetTransactionIcon(tx.Type)
+                            </div>
+                            <div class="tx-info">
+                                <div class="tx-desc">@tx.Description</div>
+                                <div class="tx-date text-muted text-sm">@tx.CreatedAt.ToString("dd MMM yyyy HH:mm")</div>
+                            </div>
+                            <div class="tx-amount @GetAmountClass(tx.Type)">
+                                @GetAmountPrefix(tx.Type)Rp @tx.Amount.ToString("N0")
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="text-center text-muted p-xl">
+                    <div style="font-size:3rem;">📭</div>
+                    <p>Belum ada transaksi</p>
+                </div>
+            }
+        </div>
+
+        <!-- Active Promos -->
+        <div class="card-neumorph">
+            <div class="flex justify-between items-center mb-md">
+                <h3 style="margin:0;">🎉 Promo Spesial</h3>
+                <a href="/rewards" class="btn btn-sm btn-outline">Lihat Semua</a>
+            </div>
+            @if (_activePromos.Any())
+            {
+                <div class="promo-list">
+                    @foreach (var promo in _activePromos.Take(4))
+                    {
+                        <div class="promo-item">
+                            <div class="promo-icon">
+                                @GetPromoIcon(promo.Category)
+                            </div>
+                            <div class="promo-info">
+                                <div class="promo-title font-semibold">@promo.Title</div>
+                                <div class="promo-desc text-sm text-muted">@promo.Description</div>
+                                @if (!string.IsNullOrEmpty(promo.MerchantName))
+                                {
+                                    <span class="badge badge-purple">@promo.MerchantName</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="text-center text-muted p-xl">
+                    <p>Tidak ada promo saat ini</p>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Balance Overview Chart -->
+    <div class="card-neumorph mb-lg">
+        <h3 style="margin:0 0 20px 0;">📈 Ringkasan Keuangan</h3>
+        <div class="grid grid-3">
+            <StatCard Label="Total Top Up" Value="@_totalTopUpText" Color="var(--accent-success)" />
+            <StatCard Label="Total Spending" Value="@_totalSpendingText" Color="var(--accent-danger)" />
+            <StatCard Label="Loyalty Points" Value="@_loyaltyPointsText" Color="var(--accent-primary)" />
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _userName = "User";
+    private string _balanceText = "Rp 0";
+    private string _totalTopUpText = "Rp 0";
+    private string _totalSpendingText = "Rp 0";
+    private string _loyaltyPointsText = "0 pts";
+    private List<WalletTransaction> _recentTransactions = new();
+    private List<Promo> _activePromos = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthState.GetAuthenticationStateAsync();
+            var user = authState.User;
+            _userName = user.Identity?.Name ?? "User";
+
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userIdClaim = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+                if (userIdClaim != null && Guid.TryParse(userIdClaim.Value, out var userId))
+                {
+                    var wallet = await WalletService.GetWalletByUserIdAsync(userId);
+                    if (wallet != null)
+                    {
+                        _balanceText = $"Rp {wallet.AvailableBalance:N0}";
+                        _totalTopUpText = $"Rp {wallet.TotalTopUp:N0}";
+                        _totalSpendingText = $"Rp {wallet.TotalSpending:N0}";
+                        _loyaltyPointsText = $"{wallet.LoyaltyPoints:N0} pts";
+                    }
+
+                    _recentTransactions = await WalletService.GetTransactionHistoryAsync(userId, 1, 10);
+                    _activePromos = await RewardsService.GetActivePromosAsync();
+                }
+            }
+        }
+        catch { }
+    }
+
+    private string GetTransactionIcon(TransactionType type) => type switch
+    {
+        TransactionType.TopUp => "📥",
+        TransactionType.Withdraw => "📤",
+        TransactionType.Transfer => "💸",
+        TransactionType.Payment => "🛒",
+        TransactionType.Cashback => "💵",
+        TransactionType.Refund => "↩️",
+        _ => "📌"
+    };
+
+    private string GetAmountClass(TransactionType type) => type switch
+    {
+        TransactionType.TopUp => "text-success",
+        TransactionType.Cashback => "text-success",
+        TransactionType.Refund => "text-success",
+        _ => "text-danger"
+    };
+
+    private string GetAmountPrefix(TransactionType type) => type switch
+    {
+        TransactionType.TopUp => "+",
+        TransactionType.Cashback => "+",
+        TransactionType.Refund => "+",
+        _ => "-"
+    };
+
+    private string GetPromoIcon(string? category) => category switch
+    {
+        "food" => "🍔",
+        "transport" => "🚗",
+        "shopping" => "🛍️",
+        _ => "🎁"
+    };
+}

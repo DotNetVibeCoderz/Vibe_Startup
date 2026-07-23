@@ -1,0 +1,79 @@
+@page "/admin/support"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject VibeWallet.Data.VibeWalletDbContext Db
+
+<PageTitle>Support Tools - Admin</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">🎧 Customer Support Tools</h2>
+    <div class="grid grid-2 mb-lg">
+        <div class="card-neumorph p-xl">
+            <h3>🔍 Quick User Lookup</h3>
+            <div class="flex gap-sm mb-md">
+                <input class="form-input" @bind="_q" placeholder="Email, phone, atau nama..." @bind:event="oninput" />
+                <button class="btn btn-primary" @onclick="Search">🔍 Cari</button>
+            </div>
+            @if (_found != null)
+            {
+                <div class="card-flat p-md"><strong>@_found.FullName</strong> | @_found.Email | @_found.PhoneNumber</div>
+                <div class="mt-sm"><span class="badge @(_found.KycStatus == Models.KycStatus.Verified ? "badge-success" : "badge-warning")">KYC: @_found.KycStatus</span></div>
+                @if (_fw != null)
+                {
+                    <div class="card-flat p-md mt-sm">
+                        <div>Wallet: <strong>@_fw.WalletNumber</strong></div><div>Balance: <strong>Rp @_fw.Balance.ToString("N0")</strong></div>
+                        <div>Points: <strong>@_fw.LoyaltyPoints</strong></div>
+                        <div>Status: <strong style="color:@(_fw.IsFrozen ? "var(--accent-danger)" : "var(--accent-success)")">@(_fw.IsFrozen ? "FROZEN" : "Active")</strong></div>
+                    </div>
+                }
+                @if (_ftx.Any())
+                {
+                    <div class="mt-sm"><strong>Last 5 Transactions:</strong></div>
+                    @foreach (var tx in _ftx.Take(5))
+                    { <div class="text-sm mt-sm">@tx.CreatedAt.ToString("dd/MM HH:mm") — @tx.Description — Rp @Math.Abs(tx.Amount).ToString("N0")</div> }
+                }
+            }
+            @if (!string.IsNullOrEmpty(_err)) { <div class="text-sm mt-sm" style="color:var(--accent-danger);">@_err</div> }
+        </div>
+        <div class="card-neumorph p-xl">
+            <h3>📊 System Health</h3>
+            <table>
+                <tr><td class="text-muted">Database</td><td class="text-right"><span class="badge badge-success">Connected</span></td></tr>
+                <tr><td class="text-muted">Total Users</td><td class="font-bold text-right">@_tu.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Total Wallets</td><td class="font-bold text-right">@_tw.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Chat Sessions</td><td class="font-bold text-right">@_cs.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Pending KYC</td><td class="font-bold text-right">@_pk.ToString("N0")</td></tr>
+                <tr><td class="text-muted">Fraud Alerts</td><td class="font-bold text-right" style="color:@(_fc > 0 ? "var(--accent-danger)" : "var(--accent-success)")">@_fc</td></tr>
+                <tr><td class="text-muted">Server Time</td><td class="font-bold text-right">@DateTime.Now.ToString("HH:mm:ss") WIB</td></tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private VibeUser? _found; private Wallet? _fw; private List<WalletTransaction> _ftx = new();
+    private string _q = "", _err = "";
+    private int _tu, _tw, _cs, _pk, _fc;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tu = await Db.Users.CountAsync(); _tw = await Db.Wallets.CountAsync();
+        _cs = await Db.ChatSessions.CountAsync(s => s.IsActive);
+        _pk = await Db.Users.CountAsync(u => u.KycStatus == Models.KycStatus.Submitted);
+        _fc = await Db.FraudAlerts.CountAsync(f => !f.IsResolved);
+    }
+
+    private async Task Search()
+    {
+        _err = ""; _found = null; _fw = null; _ftx.Clear();
+        if (string.IsNullOrWhiteSpace(_q)) { _err = "Masukkan kata kunci pencarian."; return; }
+        var q = _q.Trim();
+        // 🔍 Case-insensitive: cari email exact, phone exact, atau nama contains
+        _found = await Db.Users.FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == q.ToLower())
+              ?? await Db.Users.FirstOrDefaultAsync(u => u.PhoneNumber == q)
+              ?? await Db.Users.FirstOrDefaultAsync(u => u.FullName != null && u.FullName.ToLower().Contains(q.ToLower()));
+        if (_found == null) { _err = "User tidak ditemukan."; return; }
+        _fw = await Db.Wallets.FirstOrDefaultAsync(w => w.UserId == _found.Id);
+        _ftx = await Db.WalletTransactions.Where(t => t.UserId == _found.Id).OrderByDescending(t => t.CreatedAt).Take(10).ToListAsync();
+    }
+}

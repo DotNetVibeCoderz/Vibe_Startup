@@ -1,0 +1,234 @@
+@page "/wallet"
+@inject IWalletService WalletService
+@inject IUserService UserService
+@inject IBankService BankService
+@inject ITransactionService TransactionService
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize]
+
+<PageTitle>Wallet - VibeWallet</PageTitle>
+
+<div class="wallet-page animate-fade-in">
+    <!-- Balance Card -->
+    <div class="card-gradient p-xl mb-lg" style="position:relative;overflow:hidden;">
+        <div style="position:absolute;top:-50px;right:-30px;opacity:0.1;font-size:12rem;">💳</div>
+        <div style="position:relative;z-index:1;">
+            <div class="text-sm" style="opacity:0.8;margin-bottom:4px;">VibeWallet Balance</div>
+            <div style="font-size:2.5rem;font-weight:800;margin-bottom:16px;">@_balanceText</div>
+            <div style="font-size:0.9rem;opacity:0.9;">Wallet Number: @_walletNumber</div>
+            <div class="flex gap-sm mt-md">
+                <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;" @onclick="OpenTopUpModal">📥 Top Up</button>
+                <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;" @onclick="OpenWithdrawModal">📤 Tarik Tunai</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Daily Limits -->
+    <div class="grid grid-3 mb-lg">
+        <div class="card-flat p-md">
+            <div class="text-sm text-muted">Transfer Harian</div>
+            <div class="font-bold">Rp @_dailyTransfer.ToString("N0") / Rp 25.000.000</div>
+            <div class="progress-bar mt-sm"><div class="progress-fill" style="width:@(Math.Min(100, (_dailyTransfer/25000000m*100))).ToString("0")%"></div></div>
+        </div>
+        <div class="card-flat p-md">
+            <div class="text-sm text-muted">Pembayaran Harian</div>
+            <div class="font-bold">Rp @_dailyPayment.ToString("N0") / Rp 50.000.000</div>
+            <div class="progress-bar mt-sm"><div class="progress-fill" style="width:@(Math.Min(100, (_dailyPayment/50000000m*100))).ToString("0")%;background:var(--accent-info);"></div></div>
+        </div>
+        <div class="card-flat p-md">
+            <div class="text-sm text-muted">Top Up Harian</div>
+            <div class="font-bold">Rp @_dailyTopUp.ToString("N0") / Rp 10.000.000</div>
+            <div class="progress-bar mt-sm"><div class="progress-fill" style="width:@(Math.Min(100, (_dailyTopUp/10000000m*100))).ToString("0")%;background:var(--accent-success);"></div></div>
+        </div>
+    </div>
+
+    <!-- Transaction History -->
+    <div class="card-neumorph">
+        <div class="flex justify-between items-center mb-lg">
+            <h3 style="margin:0;">📋 Riwayat Transaksi</h3>
+            <div class="flex gap-sm">
+                <select class="form-input" style="width:auto;" @bind="_filterType" @bind:after="ApplyFilter">
+                    <option value="">Semua Tipe</option>
+                    <option value="TopUp">Top Up</option>
+                    <option value="Transfer">Transfer</option>
+                    <option value="Payment">Pembayaran</option>
+                    <option value="Cashback">Cashback</option>
+                    <option value="Withdraw">Tarik Tunai</option>
+                </select>
+                <button class="btn btn-sm btn-secondary" @onclick="ApplyFilter">🔄 Refresh</button>
+            </div>
+        </div>
+
+        @if (_displayTransactions.Any())
+        {
+            <div class="transaction-table-wrapper">
+                <table class="transaction-table">
+                    <thead><tr><th>Tanggal</th><th>Deskripsi</th><th>Tipe</th><th>Jumlah</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (var tx in _displayTransactions)
+                        {
+                            <tr>
+                                <td class="text-sm">@tx.CreatedAt.ToString("dd/MM/yyyy HH:mm")</td>
+                                <td>@tx.Description</td>
+                                <td><span class="badge @GetBadgeClass(tx.Type)">@tx.Type</span></td>
+                                <td class="@GetAmountClass(tx.Type) font-semibold">@GetAmountPrefix(tx.Type)Rp @Math.Abs(tx.Amount).ToString("N0")</td>
+                                <td><span class="badge @GetStatusBadge(tx.Status)">@tx.Status</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex justify-between items-center mt-md">
+                <button class="btn btn-sm btn-secondary" disabled="@(_currentPage <= 1)" @onclick="() => ChangePage(-1)">← Sebelumnya</button>
+                <span class="text-sm text-muted">Halaman @_currentPage dari @_totalPages</span>
+                <button class="btn btn-sm btn-secondary" disabled="@(_currentPage >= _totalPages)" @onclick="() => ChangePage(1)">Selanjutnya →</button>
+            </div>
+        }
+        else { <div class="text-center text-muted p-xl">📭 Belum ada transaksi</div> }
+    </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- TOP UP MODAL -->
+@if (_showTopUpModal)
+{
+    <div class="modal-backdrop" @onclick="CloseModals">
+        <div class="modal-content card-neumorph p-xl animate-fade-in" @onclick:stopPropagation="true" style="max-width:450px;width:90%;">
+            <h3>📥 Top Up Saldo</h3>
+            <div class="form-group mt-md"><label class="form-label">Jumlah</label><input class="form-input" type="number" @bind="_topUpAmount" placeholder="Min. Rp 5.000" /></div>
+            <div class="form-group"><label class="form-label">Metode</label>
+                <select class="form-input" @bind="_topUpMethod">
+                    <option value="@PaymentMethod.BankTransfer">Transfer Bank</option>
+                    <option value="@PaymentMethod.VirtualAccount">Virtual Account</option>
+                    <option value="@PaymentMethod.ConvenienceStore">Gerai Retail</option>
+                </select>
+            </div>
+            <div class="form-group"><label class="form-label">Catatan</label><input class="form-input" @bind="_topUpNotes" placeholder="Opsional" /></div>
+            <div class="flex gap-sm mt-md">
+                <button class="btn btn-primary flex-1" @onclick="ProcessTopUp" disabled="@_isProcessing">💳 Top Up</button>
+                <button class="btn btn-secondary" @onclick="CloseModals">Batal</button>
+            </div>
+            @if (!string.IsNullOrEmpty(_modalResult)) { <div class="mt-sm text-sm" style="color:@(_modalSuccess ? "var(--accent-success)" : "var(--accent-danger)")">@(_modalSuccess ? "✅" : "❌") @_modalResult</div> }
+        </div>
+    </div>
+}
+
+<!-- WITHDRAW MODAL -->
+@if (_showWithdrawModal)
+{
+    <div class="modal-backdrop" @onclick="CloseModals">
+        <div class="modal-content card-neumorph p-xl animate-fade-in" @onclick:stopPropagation="true" style="max-width:450px;width:90%;">
+            <h3>📤 Tarik Tunai</h3>
+            <div class="form-group mt-md"><label class="form-label">Jumlah</label><input class="form-input" type="number" @bind="_withdrawAmount" placeholder="Min. Rp 10.000" /></div>
+            <div class="form-group"><label class="form-label">Rekening Tujuan</label>
+                <select class="form-input" @bind="_withdrawBank">
+                    <option value="">Pilih rekening</option>
+                    @foreach (var ba in _bankAccounts)
+                    { <option value="@ba.AccountNumber">@ba.BankName - @ba.AccountNumber</option> }
+                </select>
+            </div>
+            <div class="flex gap-sm mt-md">
+                <button class="btn btn-primary flex-1" @onclick="ProcessWithdraw" disabled="@_isProcessing">💸 Tarik Tunai</button>
+                <button class="btn btn-secondary" @onclick="CloseModals">Batal</button>
+            </div>
+            @if (!string.IsNullOrEmpty(_modalResult)) { <div class="mt-sm text-sm" style="color:@(_modalSuccess ? "var(--accent-success)" : "var(--accent-danger)")">@(_modalSuccess ? "✅" : "❌") @_modalResult</div> }
+        </div>
+    </div>
+}
+
+@code {
+    private string _balanceText = "Rp ..."; private string _walletNumber = "";
+    private decimal _dailyTransfer, _dailyPayment, _dailyTopUp;
+    private List<WalletTransaction> _allTransactions = new();
+    private List<WalletTransaction> _displayTransactions = new();
+    private int _currentPage = 1, _totalPages = 1, _pageSize = 10;
+    private string _filterType = ""; private Guid _userId;
+
+    // Modal state
+    private bool _showTopUpModal, _showWithdrawModal, _isProcessing, _modalSuccess;
+    private string _modalResult = "";
+    private decimal _topUpAmount, _withdrawAmount;
+    private PaymentMethod _topUpMethod = PaymentMethod.BankTransfer;
+    private string _topUpNotes = "", _withdrawBank = "";
+    private List<BankAccount> _bankAccounts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var uid = (await AuthState.GetAuthenticationStateAsync()).User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        if (uid != null) { _userId = Guid.Parse(uid.Value); await LoadAll(); }
+    }
+
+    private async Task LoadAll()
+    {
+        var w = await WalletService.GetWalletByUserIdAsync(_userId);
+        if (w != null) { _balanceText = $"Rp {w.AvailableBalance:N0}"; _walletNumber = w.WalletNumber; }
+        var limits = await TransactionService.GetDailyLimitsAsync(_userId);
+        _dailyTransfer = limits.dailyTransfer; _dailyPayment = limits.dailyPayment; _dailyTopUp = limits.dailyTopUp;
+        _allTransactions = await WalletService.GetTransactionHistoryAsync(_userId, 1, 1000);
+        _bankAccounts = await BankService.GetUserBankAccountsAsync(_userId);
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        var filtered = string.IsNullOrEmpty(_filterType)
+            ? _allTransactions
+            : _filterType switch
+            {
+                "TopUp" => _allTransactions.Where(t => t.Type == TransactionType.TopUp).ToList(),
+                "Transfer" => _allTransactions.Where(t => t.Type == TransactionType.Transfer).ToList(),
+                "Payment" => _allTransactions.Where(t => t.Type == TransactionType.Payment).ToList(),
+                "Cashback" => _allTransactions.Where(t => t.Type == TransactionType.Cashback).ToList(),
+                "Withdraw" => _allTransactions.Where(t => t.Type == TransactionType.Withdraw).ToList(),
+                _ => _allTransactions
+            };
+        _totalPages = Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)_pageSize));
+        _currentPage = Math.Min(_currentPage, _totalPages);
+        _displayTransactions = filtered.Skip((_currentPage - 1) * _pageSize).Take(_pageSize).ToList();
+    }
+
+    private async Task ChangePage(int d) { _currentPage += d; ApplyFilter(); await Task.CompletedTask; }
+
+    private void OpenTopUpModal() { _showTopUpModal = true; _modalResult = ""; _topUpAmount = 0; }
+    private void OpenWithdrawModal() { _showWithdrawModal = true; _modalResult = ""; _withdrawAmount = 0; }
+    private void CloseModals() { _showTopUpModal = false; _showWithdrawModal = false; }
+
+    private async Task ProcessTopUp()
+    {
+        if (_topUpAmount < 5000) { _modalResult = "Minimal top-up Rp 5.000."; _modalSuccess = false; return; }
+        _isProcessing = true;
+        try { await WalletService.TopUpAsync(_userId, _topUpAmount, _topUpMethod, _topUpNotes); _modalResult = "Top-up berhasil!"; _modalSuccess = true; CloseModals(); await LoadAll(); }
+        catch (Exception ex) { _modalResult = ex.Message; _modalSuccess = false; }
+        finally { _isProcessing = false; }
+    }
+
+    private async Task ProcessWithdraw()
+    {
+        if (_withdrawAmount < 10000) { _modalResult = "Minimal penarikan Rp 10.000."; _modalSuccess = false; return; }
+        if (string.IsNullOrWhiteSpace(_withdrawBank)) { _modalResult = "Pilih rekening tujuan."; _modalSuccess = false; return; }
+        _isProcessing = true;
+        try { await WalletService.WithdrawAsync(_userId, _withdrawAmount, _withdrawBank); _modalResult = "Penarikan berhasil!"; _modalSuccess = true; CloseModals(); await LoadAll(); }
+        catch (Exception ex) { _modalResult = ex.Message; _modalSuccess = false; }
+        finally { _isProcessing = false; }
+    }
+
+    private static string GetBadgeClass(TransactionType t) => t switch { TransactionType.TopUp or TransactionType.Cashback => "badge-success", TransactionType.Payment => "badge-info", TransactionType.Transfer => "badge-purple", TransactionType.Withdraw => "badge-warning", _ => "badge-info" };
+    private static string GetStatusBadge(TransactionStatus s) => s switch { TransactionStatus.Completed => "badge-success", TransactionStatus.Pending => "badge-warning", TransactionStatus.Failed => "badge-danger", _ => "badge-info" };
+    private static string GetAmountClass(TransactionType t) => t is TransactionType.TopUp or TransactionType.Cashback or TransactionType.Refund ? "text-success" : "text-danger";
+    private static string GetAmountPrefix(TransactionType t) => t is TransactionType.TopUp or TransactionType.Cashback or TransactionType.Refund ? "+" : "-";
+}
+
+<style>
+.transaction-table-wrapper { overflow-x: auto; }
+.transaction-table { width: 100%; border-collapse: collapse; }
+.transaction-table th { text-align: left; padding: 10px 14px; font-size: 0.8rem; color: var(--text-muted); border-bottom: 2px solid var(--border-color); text-transform: uppercase; letter-spacing: 0.5px; }
+.transaction-table td { padding: 10px 14px; border-bottom: 1px solid var(--border-color); color: var(--text-primary); }
+.transaction-table tr:hover { background: var(--hover-bg); }
+.progress-bar { height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent-primary); border-radius: 3px; transition: width 0.5s ease; }
+.text-success { color: var(--accent-success); }
+.text-danger { color: var(--accent-danger); }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal-content { animation: fadeIn 0.2s ease; }
+.flex-1 { flex: 1; }
+</style>

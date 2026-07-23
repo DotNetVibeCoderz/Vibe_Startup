@@ -1,0 +1,108 @@
+@page "/admin/users"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject VibeWallet.Data.VibeWalletDbContext Db
+@inject UserManager<VibeUser> UserManager
+
+<PageTitle>User Management - Admin</PageTitle>
+
+<div class="animate-fade-in">
+    <div class="flex justify-between items-center mb-lg">
+        <h2>👥 User Management</h2>
+        <div class="flex gap-sm">
+            <input class="form-input" style="width:220px;" @bind="_search" @bind:event="oninput" placeholder="Cari nama, email, phone..." />
+            <select class="form-input" style="width:130px;" @bind="_filterRole">
+                <option value="">All Roles</option>
+                <option value="Admin">Admin</option><option value="User">User</option>
+                <option value="Merchant">Merchant</option><option value="Premium">Premium</option>
+            </select>
+            <button class="btn btn-sm btn-secondary" @onclick="LoadUsers">🔄 Refresh</button>
+        </div>
+    </div>
+    @if (_msg != null) { <div class="card-flat p-md mb-md" style="background:rgba(16,185,129,0.1);color:var(--accent-success);">✅ @_msg</div> }
+    <div class="card-neumorph">
+        <div style="overflow-x:auto;">
+            <table>
+                <thead><tr><th>Nama</th><th>Email</th><th>Phone</th><th>KYC</th><th>Role</th><th>Saldo</th><th>Aksi</th></tr></thead>
+                <tbody>
+                    @foreach (var u in _users)
+                    {
+                        <tr>
+                            <td><strong>@u.FullName</strong></td><td class="text-sm">@u.Email</td><td class="text-sm">@u.PhoneNumber</td>
+                            <td><span class="badge @(u.KycStatus == Models.KycStatus.Verified ? "badge-success" : u.KycStatus == Models.KycStatus.Submitted ? "badge-warning" : "badge-danger")">@u.KycStatus</span></td>
+                            <td><span class="badge badge-info">@(_roles.GetValueOrDefault(u.Id, "-"))</span></td>
+                            <td class="text-sm">@(_balances.GetValueOrDefault(u.Id, "Rp 0"))</td>
+                            <td>
+                                <div class="flex gap-sm">
+                                    <button class="btn btn-sm btn-secondary" @onclick="() => ToggleBlock(u)" title="@(u.LockoutEnd > DateTime.UtcNow ? "Unblock" : "Block")">@(u.LockoutEnd > DateTime.UtcNow ? "🔓" : "🔒")</button>
+                                    <button class="btn btn-sm btn-outline" @onclick="() => ToggleFreeze(u)" title="Freeze Wallet">🧊</button>
+                                    <button class="btn btn-sm" style="color:var(--accent-danger);" @onclick="() => DeleteUser(u.Id)" title="Hapus">🗑️</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<VibeUser> _users = new();
+    private Dictionary<Guid, string> _roles = new();
+    private Dictionary<Guid, string> _balances = new();
+    private string _search = "", _filterRole = ""; private string? _msg;
+
+    protected override async Task OnInitializedAsync() => await LoadUsers();
+
+    private async Task LoadUsers()
+    {
+        var q = Db.Users.AsQueryable();
+        _users = await q.OrderByDescending(u => u.Email).Take(200).ToListAsync();
+        _roles.Clear(); _balances.Clear();
+        foreach (var u in _users)
+        {
+            var r = await UserManager.GetRolesAsync(u);
+            _roles[u.Id] = string.Join(",", r);
+            var w = await Db.Wallets.FirstOrDefaultAsync(w => w.UserId == u.Id && !w.IsDeleted);
+            _balances[u.Id] = w != null ? $"Rp {w.Balance:N0}" : "-";
+        }
+        // 🔍 Case-insensitive filter (client-side after load, aman untuk dataset kecil)
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var s = _search.Trim();
+            _users = _users.Where(u =>
+                (u.FullName != null && u.FullName.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                (u.Email != null && u.Email.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                (u.PhoneNumber != null && u.PhoneNumber.Contains(s, StringComparison.OrdinalIgnoreCase))
+            ).ToList();
+        }
+        if (!string.IsNullOrWhiteSpace(_filterRole))
+            _users = _users.Where(u => _roles.GetValueOrDefault(u.Id, "").Contains(_filterRole, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private async Task ToggleBlock(VibeUser u)
+    {
+        u.LockoutEnd = u.LockoutEnd > DateTime.UtcNow ? null : DateTime.UtcNow.AddYears(100);
+        await Db.SaveChangesAsync();
+        _msg = u.LockoutEnd > DateTime.UtcNow ? $"🔒 {u.FullName} diblokir." : $"🔓 {u.FullName} di-unblock.";
+        await LoadUsers();
+    }
+
+    private async Task ToggleFreeze(VibeUser u)
+    {
+        var w = await Db.Wallets.FirstOrDefaultAsync(w => w.UserId == u.Id);
+        if (w == null) return;
+        w.IsFrozen = !w.IsFrozen; w.FreezeReason = w.IsFrozen ? "Admin action" : null;
+        await Db.SaveChangesAsync();
+        _msg = w.IsFrozen ? $"🧊 Wallet {u.FullName} dibekukan." : $"✅ Wallet {u.FullName} diaktifkan.";
+        await LoadUsers();
+    }
+
+    private async Task DeleteUser(Guid id)
+    {
+        var u = await Db.Users.FindAsync(id); if (u == null) return;
+        Db.Users.Remove(u); await Db.SaveChangesAsync();
+        _msg = "User dihapus."; await LoadUsers();
+    }
+}

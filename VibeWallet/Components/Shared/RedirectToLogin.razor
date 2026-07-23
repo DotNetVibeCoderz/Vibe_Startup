@@ -1,0 +1,13 @@
+@inject NavigationManager Navigation
+
+@* Redirect ke /login dengan ReturnUrl *@
+@code {
+    protected override void OnInitialized()
+    {
+        var returnUrl = Navigation.ToBaseRelativePath(Navigation.Uri);
+        if (!returnUrl.StartsWith("login", StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo($"/login?ReturnUrl=/{returnUrl}", forceLoad: true);
+        }
+    }
+}

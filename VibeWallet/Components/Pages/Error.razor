@@ -1,0 +1,32 @@
+@page "/error"
+@inject ILogger<Error> Logger
+
+<PageTitle>Error - VibeWallet</PageTitle>
+
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg-primary);">
+    <div class="card-neumorph text-center p-xl" style="max-width:500px;">
+        <div style="font-size:5rem;">⚠️</div>
+        <h1 class="text-gradient">Oops! Something went wrong</h1>
+        <p class="text-muted">Mohon maaf, terjadi kesalahan yang tidak terduga.</p>
+        <p class="text-sm text-muted">Tim teknis kami sudah diberitahu. Silakan coba lagi.</p>
+        <div class="flex gap-sm justify-center mt-md">
+            <a href="/" class="btn btn-primary">🏠 Kembali ke Dashboard</a>
+            <button class="btn btn-secondary" @onclick="Reload">🔄 Muat Ulang</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    protected override void OnInitialized()
+    {
+        var ex = HttpContext?.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        if (ex != null) Logger.LogError(ex.Error, "Unhandled exception: {Message}", ex.Error.Message);
+    }
+
+    private void Reload()
+    {
+        // Full reload via JS
+    }
+}

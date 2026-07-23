@@ -1,0 +1,92 @@
+@page "/admin/analytics"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject VibeWallet.Data.VibeWalletDbContext Db
+
+<PageTitle>Analytics - Admin</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">📉 User Behavior Analytics</h2>
+
+    <div class="grid grid-3 mb-lg">
+        @foreach (var stat in _paymentStats)
+        {
+            <div class="card-neumorph p-md">
+                <div class="font-semibold">@stat.Category</div>
+                <div class="text-xl font-bold mt-sm">@stat.Count.ToString("N0") tx</div>
+                <div class="text-sm text-muted">Vol: Rp @stat.Volume.ToString("N0")</div>
+                <div class="text-sm text-muted">Avg: Rp @stat.Avg.ToString("N0")</div>
+            </div>
+        }
+    </div>
+
+    <div class="card-neumorph p-xl">
+        <h3>⏰ Peak Transaction Hours</h3>
+        <div class="flex gap-sm" style="flex-wrap:wrap;">
+            @for (int h = 0; h < 24; h++)
+            {
+                var count = _hourlyData.ContainsKey(h) ? _hourlyData[h] : 0;
+                var maxCount = _hourlyData.Any() ? (double)_hourlyData.Values.Max() : 1;
+                var height = Math.Max(4, (count / Math.Max(1, maxCount)) * 120);
+                <div class="text-center" style="width:3.5%;">
+                    <div style="height:@(height)px;background:linear-gradient(180deg,var(--accent-primary),var(--accent-secondary));border-radius:4px 4px 0 0;margin-bottom:4px;" title="@h:00 - @count tx"></div>
+                    <div class="text-sm text-muted">@h</div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card-neumorph p-xl mt-lg">
+        <h3>📱 User Activity Summary</h3>
+        <table>
+            <tr><td class="text-muted">Users with active wallet</td><td class="font-bold text-right">@_activeWallets</td></tr>
+            <tr><td class="text-muted">Avg transactions per user</td><td class="font-bold text-right">@_avgTxPerUser:F1</td></tr>
+            <tr><td class="text-muted">Chat sessions created</td><td class="font-bold text-right">@_chatSessions</td></tr>
+            <tr><td class="text-muted">Insurance enrolled</td><td class="font-bold text-right">@_insuranceCount</td></tr>
+            <tr><td class="text-muted">Savings accounts</td><td class="font-bold text-right">@_savingsCount</td></tr>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<(string Category, int Count, decimal Volume, decimal Avg)> _paymentStats = new();
+    private Dictionary<int, int> _hourlyData = new();
+    private int _activeWallets, _chatSessions, _insuranceCount, _savingsCount;
+    private double _avgTxPerUser;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // By payment type
+        foreach (var type in new[] { "QRIS", "Bills", "TopUp", "Transfer", "Ecommerce" })
+        {
+            TransactionType? txType = type switch
+            {
+                "QRIS" => TransactionType.Payment, "Bills" => TransactionType.Payment,
+                "TopUp" => TransactionType.TopUp, "Transfer" => TransactionType.Transfer, _ => null
+            };
+            int count = 0; decimal vol = 0;
+            if (txType.HasValue)
+            {
+                count = await Db.WalletTransactions.CountAsync(t => t.Type == txType.Value);
+                vol = await Db.WalletTransactions.Where(t => t.Type == txType.Value && t.Amount > 0).SumAsync(t => t.Amount);
+            }
+            _paymentStats.Add((type, count, vol, count > 0 ? vol / count : 0));
+        }
+
+        // Hourly distribution
+        var txs = await Db.WalletTransactions.OrderByDescending(t => t.CreatedAt).Take(1000).ToListAsync();
+        foreach (var tx in txs)
+        {
+            var h = tx.CreatedAt.Hour;
+            _hourlyData[h] = _hourlyData.GetValueOrDefault(h) + 1;
+        }
+
+        _activeWallets = await Db.Wallets.CountAsync(w => !w.IsDeleted && w.Balance > 0);
+        var userCount = await Db.Users.CountAsync();
+        var totalTx = await Db.WalletTransactions.CountAsync();
+        _avgTxPerUser = userCount > 0 ? (double)totalTx / userCount : 0;
+        _chatSessions = await Db.ChatSessions.CountAsync();
+        _insuranceCount = await Db.UserInsurances.CountAsync();
+        _savingsCount = await Db.SavingsAccounts.CountAsync();
+    }
+}

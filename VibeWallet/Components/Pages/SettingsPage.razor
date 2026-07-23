@@ -1,0 +1,162 @@
+@page "/settings"
+@inject IUserService UserService
+@inject IWalletService WalletService
+@inject ThemeService ThemeService
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize]
+
+<PageTitle>Settings - VibeWallet</PageTitle>
+
+<div class="settings-page animate-fade-in">
+    <h2 class="mb-lg">⚙️ <span class="text-gradient">Settings</span></h2>
+
+    <div class="grid grid-2 mb-lg">
+        <!-- Profile -->
+        <div class="card-neumorph p-xl">
+            <h3>👤 Profil</h3>
+            @if (_profile != null)
+            {
+                <div class="form-group"><label class="form-label">Nama Lengkap</label><input class="form-input" @bind="_profile.FullName" /></div>
+                <div class="form-group"><label class="form-label">Email</label><input class="form-input" value="@_profile.Email" disabled /></div>
+                <div class="form-group"><label class="form-label">No. Telepon</label><input class="form-input" value="@_profile.PhoneNumber" disabled /></div>
+                <div class="grid grid-2">
+                    <div class="form-group"><label class="form-label">Kota</label><input class="form-input" @bind="_profile.City" /></div>
+                    <div class="form-group"><label class="form-label">Provinsi</label><input class="form-input" @bind="_profile.Province" /></div>
+                </div>
+                <button class="btn btn-primary w-full mt-md" @onclick="SaveProfile" disabled="@_isSavingProfile">
+                    @(_isSavingProfile ? "Menyimpan..." : "💾 Simpan Profil")
+                </button>
+                @if (!string.IsNullOrEmpty(_profileMsg))
+                {
+                    <div class="mt-sm text-sm" style="color:@(_profileSuccess ? "var(--accent-success)" : "var(--accent-danger)")">@_profileMsg</div>
+                }
+            }
+            else { <div class="loading-spinner"></div> }
+        </div>
+
+        <!-- Preferences & Security -->
+        <div class="card-neumorph p-xl">
+            <h3>🎨 Tampilan</h3>
+            <div class="form-group">
+                <label class="form-label">Tema</label>
+                <div class="flex gap-sm mt-sm">
+                    <button class="btn @(ThemeService.CurrentTheme == "light" ? "btn-primary" : "btn-secondary")"
+                            @onclick="SwitchToLight">
+                        ☀️ Light Mode
+                    </button>
+                    <button class="btn @(ThemeService.CurrentTheme == "dark" ? "btn-primary" : "btn-secondary")"
+                            @onclick="SwitchToDark">
+                        🌙 Dark Mode
+                    </button>
+                </div>
+                @if (_themeChanged)
+                {
+                    <div class="mt-sm text-sm" style="color:var(--accent-success);">✅ Tema berhasil diubah!</div>
+                }
+            </div>
+
+            <hr style="border-color:var(--border-color);margin:20px 0;" />
+
+            <h3>🔐 Keamanan</h3>
+            <div class="form-group"><label class="form-label">Ubah PIN Transaksi</label><input class="form-input" type="password" @bind="_newPin" placeholder="6 digit PIN baru" maxlength="6" /></div>
+            <button class="btn btn-primary w-full" @onclick="ChangePin" disabled="@(_newPin.Length != 6 || _isChangingPin)">
+                @(_isChangingPin ? "Menyimpan..." : "🔒 Ubah PIN")
+            </button>
+            @if (!string.IsNullOrEmpty(_pinMsg))
+            {
+                <div class="mt-sm text-sm" style="color:@(_pinSuccess ? "var(--accent-success)" : "var(--accent-danger)")">@_pinMsg</div>
+            }
+
+            <hr style="border-color:var(--border-color);margin:20px 0;" />
+
+            <h3>📊 Status KYC</h3>
+            <div class="card-flat p-md" style="background:rgba(99,102,241,0.08);">
+                <strong>Status:</strong>
+                <span class="badge @(_kycStatus == "Verified" ? "badge-success" : "badge-warning") ml-sm">@_kycStatus</span>
+            </div>
+
+            <hr style="border-color:var(--border-color);margin:20px 0;" />
+
+            <h3>📱 Info Aplikasi</h3>
+            <div class="text-sm">
+                <p><strong>App:</strong> VibeWallet v1.0.0</p>
+                <p><strong>Framework:</strong> .NET 10 · Blazor Server</p>
+                <p><strong>Build:</strong> @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</p>
+                <p><strong>Made with ❤️</strong> by GraviCode Studios</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wallet Info -->
+    <div class="card-neumorph p-xl mb-lg">
+        <h3>💳 Info Wallet</h3>
+        @if (_wallet != null)
+        {
+            <div class="grid grid-3">
+                <div class="card-flat p-md text-center"><div class="text-sm text-muted">Wallet Number</div><div class="font-bold">@_wallet.WalletNumber</div></div>
+                <div class="card-flat p-md text-center"><div class="text-sm text-muted">Loyalty Points</div><div class="font-bold">@_wallet.LoyaltyPoints.ToString("N0") pts</div></div>
+                <div class="card-flat p-md text-center"><div class="text-sm text-muted">Status</div><div class="font-bold" style="color:@(_wallet.IsFrozen ? "var(--accent-danger)" : "var(--accent-success)")">@(_wallet.IsFrozen ? "Dibekukan" : "Aktif")</div></div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private VibeUser? _profile;
+    private Wallet? _wallet;
+    private string _kycStatus = "";
+    private string _newPin = "";
+    private bool _isSavingProfile;
+    private bool _isChangingPin;
+    private string _profileMsg = "";
+    private bool _profileSuccess;
+    private string _pinMsg = "";
+    private bool _pinSuccess;
+    private bool _themeChanged;
+    private Guid _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var uid = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        if (uid == null || !Guid.TryParse(uid.Value, out _userId)) return;
+
+        _profile = await UserService.GetUserByIdAsync(_userId);
+        _wallet = await WalletService.GetWalletByUserIdAsync(_userId);
+        if (_profile != null) _kycStatus = _profile.KycStatus.ToString();
+    }
+
+    private async Task SwitchToLight()
+    {
+        await ThemeService.SetThemeAsync("light");
+        _themeChanged = true;
+    }
+
+    private async Task SwitchToDark()
+    {
+        await ThemeService.SetThemeAsync("dark");
+        _themeChanged = true;
+    }
+
+    private async Task SaveProfile()
+    {
+        if (_profile == null) return;
+        _isSavingProfile = true;
+        try
+        {
+            var ok = await UserService.UpdateProfileAsync(_userId, _profile);
+            _profileSuccess = ok; _profileMsg = ok ? "✅ Profil berhasil disimpan!" : "❌ Gagal menyimpan profil.";
+        }
+        catch (Exception ex) { _profileSuccess = false; _profileMsg = $"❌ Error: {ex.Message}"; }
+        finally { _isSavingProfile = false; }
+    }
+
+    private async Task ChangePin()
+    {
+        if (_newPin.Length != 6 || _profile == null) return;
+        _isChangingPin = true;
+        try { await UserService.SetTransactionPinAsync(_userId, _newPin); _pinSuccess = true; _pinMsg = "✅ PIN berhasil diubah!"; _newPin = ""; }
+        catch (Exception ex) { _pinSuccess = false; _pinMsg = $"❌ Error: {ex.Message}"; }
+        finally { _isChangingPin = false; }
+    }
+}

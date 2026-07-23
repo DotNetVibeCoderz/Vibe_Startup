@@ -1,0 +1,161 @@
+@page "/admin/blacklist"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject IServiceScopeFactory ScopeFactory
+@implements IDisposable
+
+<PageTitle>Blacklist Management - Admin</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">🚫 Blacklist Management</h2>
+    <div class="flex justify-between items-center mb-lg">
+        <p class="text-muted">Daftar pengguna yang diblokir, dibekukan, atau KYC ditolak.</p>
+        <button class="btn btn-sm btn-secondary" @onclick="() => _ = LoadDataAsync()">🔄 Refresh</button>
+    </div>
+    @if (_msg != null) { <div class="card-flat p-md mb-md" style="background:rgba(16,185,129,0.1);color:var(--accent-success);">✅ @_msg</div> }
+    @if (_errorMsg != null) { <div class="card-flat p-md mb-md" style="background:rgba(239,68,68,0.1);color:var(--accent-danger);">❌ @_errorMsg</div> }
+    <div class="card-neumorph p-xl mb-lg">
+        <h3>⚠️ Flagged Users (@_flaggedUsers.Count)</h3>
+        <div style="overflow-x:auto;">
+            <table>
+                <thead><tr><th>User</th><th>Email</th><th>KYC</th><th>Wallet</th><th>Status</th><th>Frozen</th><th>Aksi</th></tr></thead>
+                <tbody>
+                    @foreach (var u in _flaggedUsers)
+                    {
+                        <tr>
+                            <td><strong>@u.FullName</strong></td>
+                            <td class="text-sm">@u.Email</td>
+                            <td><span class="badge @(u.KycStatus == Models.KycStatus.Verified ? "badge-success" : "badge-warning")">@u.KycStatus</span></td>
+                            <td class="text-sm">@_walletInfo.GetValueOrDefault(u.Id, "-")</td>
+                            <td>@(u.LockoutEnd > DateTimeOffset.UtcNow ? "⚠️ Blocked" : "✅ Active")</td>
+                            <td>@(_frozen.ContainsKey(u.Id) && _frozen[u.Id] ? "🧊 Frozen" : "✅")</td>
+                            <td>
+                                <div class="flex gap-sm">
+                                    <button class="btn btn-sm btn-danger" @onclick="() => _ = BlockUserAsync(u.Id)">🔒 Block</button>
+                                    <button class="btn btn-sm btn-success" @onclick="() => _ = UnblockUserAsync(u.Id)">🔓 Unblock</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<VibeUser> _flaggedUsers = new();
+    private Dictionary<Guid, string> _walletInfo = new();
+    private Dictionary<Guid, bool> _frozen = new();
+    private string? _msg;
+    private string? _errorMsg;
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cts = new CancellationTokenSource();
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            _cts?.Cancel();
+            _cts = new CancellationTokenSource();
+            var token = _cts.Token;
+
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<VibeWallet.Data.VibeWalletDbContext>();
+
+            // 🔧 SQLite EF Core tidak bisa translate:
+            //    - DateTimeOffset? comparison (SQLite tidak punya tipe DateTimeOffset)
+            //    - enum-to-int cast dalam LINQ expression
+            // Solusi: tarik dulu data ke memory (client-side evaluation).
+            // Aman karena user maksimal ratusan, bukan jutaan.
+
+            var now = DateTimeOffset.UtcNow;
+
+            // Tarik semua user ke memory dulu (max ~500 record, aman)
+            var allUsers = await db.Users
+                .AsNoTracking()
+                .OrderByDescending(u => u.Email)
+                .Take(500) // batasi biar tetap ringan
+                .ToListAsync(token);
+
+            // 🔧 Filter di C# (client-side) — bebas dari batasan SQLite
+            _flaggedUsers = allUsers
+                .Where(u => u.LockoutEnd > now || u.KycStatus == Models.KycStatus.Rejected)
+                .Take(100)
+                .ToList();
+
+            _walletInfo.Clear();
+            _frozen.Clear();
+            _errorMsg = null;
+
+            if (_flaggedUsers.Count == 0) return;
+
+            // 🔥 BATCH QUERY: satu query untuk semua wallet
+            var userIds = _flaggedUsers.Select(u => u.Id).ToList();
+            var wallets = await db.Wallets
+                .AsNoTracking()
+                .Where(w => userIds.Contains(w.UserId) && !w.IsDeleted)
+                .ToListAsync(token);
+
+            foreach (var u in _flaggedUsers)
+            {
+                var w = wallets.FirstOrDefault(x => x.UserId == u.Id);
+                _walletInfo[u.Id] = w != null ? $"Rp {w.Balance:N0}" : "No wallet";
+                _frozen[u.Id] = w?.IsFrozen ?? false;
+            }
+        }
+        catch (OperationCanceledException) { /* Navigasi — abaikan */ }
+        catch (ObjectDisposedException) { /* Scope disposed — abaikan */ }
+        catch (Exception ex) { _errorMsg = $"Error: {ex.Message}"; }
+    }
+
+    private async Task BlockUserAsync(Guid id)
+    {
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<VibeWallet.Data.VibeWalletDbContext>();
+            var u = await db.Users.FindAsync(id);
+            if (u != null)
+            {
+                u.LockoutEnd = DateTimeOffset.UtcNow.AddYears(100);
+                await db.SaveChangesAsync();
+                _msg = $"🔒 {u.FullName} diblokir.";
+                await LoadDataAsync();
+            }
+        }
+        catch (ObjectDisposedException) { /* abaikan */ }
+        catch (Exception ex) { _errorMsg = ex.Message; }
+    }
+
+    private async Task UnblockUserAsync(Guid id)
+    {
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<VibeWallet.Data.VibeWalletDbContext>();
+            var u = await db.Users.FindAsync(id);
+            if (u != null)
+            {
+                u.LockoutEnd = null;
+                await db.SaveChangesAsync();
+                _msg = $"🔓 {u.FullName} di-unblock.";
+                await LoadDataAsync();
+            }
+        }
+        catch (ObjectDisposedException) { /* abaikan */ }
+        catch (Exception ex) { _errorMsg = ex.Message; }
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = null;
+    }
+}

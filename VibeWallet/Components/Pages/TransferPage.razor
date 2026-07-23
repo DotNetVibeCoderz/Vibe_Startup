@@ -1,0 +1,146 @@
+@page "/transfer"
+@inject ITransferService TransferService
+@inject IWalletService WalletService
+@inject AuthenticationStateProvider AuthState
+@inject VibeWallet.Data.VibeWalletDbContext DbContext
+@attribute [Authorize]
+
+<PageTitle>Transfer - VibeWallet</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">💸 <span class="text-gradient">Transfer</span></h2>
+    <div class="grid grid-2">
+        <!-- P2P Transfer + Saved Contacts -->
+        <div class="card-neumorph p-xl">
+            <h3>💸 Transfer ke Sesama VibeWallet</h3>
+            <p class="text-muted text-sm">Gratis tanpa biaya admin!</p>
+
+            <!-- Saved Contacts -->
+            @if (_contacts.Any())
+            {
+                <div class="form-group mt-md">
+                    <label class="form-label">👥 Kontak Tersimpan</label>
+                    <div class="contact-list">
+                        @foreach (var c in _contacts)
+                        {
+                            <div class="contact-item @(_receiverWallet == c.WalletNumber ? "selected" : "")" @onclick="() => SelectContact(c)">
+                                <div class="flex justify-between items-center">
+                                    <div><span class="font-semibold">@c.ContactName</span><span class="text-sm text-muted ml-sm">@c.WalletNumber</span></div>
+                                    <button class="btn btn-sm" style="color:var(--accent-danger);" @onclick="() => DeleteContactWrapper(c.Id)" title="Hapus">✕</button>
+                                </div>
+                                @if (!string.IsNullOrEmpty(c.Notes)) { <div class="text-sm text-muted">@c.Notes</div> }
+                                <div class="text-sm text-muted">@c.TransferCount transfer</div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            <details class="mt-sm">
+                <summary class="btn btn-sm btn-outline" style="list-style:none;display:inline-flex;">➕ Tambah Kontak</summary>
+                <div class="card-flat p-md mt-sm">
+                    <div class="form-group"><label class="form-label">Nama Kontak</label><input class="form-input" @bind="_newName" placeholder="Nama teman" /></div>
+                    <div class="form-group"><label class="form-label">Nomor Wallet</label><input class="form-input" @bind="_newWallet" placeholder="100000..." /></div>
+                    <div class="form-group"><label class="form-label">Catatan</label><input class="form-input" @bind="_newNotes" placeholder="Opsional" /></div>
+                    <button class="btn btn-primary w-full" @onclick="AddContact" disabled="@(string.IsNullOrWhiteSpace(_newName) || string.IsNullOrWhiteSpace(_newWallet))">💾 Simpan Kontak</button>
+                </div>
+            </details>
+
+            <hr style="border-color:var(--border-color);margin:16px 0;" />
+
+            <div class="form-group"><label class="form-label">Nomor Wallet Tujuan</label><input class="form-input" @bind="_receiverWallet" placeholder="1000000000000001" /></div>
+            <div class="form-group"><label class="form-label">Jumlah</label><input class="form-input" type="number" @bind="_transferAmount" placeholder="Min. Rp 10.000" /></div>
+            <div class="form-group"><label class="form-label">Catatan</label><input class="form-input" @bind="_transferNotes" placeholder="Opsional" /></div>
+            <button class="btn btn-primary w-full mt-md" @onclick="ProcessP2PTransfer" disabled="@_isProcessing">@(_isProcessing ? "Memproses..." : "Kirim Sekarang 🚀")</button>
+
+            @if (!string.IsNullOrEmpty(_transferResult))
+            {
+                <div class="mt-md card-flat p-md" style="background:@(_transferSuccess ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)");">
+                    <p style="color:@(_transferSuccess ? "var(--accent-success)" : "var(--accent-danger)");margin:0;">@(_transferSuccess ? "✅" : "❌") @_transferResult</p>
+                </div>
+            }
+        </div>
+
+        <!-- Split Bill -->
+        <div class="card-neumorph p-xl">
+            <h3>🧾 Split Bill / Patungan</h3>
+            <p class="text-muted text-sm">Bagi pembayaran dengan teman-teman</p>
+            <div class="form-group mt-md"><label class="form-label">Judul</label><input class="form-input" @bind="_splitTitle" placeholder="Makan bareng" /></div>
+            <div class="form-group"><label class="form-label">Total Jumlah</label><input class="form-input" type="number" @bind="_splitAmount" placeholder="Total tagihan" /></div>
+            <div class="form-group"><label class="form-label">Jumlah Orang</label><input class="form-input" type="number" @bind="_splitPeople" placeholder="Berapa orang (termasuk kamu)?" /></div>
+            @if (_splitAmount > 0 && _splitPeople > 1)
+            {
+                <div class="card-flat p-md" style="background:rgba(99,102,241,0.1);text-align:center;">
+                    <div class="text-sm text-muted">Per orang</div>
+                    <div style="font-size:1.5rem;font-weight:700;color:var(--accent-primary);">Rp @((_splitAmount / _splitPeople).ToString("N0"))</div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _receiverWallet = ""; private decimal _transferAmount; private string _transferNotes = "";
+    private bool _isProcessing; private string _transferResult = ""; private bool _transferSuccess;
+    private string _splitTitle = ""; private decimal _splitAmount; private int _splitPeople;
+    private string _newName = ""; private string _newWallet = ""; private string _newNotes = "";
+    private List<SavedContact> _contacts = new();
+    private Guid _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var u = await AuthState.GetAuthenticationStateAsync();
+        var uid = u.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        if (uid != null) { _userId = Guid.Parse(uid.Value); await LoadContacts(); }
+    }
+
+    private async Task LoadContacts()
+        => _contacts = await DbContext.SavedContacts.Where(c => c.UserId == _userId && !c.IsDeleted).OrderByDescending(c => c.LastTransferAt).ToListAsync();
+
+    private void SelectContact(SavedContact c) => _receiverWallet = c.WalletNumber;
+    private async Task DeleteContactWrapper(Guid id) { await DeleteContact(id); StateHasChanged(); }
+    private async Task DeleteContact(Guid id)
+    {
+        var c = await DbContext.SavedContacts.FindAsync(id);
+        if (c != null) { c.IsDeleted = true; c.DeletedAt = DateTime.UtcNow; await DbContext.SaveChangesAsync(); await LoadContacts(); }
+    }
+
+    private async Task AddContact()
+    {
+        if (string.IsNullOrWhiteSpace(_newName) || string.IsNullOrWhiteSpace(_newWallet)) return;
+        var target = await WalletService.GetWalletByNumberAsync(_newWallet);
+        if (target == null) { _transferResult = "Nomor wallet tidak ditemukan."; _transferSuccess = false; return; }
+        if (_contacts.Any(c => c.WalletNumber == _newWallet)) { _transferResult = "Kontak sudah ada."; _transferSuccess = false; return; }
+        DbContext.SavedContacts.Add(new SavedContact { UserId = _userId, ContactName = _newName, WalletNumber = _newWallet, Notes = _newNotes });
+        await DbContext.SaveChangesAsync();
+        _newName = ""; _newWallet = ""; _newNotes = "";
+        await LoadContacts();
+    }
+
+    private async Task ProcessP2PTransfer()
+    {
+        _transferResult = ""; _transferSuccess = false;
+        if (_transferAmount < 10000) { _transferResult = "Minimum transfer Rp 10.000"; return; }
+        if (string.IsNullOrWhiteSpace(_receiverWallet)) { _transferResult = "Masukkan nomor wallet tujuan."; return; }
+        _isProcessing = true;
+        try
+        {
+            var t = await TransferService.TransferAsync(_userId, _receiverWallet, _transferAmount, _transferNotes);
+            _transferResult = $"Transfer berhasil! Ref: {t.TransferRef}"; _transferSuccess = true;
+            _receiverWallet = ""; _transferAmount = 0; _transferNotes = "";
+            await LoadContacts();
+        }
+        catch (Exception ex) { _transferResult = ex.Message; _transferSuccess = false; }
+        finally { _isProcessing = false; }
+    }
+}
+
+<style>
+.contact-list { max-height: 180px; overflow-y: auto; }
+.contact-item { padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-bottom: 6px; cursor: pointer; transition: all 0.15s ease; }
+.contact-item:hover { background: var(--hover-bg); }
+.contact-item.selected { border-color: var(--accent-primary); background: rgba(99,102,241,0.08); }
+details summary { cursor: pointer; display: inline-flex !important; }
+details summary::marker { display: none; }
+details summary::-webkit-details-marker { display: none; }
+</style>

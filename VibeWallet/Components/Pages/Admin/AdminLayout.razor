@@ -1,0 +1,99 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+@inject ThemeService ThemeService
+
+<div class="@(ThemeService.IsDark ? "dark-theme" : "light-theme")" style="display:flex;min-height:100vh;background:var(--bg-primary);">
+    <aside class="admin-sidebar @(_collapsed ? "admin-sidebar-collapsed" : "")">
+        <div class="admin-sb-header">
+            <a href="/admin" class="admin-sb-logo">
+                <span style="font-size:1.5rem;">🛡️</span>
+                @if (!_collapsed) { <span class="admin-sb-title">Admin Panel</span> }
+            </a>
+        </div>
+        <nav class="admin-sb-nav">
+            <div class="admin-sb-section">📊 MAIN</div>
+            <a href="/admin" class="admin-sb-link @(IsActive("/admin") ? "admin-sb-active" : "")"><span>📊</span><span>Dashboard</span></a>
+            <div class="admin-sb-section">🛠️ MANAGEMENT</div>
+            <a href="/admin/users" class="admin-sb-link @(IsActive("/admin/users") ? "admin-sb-active" : "")"><span>👥</span><span>Users</span></a>
+            <a href="/admin/kyc" class="admin-sb-link @(IsActive("/admin/kyc") ? "admin-sb-active" : "")"><span>📄</span><span>KYC Verification</span></a>
+            <a href="/admin/blacklist" class="admin-sb-link @(IsActive("/admin/blacklist") ? "admin-sb-active" : "")"><span>🚫</span><span>Blacklist</span></a>
+            <div class="admin-sb-section">💳 TRANSACTIONS</div>
+            <a href="/admin/transactions" class="admin-sb-link @(IsActive("/admin/transactions") ? "admin-sb-active" : "")"><span>💸</span><span>Transactions</span></a>
+            <a href="/admin/refunds" class="admin-sb-link @(IsActive("/admin/refunds") ? "admin-sb-active" : "")"><span>↩️</span><span>Refund & Dispute</span></a>
+            <div class="admin-sb-section">🛡️ SECURITY</div>
+            <a href="/admin/fraud" class="admin-sb-link @(IsActive("/admin/fraud") ? "admin-sb-active" : "")"><span>🔍</span><span>Fraud Detection</span></a>
+            <a href="/admin/audit" class="admin-sb-link @(IsActive("/admin/audit") ? "admin-sb-active" : "")"><span>📝</span><span>Audit Logs</span></a>
+            <div class="admin-sb-section">📊 ANALYTICS</div>
+            <a href="/admin/reports" class="admin-sb-link @(IsActive("/admin/reports") ? "admin-sb-active" : "")"><span>📈</span><span>Reports</span></a>
+            <a href="/admin/analytics" class="admin-sb-link @(IsActive("/admin/analytics") ? "admin-sb-active" : "")"><span>📉</span><span>Analytics</span></a>
+            <div class="admin-sb-section">🎁 MARKETING</div>
+            <a href="/admin/promos" class="admin-sb-link @(IsActive("/admin/promos") ? "admin-sb-active" : "")"><span>🎉</span><span>Promo & Voucher</span></a>
+            <div class="admin-sb-section">👩‍💻 OPERATIONS</div>
+            <a href="/admin/support" class="admin-sb-link @(IsActive("/admin/support") ? "admin-sb-active" : "")"><span>🎧</span><span>Support Tools</span></a>
+            <a href="/admin/settings" class="admin-sb-link @(IsActive("/admin/settings") ? "admin-sb-active" : "")"><span>⚙️</span><span>System Config</span></a>
+        </nav>
+        <div class="admin-sb-footer">
+            <a href="/" class="btn btn-sm btn-secondary w-full" style="text-decoration:none;">← Back to App</a>
+        </div>
+    </aside>
+    <main class="admin-main">
+        <header class="top-header glass">
+            <div class="header-left">
+                <button class="btn btn-sm btn-secondary" @onclick="Toggle">☰</button>
+                <h2 style="margin:0 0 0 12px;">@_pageTitle</h2>
+            </div>
+            <div class="header-right">
+                <AuthorizeView><Authorized><span class="badge badge-purple">Admin</span><span class="text-sm ml-sm">@context.User.Identity?.Name</span></Authorized></AuthorizeView>
+            </div>
+        </header>
+        <div class="content-area">@Body</div>
+    </main>
+</div>
+
+@code {
+    private bool _collapsed; private string _pageTitle = "Admin Dashboard";
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += (_, e) => { _pageTitle = GetTitle(e.Location); StateHasChanged(); };
+    }
+
+    private static string GetTitle(string loc) => loc switch
+    {
+        "/admin" => "Admin Dashboard",
+        var s when s.StartsWith("/admin/users") => "User Management",
+        var s when s.StartsWith("/admin/kyc") => "KYC Verification",
+        var s when s.StartsWith("/admin/blacklist") => "Blacklist",
+        var s when s.StartsWith("/admin/transactions") => "Transactions",
+        var s when s.StartsWith("/admin/refunds") => "Refund & Dispute",
+        var s when s.StartsWith("/admin/fraud") => "Fraud Detection",
+        var s when s.StartsWith("/admin/audit") => "Audit Logs",
+        var s when s.StartsWith("/admin/reports") => "Reports",
+        var s when s.StartsWith("/admin/analytics") => "Analytics",
+        var s when s.StartsWith("/admin/promos") => "Promo Management",
+        var s when s.StartsWith("/admin/support") => "Support",
+        var s when s.StartsWith("/admin/settings") => "System Config",
+        _ => "Admin Panel"
+    };
+
+    private bool IsActive(string path) => Navigation.Uri.Contains(path, StringComparison.OrdinalIgnoreCase);
+    private void Toggle() => _collapsed = !_collapsed;
+}
+
+<style>
+.admin-sidebar { width: 240px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); position: fixed; left: 0; top: 0; bottom: 0; z-index: 100; display: flex; flex-direction: column; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); transition: width 0.3s; overflow-y: auto; }
+.admin-sidebar-collapsed { width: 60px; }
+.admin-sidebar-collapsed .admin-sb-title, .admin-sidebar-collapsed .admin-sb-link span:last-child, .admin-sidebar-collapsed .admin-sb-section { display: none; }
+.admin-sb-header { padding: 18px 16px; border-bottom: 1px solid var(--border-color); }
+.admin-sb-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text-primary); }
+.admin-sb-logo:hover { text-decoration: none; }
+.admin-sb-title { font-size: 1.1rem; font-weight: 700; }
+.admin-sb-nav { flex: 1; padding: 8px; overflow-y: auto; }
+.admin-sb-section { padding: 14px 12px 6px; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); font-weight: 700; }
+.admin-sb-link { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; font-weight: 500; transition: all 0.15s; margin-bottom: 1px; }
+.admin-sb-link:hover { background: var(--hover-bg); color: var(--text-primary); text-decoration: none; }
+.admin-sb-active { background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2)); color: #818cf8 !important; font-weight: 600; }
+.admin-sb-footer { padding: 12px; border-top: 1px solid var(--border-color); }
+.admin-main { flex: 1; margin-left: 240px; transition: margin-left 0.3s; min-height: 100vh; background: var(--bg-primary); }
+.admin-sidebar-collapsed ~ .admin-main { margin-left: 60px; }
+</style>

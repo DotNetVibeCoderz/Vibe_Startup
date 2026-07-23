@@ -1,0 +1,68 @@
+@page "/admin/audit"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject VibeWallet.Data.VibeWalletDbContext Db
+
+<PageTitle>Audit Logs - Admin</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">📝 Audit Logs</h2>
+
+    <div class="card-neumorph">
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th>Date</th><th>Action</th><th>User</th><th>IP</th><th>Suspicious</th><th>Details</th></tr></thead>
+                <tbody>
+                    @foreach (var log in _logs)
+                    {
+                        <tr style="@(log.IsSuspicious ? "background:rgba(239,68,68,0.05);" : "")">
+                            <td class="text-sm">@log.CreatedAt.ToString("dd/MM HH:mm:ss")</td>
+                            <td><strong>@log.Action</strong></td>
+                            <td class="text-sm">@_userNames.GetValueOrDefault(log.UserId.GetValueOrDefault(), "System")</td>
+                            <td class="text-sm" style="font-family:monospace;">@log.IpAddress</td>
+                            <td>@if (log.IsSuspicious) { <span class="badge badge-danger">⚠️ Suspicious</span> }</td>
+                            <td class="text-sm text-muted">@(log.Details?.Length > 100 ? log.Details[..100] + "..." : log.Details)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card-neumorph mt-lg">
+        <h3>🔐 Login Attempts (Last 50)</h3>
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th>Date</th><th>Username</th><th>IP</th><th>Success</th><th>Reason</th></tr></thead>
+                <tbody>
+                    @foreach (var la in _logins)
+                    {
+                        <tr style="@(la.IsSuccess ? "" : "background:rgba(239,68,68,0.05);")">
+                            <td class="text-sm">@la.CreatedAt.ToString("dd/MM HH:mm:ss")</td>
+                            <td>@la.Username</td>
+                            <td class="text-sm" style="font-family:monospace;">@la.IpAddress</td>
+                            <td>@(la.IsSuccess ? "✅" : "❌")</td>
+                            <td class="text-sm text-muted">@la.FailureReason</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<SecurityLog> _logs = new();
+    private List<LoginAttempt> _logins = new();
+    private Dictionary<Guid, string> _userNames = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _logs = await Db.SecurityLogs.OrderByDescending(l => l.CreatedAt).Take(50).ToListAsync();
+        _logins = await Db.LoginAttempts.OrderByDescending(l => l.CreatedAt).Take(50).ToListAsync();
+        var ids = _logs.Where(l => l.UserId.HasValue).Select(l => l.UserId!.Value).Distinct().ToList();
+        _userNames = await Db.Users.Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName);
+    }
+}
+
+<style>.table-wrapper { overflow-x: auto; }</style>

@@ -1,0 +1,17 @@
+@* BUKAN routable page! Ini dipanggil oleh Router via <NotFound> di Routes.razor.
+   Kalau pakai @page "/{*url}", dia akan menangkap SEMUA request termasuk CSS/JS! *@
+
+<PageTitle>404 - Halaman Tidak Ditemukan</PageTitle>
+
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg-primary);">
+    <div class="card-neumorph text-center p-xl" style="max-width:500px;">
+        <div style="font-size:6rem;">🔍</div>
+        <h1 style="font-size:3rem;margin:0;">404</h1>
+        <h2 class="text-gradient">Halaman Tidak Ditemukan</h2>
+        <p class="text-muted">Maaf, halaman yang kamu cari tidak tersedia.</p>
+        <p class="text-sm text-muted">Mungkin sudah dipindahkan atau alamatnya salah ketik.</p>
+        <div class="mt-md">
+            <a href="/" class="btn btn-primary">🏠 Kembali ke Dashboard</a>
+        </div>
+    </div>
+</div>

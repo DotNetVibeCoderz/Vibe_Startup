@@ -1,0 +1,147 @@
+@page "/savings"
+@inject IInvestmentService InvestmentService
+@inject IWalletService WalletService
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize]
+
+<PageTitle>Savings - VibeWallet</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">🏦 <span class="text-gradient">Savings & Investments</span></h2>
+
+    <!-- Tab Navigation -->
+    <div class="flex gap-sm mb-lg">
+        <button class="btn @(_tab == 0 ? "btn-primary" : "btn-secondary")" @onclick="() => _tab = 0">💰 Tabungan</button>
+        <button class="btn @(_tab == 1 ? "btn-primary" : "btn-secondary")" @onclick="() => _tab = 1">📈 Investasi</button>
+        <button class="btn @(_tab == 2 ? "btn-primary" : "btn-secondary")" @onclick="() => _tab = 2">🛡️ Asuransi</button>
+    </div>
+
+    @switch (_tab)
+    {
+        case 0: @* Tabungan *@
+            <div class="grid grid-2 mb-lg">
+                <div class="card-neumorph p-xl">
+                    <h3>Buka Tabungan Digital</h3>
+                    <p class="text-muted">Dapatkan bunga 3.5% per tahun, dihitung bulanan!</p>
+                    <div class="form-group mt-md">
+                        <label class="form-label">Nama Tabungan</label>
+                        <input class="form-input" @bind="_savingsName" placeholder="Contoh: Tabungan Liburan" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Setoran Awal</label>
+                        <input class="form-input" type="number" @bind="_initialDeposit" placeholder="Min. Rp 10.000" />
+                    </div>
+                    <button class="btn btn-primary w-full" @onclick="CreateSavings" disabled="@_isCreatingSavings">
+                        @(_isCreatingSavings ? "Membuka..." : "🏦 Buka Tabungan")
+                    </button>
+                    @if (!string.IsNullOrEmpty(_savingsMsg))
+                    {
+                        <div class="mt-sm text-sm" style="color:@(_savingsOk ? "var(--accent-success)" : "var(--accent-danger)")">@(_savingsOk ? "✅" : "❌") @_savingsMsg</div>
+                    }
+                </div>
+                <div class="card-neumorph p-xl">
+                    <h3>💡 Kenapa Nabung di VibeWallet?</h3>
+                    <p>✅ Bunga <strong>3.5% per tahun</strong> (lebih tinggi dari bank konvensional!)</p>
+                    <p>✅ <strong>Bebas biaya admin</strong></p>
+                    <p>✅ Bunga dihitung <strong>setiap bulan</strong></p>
+                    <p>✅ Bisa <strong>tarik kapan saja</strong></p>
+                    <p>✅ <strong>Setoran minimal Rp 10.000</strong></p>
+                </div>
+            </div>
+            @if (_savingsAccounts.Any())
+            {
+                <h3>💳 Tabungan Saya</h3>
+                <div class="grid grid-3">
+                    @foreach (var sa in _savingsAccounts)
+                    {
+                        <div class="card-neumorph p-md">
+                            <div class="font-semibold">@sa.AccountName</div>
+                            <div class="text-sm text-muted">@sa.AccountNumber</div>
+                            <div style="font-size:1.3rem;font-weight:700;margin:8px 0;">Rp @sa.Balance.ToString("N0")</div>
+                            <div class="text-sm"><span class="badge badge-success">Bunga @sa.InterestRate%</span></div>
+                        </div>
+                    }
+                </div>
+            }
+            break;
+
+        case 1: @* Investasi *@
+            <div class="grid grid-3 mb-lg">
+                @foreach (var inv in _investments)
+                {
+                    <div class="card-neumorph p-xl text-center">
+                        <div style="font-size:2.5rem;">@GetInvestIcon(inv.Type)</div>
+                        <h3>@inv.ProductName</h3>
+                        <p class="text-sm text-muted">@inv.RiskLevel</p>
+                        <div class="font-bold text-lg">Return: @inv.ReturnPercentage%</div>
+                        <p class="text-sm text-muted">Harga: Rp @inv.CurrentUnitPrice?.ToString("N0")</p>
+                        <button class="btn btn-primary w-full mt-md btn-sm" disabled>🔜 Segera</button>
+                    </div>
+                }
+            </div>
+            break;
+
+        case 2: @* Asuransi *@
+            <div class="grid grid-2">
+                @foreach (var ins in _insuranceProducts)
+                {
+                    <div class="card-neumorph p-xl">
+                        <div class="flex justify-between">
+                            <div>
+                                <h3>@ins.ProductName</h3>
+                                <span class="badge badge-purple">@ins.Type</span>
+                                <p class="text-sm text-muted mt-sm">@ins.Description</p>
+                            </div>
+                        </div>
+                        <div class="grid grid-2 mt-md">
+                            <div><div class="text-sm text-muted">Premi</div><div class="font-bold">Rp @ins.PremiumAmount.ToString("N0")</div></div>
+                            <div><div class="text-sm text-muted">Cakupan</div><div class="font-bold">Rp @ins.CoverageAmount.ToString("N0")</div></div>
+                        </div>
+                        <button class="btn btn-primary w-full mt-md btn-sm" disabled>🔜 Segera</button>
+                    </div>
+                }
+            </div>
+            break;
+    }
+</div>
+
+@code {
+    private int _tab;
+    private string _savingsName = "";
+    private decimal _initialDeposit;
+    private bool _isCreatingSavings;
+    private string _savingsMsg = "";
+    private bool _savingsOk;
+    private List<SavingsAccount> _savingsAccounts = new();
+    private List<Investment> _investments = new();
+    private List<InsuranceProduct> _insuranceProducts = new();
+    private Guid _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var u = await AuthState.GetAuthenticationStateAsync();
+        var uid = u.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        if (uid == null) return; _userId = Guid.Parse(uid.Value);
+        _savingsAccounts = await InvestmentService.GetUserSavingsAccountsAsync(_userId);
+        _investments = await InvestmentService.GetAvailableInvestmentsAsync();
+        _insuranceProducts = await InvestmentService.GetInsuranceProductsAsync();
+    }
+
+    private async Task CreateSavings()
+    {
+        if (_initialDeposit < 10000) { _savingsMsg = "Setoran minimal Rp 10.000."; _savingsOk = false; return; }
+        _isCreatingSavings = true;
+        try
+        {
+            var sa = await InvestmentService.CreateSavingsAccountAsync(_userId, string.IsNullOrWhiteSpace(_savingsName) ? "Tabungan Baru" : _savingsName, _initialDeposit);
+            _savingsMsg = $"Tabungan '{sa.AccountName}' berhasil dibuat! No: {sa.AccountNumber}"; _savingsOk = true;
+            _savingsAccounts = await InvestmentService.GetUserSavingsAccountsAsync(_userId);
+            _savingsName = ""; _initialDeposit = 0;
+        }
+        catch (Exception ex) { _savingsMsg = ex.Message; _savingsOk = false; }
+        finally { _isCreatingSavings = false; }
+    }
+
+    private string GetInvestIcon(InvestmentType t) => t switch
+    { InvestmentType.MutualFund => "📊", InvestmentType.Gold => "🥇", InvestmentType.Stock => "📈", _ => "💰" };
+}

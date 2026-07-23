@@ -1,0 +1,105 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+@inject ThemeService ThemeService
+@inject IWalletService WalletService
+@inject AuthenticationStateProvider AuthState
+
+<div class="app-container @(ThemeService.IsDark ? "dark-theme" : "light-theme")">
+    <aside class="sidebar @(_sidebarCollapsed ? "collapsed" : "")">
+        <div class="sidebar-header">
+            <a href="/" class="logo-link">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect width="40" height="40" rx="12" fill="url(#logo-gradient)"/>
+                        <path d="M12 20L18 26L28 14" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                        <defs><linearGradient id="logo-gradient" x1="0" y1="0" x2="40" y2="40"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#8b5cf6"/></linearGradient></defs>
+                    </svg>
+                </div>
+                @if (!_sidebarCollapsed) { <span class="logo-text">VibeWallet</span> }
+            </a>
+        </div>
+        <nav class="sidebar-nav">
+            <ul>
+                <li><NavLink href="/" Match="NavLinkMatch.All"><i class="icon">📊</i><span class="nav-text">Dashboard</span></NavLink></li>
+                <li><NavLink href="/wallet"><i class="icon">💳</i><span class="nav-text">Wallet</span></NavLink></li>
+                <li><NavLink href="/transfer"><i class="icon">📤</i><span class="nav-text">Transfer</span></NavLink></li>
+                <li><NavLink href="/chat" Match="NavLinkMatch.Prefix"><i class="icon">🤖</i><span class="nav-text">Mbak Selvi</span></NavLink></li>
+                <li><NavLink href="/payment/qris"><i class="icon">📱</i><span class="nav-text">QRIS Pay</span></NavLink></li>
+                <li><NavLink href="/payment/bills"><i class="icon">📋</i><span class="nav-text">Tagihan</span></NavLink></li>
+                <li><NavLink href="/topup"><i class="icon">📶</i><span class="nav-text">Top Up</span></NavLink></li>
+                <li><NavLink href="/rewards"><i class="icon">🎁</i><span class="nav-text">Rewards</span></NavLink></li>
+                <li><NavLink href="/savings"><i class="icon">🏦</i><span class="nav-text">Savings</span></NavLink></li>
+                <li><NavLink href="/settings"><i class="icon">⚙️</i><span class="nav-text">Settings</span></NavLink></li>
+                <li style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border-color);">
+                    <NavLink href="/admin"><i class="icon">🛡️</i><span class="nav-text">Admin Panel</span></NavLink>
+                </li>
+            </ul>
+        </nav>
+        <div class="sidebar-footer">
+            <button class="collapse-btn" @onclick="ToggleSidebar"><span>@(_sidebarCollapsed ? "▶" : "◀")</span></button>
+            <button class="theme-btn" @onclick="ToggleThemeAsync"><span>@(ThemeService.IsDark ? "☀️" : "🌙")</span></button>
+        </div>
+    </aside>
+    <main class="main-content">
+        <header class="top-header glass">
+            <div class="header-left"><h2>@_pageTitle</h2></div>
+            <div class="header-right">
+                <div class="balance-badge"><span class="balance-label">Saldo</span><span class="balance-amount">@_balanceText</span></div>
+                <div class="user-menu">
+                    <AuthorizeView>
+                        <Authorized>
+                            <a href="/settings" class="user-name-link" title="Profile">@context.User.Identity?.Name</a>
+                            <form method="post" action="/api/auth/logout" style="display:inline;">
+                                <button type="submit" class="btn btn-sm btn-secondary">🚪 Keluar</button>
+                            </form>
+                        </Authorized>
+                    </AuthorizeView>
+                </div>
+            </div>
+        </header>
+        <div class="content-area">@Body</div>
+    </main>
+</div>
+
+@code {
+    private bool _sidebarCollapsed;
+    private string _pageTitle = "Dashboard";
+    private string _balanceText = "Rp ...";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ThemeService.LoadThemeAsync();
+        ThemeService.OnThemeChanged += async () => await InvokeAsync(StateHasChanged);
+        await RefreshBalanceAsync();
+        Navigation.LocationChanged += async (_, e) => { _pageTitle = GetPageTitle(e.Location); await RefreshBalanceAsync(); StateHasChanged(); };
+    }
+
+    private async Task RefreshBalanceAsync()
+    {
+        try
+        {
+            var authState = await AuthState.GetAuthenticationStateAsync();
+            var uidClaim = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (uidClaim != null && Guid.TryParse(uidClaim.Value, out var uid))
+                _balanceText = $"Rp {await WalletService.GetBalanceAsync(uid):N0}";
+        }
+        catch { _balanceText = "Rp ..."; }
+    }
+
+    private static string GetPageTitle(string loc) => loc switch
+    {
+        "/" => "Dashboard",
+        var s when s.StartsWith("/wallet") => "Wallet",
+        var s when s.StartsWith("/transfer") => "Transfer",
+        var s when s.StartsWith("/payment") => "Pembayaran",
+        var s when s.StartsWith("/topup") => "Top Up",
+        var s when s.StartsWith("/rewards") => "Rewards",
+        var s when s.StartsWith("/savings") => "Savings",
+        var s when s.StartsWith("/chat") => "Mbak Selvi",
+        var s when s.StartsWith("/settings") => "Settings",
+        _ => "VibeWallet"
+    };
+
+    private async Task ToggleThemeAsync() => await ThemeService.ToggleAsync();
+    private void ToggleSidebar() => _sidebarCollapsed = !_sidebarCollapsed;
+}

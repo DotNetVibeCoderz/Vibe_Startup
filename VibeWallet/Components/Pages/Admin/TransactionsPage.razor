@@ -1,0 +1,90 @@
+@page "/admin/transactions"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject VibeWallet.Data.VibeWalletDbContext Db
+
+<PageTitle>Transaction Monitoring - Admin</PageTitle>
+
+<div class="animate-fade-in">
+    <div class="flex justify-between items-center mb-lg">
+        <h2>💸 Transaction Monitoring</h2>
+        <div class="flex gap-sm">
+            <input class="form-input" style="width:200px;" @bind="_searchRef" placeholder="Ref #..." />
+            <InputDate class="form-input" style="width:150px;" @bind-Value="_dateFrom" />
+            <InputDate class="form-input" style="width:150px;" @bind-Value="_dateTo" />
+            <select class="form-input" style="width:130px;" @bind="_filterType">
+                <option value="">All Types</option>
+                <option value="TopUp">Top Up</option><option value="Transfer">Transfer</option>
+                <option value="Payment">Payment</option><option value="Withdraw">Withdraw</option>
+            </select>
+            <button class="btn btn-sm btn-secondary" @onclick="ApplyFilter">🔍 Filter</button>
+        </div>
+    </div>
+
+    <div class="grid grid-4 mb-lg">
+        <div class="card-flat p-md text-center"><div class="text-sm text-muted">Today</div><div class="font-bold text-xl">@_todayCount</div></div>
+        <div class="card-flat p-md text-center"><div class="text-sm text-muted">Volume Today</div><div class="font-bold text-xl">Rp @_todayVol.ToString("N0")</div></div>
+        <div class="card-flat p-md text-center"><div class="text-sm text-muted">Total Fees</div><div class="font-bold text-xl">Rp @_totalFees.ToString("N0")</div></div>
+        <div class="card-flat p-md text-center"><div class="text-sm text-muted">Pending</div><div class="font-bold text-xl" style="color:var(--accent-warning)">@_pendingCount</div></div>
+    </div>
+
+    <div class="card-neumorph">
+        <div style="overflow-x:auto;">
+            <table>
+                <thead><tr><th>Ref</th><th>User</th><th>Type</th><th>Amount</th><th>Fee</th><th>Balance</th><th>Status</th><th>Date</th></tr></thead>
+                <tbody>
+                    @foreach (var tx in _transactions)
+                    {
+                        <tr>
+                            <td class="text-sm" style="font-family:monospace;">@tx.TransactionRef</td>
+                            <td class="text-sm">@_userNames.GetValueOrDefault(tx.UserId, "?")</td>
+                            <td><span class="badge @GetBadge(tx.Type)">@tx.Type</span></td>
+                            <td class="font-semibold @(tx.Amount > 0 ? "" : "text-danger")">Rp @Math.Abs(tx.Amount).ToString("N0")</td>
+                            <td class="text-sm text-muted">@(tx.Fee > 0 ? $"Rp {tx.Fee:N0}" : "-")</td>
+                            <td class="text-sm">Rp @tx.BalanceAfter.ToString("N0")</td>
+                            <td><span class="badge @(tx.Status == TransactionStatus.Completed ? "badge-success" : "badge-warning")">@tx.Status</span></td>
+                            <td class="text-sm">@tx.CreatedAt.ToString("dd/MM HH:mm")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<WalletTransaction> _transactions = new();
+    private Dictionary<Guid, string> _userNames = new();
+    private string _searchRef = "", _filterType = "";
+    private DateTime? _dateFrom, _dateTo;
+    private int _todayCount, _pendingCount;
+    private decimal _todayVol, _totalFees;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateTime.UtcNow.Date;
+        _todayCount = await Db.WalletTransactions.CountAsync(t => t.CreatedAt >= today);
+        _todayVol = await Db.WalletTransactions.Where(t => t.CreatedAt >= today).SumAsync(t => t.Amount);
+        _totalFees = await Db.WalletTransactions.SumAsync(t => t.Fee);
+        _pendingCount = await Db.WalletTransactions.CountAsync(t => t.Status == TransactionStatus.Pending);
+        await ApplyFilter();
+    }
+
+    private async Task ApplyFilter()
+    {
+        var q = Db.WalletTransactions.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(_searchRef))
+        {
+            var s = _searchRef.Trim();
+            q = q.Where(t => t.TransactionRef.Contains(s)); // SQLite Contains is case-insensitive for ASCII
+        }
+        if (!string.IsNullOrWhiteSpace(_filterType) && Enum.TryParse<TransactionType>(_filterType, out var tt)) q = q.Where(t => t.Type == tt);
+        if (_dateFrom.HasValue) q = q.Where(t => t.CreatedAt >= _dateFrom.Value);
+        if (_dateTo.HasValue) q = q.Where(t => t.CreatedAt <= _dateTo.Value.AddDays(1));
+        _transactions = await q.OrderByDescending(t => t.CreatedAt).Take(100).ToListAsync();
+        var ids = _transactions.Select(t => t.UserId).Distinct().ToList();
+        _userNames = await Db.Users.Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName);
+    }
+
+    private static string GetBadge(TransactionType t) => t switch { TransactionType.TopUp or TransactionType.Cashback => "badge-success", TransactionType.Payment => "badge-info", TransactionType.Transfer => "badge-purple", TransactionType.Withdraw => "badge-warning", _ => "badge-info" };
+}

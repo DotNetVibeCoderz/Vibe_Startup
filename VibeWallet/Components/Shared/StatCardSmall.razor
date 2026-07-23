@@ -1,0 +1,18 @@
+<div class="stat-card-small card-flat p-md text-center animate-fade-in">
+    <div style="font-size:1.8rem;">@Icon</div>
+    <div class="stat-value" style="color:@Color;">@Value</div>
+    <div class="text-sm text-muted">@Label</div>
+</div>
+
+@code {
+    [Parameter] public string Icon { get; set; } = "📊";
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public string Color { get; set; } = "var(--text-primary)";
+}
+
+<style>
+.stat-card-small { transition: all 0.2s ease; }
+.stat-card-small:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.stat-value { font-size: 1.5rem; font-weight: 700; margin: 4px 0; }
+</style>

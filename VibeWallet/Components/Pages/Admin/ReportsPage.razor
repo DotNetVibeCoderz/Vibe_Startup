@@ -1,0 +1,265 @@
+@page "/admin/reports"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject VibeWallet.Data.VibeWalletDbContext Db
+
+<PageTitle>Reports - Admin</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">📊 Reports & Laporan</h2>
+
+    <!-- Filter Bar -->
+    <div class="flex justify-between items-center mb-lg" style="flex-wrap:wrap;gap:0.5rem;">
+        <div class="flex gap-sm" style="flex-wrap:wrap;">
+            <button class="btn btn-sm @(_period == "today" ? "btn-primary" : "btn-secondary")" @onclick='() => ChangePeriod("today")'>📅 Hari Ini</button>
+            <button class="btn btn-sm @(_period == "week" ? "btn-primary" : "btn-secondary")" @onclick='() => ChangePeriod("week")'>📅 Minggu Ini</button>
+            <button class="btn btn-sm @(_period == "month" ? "btn-primary" : "btn-secondary")" @onclick='() => ChangePeriod("month")'>📅 Bulan Ini</button>
+            <button class="btn btn-sm @(_period == "year" ? "btn-primary" : "btn-secondary")" @onclick='() => ChangePeriod("year")'>📅 Tahun Ini</button>
+            <button class="btn btn-sm @(_period == "all" ? "btn-primary" : "btn-secondary")" @onclick='() => ChangePeriod("all")'>📅 Semua</button>
+        </div>
+        <button class="btn btn-sm btn-secondary" @onclick="LoadReports">🔄 Refresh</button>
+    </div>
+
+    @if (_error != null)
+    {
+        <div class="card-flat p-md mb-md" style="background:rgba(239,68,68,0.1);color:var(--accent-danger);">❌ @_error</div>
+    }
+
+    <!-- Summary Cards -->
+    <div class="grid grid-4 mb-lg">
+        <div class="card-neumorph p-md text-center">
+            <div class="text-sm text-muted mb-sm">Total Transaksi</div>
+            <div class="font-bold" style="font-size:1.5rem;">@_totalTransactions.ToString("N0")</div>
+        </div>
+        <div class="card-neumorph p-md text-center">
+            <div class="text-sm text-muted mb-sm">Total Volume</div>
+            <div class="font-bold" style="font-size:1.5rem;">Rp @_totalVolume.ToString("N0")</div>
+        </div>
+        <div class="card-neumorph p-md text-center">
+            <div class="text-sm text-muted mb-sm">Total Fee</div>
+            <div class="font-bold" style="font-size:1.5rem;color:var(--accent-warning);">Rp @_totalFees.ToString("N0")</div>
+        </div>
+        <div class="card-neumorph p-md text-center">
+            <div class="text-sm text-muted mb-sm">Net Revenue</div>
+            <div class="font-bold" style="font-size:1.5rem;color:var(--accent-success);">Rp @_netRevenue.ToString("N0")</div>
+        </div>
+    </div>
+
+    <!-- User Stats -->
+    <div class="grid grid-3 mb-lg">
+        <div class="card-neumorph p-md text-center">
+            <div class="text-sm text-muted mb-sm">👤 Total Users</div>
+            <div class="font-bold text-xl">@_totalUsers.ToString("N0")</div>
+        </div>
+        <div class="card-neumorph p-md text-center">
+            <div class="text-sm text-muted mb-sm">💳 Active Wallets</div>
+            <div class="font-bold text-xl">@_activeWallets.ToString("N0")</div>
+        </div>
+        <div class="card-neumorph p-md text-center">
+            <div class="text-sm text-muted mb-sm">✅ KYC Verified</div>
+            <div class="font-bold text-xl">@_kycVerified.ToString("N0")</div>
+        </div>
+    </div>
+
+    <!-- Top Up Stats -->
+    <div class="card-neumorph p-xl mb-lg">
+        <h3>💰 Top-Up Summary</h3>
+        <table>
+            <thead><tr><th>Metode</th><th>Jumlah Tx</th><th>Total Volume</th><th>Rata-rata</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td>💵 Bank Transfer</td>
+                    <td>@_topUpBankCount.ToString("N0")</td>
+                    <td>Rp @_topUpBankVolume.ToString("N0")</td>
+                    <td>Rp @(_topUpBankCount > 0 ? (_topUpBankVolume / _topUpBankCount).ToString("N0") : "0")</td>
+                </tr>
+                <tr>
+                    <td>🏪 Retail / Gerai</td>
+                    <td>@_topUpRetailCount.ToString("N0")</td>
+                    <td>Rp @_topUpRetailVolume.ToString("N0")</td>
+                    <td>Rp @(_topUpRetailCount > 0 ? (_topUpRetailVolume / _topUpRetailCount).ToString("N0") : "0")</td>
+                </tr>
+                <tr style="background:var(--bg-primary);">
+                    <td><strong>Total Top-Up</strong></td>
+                    <td><strong>@(_topUpBankCount + _topUpRetailCount)</strong></td>
+                    <td><strong>Rp @(_topUpBankVolume + _topUpRetailVolume).ToString("N0")</strong></td>
+                    <td>-</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Payment Breakdown -->
+    <div class="card-neumorph p-xl mb-lg">
+        <h3>💸 Payment Breakdown</h3>
+        <div style="overflow-x:auto;">
+            <table>
+                <thead><tr><th>Kategori</th><th>Jumlah Tx</th><th>Volume</th><th>Fee</th><th>Persentase</th></tr></thead>
+                <tbody>
+                    @foreach (var cat in _paymentCategories)
+                    {
+                        var pct = _totalVolume > 0 ? (double)(cat.Volume / _totalVolume * 100) : 0;
+                        <tr>
+                            <td>@cat.Name</td>
+                            <td>@cat.Count.ToString("N0")</td>
+                            <td>Rp @cat.Volume.ToString("N0")</td>
+                            <td>Rp @cat.Fee.ToString("N0")</td>
+                            <td>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <div style="flex:1;background:var(--bg-primary);border-radius:4px;height:8px;">
+                                        <div style="width:@(pct.ToString("F1"))%;background:linear-gradient(90deg,var(--accent-primary),var(--accent-secondary));height:100%;border-radius:4px;"></div>
+                                    </div>
+                                    <span class="text-sm">@pct.ToString("F1")%</span>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Recent Transactions Table -->
+    <div class="card-neumorph p-xl mb-lg">
+        <h3>📋 Recent Transactions (@_recentTxs.Count)</h3>
+        <div style="overflow-x:auto;">
+            <table>
+                <thead><tr><th>Ref</th><th>User</th><th>Type</th><th>Amount</th><th>Fee</th><th>Date</th></tr></thead>
+                <tbody>
+                    @foreach (var tx in _recentTxs)
+                    {
+                        <tr>
+                            <td class="text-sm" style="font-family:monospace;">@tx.TransactionRef</td>
+                            <td class="text-sm">@_userNames.GetValueOrDefault(tx.UserId, "?")</td>
+                            <td><span class="badge @GetTypeBadge(tx.Type)">@tx.Type</span></td>
+                            <td class="font-semibold">Rp @Math.Abs(tx.Amount).ToString("N0")</td>
+                            <td class="text-sm text-muted">@(tx.Fee > 0 ? $"Rp {tx.Fee:N0}" : "-")</td>
+                            <td class="text-sm">@tx.CreatedAt.ToString("dd/MM HH:mm")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _period = "today";
+    private string? _error;
+
+    // Summary
+    private int _totalTransactions;
+    private decimal _totalVolume, _totalFees, _netRevenue;
+    private int _totalUsers, _activeWallets, _kycVerified;
+
+    // Top-up
+    private int _topUpBankCount, _topUpRetailCount;
+    private decimal _topUpBankVolume, _topUpRetailVolume;
+
+    // Payment categories
+    private List<(string Name, int Count, decimal Volume, decimal Fee)> _paymentCategories = new();
+
+    // Recent transactions
+    private List<WalletTransaction> _recentTxs = new();
+    private Dictionary<Guid, string> _userNames = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadReports();
+    }
+
+    private async Task ChangePeriod(string period)
+    {
+        _period = period;
+        await LoadReports();
+    }
+
+    private async Task LoadReports()
+    {
+        try
+        {
+            _error = null;
+
+            // 🗓️ Tentukan rentang tanggal berdasarkan periode
+            DateTime? fromDate = _period switch
+            {
+                "today" => DateTime.UtcNow.Date,
+                "week" => DateTime.UtcNow.Date.AddDays(-(int)DateTime.UtcNow.DayOfWeek),
+                "month" => new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1),
+                "year" => new DateTime(DateTime.UtcNow.Year, 1, 1),
+                _ => null // "all" — tanpa filter
+            };
+
+            // 📊 Query dasar transaksi
+            var txQuery = Db.WalletTransactions.AsQueryable();
+            if (fromDate.HasValue)
+                txQuery = txQuery.Where(t => t.CreatedAt >= fromDate.Value);
+
+            // Summary stats
+            _totalTransactions = await txQuery.CountAsync();
+            _totalVolume = await txQuery.Where(t => t.Amount > 0).SumAsync(t => t.Amount);
+            _totalFees = await txQuery.SumAsync(t => t.Fee);
+            _netRevenue = _totalFees; // Net revenue dari fee
+
+            // User stats (VibeUser tidak punya CreatedAt, jadi gunakan statis total)
+            _totalUsers = await Db.Users.CountAsync();
+            _activeWallets = await Db.Wallets.CountAsync(w => !w.IsDeleted && w.Balance > 0);
+            _kycVerified = await Db.Users.CountAsync(u => u.KycStatus == Models.KycStatus.Verified);
+
+            // Top-up stats — gunakan Method (bukan PaymentMethod)
+            var topUpQuery = Db.WalletTransactions.Where(t => t.Type == TransactionType.TopUp);
+            if (fromDate.HasValue)
+                topUpQuery = topUpQuery.Where(t => t.CreatedAt >= fromDate.Value);
+
+            _topUpBankCount = await topUpQuery.CountAsync(t => t.Method == PaymentMethod.BankTransfer || t.Method == PaymentMethod.VirtualAccount);
+            _topUpBankVolume = await topUpQuery
+                .Where(t => (t.Method == PaymentMethod.BankTransfer || t.Method == PaymentMethod.VirtualAccount) && t.Amount > 0)
+                .SumAsync(t => t.Amount);
+
+            _topUpRetailCount = await topUpQuery.CountAsync(t => t.Method == PaymentMethod.ConvenienceStore);
+            _topUpRetailVolume = await topUpQuery
+                .Where(t => t.Method == PaymentMethod.ConvenienceStore && t.Amount > 0)
+                .SumAsync(t => t.Amount);
+
+            // Payment categories breakdown
+            _paymentCategories.Clear();
+            var categories = new[] {
+                ("💳 QRIS / Payment", TransactionType.Payment),
+                ("🔁 Transfer", TransactionType.Transfer),
+                ("💵 Top-Up", TransactionType.TopUp),
+                ("🏧 Withdraw", TransactionType.Withdraw)
+            };
+            foreach (var (name, type) in categories)
+            {
+                var q = Db.WalletTransactions.Where(t => t.Type == type);
+                if (fromDate.HasValue)
+                    q = q.Where(t => t.CreatedAt >= fromDate.Value);
+
+                var count = await q.CountAsync();
+                var vol = await q.Where(t => t.Amount > 0).SumAsync(t => t.Amount);
+                var fee = await q.SumAsync(t => t.Fee);
+                _paymentCategories.Add((name, count, vol, fee));
+            }
+
+            // Recent transactions
+            _recentTxs = await txQuery.OrderByDescending(t => t.CreatedAt).Take(50).ToListAsync();
+            var ids = _recentTxs.Select(t => t.UserId).Distinct().ToList();
+            _userNames = await Db.Users.Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName);
+        }
+        catch (Exception)
+        {
+            // DB offline — tampilkan 0
+            _error = "⚠️ Gagal memuat data laporan. Database mungkin offline. Silakan refresh.";
+        }
+    }
+
+    private static string GetTypeBadge(TransactionType t) => t switch
+    {
+        TransactionType.TopUp => "badge-success",
+        TransactionType.Payment => "badge-info",
+        TransactionType.Transfer => "badge-purple",
+        TransactionType.Withdraw => "badge-warning",
+        TransactionType.Cashback => "badge-success",
+        _ => "badge-info"
+    };
+}

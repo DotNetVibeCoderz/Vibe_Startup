@@ -1,0 +1,229 @@
+@page "/payment/qris"
+@inject IPaymentService PaymentService
+@inject IWalletService WalletService
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthState
+@attribute [Authorize]
+@implements IAsyncDisposable
+
+<PageTitle>QRIS Payment - VibeWallet</PageTitle>
+
+<div class="animate-fade-in">
+    <h2 class="mb-lg">📱 <span class="text-gradient">QRIS Payment</span></h2>
+
+    <!-- Tabs -->
+    <div class="flex gap-sm mb-lg">
+        <button class="btn @(_tab == 0 ? "btn-primary" : "btn-secondary")" @onclick="() => _tab = 0">💳 Bayar QRIS</button>
+        <button class="btn @(_tab == 1 ? "btn-primary" : "btn-secondary")" @onclick="() => _tab = 1">📲 Terima Pembayaran</button>
+    </div>
+
+    @if (_tab == 0)
+    {
+        <!-- ============ TAB 1: BAYAR QRIS ============ -->
+        <div class="grid grid-2">
+            <div class="card-neumorph p-xl">
+                <h3>🔍 Scan / Input QR</h3>
+                <p class="text-muted text-sm mb-md">Scan QR code merchant atau masukkan kode QRIS</p>
+
+                <!-- Camera scan button -->
+                <div class="flex gap-sm mb-md">
+                    <button class="btn btn-outline" @onclick="StartCameraScan">
+                        📷 @(_scanning ? "Scanning..." : "Scan QR Kamera")
+                    </button>
+                </div>
+                @if (_scanning)
+                {
+                    <div class="camera-container mb-md" style="position:relative;">
+                        <video id="qrVideo" style="width:100%;border-radius:var(--radius-lg);" autoplay playsinline></video>
+                        <div class="scan-overlay" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+                            <div style="width:180px;height:180px;border:2px dashed var(--accent-primary);border-radius:16px;"></div>
+                        </div>
+                        <button class="btn btn-sm btn-secondary mt-sm w-full" @onclick="StopCameraScan">❌ Berhenti Scan</button>
+                    </div>
+                }
+
+                <div class="form-group">
+                    <label class="form-label">Kode QRIS</label>
+                    <input class="form-input" @bind="_qrContent" placeholder="Masukkan kode QRIS dari merchant..." />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nama Merchant (opsional)</label>
+                    <input class="form-input" @bind="_merchantName" placeholder="Nama toko/merchant" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Jumlah Pembayaran</label>
+                    <input class="form-input" type="number" @bind="_amount" placeholder="Rp 0" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Catatan (opsional)</label>
+                    <input class="form-input" @bind="_notes" placeholder="Buat catatan..." />
+                </div>
+
+                <button class="btn btn-primary w-full" @onclick="ProcessQrisPayment" disabled="@_isProcessing">
+                    @(_isProcessing ? "Memproses..." : "💳 Bayar Sekarang")
+                </button>
+
+                @if (!string.IsNullOrEmpty(_result))
+                {
+                    <div class="card-flat p-md mt-md" style="background:@(_success ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)");color:@(_success ? "var(--accent-success)" : "var(--accent-danger)")">
+                        @(_success ? "✅" : "❌") @_result
+                    </div>
+                }
+            </div>
+
+            <div class="card-neumorph p-xl">
+                <h3>💡 Info QRIS</h3>
+                <p class="text-muted">QRIS (Quick Response Code Indonesian Standard) standar pembayaran digital Indonesia.</p>
+                <div class="mt-md">
+                    <p>✅ Bisa dipakai di <strong>semua merchant</strong> terima QRIS</p>
+                    <p>✅ <strong>Gratis</strong> biaya admin</p>
+                    <p>✅ Transaksi <strong>real-time</strong></p>
+                    <p>✅ Dapat <strong>cashback</strong> 0.5%</p>
+                </div>
+                @if (_balance > 0)
+                {
+                    <div class="card-flat p-md mt-md" style="background:rgba(99,102,241,0.1);text-align:center;">
+                        <div class="text-sm text-muted">Saldo Tersedia</div>
+                        <div style="font-size:1.5rem;font-weight:700;color:var(--accent-primary);">Rp @_balance.ToString("N0")</div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- ============ TAB 2: TERIMA PEMBAYARAN (GENERATE QR) ============ -->
+        <div class="grid grid-2">
+            <div class="card-neumorph p-xl text-center">
+                <h3>📲 My QR Code</h3>
+                <p class="text-muted text-sm">QR code untuk menerima pembayaran dari sesama VibeWallet atau QRIS</p>
+                <div class="card-flat p-lg mt-md" style="background:white;display:inline-block;">
+                    @if (!string.IsNullOrEmpty(_myQrBase64))
+                    {
+                        <img src="data:image/png;base64,@_myQrBase64" alt="My QR Code" style="width:220px;height:220px;" />
+                    }
+                    else
+                    {
+                        <div class="loading-spinner"></div>
+                    }
+                </div>
+                <div class="mt-md">
+                    <div class="text-sm text-muted">Wallet Number</div>
+                    <div class="font-bold text-lg">@_walletNumber</div>
+                    <div class="text-sm text-muted mt-sm">Tunjukkan QR ini ke teman atau merchant</div>
+                    <button class="btn btn-sm btn-outline mt-sm" @onclick="RegenerateQr">🔄 Regenerate</button>
+                </div>
+            </div>
+            <div class="card-neumorph p-xl">
+                <h3>💡 Cara Menerima Pembayaran</h3>
+                <div class="mt-md">
+                    <p>1️⃣ <strong>Tunjukkan QR code</strong> di samping ke pengirim</p>
+                    <p>2️⃣ Pengirim <strong>scan QR</strong> pakai VibeWallet atau app QRIS</p>
+                    <p>3️⃣ Masukkan <strong>nominal pembayaran</strong></p>
+                    <p>4️⃣ Konfirmasi — saldo <strong>langsung masuk!</strong> 🎉</p>
+                </div>
+                <hr style="border-color:var(--border-color);margin:16px 0;" />
+                <p class="text-sm text-muted">
+                    QR code berisi nomor wallet kamu. Bisa dipakai untuk:
+                    <br/>✅ Menerima transfer dari sesama VibeWallet
+                    <br/>✅ Pembayaran dari merchant/app QRIS
+                    <br/>✅ Split bill / patungan
+                </p>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private int _tab;
+    private string _qrContent = ""; private string _merchantName = "";
+    private decimal _amount; private string _notes = "";
+    private bool _isProcessing; private string _result = ""; private bool _success;
+    private decimal _balance; private Guid _userId;
+
+    // My QR
+    private string _myQrBase64 = ""; private string _walletNumber = "";
+    private IJSObjectReference? _qrModule;
+    private bool _scanning;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var u = await AuthState.GetAuthenticationStateAsync();
+        var uid = u.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        if (uid != null) { _userId = Guid.Parse(uid.Value); _balance = await WalletService.GetBalanceAsync(_userId); }
+        var wallet = await WalletService.GetWalletByUserIdAsync(_userId);
+        if (wallet != null) { _walletNumber = wallet.WalletNumber; await GenerateMyQr(); }
+    }
+
+    private async Task GenerateMyQr()
+    {
+        var content = $"vibewallet://receive?wallet={_walletNumber}&name=QRIS";
+        try { _myQrBase64 = await PaymentService.GenerateQrCodeAsync(content); }
+        catch { _myQrBase64 = ""; }
+    }
+
+    private async Task RegenerateQr() => await GenerateMyQr();
+
+    private async Task StartCameraScan()
+    {
+        _scanning = true;
+        try
+        {
+            _qrModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/qr-scanner.js");
+            await _qrModule.InvokeVoidAsync("startScanning", "qrVideo");
+            // Poll for scan result
+            _ = Task.Run(async () =>
+            {
+                while (_scanning)
+                {
+                    try
+                    {
+                        var result = await _qrModule.InvokeAsync<string>("getScanResult");
+                        if (!string.IsNullOrEmpty(result))
+                        {
+                            _qrContent = result;
+                            _scanning = false;
+                            await InvokeAsync(StateHasChanged);
+                            return;
+                        }
+                    }
+                    catch { }
+                    await Task.Delay(500);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _scanning = false;
+            _result = $"📷 Scan kamera tidak tersedia: {ex.Message}. Gunakan input manual.";
+            _success = false;
+        }
+    }
+
+    private async Task StopCameraScan()
+    {
+        _scanning = false;
+        try { if (_qrModule != null) await _qrModule.InvokeVoidAsync("stopScanning"); }
+        catch { }
+    }
+
+    private async Task ProcessQrisPayment()
+    {
+        if (_amount <= 0) { _result = "Jumlah harus > Rp 0."; _success = false; return; }
+        _isProcessing = true;
+        try
+        {
+            var qr = string.IsNullOrWhiteSpace(_qrContent) ? $"QRIS:{_merchantName}:{DateTime.UtcNow.Ticks}" : _qrContent;
+            var p = await PaymentService.ProcessQrisPaymentAsync(_userId, qr, _amount, _notes);
+            _result = $"Pembayaran berhasil! Ref: {p.PaymentRef}"; _success = true;
+            _balance = await WalletService.GetBalanceAsync(_userId); _qrContent = ""; _amount = 0; _notes = "";
+        }
+        catch (Exception ex) { _result = ex.Message; _success = false; }
+        finally { _isProcessing = false; }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        if (_qrModule != null) { try { await _qrModule.InvokeVoidAsync("stopScanning"); } catch { } await _qrModule.DisposeAsync(); }
+    }
+}

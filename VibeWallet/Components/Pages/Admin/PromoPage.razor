@@ -1,0 +1,81 @@
+@page "/admin/promos"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@inject VibeWallet.Data.VibeWalletDbContext Db
+
+<PageTitle>Promo Management - Admin</PageTitle>
+
+<div class="animate-fade-in">
+    <div class="grid grid-2 mb-lg">
+        <div class="card-neumorph p-xl">
+            <h3>🎉 Create Promo</h3>
+            <div class="form-group"><label class="form-label">Title</label><input class="form-input" @bind="_pT" placeholder="Judul promo" /></div>
+            <div class="form-group"><label class="form-label">Description</label><input class="form-input" @bind="_pD" /></div>
+            <div class="grid grid-2">
+                <div class="form-group"><label class="form-label">Type</label><select class="form-input" @bind="_pType"><option value="@PromoType.Percentage">Percentage</option><option value="@PromoType.FixedAmount">Fixed Amount</option><option value="@PromoType.FreeShipping">Free Shipping</option><option value="@PromoType.BuyOneGetOne">BOGO</option></select></div>
+                <div class="form-group"><label class="form-label">Value</label><input class="form-input" type="number" @bind="_pV" /></div>
+            </div>
+            <div class="grid grid-2">
+                <div class="form-group"><label class="form-label">Category</label><input class="form-input" @bind="_pCat" placeholder="food, transport, etc" /></div>
+                <div class="form-group"><label class="form-label">Merchant</label><input class="form-input" @bind="_pMerch" placeholder="GoFood, Shopee" /></div>
+            </div>
+            <div class="grid grid-2">
+                <div class="form-group"><label class="form-label">Valid From</label><InputDate class="form-input" @bind-Value="_pFrom" /></div>
+                <div class="form-group"><label class="form-label">Valid Until</label><InputDate class="form-input" @bind-Value="_pUntil" /></div>
+            </div>
+            <button class="btn btn-primary w-full" @onclick="CreatePromo">🎉 Create</button>
+            @if (!string.IsNullOrEmpty(_m)) { <div class="mt-sm text-sm" style="color:var(--accent-success);">✅ @_m</div> }
+        </div>
+        <div class="card-neumorph p-xl">
+            <h3>🎫 Create Voucher</h3>
+            <div class="form-group"><label class="form-label">Code</label><input class="form-input" @bind="_vCode" placeholder="WELCOME50" /></div>
+            <div class="form-group"><label class="form-label">Title</label><input class="form-input" @bind="_vTitle" /></div>
+            <div class="grid grid-3">
+                <div class="form-group"><label class="form-label">Value (Rp)</label><input class="form-input" type="number" @bind="_vVal" /></div>
+                <div class="form-group"><label class="form-label">Min TX</label><input class="form-input" type="number" @bind="_vMin" /></div>
+                <div class="form-group"><label class="form-label">Max Disc</label><input class="form-input" type="number" @bind="_vMax" /></div>
+            </div>
+            <div class="grid grid-3">
+                <div class="form-group"><label class="form-label">Quota</label><input class="form-input" type="number" @bind="_vQuota" /></div>
+                <div class="form-group"><label class="form-label">Points Cost</label><input class="form-input" type="number" @bind="_vPts" /></div>
+                <div class="form-group"><label class="form-label">Days Valid</label><input class="form-input" type="number" @bind="_vDays" placeholder="30" /></div>
+            </div>
+            <button class="btn btn-primary w-full" @onclick="CreateVoucher">🎫 Create</button>
+            @if (!string.IsNullOrEmpty(_mv)) { <div class="mt-sm text-sm" style="color:var(--accent-success);">✅ @_mv</div> }
+        </div>
+    </div>
+    <div class="card-neumorph p-xl">
+        <h3>📋 Active Promos (@_promos.Count)</h3>
+        @foreach (var p in _promos)
+        {
+            <div class="card-flat p-md mb-sm flex justify-between items-center">
+                <div><strong>@p.Title</strong><span class="badge badge-purple ml-sm">@p.Type</span><span class="text-sm text-muted ml-sm">s/d @p.ValidUntil.ToString("dd MMM")</span></div>
+                <button class="btn btn-sm" style="color:var(--accent-danger);" @onclick="() => Disable(p.Id)">❌</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<Promo> _promos = new();
+    private string _m = "", _mv = "";
+    private string _pT = "", _pD = "", _pCat = "", _pMerch = ""; private PromoType _pType; private decimal _pV; private DateTime? _pFrom = DateTime.UtcNow, _pUntil = DateTime.UtcNow.AddDays(30);
+    private string _vCode = "", _vTitle = ""; private decimal _vVal, _vMin, _vMax; private int _vQuota = 100, _vPts, _vDays = 30;
+
+    protected override async Task OnInitializedAsync() => _promos = await Db.Promos.Where(p => p.IsActive && !p.IsDeleted).OrderByDescending(p => p.CreatedAt).ToListAsync();
+
+    private async Task CreatePromo()
+    {
+        if (string.IsNullOrWhiteSpace(_pT)) { _m = "Title required."; return; }
+        Db.Promos.Add(new Promo { Title = _pT, Description = _pD, Type = _pType, Value = _pV, Category = _pCat, MerchantName = _pMerch, IsActive = true, ValidFrom = _pFrom ?? DateTime.UtcNow, ValidUntil = _pUntil ?? DateTime.UtcNow.AddDays(30) });
+        await Db.SaveChangesAsync(); _m = $"Promo '{_pT}' created!"; _pT = _pD = "";
+        await OnInitializedAsync();
+    }
+    private async Task CreateVoucher()
+    {
+        if (string.IsNullOrWhiteSpace(_vCode)) { _mv = "Code required."; return; }
+        Db.Vouchers.Add(new Voucher { VoucherCode = _vCode, Title = _vTitle, VoucherType = PromoType.FixedAmount, Value = _vVal, MinimumTransaction = _vMin, MaximumDiscount = _vMax, TotalQuota = _vQuota, PointsRequired = _vPts, IsActive = true, ValidFrom = DateTime.UtcNow, ValidUntil = DateTime.UtcNow.AddDays(_vDays) });
+        await Db.SaveChangesAsync(); _mv = $"Voucher '{_vCode}' created!"; _vCode = _vTitle = "";
+    }
+    private async Task Disable(Guid id) { var p = await Db.Promos.FindAsync(id); if (p != null) { p.IsActive = false; await Db.SaveChangesAsync(); await OnInitializedAsync(); } }
+}
