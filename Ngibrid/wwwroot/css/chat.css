@@ -1,0 +1,179 @@
+/* ═══════════════════════════════════════
+   Chat Styles for Mas Supri AI
+   ═══════════════════════════════════════ */
+
+/* The transcript is the only part of the chat card that scrolls; the composer stays pinned below.
+   `min-height: 0` is the load-bearing line — a flex item defaults to `min-height: auto`, which
+   refuses to shrink below its content, so without it the list just grew past the card and
+   `overflow-y` never engaged. */
+.chat-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;   /* don't chain the scroll to the page once it hits the end */
+    padding-right: 6px;
+}
+
+/* The global scrollbar is 6px with a --border-color thumb, which is close to invisible against a
+   card. In the transcript it is the only cue that there is more conversation above, so give it
+   enough contrast to be noticed. */
+.chat-messages::-webkit-scrollbar { width: 10px; }
+.chat-messages::-webkit-scrollbar-thumb {
+    background: var(--text-tertiary);
+    border: 2px solid var(--bg-card);
+    border-radius: 5px;
+}
+.chat-messages::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+.chat-messages { scrollbar-width: thin; }   /* Firefox */
+
+.chat-message {
+    display: flex;
+    gap: 10px;
+    max-width: 85%;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.user-message {
+    align-self: flex-end;
+    flex-direction: row-reverse;
+}
+
+.assistant-message {
+    align-self: flex-start;
+}
+
+.message-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.message-bubble {
+    padding: 10px 14px;
+    border-radius: 18px;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.user-message .message-bubble {
+    background: var(--accent);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+
+.assistant-message .message-bubble {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-bottom-left-radius: 4px;
+}
+
+.message-content {
+    word-break: break-word;
+}
+
+.message-content p { margin: 4px 0; }
+.message-content ul, .message-content ol { padding-left: 20px; margin: 4px 0; }
+.message-content code {
+    background: rgba(0,0,0,0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+.message-content pre {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 8px 0;
+}
+.message-content pre code {
+    background: none;
+    padding: 0;
+}
+.message-content table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 12px;
+}
+.message-content table th,
+.message-content table td {
+    border: 1px solid var(--border-color);
+    padding: 6px 10px;
+}
+.message-content img {
+    max-width: 100%;
+    border-radius: 8px;
+    margin: 4px 0;
+}
+.message-content blockquote {
+    border-left: 3px solid var(--accent);
+    padding-left: 12px;
+    margin: 8px 0;
+    color: var(--text-secondary);
+}
+
+.message-time {
+    font-size: 10px;
+    opacity: 0.6;
+    margin-top: 4px;
+}
+
+.user-message .message-time {
+    text-align: right;
+}
+
+/* Timeline */
+.timeline {
+    position: relative;
+    padding-left: 30px;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border-color);
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.timeline-marker {
+    position: absolute;
+    left: -24px;
+    top: 4px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--border-color);
+    border: 2px solid var(--bg-card);
+}
+
+.timeline-marker.active {
+    background: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-light);
+}
+
+.timeline-content {
+    padding-bottom: 8px;
+}

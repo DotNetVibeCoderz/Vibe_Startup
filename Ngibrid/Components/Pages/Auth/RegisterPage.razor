@@ -1,0 +1,155 @@
+@page "/register"
+@layout Ngibrid.Components.Layout.BlankLayout
+@using System.ComponentModel.DataAnnotations
+@using Ngibrid.Components.Pages.Auth
+
+<PageTitle>Daftar - Ngibrid</PageTitle>
+
+<div class="auth-shell">
+    <div class="card auth-card" style="max-width:520px;">
+        <div class="auth-brand">
+            <span class="auth-logo">🚚</span>
+            <h2>Buat Akun Ngibrid</h2>
+            <p class="text-muted">Gratis, langsung bisa kirim paket</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+        }
+
+        <EditForm Model="model" OnValidSubmit="Register">
+            <DataAnnotationsValidator />
+
+            <div class="form-group">
+                <label class="form-label">Nama Lengkap *</label>
+                <InputText class="form-input" @bind-Value="model.FullName" placeholder="Nama sesuai identitas" />
+                <ValidationMessage For="() => model.FullName" />
+            </div>
+
+            <div class="grid grid-2">
+                <div class="form-group">
+                    <label class="form-label">Email *</label>
+                    <InputText class="form-input" type="email" @bind-Value="model.Email"
+                               autocomplete="username" placeholder="email@example.com" />
+                    <ValidationMessage For="() => model.Email" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">No. HP</label>
+                    <InputText class="form-input" @bind-Value="model.Phone" placeholder="08xxxxxxxxxx" />
+                </div>
+            </div>
+
+            <div class="grid grid-2">
+                <div class="form-group">
+                    <label class="form-label">Password *</label>
+                    <InputText type="password" class="form-input" @bind-Value="model.Password"
+                               autocomplete="new-password" placeholder="Min. 8 karakter" />
+                    <ValidationMessage For="() => model.Password" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Konfirmasi Password *</label>
+                    <InputText type="password" class="form-input" @bind-Value="model.ConfirmPassword"
+                               autocomplete="new-password" placeholder="Ulangi password" />
+                    <ValidationMessage For="() => model.ConfirmPassword" />
+                </div>
+            </div>
+
+            <div class="grid grid-2">
+                <div class="form-group">
+                    <label class="form-label">Kota</label>
+                    <InputText class="form-input" @bind-Value="model.City" placeholder="Jakarta" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Alamat</label>
+                    <InputText class="form-input" @bind-Value="model.Address" placeholder="Jl. ..." />
+                </div>
+            </div>
+
+            <small class="text-muted" style="display:block;margin-bottom:12px;">
+                Password minimal 8 karakter dengan huruf besar, huruf kecil, angka, dan simbol.
+            </small>
+
+            <button type="submit" class="btn btn-primary btn-lg" style="width:100%;" disabled="@isBusy">
+                @(isBusy ? "Mendaftarkan…" : "Daftar")
+            </button>
+        </EditForm>
+
+        <div style="text-align:center;margin-top:16px;">
+            <p style="font-size:13px;">Sudah punya akun? <a href="/login">Masuk di sini</a></p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly RegisterModel model = new();
+    private string? message;
+    private bool isError;
+    private bool isBusy;
+
+    /// <summary>
+    /// Registration goes through /api/auth/register so the account is also signed in on a real
+    /// HTTP request — a Blazor circuit cannot issue the auth cookie.
+    /// </summary>
+    private async Task Register()
+    {
+        isBusy = true;
+        message = null;
+
+        try
+        {
+            var result = await JS.InvokeAsync<LoginPage.AuthResult>("ngibrid.postAuth", "/api/auth/register", new
+            {
+                email = model.Email,
+                password = model.Password,
+                confirmPassword = model.ConfirmPassword,
+                fullName = model.FullName,
+                phone = model.Phone,
+                address = model.Address,
+                city = model.City
+            });
+
+            if (result.Success)
+            {
+                message = "Registrasi berhasil, mengalihkan…";
+                isError = false;
+                await JS.InvokeVoidAsync("ngibrid.navigate", result.RedirectUrl ?? "/");
+                return;
+            }
+
+            message = result.Message;
+            isError = true;
+        }
+        catch (Exception ex)
+        {
+            message = $"Gagal menghubungi server: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private sealed class RegisterModel
+    {
+        [Required(ErrorMessage = "Nama wajib diisi")]
+        public string FullName { get; set; } = "";
+
+        [Required(ErrorMessage = "Email wajib diisi")]
+        [EmailAddress(ErrorMessage = "Format email tidak valid")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Password wajib diisi")]
+        [MinLength(8, ErrorMessage = "Password minimal 8 karakter")]
+        public string Password { get; set; } = "";
+
+        [Required(ErrorMessage = "Konfirmasi password wajib diisi")]
+        [Compare(nameof(Password), ErrorMessage = "Konfirmasi password tidak cocok")]
+        public string ConfirmPassword { get; set; } = "";
+
+        public string? Phone { get; set; }
+        public string? Address { get; set; }
+        public string? City { get; set; }
+    }
+}

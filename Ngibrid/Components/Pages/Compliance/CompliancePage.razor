@@ -1,0 +1,395 @@
+@page "/compliance"
+@attribute [Authorize(Policy = "StaffArea")]
+@inject ComplianceService Compliance
+@inject OrderService Orders
+
+<PageTitle>Pajak & Bea Cukai - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">📋 Kepatuhan Regulasi</h1>
+        <p class="text-muted">Pajak (PPN), bea cukai, dan dokumen ekspor/impor</p>
+    </div>
+    <button class="btn btn-outline btn-sm" @onclick="LoadAll">🔄 Refresh</button>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+}
+
+<div class="tabs">
+    <div class="tab-item @(activeTab == 0 ? "active" : "")" @onclick="() => activeTab = 0">🧾 Pajak</div>
+    <div class="tab-item @(activeTab == 1 ? "active" : "")" @onclick="() => activeTab = 1">🛃 Bea Cukai</div>
+</div>
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Memuat data kepatuhan…</p></div>
+}
+else if (activeTab == 0)
+{
+    <div class="grid grid-3 mb-md">
+        <div class="stat-card">
+            <div class="stat-icon blue">🧾</div>
+            <div>
+                <div class="stat-value">Rp @taxSummary.Sum(s => s.TaxAmount).ToString("N0")</div>
+                <div class="stat-label">Total PPN tercatat</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon green">✅</div>
+            <div>
+                <div class="stat-value">@taxSummary.Sum(s => s.ReportedCount)</div>
+                <div class="stat-label">Sudah dilaporkan</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon orange">⏳</div>
+            <div>
+                <div class="stat-value">@taxSummary.Sum(s => s.RecordCount - s.ReportedCount)</div>
+                <div class="stat-label">Belum dilaporkan</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-md">
+        <div class="card-header"><span class="card-title">📅 Ringkasan per Masa Pajak</span></div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>Masa</th><th>Jenis</th><th>Transaksi</th><th>Dasar Pengenaan</th>
+                        <th>Pajak</th><th>Dilaporkan</th><th>Aksi</th></tr>
+                </thead>
+                <tbody>
+                    @if (taxSummary.Count == 0)
+                    {
+                        <tr><td colspan="7" class="text-muted">Belum ada catatan pajak. Pajak dicatat otomatis saat pesanan terkirim.</td></tr>
+                    }
+                    @foreach (var s in taxSummary)
+                    {
+                        <tr>
+                            <td class="font-bold">@s.Period.ToString("MMMM yyyy")</td>
+                            <td>@s.TaxType</td>
+                            <td>@s.RecordCount</td>
+                            <td>Rp @s.TaxableAmount.ToString("N0")</td>
+                            <td class="font-bold">Rp @s.TaxAmount.ToString("N0")</td>
+                            <td>@s.ReportedCount / @s.RecordCount</td>
+                            <td>
+                                @if (s.ReportedCount < s.RecordCount)
+                                {
+                                    <button class="btn btn-outline btn-sm" @onclick="() => ReportPeriod(s)">
+                                        Tandai Dilaporkan
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-success">Lengkap</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><span class="card-title">📄 Catatan Pajak Terbaru</span></div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>No. Pajak</th><th>Order</th><th>Jenis</th><th>DPP</th>
+                        <th>Tarif</th><th>Pajak</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in taxRecords.Take(50))
+                    {
+                        <tr>
+                            <td class="font-bold">@t.TaxNumber</td>
+                            <td>@t.Order?.OrderNumber</td>
+                            <td>@t.TaxType</td>
+                            <td>Rp @t.TaxableAmount.ToString("N0")</td>
+                            <td>@((t.TaxRate * 100).ToString("F1"))%</td>
+                            <td>Rp @t.TaxAmount.ToString("N0")</td>
+                            <td><span class="badge @(t.Status == "RECORDED" ? "badge-warning" : "badge-success")">@t.Status</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card mb-md">
+        <div class="card-header">
+            <span class="card-title">🛃 Deklarasi Bea Cukai</span>
+            <button class="btn btn-primary btn-sm" @onclick="() => showNewDeclaration = true">+ Deklarasi Baru</button>
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>No. Deklarasi</th><th>Order</th><th>Jenis</th><th>Rute</th><th>Nilai</th>
+                        <th>Bea + PPN</th><th>Incoterm</th><th>Status</th><th>Dokumen</th><th>Aksi</th></tr>
+                </thead>
+                <tbody>
+                    @if (declarations.Count == 0)
+                    {
+                        <tr><td colspan="10" class="text-muted">Belum ada deklarasi bea cukai.</td></tr>
+                    }
+                    @foreach (var d in declarations)
+                    {
+                        var required = ComplianceService.RequiredDocuments(d.DeclarationType);
+                        var present = d.Documents?.Count ?? 0;
+                        <tr>
+                            <td class="font-bold">@d.DeclarationNumber</td>
+                            <td>@d.Order?.OrderNumber</td>
+                            <td>@(d.DeclarationType == "EXPORT" ? "📤 Ekspor" : "📥 Impor")</td>
+                            <td>@d.OriginCountry → @d.DestinationCountry</td>
+                            <td>@d.Currency @d.DeclaredValue.ToString("N2")</td>
+                            <td>@d.Currency @((d.DutyAmount + d.VatAmount).ToString("N2"))</td>
+                            <td>@d.Incoterm</td>
+                            <td><span class="badge @DeclarationBadge(d.Status)">@d.Status</span></td>
+                            <td>
+                                <span class="badge @(present >= required.Length ? "badge-success" : "badge-warning")">
+                                    @present / @required.Length
+                                </span>
+                            </td>
+                            <td>
+                                <div class="flex gap-sm">
+                                    <button class="btn btn-outline btn-sm" @onclick="() => ViewDeclaration(d)">👁️</button>
+                                    @if (d.Status == "DRAFT")
+                                    {
+                                        <button class="btn btn-primary btn-sm" @onclick="@(() => Advance(d, "SUBMITTED"))">Submit</button>
+                                    }
+                                    else if (d.Status == "SUBMITTED")
+                                    {
+                                        <button class="btn btn-success btn-sm" @onclick="@(() => Advance(d, "CLEARED"))">Clear</button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @if (selectedDeclaration != null)
+    {
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">📎 Dokumen — @selectedDeclaration.DeclarationNumber</span>
+                <button class="btn btn-outline btn-sm" @onclick="() => selectedDeclaration = null">✕</button>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>Jenis Dokumen</th><th>Nomor</th><th>Diterbitkan</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (var doc in selectedDeclaration.Documents ?? new List<ComplianceDocument>())
+                        {
+                            <tr>
+                                <td class="font-bold">@DocumentLabel(doc.DocumentType)</td>
+                                <td><code>@doc.DocumentNumber</code></td>
+                                <td>@doc.IssuedAt.ToString("dd MMM yyyy")</td>
+                                <td><span class="badge badge-success">@doc.Status</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top:12px;">
+                <strong>Deskripsi barang:</strong> @selectedDeclaration.GoodsDescription<br/>
+                <strong>HS Code:</strong> @(selectedDeclaration.HsCode ?? "belum diisi")
+            </div>
+        </div>
+    }
+}
+
+@if (showNewDeclaration)
+{
+    <div class="modal-backdrop" @onclick="() => showNewDeclaration = false">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="card-header">
+                <span class="card-title">🛃 Deklarasi Bea Cukai Baru</span>
+                <button class="btn btn-outline btn-sm" @onclick="() => showNewDeclaration = false">✕</button>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Pesanan</label>
+                <select class="form-select" @bind="form.OrderId">
+                    <option value="0">— pilih pesanan —</option>
+                    @foreach (var order in recentOrders)
+                    {
+                        <option value="@order.Id">@order.OrderNumber — @order.RecipientName (@order.RecipientCity)</option>
+                    }
+                </select>
+            </div>
+
+            <div class="grid grid-2">
+                <div class="form-group">
+                    <label class="form-label">Jenis</label>
+                    <select class="form-select" @bind="form.DeclarationType">
+                        <option value="EXPORT">Ekspor</option>
+                        <option value="IMPORT">Impor</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Negara Tujuan/Asal (ISO-2)</label>
+                    <input class="form-input" @bind="form.Country" placeholder="SG, MY, US" maxlength="2" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nilai Barang</label>
+                    <input class="form-input" type="number" @bind="form.DeclaredValue" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Mata Uang</label>
+                    <select class="form-select" @bind="form.Currency">
+                        <option value="USD">USD</option>
+                        <option value="SGD">SGD</option>
+                        <option value="IDR">IDR</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">HS Code</label>
+                    <input class="form-input" @bind="form.HsCode" placeholder="6109.10.00" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Incoterm</label>
+                    <select class="form-select" @bind="form.Incoterm">
+                        <option value="EXW">EXW</option>
+                        <option value="FOB">FOB</option>
+                        <option value="CIF">CIF</option>
+                        <option value="DAP">DAP</option>
+                        <option value="DDP">DDP</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="alert alert-info">
+                Dokumen wajib akan dibuat otomatis:
+                <strong>@string.Join(", ", ComplianceService.RequiredDocuments(form.DeclarationType).Select(DocumentLabel))</strong>
+            </div>
+
+            <button class="btn btn-primary" style="width:100%;" @onclick="CreateDeclaration"
+                    disabled="@(isBusy || form.OrderId == 0)">
+                @(isBusy ? "Membuat…" : "Buat Deklarasi")
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<TaxRecord> taxRecords = new();
+    private List<ComplianceService.TaxPeriodSummary> taxSummary = new();
+    private List<CustomsDeclaration> declarations = new();
+    private List<Order> recentOrders = new();
+    private CustomsDeclaration? selectedDeclaration;
+
+    private readonly DeclarationForm form = new();
+    private int activeTab;
+    private bool isLoading = true;
+    private bool isError;
+    private bool isBusy;
+    private bool showNewDeclaration;
+    private string? message;
+
+    private sealed class DeclarationForm
+    {
+        public long OrderId { get; set; }
+        public string DeclarationType { get; set; } = "EXPORT";
+        public string Country { get; set; } = "SG";
+        public decimal DeclaredValue { get; set; } = 100;
+        public string Currency { get; set; } = "USD";
+        public string HsCode { get; set; } = "";
+        public string Incoterm { get; set; } = "DAP";
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadAll();
+
+    private async Task LoadAll()
+    {
+        isLoading = true;
+        try
+        {
+            taxRecords = await Compliance.GetTaxRecordsAsync();
+            taxSummary = await Compliance.GetTaxSummaryAsync(12);
+            declarations = await Compliance.GetDeclarationsAsync();
+            recentOrders = await Orders.GetOrdersAsync(null, null, 1, 50);
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal memuat: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ReportPeriod(ComplianceService.TaxPeriodSummary summary)
+    {
+        var count = await Compliance.MarkPeriodReportedAsync(summary.Period, summary.TaxType);
+        isError = false;
+        message = $"{count} catatan {summary.TaxType} masa {summary.Period:MMMM yyyy} ditandai dilaporkan.";
+        await LoadAll();
+    }
+
+    private async Task CreateDeclaration()
+    {
+        isBusy = true;
+        try
+        {
+            var created = await Compliance.CreateDeclarationAsync(form.OrderId, form.DeclarationType,
+                form.Country.ToUpperInvariant(), form.DeclaredValue, form.Currency,
+                string.IsNullOrWhiteSpace(form.HsCode) ? null : form.HsCode, form.Incoterm);
+
+            isError = false;
+            message = $"Deklarasi {created.DeclarationNumber} dibuat beserta dokumen wajibnya.";
+            showNewDeclaration = false;
+            await LoadAll();
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal membuat deklarasi: {ex.Message}";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    /// <summary>Submitting is blocked server-side until every mandatory document exists.</summary>
+    private async Task Advance(CustomsDeclaration declaration, string status)
+    {
+        var (ok, resultMessage) = await Compliance.AdvanceDeclarationAsync(declaration.Id, status);
+        isError = !ok;
+        message = resultMessage;
+        await LoadAll();
+    }
+
+    private async Task ViewDeclaration(CustomsDeclaration declaration) =>
+        selectedDeclaration = await Compliance.GetDeclarationAsync(declaration.Id);
+
+    private static string DeclarationBadge(string status) => status switch
+    {
+        "CLEARED" => "badge-success",
+        "SUBMITTED" => "badge-info",
+        "HELD" or "REJECTED" => "badge-danger",
+        _ => "badge-default"
+    };
+
+    private static string DocumentLabel(string documentType) => documentType switch
+    {
+        "COMMERCIAL_INVOICE" => "Commercial Invoice",
+        "PACKING_LIST" => "Packing List",
+        "CERTIFICATE_OF_ORIGIN" => "Certificate of Origin",
+        "AWB" => "Air Waybill",
+        "EXPORT_PERMIT" => "PEB (Izin Ekspor)",
+        "IMPORT_PERMIT" => "PIB (Izin Impor)",
+        _ => documentType
+    };
+}

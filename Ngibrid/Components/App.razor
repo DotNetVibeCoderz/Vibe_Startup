@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="css/leaflet.css?v=@AssetVersion" />
+    <link rel="stylesheet" href="css/ngibrid.css?v=@AssetVersion" />
+    <link rel="stylesheet" href="css/chat.css?v=@AssetVersion" />
+    <link rel="stylesheet" href="css/components.css?v=@AssetVersion" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚚</text></svg>" />
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    <script src="_framework/blazor.web.js"></script>
+    <script src="js/leaflet.js?v=@AssetVersion"></script>
+    <script src="js/d3.min.js?v=@AssetVersion"></script>
+    <script src="js/ngibrid-charts.js?v=@AssetVersion"></script>
+    <script src="js/ngibrid.js?v=@AssetVersion"></script>
+</body>
+</html>
+
+@code {
+    /// <summary>
+    /// Cache-busting stamp for the hand-written CSS/JS. The static-file middleware serves these with
+    /// an ETag but no explicit max-age, so a browser that already has a copy will happily keep using
+    /// it — edits to ngibrid.css or chat.css then appear to do nothing until a hard refresh. Keying
+    /// on the build's own timestamp changes the URL exactly once per deploy.
+    ///
+    /// Deliberately not `DateTime.UtcNow` at request time: that would defeat caching entirely.
+    /// </summary>
+    private static readonly string AssetVersion = ComputeAssetVersion();
+
+    private static string ComputeAssetVersion()
+    {
+        try
+        {
+            var assembly = typeof(App).Assembly.Location;
+            if (!string.IsNullOrEmpty(assembly) && File.Exists(assembly))
+                return File.GetLastWriteTimeUtc(assembly).Ticks.ToString("x");
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+
+        // Single-file publish has no assembly path on disk; fall back to process start, which at
+        // least changes on restart.
+        return System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()
+            .Ticks.ToString("x");
+    }
+}

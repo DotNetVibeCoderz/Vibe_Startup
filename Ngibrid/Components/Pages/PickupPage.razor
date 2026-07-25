@@ -1,0 +1,361 @@
+@page "/pickup"
+@attribute [Authorize]
+@inject PickupService PickupService
+@inject CourierService CourierService
+@inject CurrentUserService CurrentUser
+@inject CityService Cities
+
+<PageTitle>Request Pickup - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">📥 Request Pickup</h1>
+        <p class="text-muted">Kurir menjemput paket dari lokasi Anda — gratis</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenForm">+ Request Pickup</button>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+}
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Memuat permintaan pickup…</p></div>
+}
+else if (pickupRequests.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-state-icon">📥</div>
+        <p>Belum ada permintaan pickup.</p>
+        <button class="btn btn-primary mt-md" @onclick="OpenForm">Buat Permintaan Pertama</button>
+    </div>
+}
+else
+{
+    <div class="grid grid-2 mb-md">
+        @foreach (var req in pickupRequests)
+        {
+            <div class="card">
+                <div class="flex-between">
+                    <strong>@req.RequestNumber</strong>
+                    <span class="badge @StatusBadge(req.Status)">@StatusLabel(req.Status)</span>
+                </div>
+                <div style="margin-top:8px;font-size:14px;">
+                    <div>📍 @req.PickupAddress</div>
+                    <div>🏙️ @req.PickupCity@(string.IsNullOrEmpty(req.PickupProvince) ? "" : $", {req.PickupProvince}")@(string.IsNullOrEmpty(req.PickupPostalCode) ? "" : $" ({req.PickupPostalCode})")</div>
+                    <div>📅 @req.RequestedPickupDate.ToString("dd MMM yyyy") · @TimeSlotLabel(req.PreferredTimeSlot)</div>
+                    <div>📦 @req.EstimatedPackageCount paket · ±@req.EstimatedWeightKg kg</div>
+                    @if (req.ActualPickupTime.HasValue)
+                    {
+                        <div>✅ Dijemput @req.ActualPickupTime.Value.ToString("dd MMM HH:mm")</div>
+                    }
+                    @if (!string.IsNullOrEmpty(req.SpecialInstructions))
+                    {
+                        <div class="alert alert-info" style="margin-top:8px;">📝 @req.SpecialInstructions</div>
+                    }
+                </div>
+
+                @if (isStaff && req.Status == "REQUESTED")
+                {
+                    @* One select per request, so the chosen courier is keyed by request id.
+                       A single shared field here made every card show the same selection. *@
+                    <div class="flex gap-sm" style="margin-top:12px;flex-wrap:wrap;">
+                        <select class="form-select" style="flex:1;" value="@SelectedCourier(req.Id)"
+                                @onchange="e => OnCourierSelected(req.Id, e)">
+                            <option value="0">— pilih kurir —</option>
+                            @foreach (var courier in couriers)
+                            {
+                                <option value="@courier.Id">@(courier.User?.FullName ?? courier.CourierId)</option>
+                            }
+                        </select>
+                        <button class="btn btn-primary btn-sm" @onclick="() => AssignPickup(req)"
+                                disabled="@(SelectedCourier(req.Id) == 0)">Tugaskan</button>
+                    </div>
+                }
+                else if (isStaff && req.Status == "ASSIGNED")
+                {
+                    <button class="btn btn-success btn-sm" style="margin-top:12px;"
+                            @onclick="() => MarkPickedUp(req)">✅ Tandai Dijemput</button>
+                }
+            </div>
+        }
+    </div>
+}
+
+@if (showForm)
+{
+    <div class="modal-backdrop" @onclick="() => showForm = false">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="card-header">
+                <span class="card-title">📥 Request Pickup</span>
+                <button class="btn btn-outline btn-sm" @onclick="() => showForm = false">✕</button>
+            </div>
+
+            <EditForm Model="newRequest" OnValidSubmit="SubmitPickup">
+                <div class="form-group">
+                    <label class="form-label">Alamat Penjemputan *</label>
+                    <InputText class="form-input" @bind-Value="newRequest.PickupAddress"
+                               placeholder="Jl. ... No. ..., Kelurahan, Kecamatan" />
+                </div>
+
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Propinsi *</label>
+                        <select class="form-select" value="@newRequest.PickupProvince" @onchange="OnProvinceChanged">
+                            <option value="">— Pilih propinsi —</option>
+                            @foreach (var p in provinces)
+                            {
+                                <option value="@p">@p</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Kota / Kabupaten *</label>
+                        <select class="form-select" value="@newRequest.PickupCity" @onchange="OnCityChanged"
+                                disabled="@(cities.Count == 0)">
+                            <option value="">@(cities.Count == 0 ? "— Pilih propinsi dulu —" : "— Pilih kota —")</option>
+                            @foreach (var c in cities)
+                            {
+                                <option value="@c.FullName">@c.FullName</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Kode Pos</label>
+                    <InputText class="form-input" @bind-Value="newRequest.PickupPostalCode" />
+                </div>
+
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Tanggal Penjemputan</label>
+                        <InputDate class="form-input" @bind-Value="newRequest.RequestedPickupDate" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Slot Waktu</label>
+                        <select class="form-select" @bind="newRequest.PreferredTimeSlot">
+                            <option value="MORNING">Pagi (08:00–12:00)</option>
+                            <option value="AFTERNOON">Siang (12:00–16:00)</option>
+                            <option value="EVENING">Sore (16:00–20:00)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Estimasi Jumlah Paket</label>
+                        <InputNumber class="form-input" @bind-Value="newRequest.EstimatedPackageCount" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Estimasi Berat Total (kg)</label>
+                        <InputNumber class="form-input" @bind-Value="newRequest.EstimatedWeightKg" />
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Instruksi Khusus</label>
+                    <InputText class="form-input" @bind-Value="newRequest.SpecialInstructions"
+                               placeholder="Contoh: hubungi satpam, paket di lobby" />
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width:100%;" disabled="@isBusy">
+                    @(isBusy ? "Mengirim…" : "Kirim Permintaan")
+                </button>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    private List<PickupRequest> pickupRequests = new();
+    private List<CourierProfile> couriers = new();
+    private IReadOnlyList<string> provinces = Array.Empty<string>();
+    private List<City> cities = new();
+    private PickupRequest newRequest = NewRequestTemplate();
+
+    private long? userId;
+
+    /// <summary>
+    /// Chosen courier per pickup request id. It has to be per-request: the cards are rendered in a
+    /// loop, so one shared field would be the same storage for every select on the page — picking a
+    /// courier on one request changed the dropdown of all of them.
+    /// </summary>
+    private readonly Dictionary<long, long> assignCourierByRequest = new();
+
+    private bool isStaff;
+    private bool isLoading = true;
+    private bool isBusy;
+    private bool isError;
+    private bool showForm;
+    private string? message;
+
+    private static PickupRequest NewRequestTemplate() => new()
+    {
+        RequestedPickupDate = DateTime.Now.AddDays(1),
+        PreferredTimeSlot = "MORNING",
+        EstimatedPackageCount = 1,
+        EstimatedWeightKg = 1
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        userId = await CurrentUser.GetUserIdAsync();
+        isStaff = await CurrentUser.IsStaffAsync();
+        provinces = await Cities.GetProvincesAsync();
+        await LoadPickups();
+    }
+
+    // Cascading pickers over the city master data — bound with value/@onchange rather than @bind so
+    // the dependent list can be refilled in the same handler.
+
+    private async Task OnProvinceChanged(ChangeEventArgs e)
+    {
+        newRequest.PickupProvince = e.Value?.ToString();
+        newRequest.PickupCity = null;   // the old choice belongs to the previous province
+        cities = (await Cities.GetCitiesAsync(newRequest.PickupProvince)).ToList();
+    }
+
+    private void OnCityChanged(ChangeEventArgs e) => newRequest.PickupCity = e.Value?.ToString();
+
+    /// <summary>
+    /// Staff see every request; a customer sees only their own. Previously the page showed only
+    /// pending requests for everyone, so a customer lost sight of a request once it was assigned.
+    /// </summary>
+    private async Task LoadPickups()
+    {
+        isLoading = true;
+        try
+        {
+            pickupRequests = await PickupService.GetPickupsAsync(isStaff ? null : userId);
+            if (isStaff) couriers = await CourierService.GetAvailableCouriersAsync();
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal memuat: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenForm()
+    {
+        newRequest = NewRequestTemplate();
+        cities.Clear();
+        showForm = true;
+    }
+
+    private async Task SubmitPickup()
+    {
+        if (userId is null) return;
+
+        // EditForm here has no DataAnnotationsValidator, so the [Required] attributes on the model
+        // are never evaluated and the selects can be left on their placeholder — a request could be
+        // filed with no address and no city for the courier to drive to.
+        if (string.IsNullOrWhiteSpace(newRequest.PickupAddress))
+        {
+            isError = true;
+            message = "Alamat penjemputan wajib diisi.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(newRequest.PickupProvince) || string.IsNullOrWhiteSpace(newRequest.PickupCity))
+        {
+            isError = true;
+            message = "Propinsi dan kota penjemputan wajib dipilih.";
+            return;
+        }
+
+        isBusy = true;
+
+        try
+        {
+            newRequest.CustomerId = userId.Value;
+            var created = await PickupService.RequestPickupAsync(newRequest);
+            isError = false;
+            message = $"✅ Permintaan {created.RequestNumber} diterima. Kurir akan menjemput sesuai jadwal.";
+            showForm = false;
+            await LoadPickups();
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal mengirim permintaan: {ex.Message}";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private long SelectedCourier(long requestId) => assignCourierByRequest.GetValueOrDefault(requestId);
+
+    private void OnCourierSelected(long requestId, ChangeEventArgs e) =>
+        assignCourierByRequest[requestId] = long.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+
+    private async Task AssignPickup(PickupRequest request)
+    {
+        var courierId = SelectedCourier(request.Id);
+        if (courierId == 0) return;
+
+        try
+        {
+            await PickupService.AssignPickupAsync(request.Id, courierId);
+            assignCourierByRequest.Remove(request.Id);
+            await LoadPickups();
+            isError = false;
+            message = $"Pickup {request.RequestNumber} ditugaskan ke kurir.";
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal menugaskan kurir: {ex.Message}";
+        }
+    }
+
+    private async Task MarkPickedUp(PickupRequest request)
+    {
+        try
+        {
+            await PickupService.UpdatePickupStatusAsync(request.Id, "PICKED_UP");
+            await LoadPickups();
+            isError = false;
+            message = $"Pickup {request.RequestNumber} ditandai selesai.";
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal memperbarui pickup: {ex.Message}";
+        }
+    }
+
+    private static string StatusBadge(string status) => status switch
+    {
+        "REQUESTED" => "badge-warning",
+        "ASSIGNED" => "badge-info",
+        "PICKED_UP" => "badge-success",
+        _ => "badge-default"
+    };
+
+    private static string StatusLabel(string status) => status switch
+    {
+        "REQUESTED" => "Menunggu",
+        "ASSIGNED" => "Kurir ditugaskan",
+        "PICKED_UP" => "Sudah dijemput",
+        "CANCELLED" => "Dibatalkan",
+        _ => status
+    };
+
+    private static string TimeSlotLabel(string? slot) => slot switch
+    {
+        "MORNING" => "Pagi 08:00–12:00",
+        "AFTERNOON" => "Siang 12:00–16:00",
+        "EVENING" => "Sore 16:00–20:00",
+        _ => slot ?? "-"
+    };
+}

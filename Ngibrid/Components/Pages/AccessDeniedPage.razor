@@ -1,0 +1,21 @@
+@page "/access-denied"
+@layout Ngibrid.Components.Layout.BlankLayout
+
+<PageTitle>Akses Ditolak - Ngibrid</PageTitle>
+
+@* Cookie auth sends *authenticated* users here when a policy fails; sending them back to /login
+   would look like the session expired, which it has not. *@
+<div class="auth-shell">
+    <div class="card auth-card" style="text-align:center;">
+        <span style="font-size:56px;">⛔</span>
+        <h2 style="margin-top:8px;">Akses Ditolak</h2>
+        <p class="text-muted">
+            Akun Anda tidak memiliki hak untuk membuka halaman ini.
+            Hubungi administrator bila Anda merasa ini keliru.
+        </p>
+        <div class="flex gap-sm" style="justify-content:center;margin-top:20px;">
+            <a href="/" class="btn btn-primary">🏠 Ke Dashboard</a>
+            <a href="/support" class="btn btn-outline">🎧 Hubungi Support</a>
+        </div>
+    </div>
+</div>

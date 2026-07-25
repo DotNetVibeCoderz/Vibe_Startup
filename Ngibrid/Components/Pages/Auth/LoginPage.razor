@@ -1,0 +1,145 @@
+@page "/login"
+@layout Ngibrid.Components.Layout.BlankLayout
+@using System.ComponentModel.DataAnnotations
+
+<PageTitle>Login - Ngibrid</PageTitle>
+
+<div class="auth-shell">
+    <div class="card auth-card">
+        <div class="auth-brand">
+            <span class="auth-logo">🚚</span>
+            <h2>Ngibrid Logistics</h2>
+            <p class="text-muted">Masuk untuk mengelola pengiriman Anda</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+        }
+
+        <EditForm Model="model" OnValidSubmit="SignIn">
+            <DataAnnotationsValidator />
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <InputText class="form-input" @bind-Value="model.Email" type="email"
+                           autocomplete="username" placeholder="email@example.com" />
+                <ValidationMessage For="() => model.Email" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <InputText type="password" class="form-input" @bind-Value="model.Password"
+                           autocomplete="current-password" placeholder="••••••••" />
+                <ValidationMessage For="() => model.Password" />
+            </div>
+            <div class="flex-between" style="margin-bottom:16px;">
+                <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
+                    <InputCheckbox @bind-Value="model.RememberMe" /> Ingat saya
+                </label>
+                <a href="/forgot-password" style="font-size:13px;">Lupa password?</a>
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg" style="width:100%;" disabled="@isBusy">
+                @(isBusy ? "Memproses…" : "Masuk")
+            </button>
+        </EditForm>
+
+        <div style="text-align:center;margin-top:16px;">
+            <p style="font-size:13px;">Belum punya akun? <a href="/register">Daftar sekarang</a></p>
+        </div>
+
+        <div class="auth-demo">
+            <small class="text-muted">Akun demo:</small>
+            <div class="auth-demo-grid">
+                @foreach (var demo in DemoAccounts)
+                {
+                    <button type="button" class="btn btn-outline btn-sm" @onclick="() => UseDemo(demo)">
+                        @demo.Label
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly LoginModel model = new();
+    private string? message;
+    private bool isError;
+    private bool isBusy;
+
+    private record DemoAccount(string Label, string Email, string Password);
+
+    private static readonly DemoAccount[] DemoAccounts =
+    {
+        new("👑 Admin", "admin@ngibrid.com", "Admin123!"),
+        new("🧑 Customer", "customer1@ngibrid.com", "Customer123!"),
+        new("🛵 Kurir", "courier1@ngibrid.com", "Courier123!"),
+        new("🏭 Gudang", "staff@ngibrid.com", "Staff123!")
+    };
+
+    private void UseDemo(DemoAccount account)
+    {
+        model.Email = account.Email;
+        model.Password = account.Password;
+        message = null;
+    }
+
+    /// <summary>
+    /// Posts to /api/auth/login rather than calling SignInManager here: this component runs
+    /// inside a SignalR circuit where the HTTP response is already closed, so the auth cookie
+    /// could never be written. After success we force a full reload to pick the cookie up.
+    /// </summary>
+    private async Task SignIn()
+    {
+        isBusy = true;
+        message = null;
+
+        try
+        {
+            var result = await JS.InvokeAsync<AuthResult>("ngibrid.postAuth", "/api/auth/login", new
+            {
+                email = model.Email,
+                password = model.Password,
+                rememberMe = model.RememberMe
+            });
+
+            if (result.Success)
+            {
+                message = "Login berhasil, mengalihkan…";
+                isError = false;
+                await JS.InvokeVoidAsync("ngibrid.navigate", result.RedirectUrl ?? "/");
+                return;
+            }
+
+            message = result.Message;
+            isError = true;
+        }
+        catch (Exception ex)
+        {
+            message = $"Gagal menghubungi server: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private sealed class LoginModel
+    {
+        [Required(ErrorMessage = "Email wajib diisi")]
+        [EmailAddress(ErrorMessage = "Format email tidak valid")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Password wajib diisi")]
+        public string Password { get; set; } = "";
+
+        public bool RememberMe { get; set; }
+    }
+
+    public sealed class AuthResult
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = "";
+        public string? RedirectUrl { get; set; }
+    }
+}

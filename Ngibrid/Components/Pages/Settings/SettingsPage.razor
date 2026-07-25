@@ -1,0 +1,424 @@
+@page "/settings"
+@attribute [Authorize(Policy = "AdminOrManager")]
+@using Microsoft.AspNetCore.Authorization
+@inject AppConfigService AppConfig
+@inject ChatBotService ChatBot
+@inject CurrentUserService CurrentUser
+@inject NgibridDbContext Db
+
+<PageTitle>Pengaturan - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">⚙️ Pengaturan Sistem</h1>
+        <p class="text-muted">Semua konfigurasi tersimpan di <code>appsettings.json</code> dan berlaku tanpa restart.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="Save" disabled="@(isSaving || !canEdit)">
+        @(isSaving ? "Menyimpan…" : "💾 Simpan Perubahan")
+    </button>
+</div>
+
+@if (!canEdit)
+{
+    <div class="alert alert-warning">
+        Hanya Admin dan Manager yang dapat mengubah konfigurasi. Anda dapat melihat nilai saat ini.
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+}
+
+<div class="tabs">
+    @foreach (var (index, label) in Tabs)
+    {
+        <div class="tab-item @(activeTab == index ? "active" : "")" @onclick="() => activeTab = index">@label</div>
+    }
+</div>
+
+<div class="card">
+    @if (activeTab == 0)
+    {
+        <h3>Umum</h3>
+        <div class="grid grid-2" style="margin-top:16px;">
+            @Field("Nama Perusahaan", "AppInfo:Name")
+            @Field("Email Support", "AppInfo:ContactEmail")
+            @Field("Deskripsi", "AppInfo:Description")
+            @Field("Mata Uang", "Shipment:DefaultCurrency")
+            @Field("Tarif Pajak (PPN)", "Shipment:TaxRate", "number", "0.11 = 11%")
+            @Field("Tarif Asuransi", "Shipment:InsuranceRate", "number", "0.02 = 2%")
+            @Field("Berat Maks (kg)", "Shipment:MaxPackageWeight", "number")
+        </div>
+
+        <h3 style="margin-top:24px;">Keamanan Password</h3>
+        <div class="grid grid-2" style="margin-top:16px;">
+            @Field("Panjang Minimum", "Auth:Password:RequiredLength", "number")
+            @Field("Maks. Percobaan Gagal", "Auth:Password:MaxFailedAttempts", "number")
+            @Field("Durasi Kunci (menit)", "Auth:Password:LockoutMinutes", "number")
+            @Toggle("Wajib Angka", "Auth:Password:RequireDigit")
+            @Toggle("Wajib Huruf Besar", "Auth:Password:RequireUppercase")
+            @Toggle("Wajib Simbol", "Auth:Password:RequireNonAlphanumeric")
+        </div>
+    }
+    else if (activeTab == 1)
+    {
+        <h3>Database</h3>
+        <div class="alert alert-info" style="margin-top:12px;">
+            Perubahan provider database berlaku setelah aplikasi di-restart.
+        </div>
+        <div class="form-group">
+            <label class="form-label">Provider</label>
+            <select class="form-select" value="@Value("Database:Provider")"
+                    @onchange="SetDatabaseProvider" disabled="@(!canEdit)">
+                @foreach (var provider in new[] { "SQLite", "SQLServer", "MySQL", "Postgre" })
+                {
+                    <option value="@provider">@provider</option>
+                }
+            </select>
+        </div>
+        @Field("Koneksi SQLite", "Database:ConnectionStrings:SQLite")
+        @Field("Koneksi SQL Server", "Database:ConnectionStrings:SQLServer")
+        @Field("Koneksi MySQL", "Database:ConnectionStrings:MySQL")
+        @Field("Koneksi PostgreSQL", "Database:ConnectionStrings:Postgre")
+    }
+    else if (activeTab == 2)
+    {
+        <h3>Storage</h3>
+        <div class="form-group" style="margin-top:16px;">
+            <label class="form-label">Provider</label>
+            <select class="form-select" value="@Value("Storage:Provider")"
+                    @onchange="SetStorageProvider" disabled="@(!canEdit)">
+                @foreach (var provider in new[] { "FileSystem", "AzureBlob", "S3", "MinIO" })
+                {
+                    <option value="@provider">@provider</option>
+                }
+            </select>
+        </div>
+        <div class="grid grid-2">
+            @Field("Base Path", "Storage:BasePath")
+            @Field("Ukuran Maks (MB)", "Storage:MaxFileSizeMb", "number")
+        </div>
+
+        <h4 style="margin-top:20px;">Azure Blob</h4>
+        @Field("Connection String", "Storage:AzureBlob:ConnectionString", "password")
+        @Field("Container", "Storage:AzureBlob:ContainerName")
+
+        <h4 style="margin-top:20px;">Amazon S3</h4>
+        <div class="grid grid-2">
+            @Field("Access Key", "Storage:S3:AccessKey", "password")
+            @Field("Secret Key", "Storage:S3:SecretKey", "password")
+            @Field("Bucket", "Storage:S3:BucketName")
+            @Field("Region", "Storage:S3:Region")
+        </div>
+
+        <h4 style="margin-top:20px;">MinIO</h4>
+        <div class="grid grid-2">
+            @Field("Endpoint", "Storage:MinIO:Endpoint")
+            @Field("Bucket", "Storage:MinIO:BucketName")
+            @Field("Access Key", "Storage:MinIO:AccessKey", "password")
+            @Field("Secret Key", "Storage:MinIO:SecretKey", "password")
+        </div>
+        @Toggle("Gunakan SSL", "Storage:MinIO:UseSSL")
+    }
+    else if (activeTab == 3)
+    {
+        <h3>Chat Bot "Mas Supri"</h3>
+        <div class="grid grid-2" style="margin-top:16px;">
+            <div class="form-group">
+                <label class="form-label">Model Default</label>
+                <select class="form-select" value="@Value("ChatBot:DefaultModel")"
+                        @onchange="SetChatModel" disabled="@(!canEdit)">
+                    @foreach (var model in ChatBotService.SupportedModels)
+                    {
+                        <option value="@model">@model</option>
+                    }
+                </select>
+            </div>
+            @Field("Nama Bot", "ChatBot:Name")
+            @Field("Temperature", "ChatBot:Temperature", "number", "0 = konsisten, 1 = kreatif")
+            @Field("Max Tokens", "ChatBot:MaxTokens", "number")
+            @Field("Top P", "ChatBot:TopP", "number")
+            @Field("Riwayat Maks (pesan)", "ChatBot:MaxHistoryMessages", "number")
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">System Prompt (Persona)</label>
+            <textarea class="form-textarea" rows="5" disabled="@(!canEdit)"
+                      value="@Value("ChatBot:Persona")"
+                      @onchange="SetPersona"></textarea>
+        </div>
+
+        <h4 style="margin-top:20px;">Kredensial Model</h4>
+        <div class="grid grid-2">
+            @Field("OpenAI API Key", "ChatBot:Models:OpenAI:ApiKey", "password")
+            @Field("OpenAI Model", "ChatBot:Models:OpenAI:Model")
+            @Field("Anthropic API Key", "ChatBot:Models:Anthropic:ApiKey", "password")
+            @Field("Anthropic Model", "ChatBot:Models:Anthropic:Model")
+            @Field("Gemini API Key", "ChatBot:Models:Gemini:ApiKey", "password")
+            @Field("Gemini Model", "ChatBot:Models:Gemini:Model")
+            @Field("Ollama Endpoint", "ChatBot:Models:Ollama:Endpoint")
+            @Field("Ollama Model", "ChatBot:Models:Ollama:Model")
+            @Field("Tavily API Key (search)", "ChatBot:Tavily:ApiKey", "password")
+        </div>
+
+        <div class="alert alert-info" style="margin-top:16px;">
+            <strong>@kernelFunctions.Count kernel function</strong> aktif untuk semua model:
+            <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">
+                @foreach (var fn in kernelFunctions)
+                {
+                    <code style="font-size:11px;">@fn</code>
+                }
+            </div>
+        </div>
+    }
+    else if (activeTab == 4)
+    {
+        <h3>Simulator &amp; AI</h3>
+        <div class="grid grid-2" style="margin-top:16px;">
+            @Toggle("Simulator GPS aktif", "GPS:Simulator:Enabled")
+            @Field("Interval GPS (ms)", "GPS:Simulator:UpdateIntervalMs", "number")
+            @Field("Kecepatan Kurir (km/j)", "GPS:Simulator:SpeedKmh", "number")
+            @Toggle("Simulator IoT aktif", "IoT:Simulator:Enabled")
+            @Field("Interval Sensor (ms)", "IoT:Simulator:SensorUpdateIntervalMs", "number")
+            @Toggle("Simulator Locker aktif", "IoT:LockerSimulator:Enabled")
+        </div>
+
+        <h4 style="margin-top:20px;">Dynamic Pricing</h4>
+        <div class="grid grid-2">
+            @Field("Harga Dasar / km", "AI:DynamicPricing:BasePricePerKm", "number")
+            @Field("Pengali Jam Sibuk", "AI:DynamicPricing:PeakHourMultiplier", "number")
+            @Field("Pengali Akhir Pekan", "AI:DynamicPricing:WeekendMultiplier", "number")
+            @Field("Pengali Urgensi", "AI:DynamicPricing:UrgencyMultiplier", "number")
+        </div>
+
+        <h4 style="margin-top:20px;">Green Logistics &amp; Loyalty</h4>
+        <div class="grid grid-2">
+            @Field("Faktor Emisi (g CO₂/km)", "GreenLogistics:EmissionFactorGramCo2PerKm", "number")
+            @Field("Harga Offset / kg", "GreenLogistics:CarbonOffsetPricePerKg", "number")
+            @Field("Diskon Kendaraan Eco", "GreenLogistics:EcoVehicleDiscount", "number")
+            @Field("Poin per Rupiah", "Loyalty:PointsPerRupiah", "number", "0.0001 = 1 poin / Rp10.000")
+            @Field("Rupiah per Poin", "Loyalty:RupiahPerPoint", "number")
+        </div>
+    }
+    else
+    {
+        <h3>Integrasi &amp; Notifikasi</h3>
+        <h4 style="margin-top:16px;">Payment Gateway</h4>
+        <div class="grid grid-2">
+            @Field("Midtrans Server Key", "Payment:Midtrans:ServerKey", "password")
+            @Field("Midtrans Client Key", "Payment:Midtrans:ClientKey", "password")
+            @Field("Xendit API Key", "Payment:Xendit:ApiKey", "password")
+        </div>
+
+        <h4 style="margin-top:20px;">Marketplace</h4>
+        <div class="grid grid-2">
+            @Field("Tokopedia API Key", "Integration:Marketplace:Tokopedia:ApiKey", "password")
+            @Field("Tokopedia Endpoint", "Integration:Marketplace:Tokopedia:Endpoint")
+            @Field("Shopee API Key", "Integration:Marketplace:Shopee:ApiKey", "password")
+            @Field("Shopee Endpoint", "Integration:Marketplace:Shopee:Endpoint")
+        </div>
+
+        <h4 style="margin-top:20px;">Email (SMTP)</h4>
+        <div class="grid grid-2">
+            @Field("SMTP Server", "Notification:Email:SmtpServer")
+            @Field("Port", "Notification:Email:SmtpPort", "number")
+            @Field("Username", "Notification:Email:Username")
+            @Field("Password", "Notification:Email:Password", "password")
+            @Field("From Address", "Notification:Email:FromAddress")
+            @Field("From Name", "Notification:Email:FromName")
+        </div>
+
+        <h4 style="margin-top:20px;">SMS &amp; Push</h4>
+        <div class="grid grid-2">
+            @Field("Twilio Account SID", "Notification:SMS:AccountSid", "password")
+            @Field("Twilio Auth Token", "Notification:SMS:AuthToken", "password")
+            @Field("Nomor Pengirim", "Notification:SMS:FromNumber")
+            @Field("Firebase Server Key", "Notification:PushNotification:FirebaseServerKey", "password")
+        </div>
+
+        <h4 style="margin-top:20px;">Bea Cukai</h4>
+        <div class="grid grid-2">
+            @Field("Tarif Bea Masuk", "Compliance:Customs:DutyRate", "number")
+            @Field("PPN Impor", "Compliance:Customs:ImportVatRate", "number")
+            @Field("Batas De Minimis (USD)", "Compliance:Customs:DeMinimisUsd", "number")
+        </div>
+    }
+</div>
+
+@if (systemConfigs.Count > 0)
+{
+    <div class="card mt-md">
+        <div class="card-header"><span class="card-title">🗄️ Konfigurasi Database (SystemConfiguration)</span></div>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Key</th><th>Value</th><th>Kategori</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var config in systemConfigs)
+                    {
+                        <tr>
+                            <td class="font-bold">@config.Key</td>
+                            <td>
+                                <input class="form-input" style="min-width:180px;" value="@config.Value"
+                                       disabled="@(!canEdit || !config.IsEditable)"
+                                       @onchange="e => config.Value = e.Value?.ToString() ?? string.Empty" />
+                            </td>
+                            <td><span class="badge badge-default">@config.Category</span></td>
+                            <td>
+                                <button class="btn btn-outline btn-sm" disabled="@(!canEdit || !config.IsEditable)"
+                                        @onclick="() => SaveSystemConfig(config)">Simpan</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly (int Index, string Label)[] Tabs =
+    {
+        (0, "Umum"), (1, "Database"), (2, "Storage"),
+        (3, "Chat Bot AI"), (4, "Simulator & AI"), (5, "Integrasi")
+    };
+
+    private int activeTab;
+    private bool isSaving;
+    private bool isError;
+    private bool canEdit;
+    private string? message;
+
+    // Only keys the user actually edited are written back.
+    private readonly Dictionary<string, string?> pending = new();
+    private IReadOnlyList<string> kernelFunctions = Array.Empty<string>();
+    private List<SystemConfiguration> systemConfigs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        canEdit = await CurrentUser.IsInRoleAsync("Admin", "Manager");
+        kernelFunctions = ChatBot.GetAvailableFunctions();
+
+        try
+        {
+            systemConfigs = await Db.SystemConfigurations
+                .OrderBy(c => c.Category).ThenBy(c => c.Key)
+                .ToListAsync();
+        }
+        catch { /* table may be empty before seeding */ }
+    }
+
+    private string Value(string key) => pending.TryGetValue(key, out var staged)
+        ? staged ?? string.Empty
+        : AppConfig.Get(key) ?? string.Empty;
+
+    private void Set(string key, string? value) => pending[key] = value;
+
+    private void SetDatabaseProvider(ChangeEventArgs e) => Set("Database:Provider", e.Value?.ToString());
+    private void SetStorageProvider(ChangeEventArgs e) => Set("Storage:Provider", e.Value?.ToString());
+    private void SetChatModel(ChangeEventArgs e) => Set("ChatBot:DefaultModel", e.Value?.ToString());
+    private void SetPersona(ChangeEventArgs e) => Set("ChatBot:Persona", e.Value?.ToString());
+
+    /// <summary>Text/number/password input bound to a configuration key.</summary>
+    private RenderFragment Field(string label, string key, string type = "text", string? hint = null) => builder =>
+    {
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "form-group");
+
+        builder.OpenElement(2, "label");
+        builder.AddAttribute(3, "class", "form-label");
+        builder.AddContent(4, label);
+        builder.CloseElement();
+
+        builder.OpenElement(5, "input");
+        builder.AddAttribute(6, "class", "form-input");
+        builder.AddAttribute(7, "type", type);
+        builder.AddAttribute(8, "value", Value(key));
+        builder.AddAttribute(9, "disabled", !canEdit);
+        builder.AddAttribute(10, "onchange",
+            EventCallback.Factory.CreateBinder<string?>(this, v => Set(key, v), Value(key)));
+        builder.CloseElement();
+
+        if (!string.IsNullOrEmpty(hint))
+        {
+            builder.OpenElement(11, "small");
+            builder.AddAttribute(12, "class", "text-muted");
+            builder.AddContent(13, hint);
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+    };
+
+    /// <summary>Checkbox bound to a boolean configuration key.</summary>
+    private RenderFragment Toggle(string label, string key) => builder =>
+    {
+        var current = bool.TryParse(Value(key), out var flag) && flag;
+
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "form-group");
+
+        builder.OpenElement(2, "label");
+        builder.AddAttribute(3, "class", "form-label");
+        builder.AddAttribute(4, "style", "display:flex;align-items:center;gap:8px;cursor:pointer;");
+
+        builder.OpenElement(5, "input");
+        builder.AddAttribute(6, "type", "checkbox");
+        builder.AddAttribute(7, "checked", current);
+        builder.AddAttribute(8, "disabled", !canEdit);
+        builder.AddAttribute(9, "onchange",
+            EventCallback.Factory.CreateBinder<bool>(this, v => Set(key, v.ToString().ToLowerInvariant()), current));
+        builder.CloseElement();
+
+        builder.AddContent(10, label);
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private async Task Save()
+    {
+        if (!canEdit || pending.Count == 0)
+        {
+            message = pending.Count == 0 ? "Tidak ada perubahan untuk disimpan." : null;
+            isError = false;
+            return;
+        }
+
+        isSaving = true;
+        message = null;
+
+        try
+        {
+            var changed = await AppConfig.UpdateAsync(pending);
+            pending.Clear();
+            isError = false;
+            message = changed > 0
+                ? $"✅ {changed} pengaturan tersimpan ke appsettings.json dan langsung berlaku."
+                : "Tidak ada nilai yang berubah.";
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal menyimpan: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task SaveSystemConfig(SystemConfiguration config)
+    {
+        try
+        {
+            await Db.SaveChangesAsync();
+            isError = false;
+            message = $"✅ Konfigurasi {config.Key} tersimpan.";
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal menyimpan {config.Key}: {ex.Message}";
+        }
+    }
+}

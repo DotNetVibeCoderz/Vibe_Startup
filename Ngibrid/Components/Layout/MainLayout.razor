@@ -1,0 +1,189 @@
+@inherits LayoutComponentBase
+@inject ThemeService ThemeService
+@inject CurrentUserService CurrentUser
+@inject NotificationService Notifications
+@implements IDisposable
+
+@* Theme lives on <html data-theme> only — see the palette comment in ngibrid.css. *@
+<div class="app-container">
+    <header class="mobile-header">
+        <button class="menu-toggle" @onclick="ToggleSidebar" aria-label="Menu"><i class="icon-menu">☰</i></button>
+        <span class="brand">🚚 Ngibrid</span>
+        <div class="header-actions"><ThemeToggle /></div>
+    </header>
+
+    <aside class="sidebar @(sidebarOpen ? "open" : "")">
+        <div class="sidebar-header">
+            <a href="/" class="logo">
+                <span class="logo-icon">🚚</span><span class="logo-text">Ngibrid</span>
+                <span class="logo-sub">Logistics</span>
+            </a>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <span class="nav-label">Menu Utama</span>
+                <NavLink href="/" Match="NavLinkMatch.All" class="nav-item"><span class="nav-icon">📊</span> Dashboard</NavLink>
+                <NavLink href="/orders" class="nav-item"><span class="nav-icon">📦</span> Pesanan</NavLink>
+                <NavLink href="/tracking" class="nav-item"><span class="nav-icon">📍</span> Lacak Kiriman</NavLink>
+                <NavLink href="/pickup" class="nav-item"><span class="nav-icon">📥</span> Pickup</NavLink>
+            </div>
+
+            <div class="nav-section">
+                <span class="nav-label">Operasional</span>
+                @if (isCourierArea)
+                {
+                    <NavLink href="/courier" class="nav-item"><span class="nav-icon">🛵</span> Kurir &amp; Rute</NavLink>
+                }
+                @if (isStaff)
+                {
+                    <NavLink href="/warehouse" class="nav-item"><span class="nav-icon">🏭</span> Gudang</NavLink>
+                    <NavLink href="/locker" class="nav-item"><span class="nav-icon">🔐</span> Smart Locker</NavLink>
+                }
+                @if (isManagement)
+                {
+                    <NavLink href="/payment" class="nav-item"><span class="nav-icon">💳</span> Pembayaran</NavLink>
+                }
+            </div>
+
+            <div class="nav-section">
+                <span class="nav-label">Layanan</span>
+                <NavLink href="/chat" class="nav-item"><span class="nav-icon">🤖</span> Mas Supri AI</NavLink>
+                <NavLink href="/support" class="nav-item"><span class="nav-icon">🎧</span> Support</NavLink>
+                <NavLink href="/notifications" class="nav-item">
+                    <span class="nav-icon">🔔</span> Notifikasi
+                    @if (unreadCount > 0)
+                    {
+                        <span class="nav-badge">@(unreadCount > 99 ? "99+" : unreadCount.ToString())</span>
+                    }
+                </NavLink>
+            </div>
+
+            @if (isStaff)
+            {
+                <div class="nav-section">
+                    <span class="nav-label">Bisnis</span>
+                    <NavLink href="/analytics" class="nav-item"><span class="nav-icon">📈</span> Analytics &amp; Tren</NavLink>
+                    <NavLink href="/integrations" class="nav-item"><span class="nav-icon">🔗</span> Integrasi &amp; Mitra</NavLink>
+                    <NavLink href="/compliance" class="nav-item"><span class="nav-icon">📋</span> Pajak &amp; Bea Cukai</NavLink>
+                </div>
+            }
+
+            <div class="nav-section">
+                <span class="nav-label">Akun</span>
+                <NavLink href="/profile" class="nav-item"><span class="nav-icon">👤</span> Profil Saya</NavLink>
+                @if (isManagement)
+                {
+                    <NavLink href="/settings" class="nav-item"><span class="nav-icon">⚙️</span> Pengaturan</NavLink>
+                }
+                <NavLink href="/api/docs" class="nav-item" target="_blank"><span class="nav-icon">📘</span> API Docs</NavLink>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <ThemeToggle />
+            <div class="user-info">
+                <AuthorizeView>
+                    <Authorized>
+                        <a href="/profile" class="user-link">
+                            @if (!string.IsNullOrEmpty(avatarUrl))
+                            {
+                                <img src="@avatarUrl" alt="" class="user-avatar user-avatar-img" />
+                            }
+                            else
+                            {
+                                <span class="user-avatar">@Initials(displayName)</span>
+                            }
+                            <span class="user-meta">
+                                <span class="user-name">@displayName</span>
+                                <span class="user-role">@roleLabel</span>
+                            </span>
+                        </a>
+                        @* Full navigation, not a Blazor link: sign-out must clear the cookie on a real request. *@
+                        <a href="/api/auth/logout" class="btn btn-outline btn-sm logout-btn" title="Keluar">⏻</a>
+                    </Authorized>
+                    <NotAuthorized>
+                        <a href="/login" class="btn btn-primary btn-sm" style="width:100%;">🔑 Masuk</a>
+                    </NotAuthorized>
+                </AuthorizeView>
+            </div>
+        </div>
+    </aside>
+
+    <div class="sidebar-overlay @(sidebarOpen ? "visible" : "")" @onclick="ToggleSidebar"></div>
+
+    <main class="main-content"><div class="content-wrapper">@Body</div></main>
+</div>
+
+@code {
+    private bool sidebarOpen;
+    private bool isStaff;
+    private bool isManagement;
+    private bool isCourierArea;
+    private int unreadCount;
+    private string displayName = "Tamu";
+    private string roleLabel = "";
+    private string? avatarUrl;
+
+    protected override void OnInitialized()
+    {
+        ThemeService.OnThemeChanged += OnThemeChanged;
+        CurrentUser.OnProfileChanged += OnProfileChanged;
+    }
+
+    // Keeps the sidebar name/avatar in step with edits made on /profile, which lives in the same
+    // circuit but a different component tree.
+    private async void OnProfileChanged()
+    {
+        try
+        {
+            var user = await CurrentUser.GetUserAsync();
+            if (user == null) return;
+            displayName = user.FullName ?? user.Email ?? "Pengguna";
+            avatarUrl = user.AvatarUrl;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (ObjectDisposedException) { }
+        catch (Exception) { /* sidebar refresh is cosmetic */ }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var user = await CurrentUser.GetUserAsync();
+            if (user == null) return;
+
+            displayName = user.FullName ?? user.Email ?? "Pengguna";
+            roleLabel = user.UserType;
+            avatarUrl = user.AvatarUrl;
+            isStaff = await CurrentUser.IsStaffAsync();
+            isManagement = await CurrentUser.IsInRoleAsync("Admin", "Manager");
+            isCourierArea = await CurrentUser.IsInRoleAsync("Admin", "Manager", "Courier");
+            unreadCount = await Notifications.GetUnreadCountAsync(user.Id);
+        }
+        catch
+        {
+            // Layout must render even when the DB or auth state is unavailable.
+        }
+    }
+
+    private void ToggleSidebar() => sidebarOpen = !sidebarOpen;
+
+    private void OnThemeChanged() => InvokeAsync(StateHasChanged);
+
+    private static string Initials(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "👤";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2
+            ? $"{char.ToUpper(parts[0][0])}{char.ToUpper(parts[1][0])}"
+            : char.ToUpper(parts[0][0]).ToString();
+    }
+
+    public void Dispose()
+    {
+        ThemeService.OnThemeChanged -= OnThemeChanged;
+        CurrentUser.OnProfileChanged -= OnProfileChanged;
+    }
+}

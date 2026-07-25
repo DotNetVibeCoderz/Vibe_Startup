@@ -1,0 +1,83 @@
+aplikasi manajemen logistik seperti Tiki, JNE, atau Paxel. Dengan fitur:
+
+---
+
+ 🚚 Core Features
+- Order Management: Input pesanan, tracking status, integrasi barcode/QR.
+- Shipment Tracking: Real-time GPS, status update otomatis, notifikasi pelanggan.
+- Delivery Scheduling: Penjadwalan kurir, optimasi rute, estimasi waktu tiba.
+- Pickup Request: Pelanggan bisa request pickup dari rumah/kantor.
+
+---
+
+ 💳 Payment & Finance
+- Multi-payment Integration: E-wallet, transfer bank, COD, kartu kredit.
+- Invoice & Billing: Auto-generate invoice, e-receipt, laporan keuangan.
+- Insurance Options: Tambahan proteksi barang, klaim otomatis.
+
+---
+
+ 📦 Warehouse & Inventory
+- Warehouse Management: Stok barang, lokasi penyimpanan, integrasi RFID.
+- Inventory Tracking: Monitoring keluar/masuk barang, batch management.
+- Packaging Optimization: Rekomendasi ukuran box, kalkulasi berat/volume.
+
+---
+
+ 👥 Customer & Courier
+- Customer Portal: Tracking pesanan, riwayat transaksi, loyalty program.
+- Courier App: Navigasi rute, update status, komunikasi dengan pelanggan.
+- Customer Support: Chatbot, live chat, tiket komplain.
+
+---
+
+ 📊 Analytics & Dashboard
+- Business Analytics: Volume pengiriman, SLA compliance, revenue tracking.
+- Operational Dashboard: Monitoring kurir, warehouse, pickup/delivery.
+- Trend Analysis: Prediksi permintaan, peak season, optimasi biaya.
+
+---
+
+ 🔗 Integrations
+- API Integration: Marketplace (Tokopedia, Shopee), ERP, CRM.
+- Third-party Logistics: Partner shipping, cross-border delivery.
+- IoT & Sensors: Smart locker, suhu barang sensitif, RFID tracking. Buatkan juga simulatornya jalan di thread berbeda.
+
+---
+
+ 🔒 Security & Compliance
+- Data Security: Enkripsi end-to-end, role-based access.
+- Regulatory Compliance: Pajak, bea cukai, dokumen ekspor/impor.
+- Audit Trail: Log aktivitas, histori perubahan status.
+
+---
+
+ 🌐 Advanced Features
+- AI Route Optimization: Machine learning untuk rute tercepat & hemat biaya.
+- Dynamic Pricing: Tarif fleksibel berdasarkan jarak, waktu, demand.
+- Green Logistics: Tracking emisi karbon, opsi eco-delivery.
+
+---
+
+Chat Bot Pelayanan Informasi
+  - Nama 'Mas Supri'
+  - Chat Page dengan tampilan yang keren, multi session (create/delete), reset session, bisa attach gambar (diupload lalu url-nya di jadikan image content) dan dokumen (di upload dan disertakan linknya ke text message).
+  - System Prompt (persona), temperature, model dan setting lainnya di simpan di appsetting
+  - Menggunakan Semantic Kernel Library dengan dukungan model: Open AI, Anthropic, Gemini, Ollama (bisa pilih)
+  - Tambahkan beberapa common functions (kernel functions) yang diperlukan termasuk query ke tavily (search internet), scrap page url, baca file dari url, cek tanggal, Waktu, math calculation, dan beberapa function yang diperlukan lainnya
+  - Tambahkan functions untuk query data ke database untuk mengetahui berbagai informasi dan fungsi-fungsi yang dimiliki aplikasi
+  - Bisa render chat thread dengan mark down dengan baik ke html (baik table, media (image, video, audio), code, dan lainnya dengan baik)
+
+---
+
+Notes:
+- Dibuat dengan blazor server, .NET 10, D3JS, dengan desain modern dan responsive seperti facebook dengan dukungan dark theme/light
+- Semua konfigurasi disimpan di appsetting dan bisa diubah dari aplikasi
+- Tambahkan readme.md (English dan Bahasa Indonesia)
+- Database support SQLite, SQLServer, MySQL, Postgre
+- Storage Support: FileSystem, AzureBlob, S3, MinIO
+- Tambahkan dokumentasi lengkap di folder docs
+- Buatkan banyak sample data dan user
+- optimasi kode agar aplikasi cepat dan ringan
+- REST API: Integrasi dengan aplikasi eksternal dengan Min API dan swagger
+- Auth: Login, Logout, Register, User Profile, Reset Password

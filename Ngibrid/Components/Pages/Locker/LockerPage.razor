@@ -1,0 +1,334 @@
+@page "/locker"
+@attribute [Authorize(Policy = "StaffArea")]
+@inject SmartLockerService Lockers
+@inject OrderService Orders
+@inject CurrentUserService CurrentUser
+
+<PageTitle>Smart Locker - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">🔐 Smart Locker</h1>
+        <p class="text-muted">Ambil dan titip paket 24 jam dengan PIN — sensor IoT terpantau real-time</p>
+    </div>
+    <button class="btn btn-outline btn-sm" @onclick="LoadAll">🔄 Refresh</button>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+}
+
+<div class="grid grid-4 mb-md">
+    <div class="stat-card">
+        <div class="stat-icon blue">🏬</div>
+        <div>
+            <div class="stat-value">@stats.OnlineLockers / @stats.TotalLockers</div>
+            <div class="stat-label">Locker online</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon green">🚪</div>
+        <div>
+            <div class="stat-value">@(stats.TotalCompartments - stats.OccupiedCompartments)</div>
+            <div class="stat-label">Pintu kosong</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon orange">📦</div>
+        <div>
+            <div class="stat-value">@stats.OccupiedCompartments</div>
+            <div class="stat-label">Paket tersimpan</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon purple">📊</div>
+        <div>
+            <div class="stat-value">@stats.UtilizationPercent%</div>
+            <div class="stat-label">Utilisasi</div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-md">
+    <div class="card-header"><span class="card-title">🔓 Ambil Paket</span></div>
+    <div class="grid grid-3" style="align-items:end;">
+        <div class="form-group">
+            <label class="form-label">Nomor Loker</label>
+            <select class="form-select" @bind="collectCompartmentId">
+                <option value="0">— pilih pintu loker —</option>
+                @foreach (var locker in lockers)
+                {
+                    @foreach (var c in (locker.Compartments ?? new List<LockerCompartment>()).Where(c => c.Status == "OCCUPIED"))
+                    {
+                        <option value="@c.Id">@locker.Name — pintu @c.CompartmentNumber</option>
+                    }
+                }
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">PIN (6 digit)</label>
+            <input class="form-input" @bind="collectPin" maxlength="6" placeholder="••••••" />
+        </div>
+        <button class="btn btn-primary" @onclick="Collect" disabled="@(collectCompartmentId == 0)">
+            🔓 Buka Loker
+        </button>
+    </div>
+</div>
+
+@if (!isLoading && lockers.Count > 0)
+{
+    <div class="card mb-md">
+        <div class="card-header">
+            <span class="card-title">🗺️ Peta Lokasi Locker</span>
+            <small class="text-muted">Hijau = online · merah = offline</small>
+        </div>
+        <div id="locker-map" style="height:340px;border-radius:0 0 10px 10px;z-index:1;"></div>
+    </div>
+}
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Memuat data locker…</p></div>
+}
+else if (lockers.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-state-icon">🔐</div>
+        <p>Belum ada smart locker terdaftar.</p>
+    </div>
+}
+else
+{
+    <div class="grid grid-2">
+        @foreach (var locker in lockers)
+        {
+            var compartments = locker.Compartments ?? new List<LockerCompartment>();
+            <div class="card">
+                <div class="flex-between">
+                    <div>
+                        <strong>@locker.Name</strong>
+                        <div><small class="text-muted">@locker.Code · @locker.City</small></div>
+                    </div>
+                    <span class="badge @LockerBadge(locker.Status)">@locker.Status</span>
+                </div>
+
+                <div class="locker-telemetry">
+                    <span>🔋 @(locker.BatteryPercent?.ToString("F0") ?? "—")%</span>
+                    <span>🌡️ @(locker.TemperatureCelsius?.ToString("F1") ?? "—")°C</span>
+                    <span>📡 @(locker.LastHeartbeat?.ToString("HH:mm:ss") ?? "—")</span>
+                </div>
+
+                <div class="locker-grid">
+                    @foreach (var c in compartments.OrderBy(c => c.CompartmentNumber))
+                    {
+                        <div class="locker-door @DoorClass(c.Status)"
+                             title="@DoorTooltip(c)">
+                            <span class="door-number">@c.CompartmentNumber</span>
+                            <span class="door-size">@c.Size</span>
+                        </div>
+                    }
+                </div>
+
+                <div class="flex-between" style="margin-top:8px;font-size:12px;">
+                    <span class="text-muted">
+                        @compartments.Count(c => c.Status == "EMPTY") kosong /
+                        @compartments.Count(c => c.Status == "OCCUPIED") terisi
+                    </span>
+                    @if (isStaff)
+                    {
+                        <button class="btn btn-outline btn-sm" @onclick="() => OpenAssign(locker)">📥 Titip Paket</button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (assignLocker != null)
+{
+    <div class="modal-backdrop" @onclick="() => assignLocker = null">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="card-header">
+                <span class="card-title">📥 Titip Paket — @assignLocker.Name</span>
+                <button class="btn btn-outline btn-sm" @onclick="() => assignLocker = null">✕</button>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Pesanan</label>
+                <select class="form-select" @bind="assignOrderId">
+                    <option value="0">— pilih pesanan —</option>
+                    @foreach (var order in deliverableOrders)
+                    {
+                        <option value="@order.Id">@order.TrackingNumber — @order.RecipientName</option>
+                    }
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Ukuran minimum pintu</label>
+                <select class="form-select" @bind="assignSize">
+                    <option value="S">S — dokumen kecil</option>
+                    <option value="M">M — paket sedang</option>
+                    <option value="L">L — paket besar</option>
+                    <option value="XL">XL — paket ekstra besar</option>
+                </select>
+            </div>
+
+            <button class="btn btn-primary" style="width:100%;" @onclick="AssignCompartment"
+                    disabled="@(assignOrderId == 0)">
+                Titipkan &amp; Kirim PIN
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<SmartLocker> lockers = new();
+    private List<Order> deliverableOrders = new();
+    private SmartLockerService.LockerStats stats = new();
+    private SmartLocker? assignLocker;
+
+    private long collectCompartmentId;
+    private long assignOrderId;
+    private string assignSize = "M";
+    private string collectPin = "";
+    private bool isLoading = true;
+    private bool isError;
+    private bool isStaff;
+    private string? message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        isStaff = await CurrentUser.IsInRoleAsync("Admin", "Manager", "WarehouseStaff", "Courier");
+        await LoadAll();
+    }
+
+    private async Task LoadAll()
+    {
+        isLoading = true;
+        try
+        {
+            lockers = await Lockers.GetLockersAsync();
+            stats = await Lockers.GetStatsAsync();
+            if (isStaff)
+                deliverableOrders = await Orders.GetOrdersAsync(null, "OUT_FOR_DELIVERY", 1, 50);
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal memuat: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            mapPending = lockers.Any(l => l.Latitude != 0 || l.Longitude != 0);
+        }
+    }
+
+    // Redrawn on every refresh so marker colours follow the live IoT heartbeat. Must run after
+    // render — the container only exists once the `lockers.Count > 0` branch has been emitted.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!mapPending) return;
+        mapPending = false;
+        try
+        {
+            await JS.InvokeVoidAsync("ngibrid.renderPointsMap", new
+            {
+                mapId = "locker-map",
+                points = lockers
+                    .Where(l => l.Latitude != 0 || l.Longitude != 0)
+                    .Select(l =>
+                    {
+                        var all = l.Compartments ?? new List<LockerCompartment>();
+                        var free = all.Count(c => c.Status == "EMPTY");
+                        return new
+                        {
+                            lat = l.Latitude,
+                            lng = l.Longitude,
+                            emoji = "🔐",
+                            color = l.Status == "ONLINE" ? "#31a24c" : "#dc3545",
+                            title = l.Name,
+                            subtitle = $"{l.Code} · {l.City}",
+                            lines = new[]
+                            {
+                                l.Address,
+                                $"Pintu kosong: {free} / {all.Count}",
+                                $"Baterai {l.BatteryPercent:F0}% · {l.TemperatureCelsius:F1}°C",
+                                $"Status: {l.Status}",
+                            },
+                        };
+                    }),
+            });
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception) { /* map is supplementary */ }
+    }
+
+    private bool mapPending;
+
+    private void OpenAssign(SmartLocker locker)
+    {
+        assignLocker = locker;
+        assignOrderId = 0;
+        assignSize = "M";
+    }
+
+    private async Task AssignCompartment()
+    {
+        if (assignLocker == null) return;
+
+        var compartment = await Lockers.AssignCompartmentAsync(assignLocker.Id, assignOrderId, assignSize);
+        if (compartment == null)
+        {
+            isError = true;
+            message = "Tidak ada pintu loker kosong dengan ukuran tersebut.";
+            return;
+        }
+
+        isError = false;
+        message = $"✅ Paket dititipkan di pintu {compartment.CompartmentNumber}. " +
+                  $"PIN {compartment.AccessPin} telah dikirim ke penerima.";
+        assignLocker = null;
+        await LoadAll();
+    }
+
+    private async Task Collect()
+    {
+        var ok = await Lockers.CollectAsync(collectCompartmentId, collectPin);
+        isError = !ok;
+        message = ok
+            ? "🔓 Loker terbuka. Silakan ambil paket Anda."
+            : "PIN salah atau loker sudah kosong.";
+
+        if (ok)
+        {
+            collectPin = "";
+            collectCompartmentId = 0;
+            await LoadAll();
+        }
+    }
+
+    private static string LockerBadge(string status) => status switch
+    {
+        "ONLINE" => "badge-success",
+        "OFFLINE" => "badge-danger",
+        _ => "badge-warning"
+    };
+
+    private static string DoorClass(string status) => status switch
+    {
+        "OCCUPIED" => "occupied",
+        "RESERVED" => "reserved",
+        "FAULTY" => "faulty",
+        _ => "empty"
+    };
+
+    private static string DoorTooltip(LockerCompartment c) => c.Status switch
+    {
+        "OCCUPIED" => $"Terisi sejak {c.OccupiedAt:dd MMM HH:mm}, kedaluwarsa {c.ExpiresAt:dd MMM HH:mm}",
+        "FAULTY" => "Pintu rusak — perlu servis",
+        _ => $"Kosong, ukuran {c.Size}"
+    };
+}

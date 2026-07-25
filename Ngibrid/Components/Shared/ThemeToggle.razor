@@ -1,0 +1,38 @@
+@inject ThemeService ThemeService
+@implements IDisposable
+
+<button class="theme-toggle" @onclick="Toggle" title="@(ThemeService.IsDarkMode ? "Mode terang" : "Mode gelap")">
+    <span class="toggle-icon">@(ThemeService.IsDarkMode ? "☀️" : "🌙")</span>
+</button>
+
+@code {
+    protected override void OnInitialized() => ThemeService.OnThemeChanged += OnThemeChanged;
+
+    /// <summary>
+    /// The browser restores the theme from localStorage before Blazor starts, so the server-side
+    /// service has to be told what the document already looks like — otherwise the icon offers
+    /// "dark mode" on a page that is already dark and the first click becomes a no-op.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("ngibrid.getStoredTheme");
+            ThemeService.InitializeFrom(stored);
+        }
+        catch (JSDisconnectedException) { /* circuit closed before the call returned */ }
+    }
+
+    private async Task Toggle()
+    {
+        ThemeService.ToggleTheme();
+        // Persist to localStorage and restyle the document root immediately.
+        await JS.InvokeVoidAsync("ngibrid.applyTheme", ThemeService.IsDarkMode);
+    }
+
+    private void OnThemeChanged() => InvokeAsync(StateHasChanged);
+
+    // Without unsubscribing, the service keeps a reference to a disposed component.
+    public void Dispose() => ThemeService.OnThemeChanged -= OnThemeChanged;
+}

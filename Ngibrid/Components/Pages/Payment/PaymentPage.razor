@@ -1,0 +1,385 @@
+@page "/payment"
+@* Staff only. The page lists every customer's payments, invoices, and claims unscoped, and the
+   Konfirmasi button marks a payment PAID — with a plain [Authorize] any signed-in customer could
+   read the whole ledger and settle their own bill. *@
+@attribute [Authorize(Policy = "AdminOrManager")]
+@inject PaymentService PaymentService
+@inject InvoiceService InvoiceService
+@inject InsuranceService InsuranceService
+@inject CurrentUserService CurrentUser
+
+<PageTitle>Pembayaran & Keuangan - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">💳 Pembayaran &amp; Keuangan</h1>
+        <p class="text-muted">Pembayaran, invoice, klaim asuransi, dan laporan keuangan</p>
+    </div>
+    <button class="btn btn-outline btn-sm" @onclick="LoadAll">🔄 Refresh</button>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+}
+
+<div class="tabs">
+    <div class="tab-item @(activeTab == 0 ? "active" : "")" @onclick="() => SetTab(0)">💳 Pembayaran</div>
+    <div class="tab-item @(activeTab == 1 ? "active" : "")" @onclick="() => SetTab(1)">📄 Invoice</div>
+    <div class="tab-item @(activeTab == 2 ? "active" : "")" @onclick="() => SetTab(2)">🛡️ Asuransi</div>
+    <div class="tab-item @(activeTab == 3 ? "active" : "")" @onclick="() => SetTab(3)">💰 Ringkasan</div>
+</div>
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Memuat data keuangan…</p></div>
+}
+else if (activeTab == 0)
+{
+    <div class="card">
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>No. Pembayaran</th><th>Order</th><th>Metode</th><th>Channel</th>
+                        <th>Jumlah</th><th>Status</th><th>Tanggal</th><th>Aksi</th></tr>
+                </thead>
+                <tbody>
+                    @if (payments.Count == 0)
+                    {
+                        <tr><td colspan="8" class="text-muted">Belum ada transaksi pembayaran.</td></tr>
+                    }
+                    @foreach (var p in payments)
+                    {
+                        <tr>
+                            <td class="font-bold">@p.PaymentNumber</td>
+                            <td>@(p.Order?.OrderNumber ?? $"#{p.OrderId}")</td>
+                            <td>@MethodLabel(p.PaymentMethod)</td>
+                            <td>@p.PaymentChannel</td>
+                            <td class="font-bold">Rp @p.TotalAmount.ToString("N0")</td>
+                            <td><span class="badge @PaymentBadge(p.Status)">@p.Status</span></td>
+                            <td>@p.CreatedAt.ToString("dd MMM yy")</td>
+                            <td>
+                                @if (p.Status == "PENDING")
+                                {
+                                    <div class="flex gap-sm">
+                                        <button class="btn btn-success btn-sm" @onclick="() => ConfirmPayment(p)">✅ Konfirmasi</button>
+                                        <button class="btn btn-outline btn-sm" @onclick="() => FailPayment(p)">✕</button>
+                                    </div>
+                                }
+                                else if (p.PaidAt.HasValue)
+                                {
+                                    <small class="text-muted">@p.PaidAt.Value.ToString("dd MMM HH:mm")</small>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else if (activeTab == 1)
+{
+    <div class="card">
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>No. Invoice</th><th>Order</th><th>Subtotal</th><th>Pajak</th>
+                        <th>Total</th><th>Status</th><th>Jatuh Tempo</th><th>Aksi</th></tr>
+                </thead>
+                <tbody>
+                    @if (invoices.Count == 0)
+                    {
+                        <tr><td colspan="8" class="text-muted">Belum ada invoice.</td></tr>
+                    }
+                    @foreach (var inv in invoices)
+                    {
+                        <tr>
+                            <td class="font-bold">@inv.InvoiceNumber</td>
+                            <td>@(inv.Order?.OrderNumber ?? $"#{inv.OrderId}")</td>
+                            <td>Rp @inv.SubTotal.ToString("N0")</td>
+                            <td>Rp @inv.TaxAmount.ToString("N0")</td>
+                            <td class="font-bold">Rp @inv.TotalAmount.ToString("N0")</td>
+                            <td><span class="badge @(inv.Status == "PAID" ? "badge-success" : "badge-warning")">@inv.Status</span></td>
+                            <td>@inv.DueDate.ToString("dd MMM yy")</td>
+                            <td>
+                                <button class="btn btn-outline btn-sm" @onclick="() => PrintInvoice(inv)">
+                                    🖨️ Cetak / PDF
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else if (activeTab == 2)
+{
+    <div class="grid grid-3 mb-md">
+        <div class="stat-card">
+            <div class="stat-icon green">✅</div>
+            <div>
+                <div class="stat-value">@claims.Count(c => c.Status == "APPROVED")</div>
+                <div class="stat-label">Klaim disetujui</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon orange">⏳</div>
+            <div>
+                <div class="stat-value">@claims.Count(c => c.Status == "SUBMITTED" || c.Status == "REVIEWING")</div>
+                <div class="stat-label">Menunggu review</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon purple">💸</div>
+            <div>
+                <div class="stat-value">Rp @claims.Where(c => c.Status == "APPROVED").Sum(c => c.ApprovedAmount ?? 0).ToString("N0")</div>
+                <div class="stat-label">Total dibayarkan</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><span class="card-title">🛡️ Klaim Asuransi</span></div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>No. Klaim</th><th>Order</th><th>Nilai Klaim</th><th>Disetujui</th>
+                        <th>Alasan</th><th>Status</th><th>Aksi</th></tr>
+                </thead>
+                <tbody>
+                    @if (claims.Count == 0)
+                    {
+                        <tr><td colspan="7" class="text-muted">Belum ada klaim asuransi.</td></tr>
+                    }
+                    @foreach (var claim in claims)
+                    {
+                        <tr>
+                            <td class="font-bold">@claim.ClaimNumber</td>
+                            <td>@(claim.Order?.OrderNumber ?? $"#{claim.OrderId}")</td>
+                            <td>Rp @claim.ClaimAmount.ToString("N0")</td>
+                            <td>@(claim.ApprovedAmount.HasValue ? $"Rp {claim.ApprovedAmount.Value:N0}" : "—")</td>
+                            <td>@claim.ClaimReason</td>
+                            <td><span class="badge @ClaimBadge(claim.Status)">@claim.Status</span></td>
+                            <td>
+                                @if (canReview && claim.Status is "SUBMITTED" or "REVIEWING")
+                                {
+                                    <div class="flex gap-sm">
+                                        <button class="btn btn-success btn-sm" @onclick="() => ReviewClaim(claim, true)">Setujui</button>
+                                        <button class="btn btn-outline btn-sm" @onclick="() => ReviewClaim(claim, false)">Tolak</button>
+                                    </div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else
+{
+    <div class="grid grid-4 mb-md">
+        <div class="stat-card">
+            <div class="stat-icon green">💰</div>
+            <div>
+                <div class="stat-value">Rp @(summary?.TotalCollected.ToString("N0") ?? "0")</div>
+                <div class="stat-label">Terkumpul</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon orange">⏳</div>
+            <div>
+                <div class="stat-value">Rp @(summary?.TotalOutstanding.ToString("N0") ?? "0")</div>
+                <div class="stat-label">Belum dibayar</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon blue">🧾</div>
+            <div>
+                <div class="stat-value">Rp @(summary?.TaxCollected.ToString("N0") ?? "0")</div>
+                <div class="stat-label">PPN terkumpul</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon purple">🛡️</div>
+            <div>
+                <div class="stat-value">Rp @(summary?.InsurancePremium.ToString("N0") ?? "0")</div>
+                <div class="stat-label">Premi asuransi</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><span class="card-title">📊 Pembayaran per Metode</span></div>
+        <div id="methodChart" class="chart-container" style="height:260px;"></div>
+    </div>
+}
+
+@code {
+    private int activeTab;
+    private bool isLoading = true;
+    private bool isError;
+    private bool canReview;
+    private bool chartPending;
+    private string? message;
+
+    private List<Payment> payments = new();
+    private List<Invoice> invoices = new();
+    private List<InsuranceClaim> claims = new();
+    private FinanceSummary? summary;
+
+    protected override async Task OnInitializedAsync()
+    {
+        canReview = await CurrentUser.IsInRoleAsync("Admin", "Manager");
+        await LoadAll();
+    }
+
+    /// <summary>
+    /// Switching tabs removes the previous tab's markup from the DOM, and the chart's SVG goes with
+    /// it. Drawing it once after load therefore left "Pembayaran per Metode" blank for anyone who
+    /// visited another tab and came back — so every entry into the summary tab re-arms the draw.
+    /// </summary>
+    private void SetTab(int tab)
+    {
+        activeTab = tab;
+        chartPending = tab == 3;
+    }
+
+    /// <summary>
+    /// Loads all four tabs' data. Invoices and claims were previously never queried, so those
+    /// tabs always rendered empty.
+    /// </summary>
+    private async Task LoadAll()
+    {
+        isLoading = true;
+        message = null;
+
+        try
+        {
+            payments = await PaymentService.GetPaymentsAsync(1, 100);
+            invoices = await InvoiceService.GetInvoicesAsync(1, 100);
+            claims = await InsuranceService.GetClaimsAsync();
+            summary = await PaymentService.GetFinanceSummaryAsync(90);
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal memuat data: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            chartPending = true;
+        }
+    }
+
+    private async Task ConfirmPayment(Payment payment)
+    {
+        try
+        {
+            await PaymentService.ConfirmPaymentAsync(payment.Id,
+                $"TXN-{Guid.NewGuid().ToString("N")[..10].ToUpper()}");
+
+            // Reload first: LoadAll clears `message`, so setting it beforehand meant the
+            // confirmation feedback was wiped before it ever rendered.
+            await LoadAll();
+            isError = false;
+            message = $"Pembayaran {payment.PaymentNumber} dikonfirmasi.";
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal konfirmasi: {ex.Message}";
+        }
+    }
+
+    private async Task FailPayment(Payment payment)
+    {
+        await PaymentService.FailPaymentAsync(payment.Id, "Dibatalkan oleh operator");
+        await LoadAll();
+        isError = false;
+        message = $"Pembayaran {payment.PaymentNumber} ditandai gagal.";
+    }
+
+    /// <summary>Renders the invoice HTML and hands it to the browser's print dialog (print-to-PDF).</summary>
+    private async Task PrintInvoice(Invoice invoice)
+    {
+        try
+        {
+            var html = await InvoiceService.RenderInvoiceHtmlAsync(invoice.Id);
+            var opened = await JS.InvokeAsync<bool>("ngibrid.printHtml", html);
+            if (!opened)
+            {
+                isError = true;
+                message = "Popup diblokir browser. Izinkan popup untuk mencetak invoice.";
+            }
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal membuat invoice: {ex.Message}";
+        }
+    }
+
+    private async Task ReviewClaim(InsuranceClaim claim, bool approve)
+    {
+        try
+        {
+            await InsuranceService.ReviewClaimAsync(claim.Id, approve,
+                approve ? claim.ClaimAmount : null,
+                approve ? null : "Tidak memenuhi syarat klaim.");
+            await LoadAll();
+            isError = false;
+            message = $"Klaim {claim.ClaimNumber} {(approve ? "disetujui" : "ditolak")}.";
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal memproses klaim: {ex.Message}";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!chartPending || activeTab != 3 || summary == null) return;
+        chartPending = false;
+
+        try
+        {
+            var data = summary.ByMethod
+                .Select(kv => new { label = MethodLabel(kv.Key), value = (double)kv.Value })
+                .ToList();
+
+            await JS.InvokeVoidAsync("ngibridCharts.barChart", "methodChart", data);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception) { }
+    }
+
+    private static string MethodLabel(string method) => method switch
+    {
+        "E_WALLET" => "E-Wallet",
+        "BANK_TRANSFER" => "Transfer Bank",
+        "CREDIT_CARD" => "Kartu Kredit",
+        "COD" => "COD",
+        _ => method
+    };
+
+    private static string PaymentBadge(string status) => status switch
+    {
+        "PAID" => "badge-success",
+        "PENDING" => "badge-warning",
+        "REFUNDED" => "badge-info",
+        _ => "badge-danger"
+    };
+
+    private static string ClaimBadge(string status) => status switch
+    {
+        "APPROVED" => "badge-success",
+        "SUBMITTED" or "REVIEWING" => "badge-warning",
+        "PAID" => "badge-info",
+        _ => "badge-danger"
+    };
+}

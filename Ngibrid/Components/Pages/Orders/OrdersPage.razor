@@ -1,0 +1,808 @@
+@page "/orders"
+@attribute [Authorize]
+@inject OrderService OrderService
+@inject DynamicPricingService PricingService
+@inject BarcodeService Barcodes
+@inject InvoiceService InvoiceService
+@inject CurrentUserService CurrentUser
+@inject CityService Cities
+@inject PaymentService PaymentService
+
+<PageTitle>Pesanan - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">📦 Manajemen Pesanan</h1>
+        <p class="text-muted">Buat pesanan, cetak label, dan pantau status pengiriman</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenCreate">+ Pesanan Baru</button>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+}
+
+<div class="card mb-md">
+    <div class="flex gap-md" style="flex-wrap:wrap;">
+        <input class="form-input" style="flex:1;min-width:200px;" placeholder="🔍 Cari order / resi / penerima…"
+               value="@searchQuery" @onchange="OnSearchChanged" />
+        <select class="form-select" style="width:auto;" value="@statusFilter" @onchange="OnStatusChanged">
+            <option value="">Semua status</option>
+            <option value="CREATED">Dibuat</option>
+            <option value="PICKED_UP">Dijemput</option>
+            <option value="IN_TRANSIT">Dalam perjalanan</option>
+            <option value="OUT_FOR_DELIVERY">Diantar</option>
+            <option value="DELIVERED">Terkirim</option>
+            <option value="FAILED">Gagal</option>
+            <option value="CANCELLED">Dibatalkan</option>
+        </select>
+        <button class="btn btn-outline btn-sm" @onclick="LoadOrders">🔄 Refresh</button>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Memuat pesanan…</p></div>
+}
+else if (orders.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-state-icon">📭</div>
+        <p>Tidak ada pesanan yang cocok.</p>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>Order</th><th>Penerima</th><th>Rute</th><th>Layanan</th>
+                        <th>Status</th><th>Total</th><th>Tanggal</th><th>Aksi</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var o in orders)
+                    {
+                        <tr>
+                            <td>
+                                <div class="font-bold">@o.OrderNumber</div>
+                                <small class="text-muted">@o.TrackingNumber</small>
+                            </td>
+                            <td>
+                                <div>@o.RecipientName</div>
+                                <small class="text-muted">@o.RecipientPhone</small>
+                            </td>
+                            <td><small>@ShortCity(o.SenderCity) → @ShortCity(o.RecipientCity)</small></td>
+                            <td><span class="badge @ServiceBadge(o.ServiceType)">@o.ServiceType</span></td>
+                            <td><span class="badge @StatusBadge(o.Status)">@o.Status</span></td>
+                            <td class="font-bold">Rp @o.TotalAmount.ToString("N0")</td>
+                            <td>@o.CreatedAt.ToString("dd MMM yy")</td>
+                            <td>
+                                <div class="flex gap-sm">
+                                    <button class="btn btn-outline btn-sm" title="Detail" @onclick="() => ViewOrder(o)">👁️</button>
+                                    <button class="btn btn-outline btn-sm" title="Lacak" @onclick="() => Track(o)">📍</button>
+                                    <button class="btn btn-outline btn-sm" title="Label" @onclick="() => ShowLabel(o)">🏷️</button>
+                                    @if (IsPayable(o))
+                                    {
+                                        <button class="btn btn-primary btn-sm" title="Bayar pesanan"
+                                                @onclick="() => OpenPayment(o)">💳 Bayar</button>
+                                    }
+                                    else if (o.Payment?.Status == "PAID")
+                                    {
+                                        <span class="badge badge-success" title="@($"Dibayar {o.Payment.PaidAt:dd MMM HH:mm} · {o.Payment.PaymentChannel}")">✅ Lunas</span>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="flex-between" style="margin-top:12px;">
+            <span class="text-muted">Menampilkan @orders.Count dari @totalCount pesanan</span>
+            <div class="flex gap-sm">
+                <button class="btn btn-outline btn-sm" disabled="@(currentPage <= 1)" @onclick="PreviousPage">← Sebelumnya</button>
+                <span style="align-self:center;">Hal. @currentPage</span>
+                <button class="btn btn-outline btn-sm" disabled="@(currentPage * PageSize >= totalCount)" @onclick="NextPage">Berikutnya →</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ─── Create order ─── *@
+@if (showCreate)
+{
+    <div class="modal-backdrop" @onclick="() => showCreate = false">
+        <div class="modal-content" @onclick:stopPropagation="true" style="max-width:640px;">
+            <div class="card-header">
+                <span class="card-title">📝 Pesanan Baru</span>
+                <button class="btn btn-outline btn-sm" @onclick="() => showCreate = false">✕</button>
+            </div>
+
+            <EditForm Model="newOrder" OnValidSubmit="CreateOrder">
+                <h4>Pengirim</h4>
+                <div class="grid grid-2">
+                    <div class="form-group"><label class="form-label">Nama *</label><InputText class="form-input" @bind-Value="newOrder.SenderName" /></div>
+                    <div class="form-group"><label class="form-label">Telepon *</label><InputText class="form-input" @bind-Value="newOrder.SenderPhone" /></div>
+                    <div class="form-group">
+                        <label class="form-label">Propinsi *</label>
+                        <select class="form-select" value="@newOrder.SenderProvince" @onchange="OnSenderProvinceChanged">
+                            <option value="">— Pilih propinsi —</option>
+                            @foreach (var p in provinces)
+                            {
+                                <option value="@p">@p</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Kota / Kabupaten *</label>
+                        <select class="form-select" value="@newOrder.SenderCity" @onchange="OnSenderCityChanged"
+                                disabled="@(senderCities.Count == 0)">
+                            <option value="">@(senderCities.Count == 0 ? "— Pilih propinsi dulu —" : "— Pilih kota —")</option>
+                            @foreach (var c in senderCities)
+                            {
+                                <option value="@c.FullName">@c.FullName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group" style="grid-column:1/-1;"><label class="form-label">Alamat *</label><InputText class="form-input" @bind-Value="newOrder.SenderAddress" /></div>
+                </div>
+
+                <h4 style="margin-top:12px;">Penerima</h4>
+                <div class="grid grid-2">
+                    <div class="form-group"><label class="form-label">Nama *</label><InputText class="form-input" @bind-Value="newOrder.RecipientName" /></div>
+                    <div class="form-group"><label class="form-label">Telepon *</label><InputText class="form-input" @bind-Value="newOrder.RecipientPhone" /></div>
+                    <div class="form-group">
+                        <label class="form-label">Propinsi *</label>
+                        <select class="form-select" value="@newOrder.RecipientProvince" @onchange="OnRecipientProvinceChanged">
+                            <option value="">— Pilih propinsi —</option>
+                            @foreach (var p in provinces)
+                            {
+                                <option value="@p">@p</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Kota / Kabupaten *</label>
+                        <select class="form-select" value="@newOrder.RecipientCity" @onchange="OnRecipientCityChanged"
+                                disabled="@(recipientCities.Count == 0)">
+                            <option value="">@(recipientCities.Count == 0 ? "— Pilih propinsi dulu —" : "— Pilih kota —")</option>
+                            @foreach (var c in recipientCities)
+                            {
+                                <option value="@c.FullName">@c.FullName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group" style="grid-column:1/-1;"><label class="form-label">Alamat *</label><InputText class="form-input" @bind-Value="newOrder.RecipientAddress" /></div>
+                </div>
+
+                <h4 style="margin-top:12px;">Paket</h4>
+                <div class="form-group">
+                    <label class="form-label">Deskripsi *</label>
+                    <InputText class="form-input" @bind-Value="newOrder.PackageDescription" />
+                </div>
+                <div class="grid grid-4">
+                    <div class="form-group"><label class="form-label">Berat (kg)</label><InputNumber class="form-input" @bind-Value="newOrder.WeightKg" /></div>
+                    <div class="form-group"><label class="form-label">P (cm)</label><InputNumber class="form-input" @bind-Value="newOrder.LengthCm" /></div>
+                    <div class="form-group"><label class="form-label">L (cm)</label><InputNumber class="form-input" @bind-Value="newOrder.WidthCm" /></div>
+                    <div class="form-group"><label class="form-label">T (cm)</label><InputNumber class="form-input" @bind-Value="newOrder.HeightCm" /></div>
+                </div>
+
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Layanan</label>
+                        <select class="form-select" @bind="newOrder.ServiceType">
+                            <option value="ECO">Eco (5-7 hari)</option>
+                            <option value="REG">Regular (2-4 hari)</option>
+                            <option value="EXP">Express (1-2 hari)</option>
+                            <option value="SAMEDAY">Sameday</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Nilai barang (untuk asuransi)</label>
+                        <InputNumber class="form-input" @bind-Value="declaredValue" />
+                    </div>
+                </div>
+
+                <div class="flex gap-md" style="flex-wrap:wrap;">
+                    <label style="display:flex;align-items:center;gap:6px;">
+                        <InputCheckbox @bind-Value="newOrder.HasInsurance" /> Asuransikan paket
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;">
+                        <InputCheckbox @bind-Value="newOrder.IsEcoDelivery" /> Eco-delivery (carbon offset)
+                    </label>
+                </div>
+
+                @if (quote != null)
+                {
+                    <div class="alert alert-info" style="margin-top:12px;">
+                        <div>@newOrder.SenderCity → @newOrder.RecipientCity</div>
+                        Estimasi: <strong>Rp @quote.TotalPrice.ToString("N0")</strong>
+                        (jarak ±@quote.EstimatedDistanceKm.ToString("N0") km, berat ditagih @chargeableWeight.ToString("F2") kg)
+                    </div>
+                }
+
+                <div class="flex gap-sm" style="justify-content:flex-end;margin-top:16px;">
+                    <button type="button" class="btn btn-outline" @onclick="EstimatePrice">💰 Hitung Ongkir</button>
+                    <button type="button" class="btn btn-outline" @onclick="() => showCreate = false">Batal</button>
+                    <button type="submit" class="btn btn-primary" disabled="@isBusy">
+                        @(isBusy ? "Membuat…" : "Buat Pesanan")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@* ─── Order detail ─── *@
+@if (selectedOrder != null)
+{
+    <div class="modal-backdrop" @onclick="() => selectedOrder = null">
+        <div class="modal-content" @onclick:stopPropagation="true" style="max-width:760px;">
+            <div class="card-header">
+                <span class="card-title">📋 @selectedOrder.OrderNumber</span>
+                <button class="btn btn-outline btn-sm" @onclick="() => selectedOrder = null">✕</button>
+            </div>
+
+            <div class="grid grid-2">
+                <div><strong>Resi:</strong> <code>@selectedOrder.TrackingNumber</code></div>
+                <div><strong>Status:</strong> <span class="badge @StatusBadge(selectedOrder.Status)">@selectedOrder.Status</span></div>
+                <div><strong>Pengirim:</strong> @selectedOrder.SenderName<br/><small class="text-muted">@selectedOrder.SenderCity, @selectedOrder.SenderProvince</small></div>
+                <div><strong>Penerima:</strong> @selectedOrder.RecipientName<br/><small class="text-muted">@selectedOrder.RecipientCity, @selectedOrder.RecipientProvince</small></div>
+                <div><strong>Berat:</strong> @selectedOrder.WeightKg kg (vol. @selectedOrder.VolumetricWeight kg)</div>
+                <div><strong>Total:</strong> Rp @selectedOrder.TotalAmount.ToString("N0")</div>
+                <div><strong>Dibuat:</strong> @selectedOrder.CreatedAt.ToString("dd MMM yyyy HH:mm")</div>
+                <div><strong>Estimasi tiba:</strong> @selectedOrder.EstimatedDeliveryDate?.ToString("dd MMM yyyy")</div>
+                @if (selectedOrder.CarbonEmissionGram.HasValue)
+                {
+                    <div><strong>Emisi CO₂:</strong> @selectedOrder.CarbonEmissionGram.Value.ToString("N0") g</div>
+                }
+                <div><strong>Asuransi:</strong> @(selectedOrder.HasInsurance ? $"Ya (Rp {selectedOrder.InsuranceFee:N0})" : "Tidak")</div>
+            </div>
+
+            @if (selectedOrder.StatusHistory is { Count: > 0 })
+            {
+                <h4 style="margin-top:16px;">📜 Riwayat Status</h4>
+                <div class="timeline">
+                    @foreach (var h in selectedOrder.StatusHistory.OrderByDescending(x => x.CreatedAt))
+                    {
+                        <div class="timeline-item">
+                            <div class="timeline-marker @(h.Status == selectedOrder.Status ? "active" : "")"></div>
+                            <div class="timeline-content">
+                                <div class="flex-between">
+                                    <span class="badge @StatusBadge(h.Status)">@h.Status</span>
+                                    <small>@h.CreatedAt.ToString("dd MMM HH:mm")</small>
+                                </div>
+                                <p>@h.Notes</p>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            <div class="flex gap-sm" style="margin-top:16px;flex-wrap:wrap;">
+                <button class="btn btn-outline btn-sm" @onclick="() => ShowLabel(selectedOrder)">🏷️ Cetak Label</button>
+                <button class="btn btn-outline btn-sm" @onclick="() => PrintInvoice(selectedOrder)">🧾 Invoice</button>
+                <button class="btn btn-outline btn-sm" @onclick="() => Track(selectedOrder)">📍 Lacak</button>
+                @if (IsPayable(selectedOrder))
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="() => OpenPayment(selectedOrder)">💳 Bayar</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@* ─── Checkout ─── *@
+@if (payOrder != null)
+{
+    <div class="modal-backdrop" @onclick="ClosePayment">
+        <div class="modal-content" @onclick:stopPropagation="true" style="max-width:520px;">
+            <div class="card-header">
+                <span class="card-title">💳 Bayar @payOrder.OrderNumber</span>
+                <button class="btn btn-outline btn-sm" @onclick="ClosePayment">✕</button>
+            </div>
+
+            @if (createdPayment == null)
+            {
+                <div class="alert alert-info">
+                    Total tagihan: <strong>Rp @payOrder.TotalAmount.ToString("N0")</strong>
+                    <br /><small>@payOrder.SenderCity → @payOrder.RecipientCity · @payOrder.ServiceType</small>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Metode Pembayaran</label>
+                    <select class="form-select" value="@payMethod" @onchange="OnMethodChanged">
+                        @foreach (var method in PaymentService.Channels.Keys)
+                        {
+                            <option value="@method">@MethodLabel(method)</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">@(payMethod == "COD" ? "Penagihan" : "Channel")</label>
+                    <select class="form-select" value="@payChannel" @onchange="e => payChannel = e.Value?.ToString() ?? payChannel">
+                        @foreach (var channel in PaymentService.Channels[payMethod])
+                        {
+                            <option value="@channel">@channel</option>
+                        }
+                    </select>
+                </div>
+
+                @if (!string.IsNullOrEmpty(payError))
+                {
+                    <div class="alert alert-danger">@payError</div>
+                }
+
+                <div class="flex gap-sm" style="justify-content:flex-end;margin-top:16px;">
+                    <button class="btn btn-outline" @onclick="ClosePayment">Batal</button>
+                    <button class="btn btn-primary" disabled="@isPaying" @onclick="SubmitPayment">
+                        @(isPaying ? "Memproses…" : "Bayar Sekarang")
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-success">
+                    Tagihan dibuat: <strong>@createdPayment.PaymentNumber</strong>
+                </div>
+
+                <div class="grid grid-2">
+                    <div><strong>Metode:</strong> @MethodLabel(createdPayment.PaymentMethod)</div>
+                    <div><strong>Channel:</strong> @createdPayment.PaymentChannel</div>
+                    <div><strong>Jumlah:</strong> Rp @createdPayment.TotalAmount.ToString("N0")</div>
+                    <div><strong>Status:</strong> <span class="badge badge-warning">@createdPayment.Status</span></div>
+                    @if (createdPayment.ExpiredAt.HasValue)
+                    {
+                        <div style="grid-column:1/-1;">
+                            <strong>Bayar sebelum:</strong> @createdPayment.ExpiredAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+                        </div>
+                    }
+                </div>
+
+                <div class="alert alert-info" style="margin-top:12px;">
+                    @if (createdPayment.PaymentMethod == "COD")
+                    {
+                        <text>Bayar tunai ke kurir saat paket diserahkan. Status berubah menjadi lunas setelah kurir menyetorkan dananya.</text>
+                    }
+                    else
+                    {
+                        <text>
+                            Transfer <strong>Rp @createdPayment.TotalAmount.ToString("N0")</strong> ke
+                            @createdPayment.PaymentChannel dengan berita acara <code>@createdPayment.PaymentNumber</code>.
+                        </text>
+                    }
+                    <br />
+                    <small>
+                        Gateway pembayaran (Midtrans/Xendit) belum diaktifkan di instalasi ini, jadi
+                        pelunasan diverifikasi manual oleh petugas di halaman Pembayaran.
+                    </small>
+                </div>
+
+                <div class="flex gap-sm" style="justify-content:flex-end;margin-top:8px;">
+                    <button class="btn btn-outline" @onclick="() => PrintInvoice(payOrder)">🧾 Invoice</button>
+                    <button class="btn btn-primary" @onclick="ClosePayment">Selesai</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* ─── Shipping label with QR + barcode ─── *@
+@if (labelOrder != null)
+{
+    <div class="modal-backdrop" @onclick="() => labelOrder = null">
+        <div class="modal-content" @onclick:stopPropagation="true" style="max-width:420px;">
+            <div class="card-header">
+                <span class="card-title">🏷️ Label Pengiriman</span>
+                <button class="btn btn-outline btn-sm" @onclick="() => labelOrder = null">✕</button>
+            </div>
+
+            <div class="shipping-label" id="shipping-label">
+                <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:8px;">
+                    <strong style="font-size:18px;">🚚 NGIBRID LOGISTICS</strong><br/>
+                    <span style="font-size:12px;">@labelOrder.ServiceType · @labelOrder.OrderNumber</span>
+                </div>
+
+                <div style="text-align:center;">
+                    <img src="@qrDataUri" alt="QR @labelOrder.TrackingNumber" style="width:150px;height:150px;" />
+                    <div style="margin-top:6px;"><code style="font-size:14px;font-weight:700;">@labelOrder.TrackingNumber</code></div>
+                    <img src="@barcodeDataUri" alt="Barcode" style="width:100%;max-width:280px;margin-top:8px;" />
+                </div>
+
+                <div style="margin-top:10px;font-size:12px;border-top:1px dashed #999;padding-top:8px;">
+                    <div><strong>Dari:</strong> @labelOrder.SenderName, @labelOrder.SenderCity</div>
+                    <div><strong>Ke:</strong> @labelOrder.RecipientName, @labelOrder.RecipientCity, @labelOrder.RecipientProvince</div>
+                    <div>@labelOrder.RecipientAddress</div>
+                    <div><strong>Telp:</strong> @labelOrder.RecipientPhone</div>
+                    <div style="margin-top:4px;">
+                        <strong>Berat:</strong> @labelOrder.WeightKg kg ·
+                        <strong>Isi:</strong> @labelOrder.PackageDescription
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" style="width:100%;margin-top:12px;" @onclick="PrintLabel">
+                🖨️ Cetak Label
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private const int PageSize = 25;
+
+    private List<Order> orders = new();
+    private IReadOnlyList<string> provinces = Array.Empty<string>();
+    private List<City> senderCities = new();
+    private List<City> recipientCities = new();
+    private Order? selectedOrder;
+    private Order? labelOrder;
+    private Order? payOrder;
+    private Payment? createdPayment;
+    private string payMethod = "E_WALLET";
+    private string payChannel = "GoPay";
+    private string? payError;
+    private bool isPaying;
+    private Order newOrder = NewOrderTemplate();
+    private PriceResult? quote;
+
+    private string searchQuery = "";
+    private string statusFilter = "";
+    private string? message;
+    private string qrDataUri = "";
+    private string barcodeDataUri = "";
+    private decimal? declaredValue;
+    private double chargeableWeight;
+    private int currentPage = 1;
+    private int totalCount;
+    private bool isLoading = true;
+    private bool isBusy;
+    private bool isError;
+    private bool showCreate;
+    private bool isStaff;
+    private long? userId;
+
+    private static Order NewOrderTemplate() => new()
+    {
+        ServiceType = "REG",
+        WeightKg = 1,
+        LengthCm = 20,
+        WidthCm = 15,
+        HeightCm = 10,
+        Currency = "IDR"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        userId = await CurrentUser.GetUserIdAsync();
+        isStaff = await CurrentUser.IsStaffAsync();
+        provinces = await Cities.GetProvincesAsync();
+        await LoadOrders();
+    }
+
+    // ─── Cascading province → city pickers ───
+    // Bound with value/@onchange rather than @bind so the dependent list can be refilled and the
+    // stale quote dropped in the same handler.
+
+    private async Task OnSenderProvinceChanged(ChangeEventArgs e)
+    {
+        newOrder.SenderProvince = e.Value?.ToString();
+        // The previously picked city belongs to the old province, so it cannot stand.
+        newOrder.SenderCity = null;
+        senderCities = (await Cities.GetCitiesAsync(newOrder.SenderProvince)).ToList();
+        quote = null;
+    }
+
+    private void OnSenderCityChanged(ChangeEventArgs e)
+    {
+        newOrder.SenderCity = e.Value?.ToString();
+        quote = null;
+    }
+
+    private async Task OnRecipientProvinceChanged(ChangeEventArgs e)
+    {
+        newOrder.RecipientProvince = e.Value?.ToString();
+        newOrder.RecipientCity = null;
+        recipientCities = (await Cities.GetCitiesAsync(newOrder.RecipientProvince)).ToList();
+        quote = null;
+    }
+
+    private void OnRecipientCityChanged(ChangeEventArgs e)
+    {
+        newOrder.RecipientCity = e.Value?.ToString();
+        quote = null;
+    }
+
+    /// <summary>
+    /// Filtering and paging happen in SQL. Customers only ever see their own orders; the page
+    /// used to load orders for a hardcoded customer id regardless of who was signed in.
+    /// </summary>
+    private async Task LoadOrders()
+    {
+        isLoading = true;
+        try
+        {
+            if (isStaff)
+            {
+                orders = await OrderService.GetOrdersAsync(searchQuery, statusFilter, currentPage, PageSize);
+                totalCount = await OrderService.CountOrdersAsync(searchQuery, statusFilter);
+            }
+            else if (userId is not null)
+            {
+                var all = await OrderService.GetCustomerOrdersAsync(userId.Value, currentPage, PageSize);
+                orders = all
+                    .Where(o => string.IsNullOrEmpty(statusFilter) || o.Status == statusFilter)
+                    .Where(o => string.IsNullOrEmpty(searchQuery)
+                        || o.OrderNumber.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                        || (o.TrackingNumber?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false)
+                        || o.RecipientName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                totalCount = orders.Count;
+            }
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal memuat pesanan: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnSearchChanged(ChangeEventArgs e)
+    {
+        searchQuery = e.Value?.ToString() ?? "";
+        currentPage = 1;
+        await LoadOrders();
+    }
+
+    private async Task OnStatusChanged(ChangeEventArgs e)
+    {
+        statusFilter = e.Value?.ToString() ?? "";
+        currentPage = 1;
+        await LoadOrders();
+    }
+
+    private async Task NextPage() { currentPage++; await LoadOrders(); }
+    private async Task PreviousPage() { if (currentPage > 1) { currentPage--; await LoadOrders(); } }
+
+    private void OpenCreate()
+    {
+        newOrder = NewOrderTemplate();
+        declaredValue = null;
+        quote = null;
+        senderCities.Clear();
+        recipientCities.Clear();
+        showCreate = true;
+    }
+
+    private async Task EstimatePrice()
+    {
+        if (string.IsNullOrWhiteSpace(newOrder.SenderCity) || string.IsNullOrWhiteSpace(newOrder.RecipientCity))
+        {
+            isError = true;
+            message = "Pilih propinsi dan kota pengirim serta penerima dulu untuk menghitung ongkir.";
+            return;
+        }
+
+        chargeableWeight = Math.Max(newOrder.WeightKg,
+            newOrder.LengthCm * newOrder.WidthCm * newOrder.HeightCm / 6000.0);
+
+        // The province goes along: "Bandung" alone cannot tell the kota from the kabupaten seat.
+        quote = await PricingService.CalculatePriceAsync(
+            newOrder.SenderCity, newOrder.RecipientCity, chargeableWeight, newOrder.ServiceType,
+            newOrder.SenderProvince, newOrder.RecipientProvince);
+    }
+
+    private async Task CreateOrder()
+    {
+        if (userId is null) return;
+
+        // The selects can be left on their placeholder, and EditForm has no validation attributes
+        // on these — an order with no city would price off a fallback coordinate.
+        if (string.IsNullOrWhiteSpace(newOrder.SenderCity) || string.IsNullOrWhiteSpace(newOrder.RecipientCity))
+        {
+            isError = true;
+            message = "Propinsi dan kota pengirim serta penerima wajib dipilih.";
+            return;
+        }
+
+        isBusy = true;
+
+        try
+        {
+            newOrder.CustomerId = userId.Value;
+            newOrder.DeclaredValue = declaredValue;
+
+            var created = await OrderService.CreateOrderAsync(newOrder);
+            isError = false;
+            message = $"✅ Pesanan {created.OrderNumber} dibuat. Resi: {created.TrackingNumber}";
+            showCreate = false;
+            newOrder = NewOrderTemplate();
+            declaredValue = null;
+            quote = null;
+            await LoadOrders();
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal membuat pesanan: {ex.Message}";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task ViewOrder(Order order) => selectedOrder = await OrderService.GetOrderAsync(order.Id);
+
+    // ─── Checkout ───
+
+    /// <summary>
+    /// An order can be paid while nothing has settled yet. A cancelled order is never payable, and
+    /// a PAID/REFUNDED one is done — but a PENDING or FAILED payment may be re-opened, which is how
+    /// a customer switches from a transfer they never completed to an e-wallet.
+    /// </summary>
+    private static bool IsPayable(Order? order) =>
+        order is not null
+        && order.Status is not ("CANCELLED" or "RETURNED")
+        && order.Payment?.Status is not ("PAID" or "REFUNDED");
+
+    private void OpenPayment(Order order)
+    {
+        // Customers only ever see their own orders in this list, but the guard costs nothing and
+        // keeps the intent explicit.
+        if (!isStaff && order.CustomerId != userId) return;
+
+        payOrder = order;
+        createdPayment = null;
+        payError = null;
+
+        // Pre-select whatever was chosen before, so re-opening an unpaid order lands where the
+        // customer left off rather than resetting to the first method.
+        payMethod = order.Payment?.PaymentMethod is { } m && PaymentService.Channels.ContainsKey(m)
+            ? m : "E_WALLET";
+        payChannel = PaymentService.Channels[payMethod]
+            .FirstOrDefault(c => c == order.Payment?.PaymentChannel)
+            ?? PaymentService.Channels[payMethod][0];
+    }
+
+    private void ClosePayment()
+    {
+        payOrder = null;
+        createdPayment = null;
+        payError = null;
+    }
+
+    /// <summary>The channel list depends on the method, so switching method must reset it.</summary>
+    private void OnMethodChanged(ChangeEventArgs e)
+    {
+        payMethod = e.Value?.ToString() ?? "E_WALLET";
+        if (!PaymentService.Channels.ContainsKey(payMethod)) payMethod = "E_WALLET";
+        payChannel = PaymentService.Channels[payMethod][0];
+    }
+
+    private async Task SubmitPayment()
+    {
+        if (payOrder == null) return;
+        isPaying = true;
+        payError = null;
+
+        try
+        {
+            createdPayment = await PaymentService.CreatePaymentAsync(payOrder.Id, payMethod, payChannel);
+            isError = false;
+            message = $"💳 Tagihan {createdPayment.PaymentNumber} dibuat untuk {payOrder.OrderNumber}.";
+
+            // Refresh so the row swaps its Bayar button for the paid/pending state.
+            await LoadOrders();
+        }
+        catch (Exception ex)
+        {
+            payError = ex.Message;
+        }
+        finally
+        {
+            isPaying = false;
+        }
+    }
+
+    private void Track(Order order) => Navigation.NavigateTo($"/tracking/{order.TrackingNumber}");
+
+    /// <summary>Generate the QR and Code128 barcode for the shipping label.</summary>
+    private void ShowLabel(Order order)
+    {
+        labelOrder = order;
+        var payload = order.TrackingNumber ?? order.OrderNumber;
+        qrDataUri = Barcodes.GenerateQrDataUri(payload, 6);
+        barcodeDataUri = Barcodes.GenerateBarcodeDataUri(payload);
+    }
+
+    private async Task PrintLabel()
+    {
+        if (labelOrder == null) return;
+
+        // Two '$' so the CSS braces stay literal; interpolation uses {{ }}.
+        var html = $$"""
+            <html><head><title>Label {{labelOrder.TrackingNumber}}</title>
+            <style>body{font-family:Arial,sans-serif;padding:16px;}
+            .lbl{border:2px solid #000;padding:12px;width:340px;}</style></head>
+            <body><div class="lbl">
+              <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:8px;">
+                <strong style="font-size:18px;">NGIBRID LOGISTICS</strong><br/>
+                <span style="font-size:12px;">{{labelOrder.ServiceType}} - {{labelOrder.OrderNumber}}</span>
+              </div>
+              <div style="text-align:center;margin-top:8px;">
+                <img src="{{qrDataUri}}" style="width:150px;height:150px;"/>
+                <div><code style="font-size:14px;font-weight:700;">{{labelOrder.TrackingNumber}}</code></div>
+                <img src="{{barcodeDataUri}}" style="width:280px;margin-top:6px;"/>
+              </div>
+              <div style="margin-top:10px;font-size:12px;border-top:1px dashed #999;padding-top:8px;">
+                <div><strong>Dari:</strong> {{labelOrder.SenderName}}, {{labelOrder.SenderCity}}</div>
+                <div><strong>Ke:</strong> {{labelOrder.RecipientName}}, {{labelOrder.RecipientCity}}, {{labelOrder.RecipientProvince}}</div>
+                <div>{{labelOrder.RecipientAddress}}</div>
+                <div><strong>Telp:</strong> {{labelOrder.RecipientPhone}}</div>
+                <div><strong>Berat:</strong> {{labelOrder.WeightKg}} kg</div>
+              </div>
+            </div></body></html>
+            """;
+
+        await JS.InvokeAsync<bool>("ngibrid.printHtml", html);
+    }
+
+    private async Task PrintInvoice(Order order)
+    {
+        try
+        {
+            var invoice = await InvoiceService.GetOrGenerateInvoiceAsync(order.Id);
+            var html = await InvoiceService.RenderInvoiceHtmlAsync(invoice.Id);
+            await JS.InvokeAsync<bool>("ngibrid.printHtml", html);
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal membuat invoice: {ex.Message}";
+        }
+    }
+
+    /// <summary>Table cells are narrow; "Kabupaten Bandung Barat" twice over does not fit.</summary>
+    private static string ShortCity(string? city) => city switch
+    {
+        null or "" => "-",
+        var c when c.StartsWith("Kabupaten ", StringComparison.Ordinal) => "Kab. " + c["Kabupaten ".Length..],
+        var c when c.StartsWith("Kota ", StringComparison.Ordinal) => c["Kota ".Length..],
+        var c => c
+    };
+
+    private static string MethodLabel(string method) => method switch
+    {
+        "E_WALLET" => "E-Wallet",
+        "BANK_TRANSFER" => "Transfer Bank",
+        "CREDIT_CARD" => "Kartu Kredit",
+        "COD" => "COD (bayar di tempat)",
+        _ => method
+    };
+
+    private static string ServiceBadge(string service) => service switch
+    {
+        "EXP" => "badge-warning",
+        "SAMEDAY" => "badge-danger",
+        "ECO" => "badge-success",
+        _ => "badge-default"
+    };
+
+    private static string StatusBadge(string status) => status switch
+    {
+        "DELIVERED" => "badge-success",
+        "IN_TRANSIT" or "OUT_FOR_DELIVERY" or "AT_WAREHOUSE" => "badge-info",
+        "PICKED_UP" => "badge-warning",
+        "FAILED" or "RETURNED" or "CANCELLED" => "badge-danger",
+        _ => "badge-default"
+    };
+}

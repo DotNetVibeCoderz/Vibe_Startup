@@ -1,0 +1,287 @@
+@page "/support"
+@attribute [Authorize]
+@inject SupportTicketService SupportService
+@inject CurrentUserService CurrentUser
+
+<PageTitle>Customer Support - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">🎧 Customer Support</h1>
+        <p class="text-muted">Bantuan, komplain, dan tiket dukungan 24/7</p>
+    </div>
+    <button class="btn btn-primary" @onclick="() => showNewTicket = true">+ Tiket Baru</button>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert alert-success">@message</div>
+}
+
+<div class="card mb-md">
+    <div class="flex gap-md" style="flex-wrap:wrap;align-items:center;">
+        <select class="form-select" style="width:auto;" value="@statusFilter" @onchange="OnFilterChanged">
+            <option value="">Semua status</option>
+            <option value="OPEN">Terbuka</option>
+            <option value="IN_PROGRESS">Diproses</option>
+            <option value="RESOLVED">Selesai</option>
+            <option value="CLOSED">Ditutup</option>
+        </select>
+        <span class="text-muted">@tickets.Count tiket@(isAgent ? " (semua pengguna)" : "")</span>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Memuat tiket…</p></div>
+}
+else if (tickets.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-state-icon">🎧</div>
+        <p>Belum ada tiket support. Klik "+ Tiket Baru" jika butuh bantuan.</p>
+    </div>
+}
+else
+{
+    <div class="grid grid-2 mb-md">
+        @foreach (var ticket in tickets)
+        {
+            <div class="card ticket-card" @onclick="() => ViewTicket(ticket)">
+                <div class="flex-between">
+                    <div>
+                        <strong>@ticket.TicketNumber</strong>
+                        <span class="badge @PriorityBadge(ticket.Priority)" style="margin-left:8px;">@ticket.Priority</span>
+                    </div>
+                    <span class="badge @StatusBadge(ticket.Status)">@ticket.Status</span>
+                </div>
+                <div style="margin-top:8px;"><strong>@ticket.Subject</strong></div>
+                <small class="text-muted">@ticket.Category · @ticket.CreatedAt.ToString("dd MMM HH:mm")</small>
+            </div>
+        }
+    </div>
+}
+
+@if (showNewTicket)
+{
+    <div class="modal-backdrop" @onclick="() => showNewTicket = false">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="card-header">
+                <span class="card-title">Tiket Support Baru</span>
+                <button class="btn btn-outline btn-sm" @onclick="() => showNewTicket = false">✕</button>
+            </div>
+            <EditForm Model="newTicket" OnValidSubmit="CreateTicket">
+                <div class="form-group">
+                    <label class="form-label">Subjek *</label>
+                    <InputText class="form-input" @bind-Value="newTicket.Subject" placeholder="Ringkas masalah Anda" />
+                </div>
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Kategori</label>
+                        <select class="form-select" @bind="newTicket.Category">
+                            <option value="GENERAL">Umum</option>
+                            <option value="COMPLAINT">Komplain</option>
+                            <option value="LOST_PACKAGE">Paket hilang</option>
+                            <option value="DAMAGE">Paket rusak</option>
+                            <option value="REFUND">Refund</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Prioritas</label>
+                        <select class="form-select" @bind="newTicket.Priority">
+                            <option value="LOW">Rendah</option>
+                            <option value="NORMAL">Normal</option>
+                            <option value="HIGH">Tinggi</option>
+                            <option value="URGENT">Mendesak</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Deskripsi</label>
+                    <textarea class="form-textarea" rows="4" @bind="firstMessage"
+                              placeholder="Jelaskan detail masalah Anda…"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;" disabled="@isBusy">
+                    @(isBusy ? "Membuat…" : "Buat Tiket")
+                </button>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@if (selectedTicket != null)
+{
+    <div class="modal-backdrop" @onclick="() => selectedTicket = null">
+        <div class="modal-content" @onclick:stopPropagation="true" style="max-width:720px;">
+            <div class="card-header">
+                <span class="card-title">🎫 @selectedTicket.TicketNumber</span>
+                <button class="btn btn-outline btn-sm" @onclick="() => selectedTicket = null">✕</button>
+            </div>
+
+            <h3 style="margin-bottom:4px;">@selectedTicket.Subject</h3>
+            <p class="text-muted">
+                @selectedTicket.Category · Prioritas @selectedTicket.Priority ·
+                <span class="badge @StatusBadge(selectedTicket.Status)">@selectedTicket.Status</span>
+            </p>
+
+            <div class="ticket-thread">
+                @if (selectedTicket.Messages == null || selectedTicket.Messages.Count == 0)
+                {
+                    <p class="text-muted">Belum ada percakapan pada tiket ini.</p>
+                }
+                else
+                {
+                    @foreach (var msg in selectedTicket.Messages.OrderBy(m => m.CreatedAt))
+                    {
+                        <div class="chat-message @(msg.SenderType == "CUSTOMER" ? "user-message" : "assistant-message")"
+                             style="max-width:100%;">
+                            <div class="message-avatar">@(msg.SenderType == "CUSTOMER" ? "👤" : "🎧")</div>
+                            <div class="message-bubble">
+                                <div>@msg.Message</div>
+                                <div class="message-time">@msg.SenderType · @msg.CreatedAt.ToString("dd/MM HH:mm")</div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+
+            @if (selectedTicket.Status is not ("RESOLVED" or "CLOSED"))
+            {
+                <div style="display:flex;gap:8px;margin-top:12px;">
+                    <input class="form-input" style="flex:1;" placeholder="Tulis balasan…" @bind="replyText"
+                           @bind:event="oninput" @onkeydown="OnReplyKeyDown" />
+                    <button class="btn btn-primary btn-sm" @onclick="SendReply"
+                            disabled="@string.IsNullOrWhiteSpace(replyText)">Kirim</button>
+                </div>
+            }
+
+            @if (isAgent)
+            {
+                <div class="flex gap-sm" style="margin-top:12px;flex-wrap:wrap;">
+                    <button class="btn btn-outline btn-sm" @onclick="@(() => ChangeStatus("IN_PROGRESS"))">Proses</button>
+                    <button class="btn btn-success btn-sm" @onclick="@(() => ChangeStatus("RESOLVED"))">Selesai</button>
+                    <button class="btn btn-outline btn-sm" @onclick="@(() => ChangeStatus("CLOSED"))">Tutup</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<SupportTicket> tickets = new();
+    private SupportTicket? selectedTicket;
+    private SupportTicket newTicket = new() { Category = "GENERAL", Priority = "NORMAL" };
+
+    private long? userId;
+    private bool isAgent;
+    private bool isLoading = true;
+    private bool isBusy;
+    private bool showNewTicket;
+    private string statusFilter = "";
+    private string replyText = "";
+    private string firstMessage = "";
+    private string? message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        userId = await CurrentUser.GetUserIdAsync();
+        isAgent = await CurrentUser.IsStaffAsync();
+        await LoadTickets();
+    }
+
+    /// <summary>
+    /// Loads tickets from the service — the page previously had no query at all and always
+    /// rendered an empty list. Agents see every ticket; customers see only their own.
+    /// </summary>
+    private async Task LoadTickets()
+    {
+        isLoading = true;
+        try
+        {
+            tickets = await SupportService.GetTicketsAsync(
+                isAgent ? null : userId,
+                string.IsNullOrEmpty(statusFilter) ? null : statusFilter);
+        }
+        catch (Exception ex)
+        {
+            message = $"Gagal memuat tiket: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnFilterChanged(ChangeEventArgs e)
+    {
+        statusFilter = e.Value?.ToString() ?? "";
+        await LoadTickets();
+    }
+
+    private async Task CreateTicket()
+    {
+        if (userId is null) return;
+        isBusy = true;
+
+        try
+        {
+            newTicket.UserId = userId.Value;
+            var created = await SupportService.CreateTicketAsync(newTicket);
+
+            if (!string.IsNullOrWhiteSpace(firstMessage))
+                await SupportService.AddMessageAsync(created.Id, userId.Value, firstMessage);
+
+            message = $"Tiket {created.TicketNumber} berhasil dibuat.";
+            showNewTicket = false;
+            newTicket = new SupportTicket { Category = "GENERAL", Priority = "NORMAL" };
+            firstMessage = "";
+            await LoadTickets();
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task ViewTicket(SupportTicket ticket) =>
+        selectedTicket = await SupportService.GetTicketAsync(ticket.Id);
+
+    private async Task OnReplyKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) await SendReply();
+    }
+
+    private async Task SendReply()
+    {
+        if (selectedTicket == null || userId is null || string.IsNullOrWhiteSpace(replyText)) return;
+
+        await SupportService.AddMessageAsync(selectedTicket.Id, userId.Value, replyText,
+            isAgent ? "AGENT" : "CUSTOMER");
+        replyText = "";
+        selectedTicket = await SupportService.GetTicketAsync(selectedTicket.Id);
+    }
+
+    private async Task ChangeStatus(string status)
+    {
+        if (selectedTicket == null) return;
+        await SupportService.UpdateTicketStatusAsync(selectedTicket.Id, status);
+        selectedTicket = await SupportService.GetTicketAsync(selectedTicket.Id);
+        await LoadTickets();
+    }
+
+    private static string PriorityBadge(string priority) => priority switch
+    {
+        "URGENT" => "badge-danger",
+        "HIGH" => "badge-warning",
+        _ => "badge-default"
+    };
+
+    private static string StatusBadge(string status) => status switch
+    {
+        "OPEN" => "badge-warning",
+        "IN_PROGRESS" => "badge-info",
+        "RESOLVED" => "badge-success",
+        "CLOSED" => "badge-default",
+        _ => "badge-info"
+    };
+}

@@ -1,0 +1,222 @@
+@page "/warehouse"
+@attribute [Authorize(Policy = "StaffArea")]
+@inject WarehouseService WarehouseService
+
+<PageTitle>Warehouse - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">🏭 Warehouse & Inventory</h1>
+        <p class="text-muted">Manajemen gudang, stok, dan inventaris dengan IoT sensor monitoring</p>
+    </div>
+    <button class="btn btn-primary" @onclick="() => showAddItem = true">+ Add Item</button>
+</div>
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Loading warehouses...</p></div>
+}
+else
+{
+    <div class="grid grid-4 mb-md">
+        @foreach (var wh in warehouses)
+        {
+            var pct = wh.TotalCapacityM3 > 0 ? wh.UsedCapacityM3 / wh.TotalCapacityM3 * 100 : 0;
+            <div class="card" style="cursor:pointer;@(selectedWarehouse?.Id == wh.Id ? "border:2px solid var(--accent);" : "")" @onclick="() => SelectWarehouse(wh)">
+                <div class="flex-between">
+                    <strong>@wh.Name</strong>
+                    <span class="badge @(wh.Status == "ACTIVE" ? "badge-success" : "badge-warning")">@wh.Status</span>
+                </div>
+                <div style="margin-top:4px;"><small class="text-muted">📍 @wh.City, @wh.Province</small></div>
+                <div class="progress-bar" style="margin-top:8px;">
+                    <div class="progress-fill" style="width:@pct%;background:@(pct > 80 ? "var(--danger)" : pct > 50 ? "var(--warning)" : "var(--success)");"></div>
+                </div>
+                <small class="text-muted">@wh.UsedCapacityM3.ToString("F0") / @wh.TotalCapacityM3.ToString("F0") m³ (@pct.ToString("F0")%)</small>
+            </div>
+        }
+    </div>
+
+    <div class="card mb-md">
+        <div class="card-header">
+            <span class="card-title">🗺️ Peta Jaringan Gudang</span>
+            <small class="text-muted">Klik penanda untuk melihat kapasitas</small>
+        </div>
+        <div id="warehouse-map" style="height:340px;border-radius:0 0 10px 10px;z-index:1;"></div>
+    </div>
+
+    @if (selectedWarehouse != null)
+    {
+        <div class="card mb-md">
+            <div class="card-header">
+                <span class="card-title">📦 Inventory - @selectedWarehouse.Name</span>
+                <div class="flex gap-sm">
+                    <input class="form-input" placeholder="🔍 Search..." @bind="searchQuery" @bind:event="oninput" style="width:200px;" />
+                    <span class="text-muted">@inventoryItems.Count items</span>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>SKU</th><th>Name</th><th>Qty</th><th>Section</th><th>Weight</th><th>RFID</th><th>Temperature</th><th>Humidity</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (var item in filteredInventory)
+                        {
+                            <tr>
+                                <td class="font-bold">@item.Sku</td>
+                                <td>@item.Name</td>
+                                <td>@item.Quantity @item.Unit</td>
+                                <td>@(item.Section?.Name ?? "-")</td>
+                                <td>@item.WeightKg kg</td>
+                                <td><code>@(item.RfidTag ?? "-")</code></td>
+                                <td>
+                                    @if (item.CurrentTemperature.HasValue)
+                                    {
+                                        <span class="badge @(item.CurrentTemperature > 8 ? "badge-danger" : item.CurrentTemperature < 0 ? "badge-warning" : "badge-success")">
+                                            @item.CurrentTemperature°C
+                                        </span>
+                                    }
+                                    else { <span>-</span> }
+                                </td>
+                                <td>@(item.CurrentHumidity.HasValue ? $"{item.CurrentHumidity}%" : "-")</td>
+                                <td><span class="badge @(item.Status == "STORED" ? "badge-success" : "badge-warning")">@item.Status</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (!filteredInventory.Any())
+            {
+                <div class="empty-state"><div class="empty-state-icon">📭</div><p>No items found</p></div>
+            }
+        </div>
+
+        <!-- Packaging Calculator -->
+        <div class="card mb-md">
+            <div class="card-header"><span class="card-title">📐 Packaging Optimizer</span></div>
+            <div class="grid grid-4" style="align-items:end;">
+                <div class="form-group"><label class="form-label">Length (cm)</label><input class="form-input" type="number" @bind="packLength" /></div>
+                <div class="form-group"><label class="form-label">Width (cm)</label><input class="form-input" type="number" @bind="packWidth" /></div>
+                <div class="form-group"><label class="form-label">Height (cm)</label><input class="form-input" type="number" @bind="packHeight" /></div>
+                <button class="btn btn-primary" @onclick="CalculateBox">📦 Recommend Box</button>
+            </div>
+            @if (!string.IsNullOrEmpty(boxRecommendation))
+            {
+                <div class="alert alert-info" style="margin-top:8px;">@boxRecommendation</div>
+            }
+        </div>
+    }
+
+    <!-- Add Item Modal -->
+    @if (showAddItem && selectedWarehouse != null)
+    {
+        <div class="modal-backdrop" @onclick="() => showAddItem = false">
+            <div class="modal-content" @onclick:stopPropagation="true">
+                <div class="card-header"><span class="card-title">Add Inventory Item</span><button class="btn btn-outline btn-sm" @onclick="() => showAddItem = false">✕</button></div>
+                <EditForm Model="newItem" OnValidSubmit="AddItem">
+                    <div class="form-group"><label class="form-label">Name *</label><InputText class="form-input" @bind-Value="newItem.Name" /></div>
+                    <div class="grid grid-2">
+                        <div class="form-group"><label class="form-label">Quantity</label><InputNumber class="form-input" @bind-Value="newItem.Quantity" /></div>
+                        <div class="form-group"><label class="form-label">Unit</label>
+                            <select class="form-select" @bind="newItem.Unit"><option>PCS</option><option>KG</option><option>BOX</option><option>LITER</option></select>
+                        </div>
+                    </div>
+                    <div class="grid grid-2">
+                        <div class="form-group"><label class="form-label">Weight (kg)</label><InputNumber class="form-input" @bind-Value="newItem.WeightKg" /></div>
+                        <div class="form-group"><label class="form-label">RFID Tag</label><InputText class="form-input" @bind-Value="newItem.RfidTag" /></div>
+                    </div>
+                    <div class="form-group"><label class="form-label">Description</label><InputText class="form-input" @bind-Value="newItem.Description" /></div>
+                    <button type="submit" class="btn btn-primary" style="width:100%;">Add Item</button>
+                </EditForm>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private List<Warehouse> warehouses = new();
+    private List<InventoryItem> inventoryItems = new();
+    private Warehouse? selectedWarehouse;
+    private string searchQuery = "";
+    private bool showAddItem = false;
+    private bool isLoading = true;
+    private InventoryItem newItem = new() { Quantity = 1, Unit = "PCS", WeightKg = 1 };
+    private double packLength = 30, packWidth = 20, packHeight = 15;
+    private string boxRecommendation = "";
+
+    private List<InventoryItem> filteredInventory => inventoryItems
+        .Where(i => string.IsNullOrEmpty(searchQuery) ||
+            (i.Name?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (i.Sku?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false))
+        .ToList();
+
+    private bool mapPending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        warehouses = await WarehouseService.GetAllWarehousesAsync();
+        if (warehouses.Any()) await SelectWarehouse(warehouses.First());
+        isLoading = false;
+        mapPending = warehouses.Any(w => w.Latitude != 0 || w.Longitude != 0);
+    }
+
+    // Drawn after render, never from OnInitializedAsync: the container does not exist during
+    // prerender and JS interop is not allowed there.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!mapPending) return;
+        mapPending = false;
+        try
+        {
+            await JS.InvokeVoidAsync("ngibrid.renderPointsMap", new
+            {
+                mapId = "warehouse-map",
+                points = warehouses
+                    .Where(w => w.Latitude != 0 || w.Longitude != 0)
+                    .Select(w =>
+                    {
+                        var pct = w.TotalCapacityM3 > 0 ? w.UsedCapacityM3 / w.TotalCapacityM3 * 100 : 0;
+                        return new
+                        {
+                            lat = w.Latitude,
+                            lng = w.Longitude,
+                            emoji = "🏭",
+                            color = pct > 80 ? "#dc3545" : pct > 50 ? "#f59e0b" : "#31a24c",
+                            title = w.Name,
+                            subtitle = $"{w.City}, {w.Province}",
+                            lines = new[]
+                            {
+                                $"Kode: {w.Code}",
+                                $"Kapasitas: {w.UsedCapacityM3:F0} / {w.TotalCapacityM3:F0} m³ ({pct:F0}%)",
+                                $"Status: {w.Status}",
+                            },
+                        };
+                    }),
+            });
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception) { /* map is supplementary */ }
+    }
+
+    private async Task SelectWarehouse(Warehouse wh)
+    {
+        selectedWarehouse = wh;
+        inventoryItems = await WarehouseService.SearchInventoryAsync(null, wh.Id);
+    }
+
+    private async Task AddItem()
+    {
+        if (selectedWarehouse != null)
+        {
+            newItem.WarehouseId = selectedWarehouse.Id;
+            await WarehouseService.AddInventoryAsync(newItem);
+            showAddItem = false;
+            newItem = new() { Quantity = 1, Unit = "PCS", WeightKg = 1 };
+            await SelectWarehouse(selectedWarehouse);
+        }
+    }
+
+    private void CalculateBox()
+    {
+        var (boxType, wasted) = WarehouseService.RecommendBox(packLength, packWidth, packHeight);
+        boxRecommendation = $"📦 Rekomendasi: **{boxType}** — Volume terbuang: {wasted}%";
+    }
+}

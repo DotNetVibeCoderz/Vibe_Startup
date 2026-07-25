@@ -1,0 +1,521 @@
+@page "/profile"
+@attribute [Authorize]
+@using Ngibrid.Components.Pages.Auth
+@inject UserManager<ApplicationUser> UserManager
+@inject CurrentUserService CurrentUser
+@inject LoyaltyService Loyalty
+@inject OrderService Orders
+@inject StorageService Storage
+
+<PageTitle>Profil Saya - Ngibrid</PageTitle>
+
+<div class="page-header mb-md">
+    <h1 style="font-size:24px;font-weight:800;">👤 Profil Saya</h1>
+    <p class="text-muted">Kelola informasi akun, poin loyalty, dan keamanan</p>
+</div>
+
+@if (currentUser == null)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Memuat profil…</p></div>
+}
+else
+{
+    <div class="grid grid-3 mb-md">
+        <!-- Identity + loyalty -->
+        <div class="card" style="text-align:center;">
+            <div class="avatar-uploader">
+                @if (!string.IsNullOrEmpty(currentUser.AvatarUrl))
+                {
+                    <img src="@currentUser.AvatarUrl" alt="Foto profil @currentUser.FullName"
+                         class="profile-avatar profile-avatar-img" />
+                }
+                else
+                {
+                    <div class="profile-avatar">@Initials(currentUser.FullName)</div>
+                }
+
+                <label class="avatar-edit" title="Ganti foto profil">
+                    @(isUploadingAvatar ? "⏳" : "📷")
+                    <InputFile OnChange="OnAvatarSelected" accept="@AvatarAccept"
+                               style="display:none;" disabled="@isUploadingAvatar" />
+                </label>
+            </div>
+
+            <div class="flex gap-sm" style="justify-content:center;margin-top:8px;">
+                <label class="btn btn-outline btn-sm" style="margin:0;">
+                    @(isUploadingAvatar ? "⏳ Mengunggah…" : "📷 Unggah Foto")
+                    <InputFile OnChange="OnAvatarSelected" accept="@AvatarAccept"
+                               style="display:none;" disabled="@isUploadingAvatar" />
+                </label>
+                @if (!string.IsNullOrEmpty(currentUser.AvatarUrl))
+                {
+                    <button class="btn btn-outline btn-sm" @onclick="RemoveAvatar" disabled="@isUploadingAvatar">
+                        🗑 Hapus
+                    </button>
+                }
+            </div>
+            <small class="text-muted" style="display:block;margin-top:4px;">
+                JPG/PNG/GIF/WebP · maks @(AvatarMaxBytes / 1024 / 1024) MB
+            </small>
+
+            @if (!string.IsNullOrEmpty(avatarMessage))
+            {
+                <div class="alert @(avatarError ? "alert-danger" : "alert-success")" style="margin-top:8px;">
+                    @avatarMessage
+                </div>
+            }
+
+            <h2 style="margin:8px 0 4px;">@currentUser.FullName</h2>
+            <p class="text-muted">@currentUser.Email</p>
+            <span class="badge badge-info">@currentUser.UserType</span>
+
+            <div class="loyalty-box">
+                <div class="loyalty-tier">@tier.Icon @tier.Name</div>
+                <div class="loyalty-points">@currentUser.LoyaltyPoints.ToString("N0") <span>poin</span></div>
+                <small class="text-muted">Pengali perolehan @tier.Multiplier×</small>
+
+                @if (nextTier is { } next)
+                {
+                    var progress = next.MinPoints > 0
+                        ? Math.Min((double)currentUser.LoyaltyPoints / next.MinPoints * 100, 100) : 100;
+                    <div class="progress-bar" style="margin-top:8px;">
+                        <div class="progress-fill" style="width:@progress%;background:var(--warning);"></div>
+                    </div>
+                    <small class="text-muted">
+                        @((next.MinPoints - currentUser.LoyaltyPoints).ToString("N0")) poin lagi menuju @next.Name
+                    </small>
+                }
+                else
+                {
+                    <small class="text-muted">Anda sudah di tier tertinggi 🎉</small>
+                }
+            </div>
+
+            <div class="flex gap-sm" style="margin-top:12px;justify-content:center;">
+                <input class="form-input" type="number" style="width:110px;" @bind="redeemPoints" min="1" />
+                <button class="btn btn-outline btn-sm" @onclick="Redeem"
+                        disabled="@(redeemPoints <= 0 || redeemPoints > currentUser.LoyaltyPoints)">
+                    🎁 Tukar
+                </button>
+            </div>
+            @if (!string.IsNullOrEmpty(loyaltyMessage))
+            {
+                <div class="alert @(loyaltyError ? "alert-danger" : "alert-success")" style="margin-top:8px;">
+                    @loyaltyMessage
+                </div>
+            }
+        </div>
+
+        <!-- Profile form -->
+        <div class="card" style="grid-column:2/4;">
+            <div class="card-header">
+                <span class="card-title">📝 Data Diri</span>
+                @if (isSaving) { <span class="spinner"></span> }
+            </div>
+
+            @if (!string.IsNullOrEmpty(profileMessage))
+            {
+                <div class="alert @(profileError ? "alert-danger" : "alert-success")">@profileMessage</div>
+            }
+
+            <EditForm Model="profileModel" OnValidSubmit="SaveProfile">
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Nama Lengkap *</label>
+                        <InputText class="form-input" @bind-Value="profileModel.FullName" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <InputText class="form-input" @bind-Value="profileModel.Email" readonly />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">No. HP</label>
+                        <InputText class="form-input" @bind-Value="profileModel.Phone" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">No. HP Alternatif</label>
+                        <InputText class="form-input" @bind-Value="profileModel.Phone2" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Kota</label>
+                        <InputText class="form-input" @bind-Value="profileModel.City" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Provinsi</label>
+                        <InputText class="form-input" @bind-Value="profileModel.Province" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Kode Pos</label>
+                        <InputText class="form-input" @bind-Value="profileModel.PostalCode" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Tanggal Lahir</label>
+                        <InputDate class="form-input" @bind-Value="profileModel.DateOfBirth" />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Alamat</label>
+                    <InputText class="form-input" @bind-Value="profileModel.Address" />
+                </div>
+                <button type="submit" class="btn btn-primary" disabled="@isSaving">💾 Simpan Profil</button>
+            </EditForm>
+        </div>
+    </div>
+
+    <div class="grid grid-2 mb-md">
+        <!-- Order history -->
+        <div class="card">
+            <div class="card-header"><span class="card-title">📦 Riwayat Pengiriman</span></div>
+            <div class="table-container" style="max-height:300px;overflow-y:auto;">
+                <table>
+                    <thead><tr><th>Order</th><th>Tujuan</th><th>Status</th><th>Total</th></tr></thead>
+                    <tbody>
+                        @if (recentOrders.Count == 0)
+                        {
+                            <tr><td colspan="4" class="text-muted">Belum ada pengiriman.</td></tr>
+                        }
+                        @foreach (var order in recentOrders)
+                        {
+                            <tr>
+                                <td>
+                                    <div class="font-bold">@order.OrderNumber</div>
+                                    <small class="text-muted">@order.CreatedAt.ToString("dd MMM yy")</small>
+                                </td>
+                                <td>@order.RecipientCity</td>
+                                <td><span class="badge @StatusBadge(order.Status)">@order.Status</span></td>
+                                <td>Rp @order.TotalAmount.ToString("N0")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Loyalty ledger -->
+        <div class="card">
+            <div class="card-header"><span class="card-title">⭐ Riwayat Poin</span></div>
+            <div class="table-container" style="max-height:300px;overflow-y:auto;">
+                <table>
+                    <thead><tr><th>Tanggal</th><th>Keterangan</th><th>Poin</th><th>Saldo</th></tr></thead>
+                    <tbody>
+                        @if (loyaltyHistory.Count == 0)
+                        {
+                            <tr><td colspan="4" class="text-muted">Belum ada transaksi poin.</td></tr>
+                        }
+                        @foreach (var tx in loyaltyHistory)
+                        {
+                            <tr>
+                                <td>@tx.CreatedAt.ToString("dd MMM yy")</td>
+                                <td>@tx.Description</td>
+                                <td style="color:@(tx.Points >= 0 ? "var(--success)" : "var(--danger)");">
+                                    @tx.Points.ToString("+#;-#;0")
+                                </td>
+                                <td>@tx.BalanceAfter.ToString("N0")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Password -->
+    <div class="card mb-md">
+        <div class="card-header"><span class="card-title">🔒 Ubah Password</span></div>
+        @if (!string.IsNullOrEmpty(passwordMessage))
+        {
+            <div class="alert @(passwordSuccess ? "alert-success" : "alert-danger")">@passwordMessage</div>
+        }
+        <EditForm Model="passwordModel" OnValidSubmit="ChangePassword">
+            <div class="grid grid-3">
+                <div class="form-group">
+                    <label class="form-label">Password Saat Ini</label>
+                    <InputText type="password" class="form-input" @bind-Value="passwordModel.CurrentPassword"
+                               autocomplete="current-password" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password Baru</label>
+                    <InputText type="password" class="form-input" @bind-Value="passwordModel.NewPassword"
+                               autocomplete="new-password" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Konfirmasi</label>
+                    <InputText type="password" class="form-input" @bind-Value="passwordModel.ConfirmPassword"
+                               autocomplete="new-password" />
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" disabled="@isChangingPassword">🔑 Ubah Password</button>
+        </EditForm>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><span class="card-title">⚡ Aksi Akun</span></div>
+        <div class="flex gap-sm" style="flex-wrap:wrap;">
+            <a href="/forgot-password" class="btn btn-outline">🔑 Reset Password via Email</a>
+            <a href="/api/auth/logout" class="btn btn-outline">🚪 Keluar</a>
+        </div>
+    </div>
+}
+
+@code {
+    private ApplicationUser? currentUser;
+    private ProfileModel profileModel = new();
+    private PasswordModel passwordModel = new();
+    private List<Order> recentOrders = new();
+    private List<LoyaltyTransaction> loyaltyHistory = new();
+
+    private (string Name, int MinPoints, double Multiplier, string Icon) tier;
+    private (string Name, int MinPoints, double Multiplier, string Icon)? nextTier;
+
+    private string? profileMessage, passwordMessage, loyaltyMessage, avatarMessage;
+    private bool profileError, passwordSuccess, loyaltyError, avatarError;
+    private bool isSaving, isChangingPassword, isUploadingAvatar;
+    private int redeemPoints = 100;
+
+    // Only raster image types — Storage:AllowedExtensions also permits pdf/docx/svg, which have no
+    // business being rendered as an <img> (SVG in particular can carry script).
+    private static readonly string[] AvatarExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+    private const string AvatarAccept = "image/jpeg,image/png,image/gif,image/webp";
+    private const long AvatarMaxBytes = 5 * 1024 * 1024;
+
+    private async Task OnAvatarSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null || currentUser == null) return;
+
+        isUploadingAvatar = true;
+        avatarMessage = null;
+        avatarError = false;
+
+        try
+        {
+            var ext = Path.GetExtension(file.Name).ToLowerInvariant();
+            if (!AvatarExtensions.Contains(ext))
+            {
+                avatarError = true;
+                avatarMessage = $"❌ Format {ext} tidak didukung. Gunakan JPG, PNG, GIF, atau WebP.";
+                return;
+            }
+
+            if (file.Size > AvatarMaxBytes)
+            {
+                avatarError = true;
+                avatarMessage = $"❌ Ukuran foto {file.Size / 1024 / 1024.0:F1} MB melebihi batas {AvatarMaxBytes / 1024 / 1024} MB.";
+                return;
+            }
+
+            // Also run the storage-level check so the configured extension/size policy still applies.
+            var (ok, error) = Storage.Validate(file.Name, file.Size);
+            if (!ok)
+            {
+                avatarError = true;
+                avatarMessage = $"❌ {error}";
+                return;
+            }
+
+            var previousUrl = currentUser.AvatarUrl;
+
+            await using var stream = file.OpenReadStream(AvatarMaxBytes);
+            var url = await Storage.UploadAsync(stream, file.Name, "avatars");
+
+            currentUser.AvatarUrl = url;
+            var result = await UserManager.UpdateAsync(currentUser);
+            if (!result.Succeeded)
+            {
+                currentUser.AvatarUrl = previousUrl;
+                avatarError = true;
+                avatarMessage = "❌ " + string.Join(" ", result.Errors.Select(x => x.Description));
+                return;
+            }
+
+            // Best-effort cleanup of the replaced file; a failure here must not fail the upload.
+            if (!string.IsNullOrEmpty(previousUrl))
+            {
+                try { await Storage.DeleteAsync(previousUrl); } catch { }
+            }
+
+            avatarMessage = "✅ Foto profil diperbarui.";
+            CurrentUser.NotifyProfileChanged();
+        }
+        catch (Exception ex)
+        {
+            avatarError = true;
+            avatarMessage = $"❌ Gagal mengunggah foto: {ex.Message}";
+        }
+        finally
+        {
+            isUploadingAvatar = false;
+        }
+    }
+
+    private async Task RemoveAvatar()
+    {
+        if (currentUser == null || string.IsNullOrEmpty(currentUser.AvatarUrl)) return;
+
+        isUploadingAvatar = true;
+        avatarMessage = null;
+        avatarError = false;
+
+        try
+        {
+            var url = currentUser.AvatarUrl;
+            currentUser.AvatarUrl = null;
+            var result = await UserManager.UpdateAsync(currentUser);
+            if (!result.Succeeded)
+            {
+                currentUser.AvatarUrl = url;
+                avatarError = true;
+                avatarMessage = "❌ " + string.Join(" ", result.Errors.Select(x => x.Description));
+                return;
+            }
+
+            try { await Storage.DeleteAsync(url!); } catch { }
+            avatarMessage = "✅ Foto profil dihapus.";
+            CurrentUser.NotifyProfileChanged();
+        }
+        finally
+        {
+            isUploadingAvatar = false;
+        }
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadProfile();
+
+    private async Task LoadProfile()
+    {
+        currentUser = await CurrentUser.GetUserAsync();
+        if (currentUser == null) return;
+
+        profileModel = new ProfileModel
+        {
+            FullName = currentUser.FullName ?? "",
+            Email = currentUser.Email ?? "",
+            Phone = currentUser.PhoneNumber ?? "",
+            Phone2 = currentUser.PhoneNumber2 ?? "",
+            City = currentUser.City ?? "",
+            Province = currentUser.Province ?? "",
+            PostalCode = currentUser.PostalCode ?? "",
+            Address = currentUser.Address ?? "",
+            DateOfBirth = currentUser.DateOfBirth ?? DateTime.Now.AddYears(-25)
+        };
+
+        tier = LoyaltyService.GetTier(currentUser.LoyaltyPoints);
+        nextTier = LoyaltyService.GetNextTier(currentUser.LoyaltyPoints);
+        recentOrders = await Orders.GetCustomerOrdersAsync(currentUser.Id, 1, 10);
+        loyaltyHistory = await Loyalty.GetHistoryAsync(currentUser.Id, 20);
+    }
+
+    private async Task SaveProfile()
+    {
+        if (currentUser == null) return;
+
+        isSaving = true;
+        profileMessage = null;
+
+        try
+        {
+            currentUser.FullName = profileModel.FullName;
+            currentUser.PhoneNumber = profileModel.Phone;
+            currentUser.PhoneNumber2 = profileModel.Phone2;
+            currentUser.City = profileModel.City;
+            currentUser.Province = profileModel.Province;
+            currentUser.PostalCode = profileModel.PostalCode;
+            currentUser.Address = profileModel.Address;
+            currentUser.DateOfBirth = profileModel.DateOfBirth;
+
+            var result = await UserManager.UpdateAsync(currentUser);
+            profileError = !result.Succeeded;
+            profileMessage = result.Succeeded
+                ? "✅ Profil berhasil diperbarui."
+                : string.Join(" ", result.Errors.Select(e => e.Description));
+
+            if (result.Succeeded) CurrentUser.NotifyProfileChanged();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    /// <summary>
+    /// Password change goes through the API so the auth cookie can be refreshed on a real HTTP
+    /// request — changing the password rotates the security stamp and would otherwise sign the user out.
+    /// </summary>
+    private async Task ChangePassword()
+    {
+        isChangingPassword = true;
+        passwordMessage = null;
+
+        try
+        {
+            var result = await JS.InvokeAsync<LoginPage.AuthResult>("ngibrid.postAuth",
+                "/api/auth/change-password", new
+                {
+                    currentPassword = passwordModel.CurrentPassword,
+                    newPassword = passwordModel.NewPassword,
+                    confirmPassword = passwordModel.ConfirmPassword
+                });
+
+            passwordSuccess = result.Success;
+            passwordMessage = result.Message;
+            if (result.Success) passwordModel = new PasswordModel();
+        }
+        catch (Exception ex)
+        {
+            passwordSuccess = false;
+            passwordMessage = $"Gagal mengubah password: {ex.Message}";
+        }
+        finally
+        {
+            isChangingPassword = false;
+        }
+    }
+
+    private async Task Redeem()
+    {
+        if (currentUser == null) return;
+
+        var (ok, resultMessage, _) = await Loyalty.RedeemAsync(currentUser.Id, redeemPoints);
+        loyaltyError = !ok;
+        loyaltyMessage = resultMessage;
+        if (ok) await LoadProfile();
+    }
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "👤";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2
+            ? $"{char.ToUpper(parts[0][0])}{char.ToUpper(parts[1][0])}"
+            : char.ToUpper(parts[0][0]).ToString();
+    }
+
+    private static string StatusBadge(string status) => status switch
+    {
+        "DELIVERED" => "badge-success",
+        "IN_TRANSIT" or "OUT_FOR_DELIVERY" => "badge-info",
+        "PICKED_UP" => "badge-warning",
+        "FAILED" or "CANCELLED" => "badge-danger",
+        _ => "badge-default"
+    };
+
+    private sealed class ProfileModel
+    {
+        public string FullName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Phone { get; set; } = "";
+        public string Phone2 { get; set; } = "";
+        public string City { get; set; } = "";
+        public string Province { get; set; } = "";
+        public string PostalCode { get; set; } = "";
+        public string Address { get; set; } = "";
+        public DateTime DateOfBirth { get; set; } = DateTime.Now;
+    }
+
+    private sealed class PasswordModel
+    {
+        public string CurrentPassword { get; set; } = "";
+        public string NewPassword { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

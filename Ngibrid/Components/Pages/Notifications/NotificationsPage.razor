@@ -1,0 +1,118 @@
+@page "/notifications"
+@attribute [Authorize]
+@inject NotificationService Notifications
+@inject CurrentUserService CurrentUser
+
+<PageTitle>Notifikasi - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">🔔 Notifikasi</h1>
+        <p class="text-muted">Pembaruan status pengiriman, pickup, dan informasi akun</p>
+    </div>
+    <div class="flex gap-sm">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+            <input type="checkbox" @bind="unreadOnly" @bind:after="Load" /> Hanya belum dibaca
+        </label>
+        <button class="btn btn-outline btn-sm" @onclick="MarkAllRead" disabled="@(unreadCount == 0)">
+            ✓ Tandai semua dibaca
+        </button>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Memuat notifikasi…</p></div>
+}
+else if (notifications.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-state-icon">🔔</div>
+        <p>@(unreadOnly ? "Tidak ada notifikasi yang belum dibaca." : "Belum ada notifikasi.")</p>
+    </div>
+}
+else
+{
+    <div class="card">
+        @foreach (var n in notifications)
+        {
+            <div class="notification-row @(n.IsRead ? "" : "unread")" @onclick="() => Open(n)">
+                <span class="notification-icon">@TypeIcon(n.Type)</span>
+                <div style="flex:1;">
+                    <div class="flex-between">
+                        <strong>@n.Title</strong>
+                        <small class="text-muted">@n.CreatedAt.ToString("dd MMM HH:mm")</small>
+                    </div>
+                    <div class="text-muted" style="font-size:13px;">@n.Message</div>
+                    @if (!string.IsNullOrEmpty(n.Channel))
+                    {
+                        <small class="text-muted">via @n.Channel</small>
+                    }
+                </div>
+                @if (!n.IsRead)
+                {
+                    <span class="unread-dot" title="Belum dibaca"></span>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<Notification> notifications = new();
+    private long? userId;
+    private int unreadCount;
+    private bool unreadOnly;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        userId = await CurrentUser.GetUserIdAsync();
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        if (userId is null) { isLoading = false; return; }
+
+        isLoading = true;
+        try
+        {
+            notifications = await Notifications.GetUserNotificationsAsync(userId.Value, unreadOnly);
+            unreadCount = await Notifications.GetUnreadCountAsync(userId.Value);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    /// <summary>Opening a notification marks it read, then follows its action link when it has one.</summary>
+    private async Task Open(Notification notification)
+    {
+        if (!notification.IsRead)
+        {
+            await Notifications.MarkAsReadAsync(notification.Id);
+            notification.IsRead = true;
+            unreadCount = Math.Max(unreadCount - 1, 0);
+        }
+
+        if (!string.IsNullOrEmpty(notification.ActionUrl))
+            Navigation.NavigateTo(notification.ActionUrl);
+    }
+
+    private async Task MarkAllRead()
+    {
+        if (userId is null) return;
+        await Notifications.MarkAllAsReadAsync(userId.Value);
+        await Load();
+    }
+
+    private static string TypeIcon(string type) => type switch
+    {
+        "SUCCESS" => "✅",
+        "WARNING" => "⚠️",
+        "ERROR" => "❌",
+        _ => "ℹ️"
+    };
+}

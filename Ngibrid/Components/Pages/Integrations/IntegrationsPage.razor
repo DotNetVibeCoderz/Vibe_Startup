@@ -1,0 +1,319 @@
+@page "/integrations"
+@attribute [Authorize(Policy = "StaffArea")]
+@inject MarketplaceService Marketplace
+@inject PartnerLogisticsService Partners
+@inject NgibridDbContext Db
+
+<PageTitle>Integrasi & Mitra - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">🔗 Integrasi &amp; Mitra Logistik</h1>
+        <p class="text-muted">Marketplace, ERP/CRM, dan mitra pengiriman pihak ketiga</p>
+    </div>
+    <button class="btn btn-outline btn-sm" @onclick="LoadAll">🔄 Refresh</button>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+}
+
+<div class="tabs">
+    <div class="tab-item @(activeTab == 0 ? "active" : "")" @onclick="() => activeTab = 0">🛒 Marketplace &amp; ERP</div>
+    <div class="tab-item @(activeTab == 1 ? "active" : "")" @onclick="() => activeTab = 1">🤝 Mitra 3PL</div>
+    <div class="tab-item @(activeTab == 2 ? "active" : "")" @onclick="() => activeTab = 2">📜 Log Sinkronisasi</div>
+</div>
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Memuat integrasi…</p></div>
+}
+else if (activeTab == 0)
+{
+    <div class="grid grid-2 mb-md">
+        @foreach (var integration in integrations)
+        {
+            <div class="card">
+                <div class="flex-between">
+                    <div>
+                        <strong>@PlatformIcon(integration.Platform) @integration.Name</strong>
+                        <div><small class="text-muted">@integration.Platform · @integration.IntegrationType</small></div>
+                    </div>
+                    <span class="badge @(integration.IsEnabled ? "badge-success" : "badge-default")">
+                        @(integration.IsEnabled ? "AKTIF" : "NONAKTIF")
+                    </span>
+                </div>
+
+                <div style="margin-top:12px;font-size:13px;">
+                    <div class="flex-between"><span>Shop ID</span><span>@(integration.ShopId ?? "—")</span></div>
+                    <div class="flex-between">
+                        <span>Kredensial</span>
+                        <span>@(string.IsNullOrWhiteSpace(integration.ApiKey) ? "❌ belum diisi" : "✅ tersimpan")</span>
+                    </div>
+                    <div class="flex-between"><span>Total order diimpor</span><strong>@integration.TotalOrdersImported</strong></div>
+                    <div class="flex-between">
+                        <span>Sinkron terakhir</span>
+                        <span>@(integration.LastSyncAt?.ToString("dd MMM HH:mm") ?? "belum pernah")</span>
+                    </div>
+                    <div class="flex-between">
+                        <span>Status</span>
+                        <span class="badge @SyncBadge(integration.LastSyncStatus)">@integration.LastSyncStatus</span>
+                    </div>
+                    @if (!string.IsNullOrEmpty(integration.LastSyncMessage))
+                    {
+                        <small class="text-muted">@integration.LastSyncMessage</small>
+                    }
+                </div>
+
+                <div class="flex gap-sm" style="margin-top:12px;">
+                    <button class="btn btn-primary btn-sm" @onclick="() => Sync(integration)"
+                            disabled="@(syncingId == integration.Id)">
+                        @(syncingId == integration.Id ? "Menyinkronkan…" : "⬇️ Tarik Order")
+                    </button>
+                    <button class="btn btn-outline btn-sm" @onclick="() => ToggleIntegration(integration)">
+                        @(integration.IsEnabled ? "Nonaktifkan" : "Aktifkan")
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (integrations.Count == 0)
+    {
+        <div class="empty-state">
+            <div class="empty-state-icon">🔗</div>
+            <p>Belum ada integrasi. Konfigurasi kredensial di Pengaturan → Integrasi.</p>
+        </div>
+    }
+
+    <div class="alert alert-info">
+        Kredensial API marketplace diatur di <a href="/settings">Pengaturan → Integrasi</a>.
+        Tanpa kredensial, sinkronisasi tetap berjalan memakai data contoh agar alur bisa diuji.
+    </div>
+}
+else if (activeTab == 1)
+{
+    <div class="card mb-md">
+        <div class="card-header"><span class="card-title">🔍 Bandingkan Tarif Mitra</span></div>
+        <div class="grid grid-4" style="align-items:end;">
+            <div class="form-group">
+                <label class="form-label">Tujuan</label>
+                <input class="form-input" @bind="quoteDestination" placeholder="Surabaya atau SG" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Berat (kg)</label>
+                <input class="form-input" type="number" @bind="quoteWeight" />
+            </div>
+            <div class="form-group">
+                <label class="form-label" style="display:flex;align-items:center;gap:6px;">
+                    <input type="checkbox" @bind="quoteCrossBorder" /> Lintas negara
+                </label>
+            </div>
+            <button class="btn btn-primary" @onclick="GetQuotes">Cari Mitra</button>
+        </div>
+
+        @if (quotes.Count > 0)
+        {
+            <div class="table-container" style="margin-top:12px;">
+                <table>
+                    <thead><tr><th>Mitra</th><th>Biaya</th><th>Estimasi</th><th>COD</th><th>Rating</th></tr></thead>
+                    <tbody>
+                        @foreach (var q in quotes)
+                        {
+                            <tr>
+                                <td class="font-bold">@q.PartnerName <small class="text-muted">(@q.PartnerCode)</small></td>
+                                <td>Rp @q.Cost.ToString("N0")</td>
+                                <td>@q.EstimatedDaysMin–@q.EstimatedDaysMax hari</td>
+                                <td>@(q.SupportsCod ? "✅" : "—")</td>
+                                <td>⭐ @q.Rating.ToString("F1")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (quotesSearched)
+        {
+            <p class="text-muted" style="margin-top:12px;">Tidak ada mitra yang melayani tujuan tersebut.</p>
+        }
+    </div>
+
+    <div class="grid grid-3 mb-md">
+        @foreach (var partner in partners)
+        {
+            <div class="card">
+                <div class="flex-between">
+                    <strong>@partner.Name</strong>
+                    <span class="badge @(partner.PartnerType == "CROSS_BORDER" ? "badge-info" : "badge-default")">
+                        @partner.PartnerType
+                    </span>
+                </div>
+                <div style="margin-top:8px;font-size:13px;">
+                    <div class="flex-between"><span>Kode</span><code>@partner.Code</code></div>
+                    <div class="flex-between"><span>Tarif / kg</span><span>Rp @partner.BaseRatePerKg.ToString("N0")</span></div>
+                    <div class="flex-between"><span>Biaya handover</span><span>Rp @partner.HandoverFee.ToString("N0")</span></div>
+                    <div class="flex-between"><span>Estimasi</span><span>@partner.EstimatedDaysMin–@partner.EstimatedDaysMax hari</span></div>
+                    <div class="flex-between"><span>Rating</span><span>⭐ @partner.Rating.ToString("F1")</span></div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <div class="card-header"><span class="card-title">📦 Pengiriman via Mitra</span></div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>No. Handover</th><th>Order</th><th>Mitra</th><th>Resi Mitra</th>
+                        <th>Biaya</th><th>Lintas Negara</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                    @if (partnerShipments.Count == 0)
+                    {
+                        <tr><td colspan="7" class="text-muted">Belum ada pengiriman yang diserahkan ke mitra.</td></tr>
+                    }
+                    @foreach (var shipment in partnerShipments)
+                    {
+                        <tr>
+                            <td class="font-bold">@shipment.HandoverNumber</td>
+                            <td>@shipment.Order?.OrderNumber</td>
+                            <td>@shipment.Partner?.Name</td>
+                            <td><code>@shipment.PartnerTrackingNumber</code></td>
+                            <td>Rp @shipment.PartnerCost.ToString("N0")</td>
+                            <td>@(shipment.IsCrossBorder ? $"🌏 {shipment.DestinationCountry}" : "—")</td>
+                            <td><span class="badge badge-info">@shipment.Status</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="card-header"><span class="card-title">📜 Riwayat Sinkronisasi</span></div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>Waktu</th><th>Arah</th><th>Status</th><th>Diproses</th>
+                        <th>Gagal</th><th>Durasi</th><th>Pesan</th></tr>
+                </thead>
+                <tbody>
+                    @if (syncLogs.Count == 0)
+                    {
+                        <tr><td colspan="7" class="text-muted">Belum ada log sinkronisasi.</td></tr>
+                    }
+                    @foreach (var log in syncLogs)
+                    {
+                        <tr>
+                            <td>@log.CreatedAt.ToString("dd MMM HH:mm:ss")</td>
+                            <td>@(log.Direction == "INBOUND" ? "⬇️ Masuk" : "⬆️ Keluar")</td>
+                            <td><span class="badge @SyncBadge(log.Status)">@log.Status</span></td>
+                            <td>@log.RecordsProcessed</td>
+                            <td>@log.RecordsFailed</td>
+                            <td>@log.DurationMs ms</td>
+                            <td class="text-muted">@log.Message</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Integration> integrations = new();
+    private List<LogisticsPartner> partners = new();
+    private List<PartnerShipment> partnerShipments = new();
+    private List<IntegrationSyncLog> syncLogs = new();
+    private List<PartnerLogisticsService.PartnerQuote> quotes = new();
+
+    private int activeTab;
+    private bool isLoading = true;
+    private bool isError;
+    private bool quotesSearched;
+    private bool quoteCrossBorder;
+    private long? syncingId;
+    private string quoteDestination = "Surabaya";
+    private double quoteWeight = 2;
+    private string? message;
+
+    protected override async Task OnInitializedAsync() => await LoadAll();
+
+    private async Task LoadAll()
+    {
+        isLoading = true;
+        try
+        {
+            integrations = await Marketplace.GetIntegrationsAsync();
+            partners = await Partners.GetPartnersAsync(activeOnly: false);
+            partnerShipments = await Partners.GetShipmentsAsync(50);
+            syncLogs = await Marketplace.GetSyncLogsAsync();
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Gagal memuat: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task Sync(Integration integration)
+    {
+        syncingId = integration.Id;
+        message = null;
+
+        try
+        {
+            var log = await Marketplace.SyncOrdersAsync(integration.Id);
+            isError = log.Status == "FAILED";
+            message = $"{integration.Name}: {log.Message}";
+            await LoadAll();
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            message = $"Sinkronisasi gagal: {ex.Message}";
+        }
+        finally
+        {
+            syncingId = null;
+        }
+    }
+
+    private async Task ToggleIntegration(Integration integration)
+    {
+        integration.IsEnabled = !integration.IsEnabled;
+        await Marketplace.SaveIntegrationAsync(integration);
+        isError = false;
+        message = $"{integration.Name} {(integration.IsEnabled ? "diaktifkan" : "dinonaktifkan")}.";
+    }
+
+    private async Task GetQuotes()
+    {
+        quotesSearched = true;
+        quotes = await Partners.GetQuotesAsync(quoteDestination, quoteWeight, quoteCrossBorder);
+    }
+
+    private static string PlatformIcon(string platform) => platform switch
+    {
+        "TOKOPEDIA" => "🟢",
+        "SHOPEE" => "🟠",
+        "ERP" => "🏢",
+        "CRM" => "👥",
+        _ => "🔌"
+    };
+
+    private static string SyncBadge(string status) => status switch
+    {
+        "OK" => "badge-success",
+        "PARTIAL" => "badge-warning",
+        "FAILED" => "badge-danger",
+        _ => "badge-default"
+    };
+}

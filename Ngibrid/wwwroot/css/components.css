@@ -1,0 +1,430 @@
+/* ═══════════════════════════════════════════
+   Ngibrid — components added for auth, D3 charts,
+   chat attachments, lockers, notifications, loyalty.
+   Inherits the CSS variables defined in ngibrid.css,
+   so everything follows the light/dark theme.
+   ═══════════════════════════════════════════ */
+
+/* ─── Auth pages ─── */
+.auth-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    background: var(--bg-primary);
+}
+
+.auth-card { width: 100%; max-width: 420px; padding: 32px; }
+.auth-brand { text-align: center; margin-bottom: 24px; }
+.auth-logo { font-size: 48px; display: block; }
+.auth-brand h2 { margin: 8px 0 4px; }
+
+.auth-demo {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-light);
+    text-align: center;
+}
+
+.auth-demo-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    margin-top: 8px;
+}
+
+/* ─── Sidebar user block ─── */
+.nav-badge {
+    margin-left: auto;
+    background: var(--danger);
+    color: #fff;
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.user-info { display: flex; align-items: center; gap: 8px; width: 100%; }
+
+.user-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    color: inherit;
+    flex: 1;
+    min-width: 0;
+}
+
+.user-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.user-meta { display: flex; flex-direction: column; min-width: 0; }
+.user-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-role { font-size: 11px; color: var(--text-sidebar-muted); }
+.logout-btn { flex-shrink: 0; }
+
+/* ─── D3 charts ─── */
+.chart-container { width: 100%; height: 250px; position: relative; }
+
+.ngibrid-chart-tooltip {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-lg);
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    max-width: 260px;
+    transition: opacity 0.12s ease;
+}
+
+.mini-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 14px;
+}
+
+.mini-label { font-size: 12px; color: var(--text-secondary); }
+.mini-value { font-size: 20px; font-weight: 800; }
+
+/* ─── Chat layout & attachments ─── */
+.chat-layout {
+    display: flex;
+    gap: 16px;
+    height: calc(100vh - 190px);
+    min-height: 460px;
+}
+
+.chat-sidebar {
+    width: 270px;
+    min-width: 270px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+/* `overflow: hidden` keeps the transcript's scrollbar inside the card instead of letting a long
+   conversation push past its rounded border. */
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.session-list { margin-top: 8px; overflow-y: auto; flex: 1; }
+
+.session-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.session-item:hover { background: var(--bg-hover); }
+.session-item.active { background: var(--accent-light); }
+.session-text { flex: 1; min-width: 0; }
+
+.session-title {
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.session-delete { padding: 2px 6px; opacity: 0; transition: opacity 0.15s ease; }
+.session-item:hover .session-delete { opacity: 1; }
+
+.chat-composer { padding: 12px 16px; border-top: 1px solid var(--border-color); }
+.composer-row { display: flex; gap: 8px; align-items: flex-end; }
+
+.composer-input {
+    flex: 1;
+    resize: none;
+    min-height: 42px;
+    max-height: 140px;
+    line-height: 1.5;
+}
+
+.attach-btn { cursor: pointer; padding: 10px 14px; display: flex; align-items: center; }
+.composer-hint { margin-top: 6px; display: block; font-size: 11px; }
+
+.pending-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+
+.pending-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+}
+
+.chip-remove {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1;
+    padding: 0;
+}
+
+.chip-remove:hover { color: var(--danger); }
+
+.message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+
+.attachment-image {
+    max-width: 220px;
+    max-height: 220px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    display: block;
+}
+
+.attachment-file {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: 12px;
+    text-decoration: none;
+    color: var(--text-primary);
+}
+
+.attachment-file:hover { background: var(--bg-hover); }
+
+.chat-suggestions { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px; }
+.chat-suggestions p { width: 100%; margin: 0 0 4px; }
+
+/* Markdown rendered inside chat bubbles */
+.message-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 12px;
+    display: block;
+    overflow-x: auto;
+}
+
+.message-content th,
+.message-content td {
+    border: 1px solid var(--border-color);
+    padding: 6px 8px;
+    text-align: left;
+}
+
+.message-content th { background: var(--bg-tertiary); font-weight: 700; }
+
+.message-content pre {
+    background: var(--bg-tertiary);
+    padding: 10px;
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+    font-size: 12px;
+}
+
+.message-content code {
+    background: var(--bg-tertiary);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.message-content pre code { background: none; padding: 0; }
+.message-content img,
+.message-content video { max-width: 100%; border-radius: var(--radius-sm); }
+
+.message-content blockquote {
+    border-left: 3px solid var(--accent);
+    margin: 8px 0;
+    padding-left: 10px;
+    color: var(--text-secondary);
+}
+
+.message-content ul,
+.message-content ol { margin: 6px 0; padding-left: 20px; }
+
+/* ─── Support tickets ─── */
+.ticket-card { cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s ease; }
+.ticket-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.ticket-thread { max-height: 320px; overflow-y: auto; margin-top: 12px; }
+
+/* ─── Analytics insights ─── */
+.insight-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.insight-row:last-child { border-bottom: none; }
+
+/* ─── Smart locker ─── */
+.locker-telemetry {
+    display: flex;
+    gap: 14px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.locker-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.locker-door {
+    aspect-ratio: 1;
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    border: 2px solid transparent;
+}
+
+.locker-door.empty { background: var(--bg-tertiary); color: var(--text-secondary); }
+.locker-door.occupied { background: var(--accent); color: #fff; }
+.locker-door.reserved { background: var(--warning); color: #fff; }
+.locker-door.faulty { background: var(--danger); color: #fff; }
+.door-number { font-weight: 700; }
+.door-size { font-size: 9px; opacity: 0.85; }
+
+/* ─── Notifications ─── */
+.notification-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 14px 8px;
+    border-bottom: 1px solid var(--border-light);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.notification-row:last-child { border-bottom: none; }
+.notification-row:hover { background: var(--bg-hover); }
+.notification-row.unread { background: var(--accent-light); }
+.notification-icon { font-size: 20px; }
+
+.unread-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+    margin-top: 6px;
+}
+
+/* ─── Profile & loyalty ─── */
+.profile-avatar {
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 28px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+}
+
+/* Photo variant of the avatar: same circle, cropped instead of letter-boxed. */
+.profile-avatar-img {
+    object-fit: cover;
+    display: block;
+    border: 3px solid var(--bg-card);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+}
+
+.avatar-uploader {
+    position: relative;
+    width: 76px;
+    margin: 0 auto;
+}
+
+/* Camera badge overlapping the avatar — the whole label is the file picker. */
+.avatar-edit {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border: 2px solid var(--bg-card);
+    transition: transform 0.15s ease;
+}
+
+.avatar-edit:hover {
+    transform: scale(1.08);
+}
+
+.user-avatar-img {
+    object-fit: cover;
+    padding: 0;
+}
+
+.loyalty-box {
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: var(--radius-md);
+    background: var(--bg-tertiary);
+}
+
+.loyalty-tier { font-size: 15px; font-weight: 700; }
+.loyalty-points { font-size: 26px; font-weight: 800; color: var(--accent); }
+.loyalty-points span { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+
+/* ─── Shipping label ─── */
+.shipping-label {
+    border: 2px solid #000;
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    background: #fff;
+    color: #000;
+}
+
+.shipping-label code { background: #f0f0f0; color: #000; }
+
+/* ─── Responsive ─── */
+@media (max-width: 900px) {
+    .chat-layout { flex-direction: column; height: auto; }
+    .chat-sidebar { width: 100%; min-width: 0; max-height: 260px; }
+    /* Stacked layout drops the fixed height, so the transcript needs a bound of its own here too —
+       otherwise it has nothing to scroll against and grows down the page. */
+    .chat-main { min-height: 420px; height: 70vh; }
+    .locker-grid { grid-template-columns: repeat(4, 1fr); }
+    .auth-demo-grid { grid-template-columns: 1fr; }
+    .chart-container { height: 220px; }
+}

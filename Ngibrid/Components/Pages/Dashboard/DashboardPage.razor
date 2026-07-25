@@ -1,0 +1,274 @@
+@page "/"
+@page "/dashboard"
+@inject AnalyticsService AnalyticsService
+@inject CourierService CourierService
+@inject CurrentUserService CurrentUser
+@implements IAsyncDisposable
+
+<PageTitle>Dashboard - Ngibrid Logistics</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">📊 Dashboard</h1>
+        <p class="text-muted">Selamat datang@(string.IsNullOrEmpty(userName) ? "" : $", {userName}") di Ngibrid Logistics</p>
+    </div>
+    <div class="flex gap-sm" style="align-items:center;">
+        <select class="form-select" style="width:auto;" value="@days" @onchange="OnRangeChanged">
+            <option value="7">7 hari</option>
+            <option value="30">30 hari</option>
+            <option value="90">90 hari</option>
+        </select>
+        <button class="btn btn-outline btn-sm" @onclick="RefreshData">🔄 Refresh</button>
+        <span class="text-muted" style="font-size:12px;">@lastUpdate.ToLocalTime().ToString("HH:mm:ss")</span>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Memuat dashboard…</p></div>
+}
+else
+{
+    <!-- Stats -->
+    <div class="grid grid-4 mb-md">
+        <div class="stat-card">
+            <div class="stat-icon blue">📦</div>
+            <div>
+                <div class="stat-value">@(revenueSummary?.TotalOrders.ToString("N0") ?? "0")</div>
+                <div class="stat-label">Total Order (@days hari)</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon green">💰</div>
+            <div>
+                <div class="stat-value">Rp @((revenueSummary?.TotalRevenue ?? 0).ToString("N0"))</div>
+                <div class="stat-label">Pendapatan</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon orange">✅</div>
+            <div>
+                <div class="stat-value">@slaCompliance%</div>
+                <div class="stat-label">SLA Compliance</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon purple">🚚</div>
+            <div>
+                <div class="stat-value">@(snapshot?.CouriersOnDelivery ?? 0)/@((snapshot?.CouriersOnDelivery ?? 0) + (snapshot?.CouriersAvailable ?? 0))</div>
+                <div class="stat-label">Kurir Bertugas</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Operational snapshot -->
+    <div class="grid grid-4 mb-md">
+        <div class="card mini-stat">
+            <span class="mini-label">Order hari ini</span>
+            <span class="mini-value">@(snapshot?.OrdersToday ?? 0)</span>
+        </div>
+        <div class="card mini-stat">
+            <span class="mini-label">Sedang transit</span>
+            <span class="mini-value">@(snapshot?.InTransit ?? 0)</span>
+        </div>
+        <div class="card mini-stat">
+            <span class="mini-label">Pickup menunggu</span>
+            <span class="mini-value">@(snapshot?.PendingPickups ?? 0)</span>
+        </div>
+        <div class="card mini-stat">
+            <span class="mini-label">Utilisasi gudang</span>
+            <span class="mini-value">@(snapshot?.WarehouseUtilization ?? 0)%</span>
+        </div>
+    </div>
+
+    <!-- D3 charts -->
+    <div class="grid grid-2 mb-md">
+        <div class="card">
+            <div class="card-header"><span class="card-title">📈 Volume Pengiriman (@days hari)</span></div>
+            <div id="deliveryChart" class="chart-container"></div>
+        </div>
+        <div class="card">
+            <div class="card-header"><span class="card-title">🥧 Status Pesanan</span></div>
+            <div id="statusChart" class="chart-container"></div>
+        </div>
+    </div>
+
+    <div class="grid grid-2 mb-md">
+        <!-- Courier performance -->
+        <div class="card">
+            <div class="card-header"><span class="card-title">🏆 Performa Kurir</span></div>
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>#</th><th>Kurir</th><th>Total</th><th>Sukses</th><th>Rate</th><th>Rating</th></tr></thead>
+                    <tbody>
+                        @if (courierPerformance.Count == 0)
+                        {
+                            <tr><td colspan="6" class="text-muted">Belum ada data kurir.</td></tr>
+                        }
+                        @for (var i = 0; i < courierPerformance.Count; i++)
+                        {
+                            var cp = courierPerformance[i];
+                            <tr>
+                                <td>@(i + 1)</td>
+                                <td class="font-bold">@cp.Name</td>
+                                <td>@cp.TotalDeliveries</td>
+                                <td>@cp.SuccessfulDeliveries</td>
+                                <td>
+                                    <div class="progress-bar" style="width:80px;display:inline-block;vertical-align:middle;">
+                                        <div class="progress-fill"
+                                             style="width:@cp.SuccessRate%;background:@RateColor(cp.SuccessRate);"></div>
+                                    </div>
+                                    <span style="margin-left:6px;">@cp.SuccessRate%</span>
+                                </td>
+                                <td>⭐ @cp.Rating.ToString("F1")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Green logistics -->
+        <div class="card">
+            <div class="card-header"><span class="card-title">🌱 Green Logistics</span></div>
+            <div class="grid grid-2" style="margin-top:8px;">
+                <div class="stat-card">
+                    <div class="stat-icon green">🌍</div>
+                    <div>
+                        <div class="stat-value">@((emission.TotalGram / 1000).ToString("N1")) kg</div>
+                        <div class="stat-label">Total emisi CO₂</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon blue">📦</div>
+                    <div>
+                        <div class="stat-value">@emission.AvgGramPerOrder.ToString("N0") g</div>
+                        <div class="stat-label">Rata-rata / order</div>
+                    </div>
+                </div>
+            </div>
+            <div style="margin-top:12px;">
+                <div class="flex-between">
+                    <span class="text-muted">Order eco-delivery</span>
+                    <strong>@emission.EcoOrders dari @(revenueSummary?.TotalOrders ?? 0)</strong>
+                </div>
+                <div class="progress-bar" style="margin-top:6px;">
+                    <div class="progress-fill" style="width:@EcoPercent%;background:var(--success);"></div>
+                </div>
+                <small class="text-muted">@EcoPercent% pengiriman memakai layanan ramah lingkungan.</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent activity (live from status history, pickups, tickets) -->
+    <div class="card">
+        <div class="card-header"><span class="card-title">🕐 Aktivitas Terbaru</span></div>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Waktu</th><th>Aktivitas</th><th>Status</th><th>Referensi</th></tr></thead>
+                <tbody>
+                    @if (recentActivity.Count == 0)
+                    {
+                        <tr><td colspan="4" class="text-muted">Belum ada aktivitas.</td></tr>
+                    }
+                    @foreach (var item in recentActivity)
+                    {
+                        <tr>
+                            <td class="text-muted">@item.RelativeTime</td>
+                            <td>@item.Description</td>
+                            <td><span class="badge @item.BadgeClass">@item.Status</span></td>
+                            <td class="text-muted">@item.Details</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private RevenueSummary? revenueSummary;
+    private OperationalSnapshot? snapshot;
+    private List<CourierPerformance> courierPerformance = new();
+    private List<ActivityEntry> recentActivity = new();
+    private Dictionary<string, int> deliveryVolume = new();
+    private Dictionary<string, int> statusBreakdown = new();
+    private (double TotalGram, double AvgGramPerOrder, int EcoOrders) emission;
+
+    private double slaCompliance;
+    private int days = 30;
+    private bool isLoading = true;
+    private bool chartsPending;
+    private string userName = "";
+    private DateTime lastUpdate = DateTime.UtcNow;
+
+    private int EcoPercent => revenueSummary is { TotalOrders: > 0 }
+        ? (int)Math.Round((double)emission.EcoOrders / revenueSummary.TotalOrders * 100)
+        : 0;
+
+    private static string RateColor(double rate) =>
+        rate > 90 ? "var(--success)" : rate > 70 ? "var(--warning)" : "var(--danger)";
+
+    protected override async Task OnInitializedAsync()
+    {
+        userName = await CurrentUser.GetDisplayNameAsync();
+        if (userName == "Tamu") userName = "";
+        await RefreshData();
+    }
+
+    private async Task OnRangeChanged(ChangeEventArgs e)
+    {
+        days = int.TryParse(e.Value?.ToString(), out var value) ? value : 30;
+        await RefreshData();
+    }
+
+    private async Task RefreshData()
+    {
+        isLoading = true;
+        try
+        {
+            revenueSummary = await AnalyticsService.GetRevenueSummaryAsync(days);
+            slaCompliance = await AnalyticsService.GetSlaComplianceAsync(days);
+            snapshot = await AnalyticsService.GetOperationalSnapshotAsync();
+            courierPerformance = await AnalyticsService.GetCourierPerformanceAsync();
+            recentActivity = await AnalyticsService.GetRecentActivityAsync(12);
+            deliveryVolume = await AnalyticsService.GetDeliveryVolumeAsync("DAILY", days);
+            statusBreakdown = await AnalyticsService.GetStatusBreakdownAsync(days);
+            emission = await AnalyticsService.GetEmissionSummaryAsync(days);
+            lastUpdate = DateTime.UtcNow;
+        }
+        catch (Exception)
+        {
+            // An empty or unreachable database shouldn't blank the page.
+        }
+        finally
+        {
+            isLoading = false;
+            chartsPending = true;
+        }
+    }
+
+    /// <summary>
+    /// Charts are drawn after render because their containers must exist and be sized first.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!chartsPending || isLoading) return;
+        chartsPending = false;
+
+        try
+        {
+            await JS.InvokeVoidAsync("ngibridCharts.lineChart", "deliveryChart", deliveryVolume,
+                new { label = "Order" });
+            await JS.InvokeVoidAsync("ngibridCharts.donutChart", "statusChart", statusBreakdown);
+        }
+        catch (JSDisconnectedException) { /* circuit closed */ }
+        catch (Exception) { /* charts are decorative; never break the page */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("ngibridCharts.dispose"); }
+        catch { /* circuit already gone */ }
+    }
+}

@@ -1,0 +1,256 @@
+@page "/analytics"
+@attribute [Authorize(Policy = "StaffArea")]
+@inject ForecastService Forecast
+@inject AnalyticsService Analytics
+@implements IAsyncDisposable
+
+<PageTitle>Analytics & Tren - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">📈 Business Analytics &amp; Tren</h1>
+        <p class="text-muted">Prediksi permintaan, deteksi peak season, dan optimasi biaya</p>
+    </div>
+    <div class="flex gap-sm">
+        <select class="form-select" style="width:auto;" value="@horizonDays" @onchange="OnHorizonChanged">
+            <option value="7">Prediksi 7 hari</option>
+            <option value="14">Prediksi 14 hari</option>
+            <option value="30">Prediksi 30 hari</option>
+        </select>
+        <button class="btn btn-outline btn-sm" @onclick="LoadAll">🔄 Refresh</button>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Menghitung tren dan prediksi…</p></div>
+}
+else
+{
+    <div class="grid grid-4 mb-md">
+        <div class="stat-card">
+            <div class="stat-icon blue">📦</div>
+            <div>
+                <div class="stat-value">@nextWeekTotal.ToString("N0")</div>
+                <div class="stat-label">Prediksi order 7 hari</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon @(trend?.VolumeGrowthPercent >= 0 ? "green" : "orange")">
+                @(trend?.VolumeGrowthPercent >= 0 ? "📈" : "📉")
+            </div>
+            <div>
+                <div class="stat-value">@(trend?.VolumeGrowthPercent.ToString("+0.0;-0.0;0") ?? "0")%</div>
+                <div class="stat-label">Pertumbuhan volume MoM</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon @(trend?.RevenueGrowthPercent >= 0 ? "green" : "orange")">💰</div>
+            <div>
+                <div class="stat-value">@(trend?.RevenueGrowthPercent.ToString("+0.0;-0.0;0") ?? "0")%</div>
+                <div class="stat-label">Pertumbuhan revenue MoM</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon purple">🔥</div>
+            <div>
+                <div class="stat-value">@peakDays</div>
+                <div class="stat-label">Hari peak terdeteksi</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-md">
+        <div class="card-header">
+            <span class="card-title">🔮 Prediksi Permintaan (Holt linear + musiman mingguan)</span>
+            <button class="btn btn-outline btn-sm" @onclick="SaveForecast">💾 Simpan Prediksi</button>
+        </div>
+        <div id="forecastChart" class="chart-container" style="height:300px;"></div>
+        <small class="text-muted">
+            Garis biru = aktual, garis oranye putus-putus = prediksi, area = interval kepercayaan 95%.
+            Titik merah menandai hari peak season.
+        </small>
+    </div>
+
+    <div class="grid grid-2 mb-md">
+        <div class="card">
+            <div class="card-header"><span class="card-title">🏙️ Kota Tujuan Teratas</span></div>
+            <div id="cityChart" class="chart-container" style="height:280px;"></div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><span class="card-title">📅 Tren Bulanan</span></div>
+            <div class="table-container" style="max-height:280px;overflow-y:auto;">
+                <table>
+                    <thead><tr><th>Bulan</th><th>Order</th><th>Revenue</th><th>Indeks</th></tr></thead>
+                    <tbody>
+                        @if (trend == null || trend.Monthly.Count == 0)
+                        {
+                            <tr><td colspan="4" class="text-muted">Belum ada data historis.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var m in trend.Monthly.OrderByDescending(m => m.Month))
+                            {
+                                <tr>
+                                    <td class="font-bold">@m.Month.ToString("MMM yyyy")</td>
+                                    <td>@m.OrderCount.ToString("N0")</td>
+                                    <td>Rp @m.Revenue.ToString("N0")</td>
+                                    <td>
+                                        <span class="badge @(m.SeasonalIndex >= 1.25 ? "badge-danger" : m.SeasonalIndex >= 1 ? "badge-success" : "badge-default")">
+                                            @m.SeasonalIndex.ToString("F2")×
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-md">
+        <div class="card-header"><span class="card-title">💡 Rekomendasi Optimasi Biaya</span></div>
+        @if (insights.Count == 0)
+        {
+            <p class="text-muted">Belum ada rekomendasi — data operasional masih terlalu sedikit.</p>
+        }
+        else
+        {
+            @foreach (var insight in insights)
+            {
+                <div class="insight-row">
+                    <span class="badge @ImpactBadge(insight.Impact)">@insight.Impact</span>
+                    <div style="flex:1;">
+                        <strong>@insight.Title</strong>
+                        <div class="text-muted" style="font-size:13px;">@insight.Detail</div>
+                        <div style="font-size:13px;margin-top:4px;">👉 @insight.Recommendation</div>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <div class="card">
+        <div class="card-header"><span class="card-title">📋 Detail Prediksi</span></div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>Tanggal</th><th>Prediksi</th><th>Batas Bawah</th><th>Batas Atas</th>
+                        <th>Indeks Musiman</th><th>Peak</th><th>Kepercayaan</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var f in forecasts)
+                    {
+                        <tr>
+                            <td>@f.ForecastDate.ToString("ddd, dd MMM")</td>
+                            <td class="font-bold">@f.PredictedOrders.ToString("F0")</td>
+                            <td class="text-muted">@f.LowerBound.ToString("F0")</td>
+                            <td class="text-muted">@f.UpperBound.ToString("F0")</td>
+                            <td>@f.SeasonalIndex.ToString("F2")×</td>
+                            <td>@(f.IsPeakSeason ? "🔥" : "—")</td>
+                            <td>@f.ConfidencePercent.ToString("F0")%</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private List<DemandForecast> forecasts = new();
+    private List<ForecastService.CostInsight> insights = new();
+    private ForecastService.TrendAnalysis? trend;
+    private Dictionary<string, int> history = new();
+
+    private int horizonDays = 14;
+    private int peakDays;
+    private double nextWeekTotal;
+    private bool isLoading = true;
+    private bool chartsPending;
+    private string? message;
+
+    protected override async Task OnInitializedAsync() => await LoadAll();
+
+    private async Task OnHorizonChanged(ChangeEventArgs e)
+    {
+        horizonDays = int.TryParse(e.Value?.ToString(), out var value) ? value : 14;
+        await LoadAll();
+    }
+
+    private async Task LoadAll()
+    {
+        isLoading = true;
+        try
+        {
+            forecasts = await Forecast.ForecastDemandAsync(horizonDays);
+            trend = await Forecast.AnalyzeTrendAsync(12);
+            insights = await Forecast.GetCostInsightsAsync();
+            history = await Analytics.GetDeliveryVolumeAsync("DAILY", 60);
+
+            peakDays = forecasts.Count(f => f.IsPeakSeason);
+            nextWeekTotal = forecasts.Take(7).Sum(f => f.PredictedOrders);
+        }
+        catch (Exception ex)
+        {
+            message = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+            chartsPending = true;
+        }
+    }
+
+    private async Task SaveForecast()
+    {
+        var saved = await Forecast.SaveForecastAsync(forecasts);
+        message = $"{saved} baris prediksi tersimpan.";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!chartsPending || isLoading) return;
+        chartsPending = false;
+
+        try
+        {
+            await JS.InvokeVoidAsync("ngibridCharts.forecastChart", "forecastChart", new
+            {
+                history,
+                forecast = forecasts.Select(f => new
+                {
+                    forecastDate = f.ForecastDate,
+                    predictedOrders = f.PredictedOrders,
+                    lowerBound = f.LowerBound,
+                    upperBound = f.UpperBound,
+                    isPeakSeason = f.IsPeakSeason
+                })
+            });
+
+            var cities = trend?.TopCities
+                .Select(c => new { label = c.City, value = (double)c.OrderCount })
+                .ToList();
+
+            if (cities is { Count: > 0 })
+                await JS.InvokeVoidAsync("ngibridCharts.barChart", "cityChart", cities);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception) { }
+    }
+
+    private static string ImpactBadge(string impact) => impact switch
+    {
+        "HIGH" => "badge-danger",
+        "MEDIUM" => "badge-warning",
+        _ => "badge-success"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("ngibridCharts.dispose"); }
+        catch { }
+    }
+}

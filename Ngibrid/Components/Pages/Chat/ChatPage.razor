@@ -1,0 +1,422 @@
+@page "/chat"
+@attribute [Authorize]
+@using Markdig
+@inject ChatBotService ChatBotService
+@inject StorageService Storage
+@inject CurrentUserService CurrentUser
+@inject IConfiguration Config
+@implements IAsyncDisposable
+
+<PageTitle>Mas Supri AI - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">🤖 @botName</h1>
+        <p class="text-muted">Asisten virtual Ngibrid — tanya tracking, tarif, pickup, atau lampirkan dokumen.</p>
+    </div>
+</div>
+
+<div class="chat-layout">
+    <!-- ─── Sessions ─── -->
+    <div class="card chat-sidebar">
+        <div class="flex-between mb-md">
+            <strong>💬 Sesi</strong>
+            <button class="btn btn-primary btn-sm" @onclick="CreateSession">+ Baru</button>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Model AI</label>
+            <select class="form-select" value="@selectedModel" @onchange="OnModelChanged">
+                @foreach (var model in ChatBotService.SupportedModels)
+                {
+                    <option value="@model">@ModelLabel(model)</option>
+                }
+            </select>
+        </div>
+
+        <div class="session-list">
+            @foreach (var session in sessions)
+            {
+                <div class="session-item @(session.Id == activeSessionId ? "active" : "")"
+                     @onclick="() => SelectSession(session.Id)">
+                    <div class="session-text">
+                        <div class="session-title">@session.Title</div>
+                        <small class="text-muted">@session.Model · @((session.UpdatedAt ?? session.CreatedAt).ToString("dd/MM HH:mm"))</small>
+                    </div>
+                    <button class="btn btn-outline btn-sm session-delete" title="Hapus sesi"
+                            @onclick:stopPropagation="true" @onclick="() => DeleteSession(session.Id)">🗑️</button>
+                </div>
+            }
+            @if (sessions.Count == 0)
+            {
+                <p class="text-muted" style="font-size:13px;">Belum ada sesi chat.</p>
+            }
+        </div>
+
+        @if (activeSessionId > 0)
+        {
+            <button class="btn btn-outline btn-sm" style="width:100%;margin-top:12px;" @onclick="ResetSession">
+                🔄 Reset Sesi
+            </button>
+        }
+    </div>
+
+    <!-- ─── Conversation ─── -->
+    <div class="card chat-main">
+        @if (activeSessionId == 0)
+        {
+            <div class="empty-state" style="flex:1;display:flex;align-items:center;justify-content:center;">
+                <div>
+                    <div class="empty-state-icon">🤖</div>
+                    <div class="empty-state-text">Halo! Saya @botName, asisten Ngibrid.</div>
+                    <p class="text-muted">Buat sesi baru untuk mulai mengobrol.</p>
+                    <button class="btn btn-primary mt-md" @onclick="CreateSession">💬 Mulai Chat Baru</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="chat-messages" id="chat-messages">
+                @if (messages.Count == 0)
+                {
+                    <div class="chat-suggestions">
+                        <p class="text-muted">Coba tanyakan:</p>
+                        @foreach (var suggestion in Suggestions)
+                        {
+                            <button class="btn btn-outline btn-sm" @onclick="() => UseSuggestion(suggestion)">
+                                @suggestion
+                            </button>
+                        }
+                    </div>
+                }
+
+                @foreach (var msg in messages)
+                {
+                    <div class="chat-message @(msg.Role == "user" ? "user-message" : "assistant-message")">
+                        <div class="message-avatar">@(msg.Role == "user" ? "👤" : "🤖")</div>
+                        <div class="message-bubble">
+                            @{
+                                var attachments = ChatBotService.ParseAttachments(msg.AttachmentsJson);
+                            }
+                            @if (attachments.Count > 0)
+                            {
+                                <div class="message-attachments">
+                                    @foreach (var attachment in attachments)
+                                    {
+                                        @if (attachment.IsImage)
+                                        {
+                                            <a href="@attachment.Url" target="_blank">
+                                                <img src="@attachment.Url" alt="@attachment.FileName" class="attachment-image" />
+                                            </a>
+                                        }
+                                        else
+                                        {
+                                            <a href="@attachment.Url" target="_blank" class="attachment-file">
+                                                📎 @attachment.FileName <small>(@attachment.SizeDisplay)</small>
+                                            </a>
+                                        }
+                                    }
+                                </div>
+                            }
+                            <div class="message-content">@((MarkupString)RenderMarkdown(msg.Content))</div>
+                            <div class="message-time">
+                                @msg.CreatedAt.ToString("HH:mm")
+                                @if (!string.IsNullOrEmpty(msg.ModelUsed)) { <span> · @msg.ModelUsed</span> }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                @if (isLoading)
+                {
+                    <div class="chat-message assistant-message">
+                        <div class="message-avatar">🤖</div>
+                        <div class="message-bubble">
+                            <div class="message-content">
+                                <em>@botName sedang mengetik…</em>
+                                <span class="spinner" style="display:inline-block;margin-left:8px;"></span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- ─── Composer ─── -->
+            <div class="chat-composer">
+                @if (pendingAttachments.Count > 0)
+                {
+                    <div class="pending-attachments">
+                        @foreach (var attachment in pendingAttachments)
+                        {
+                            <span class="pending-chip">
+                                @(attachment.IsImage ? "🖼️" : "📎") @attachment.FileName
+                                <button class="chip-remove" title="Hapus"
+                                        @onclick="() => RemoveAttachment(attachment)">✕</button>
+                            </span>
+                        }
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(uploadError))
+                {
+                    <div class="alert alert-danger" style="margin-bottom:8px;">@uploadError</div>
+                }
+
+                <div class="composer-row">
+                    <label class="btn btn-outline attach-btn" title="Lampirkan gambar atau dokumen">
+                        @(isUploading ? "⏳" : "📎")
+                        <InputFile OnChange="OnFilesSelected" multiple accept="@AcceptTypes"
+                                   style="display:none;" disabled="@(isUploading || isLoading)" />
+                    </label>
+
+                    <textarea class="form-input composer-input" @bind="messageInput" @bind:event="oninput"
+                              @onkeydown="HandleKeyDown" rows="1"
+                              placeholder="Ketik pesan… (Enter kirim, Shift+Enter baris baru)"
+                              disabled="@isLoading"></textarea>
+
+                    <button class="btn btn-primary" @onclick="SendMessage"
+                            disabled="@(isLoading || (string.IsNullOrWhiteSpace(messageInput) && pendingAttachments.Count == 0))">
+                        ➤
+                    </button>
+                </div>
+                <small class="text-muted composer-hint">
+                    Model: <strong>@selectedModel</strong> · @functionCount fungsi aktif ·
+                    Maks @maxFileMb MB per berkas
+                </small>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<ChatSession> sessions = new();
+    private List<ChatMessage> messages = new();
+    private readonly List<ChatAttachment> pendingAttachments = new();
+
+    private long activeSessionId;
+    private long? userId;
+    private string messageInput = "";
+    private string selectedModel = "OpenAI";
+    private string botName = "Mas Supri";
+    private string? uploadError;
+    private bool isLoading;
+    private bool isUploading;
+    private int functionCount;
+    private int maxFileMb = 25;
+
+    private const string AcceptTypes = "image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.json,.xml";
+
+    private static readonly string[] Suggestions =
+    {
+        "Lacak resi saya",
+        "Berapa ongkir Jakarta ke Surabaya 3 kg?",
+        "Gudang mana yang paling penuh?",
+        "Prediksi volume pengiriman minggu depan"
+    };
+
+    private static string ModelLabel(string model) => model switch
+    {
+        "OpenAI" => "OpenAI (GPT)",
+        "Anthropic" => "Anthropic (Claude)",
+        "Gemini" => "Google Gemini",
+        "Ollama" => "Ollama (lokal)",
+        _ => model
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        botName = Config["ChatBot:Name"] ?? "Mas Supri";
+        selectedModel = Config["ChatBot:DefaultModel"] ?? "OpenAI";
+        maxFileMb = Config.GetValue("Storage:MaxFileSizeMb", 25);
+        functionCount = ChatBotService.GetAvailableFunctions().Count;
+
+        userId = await CurrentUser.GetUserIdAsync();
+        if (userId is null) return;
+
+        sessions = await ChatBotService.GetUserSessionsAsync(userId.Value);
+        if (sessions.Count > 0) await SelectSession(sessions[0].Id);
+    }
+
+    private async Task CreateSession()
+    {
+        if (userId is null) return;
+        var session = await ChatBotService.CreateSessionAsync(userId.Value, "New Chat", selectedModel);
+        sessions.Insert(0, session);
+        await SelectSession(session.Id);
+    }
+
+    private async Task SelectSession(long sessionId)
+    {
+        activeSessionId = sessionId;
+        messages = await ChatBotService.GetSessionMessagesAsync(sessionId);
+        pendingAttachments.Clear();
+        uploadError = null;
+
+        var session = sessions.FirstOrDefault(s => s.Id == sessionId);
+        if (session != null) selectedModel = session.Model;
+
+        await ScrollToBottom();
+    }
+
+    private async Task DeleteSession(long sessionId)
+    {
+        await ChatBotService.DeleteSessionAsync(sessionId);
+        sessions.RemoveAll(s => s.Id == sessionId);
+
+        if (activeSessionId != sessionId) return;
+        activeSessionId = 0;
+        messages.Clear();
+        if (sessions.Count > 0) await SelectSession(sessions[0].Id);
+    }
+
+    private async Task ResetSession()
+    {
+        if (activeSessionId == 0) return;
+        await ChatBotService.ResetSessionAsync(activeSessionId);
+        messages.Clear();
+
+        var session = sessions.FirstOrDefault(s => s.Id == activeSessionId);
+        if (session != null) session.Title = "New Chat";
+    }
+
+    /// <summary>Switching the model updates the active session so the next turn uses it.</summary>
+    private async Task OnModelChanged(ChangeEventArgs e)
+    {
+        selectedModel = e.Value?.ToString() ?? "OpenAI";
+        if (activeSessionId == 0) return;
+
+        await ChatBotService.UpdateSessionAsync(activeSessionId, model: selectedModel);
+        var session = sessions.FirstOrDefault(s => s.Id == activeSessionId);
+        if (session != null) session.Model = selectedModel;
+    }
+
+    private void UseSuggestion(string suggestion) => messageInput = suggestion;
+
+    /// <summary>
+    /// Upload attachments through StorageService (whichever provider is configured) and keep the
+    /// returned URLs. Images are sent to the model as image content; other files are linked in the
+    /// message so the bot can fetch them with read_file_from_url.
+    /// </summary>
+    private async Task OnFilesSelected(InputFileChangeEventArgs e)
+    {
+        uploadError = null;
+        isUploading = true;
+
+        try
+        {
+            var maxBytes = Storage.MaxFileSizeBytes;
+
+            foreach (var file in e.GetMultipleFiles(5))
+            {
+                var (ok, error) = Storage.Validate(file.Name, file.Size);
+                if (!ok)
+                {
+                    uploadError = $"{file.Name}: {error}";
+                    continue;
+                }
+
+                await using var stream = file.OpenReadStream(maxBytes);
+                var url = await Storage.UploadAsync(stream, file.Name, "chat");
+
+                pendingAttachments.Add(new ChatAttachment
+                {
+                    FileName = file.Name,
+                    Url = url,
+                    ContentType = file.ContentType,
+                    SizeBytes = file.Size
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            uploadError = $"Gagal mengunggah: {ex.Message}";
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private void RemoveAttachment(ChatAttachment attachment) => pendingAttachments.Remove(attachment);
+
+    private async Task SendMessage()
+    {
+        if (isLoading) return;
+        if (string.IsNullOrWhiteSpace(messageInput) && pendingAttachments.Count == 0) return;
+        if (activeSessionId == 0) await CreateSession();
+
+        var text = string.IsNullOrWhiteSpace(messageInput)
+            ? "Tolong periksa lampiran berikut."
+            : messageInput.Trim();
+
+        string? attachmentsJson = pendingAttachments.Count > 0
+            ? System.Text.Json.JsonSerializer.Serialize(pendingAttachments)
+            : null;
+
+        messageInput = "";
+        pendingAttachments.Clear();
+        uploadError = null;
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            await ChatBotService.SendMessageAsync(activeSessionId, text, attachmentsJson);
+            messages = await ChatBotService.GetSessionMessagesAsync(activeSessionId);
+
+            // The service renames a new session after the first message; reflect that in the list.
+            var updated = await ChatBotService.GetSessionAsync(activeSessionId);
+            var listed = sessions.FirstOrDefault(s => s.Id == activeSessionId);
+            if (updated != null && listed != null) listed.Title = updated.Title;
+        }
+        catch (Exception ex)
+        {
+            messages.Add(new ChatMessage
+            {
+                Role = "assistant",
+                Content = $"❌ Terjadi kesalahan: {ex.Message}",
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+            await ScrollToBottom();
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) await SendMessage();
+    }
+
+    /// <summary>
+    /// Render Markdown with the advanced extension set so tables, task lists, footnotes, and
+    /// media links (image/video/audio) all render — the plain pipeline dropped tables entirely.
+    /// </summary>
+    private static string RenderMarkdown(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+
+        var html = Markdig.Markdown.ToHtml(text, MarkdownPipeline);
+        return html;
+    }
+
+    private static readonly Markdig.MarkdownPipeline MarkdownPipeline =
+        new Markdig.MarkdownPipelineBuilder()
+            .UseAdvancedExtensions()   // tables, footnotes, task lists, auto-links, emphasis extras
+            .UseMediaLinks()           // youtube/mp4/mp3 links become embedded players
+            .UseAutoLinks()
+            .UseEmojiAndSmiley()
+            .DisableHtml()             // model output is untrusted: never inject raw HTML
+            .Build();
+
+    private async Task ScrollToBottom()
+    {
+        try { await JS.InvokeVoidAsync("ngibrid.scrollToBottom", "chat-messages"); }
+        catch { /* circuit may be closing */ }
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}

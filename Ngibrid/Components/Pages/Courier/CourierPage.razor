@@ -1,0 +1,344 @@
+@page "/courier"
+@attribute [Authorize(Policy = "CourierArea")]
+@inject CourierService CourierService
+@inject RouteOptimizationService RouteOptimizer
+@inject AnalyticsService Analytics
+@implements IAsyncDisposable
+
+<PageTitle>Manajemen Kurir - Ngibrid</PageTitle>
+
+<div class="page-header flex-between mb-md">
+    <div>
+        <h1 style="font-size:24px;font-weight:800;">🛵 Manajemen Kurir</h1>
+        <p class="text-muted">Kurir, penjadwalan, dan optimasi rute pengiriman</p>
+    </div>
+    <button class="btn btn-outline btn-sm" @onclick="RefreshData">🔄 Refresh</button>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert alert-info">@message</div>
+}
+
+@if (isLoading)
+{
+    <div class="empty-state"><div class="spinner"></div><p>Memuat data kurir…</p></div>
+}
+else if (couriers.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-state-icon">🛵</div>
+        <p>Belum ada kurir terdaftar.</p>
+    </div>
+}
+else
+{
+    <div class="card mb-md">
+        <div class="card-header">
+            <span class="card-title">🗺️ Peta Armada</span>
+            <span class="flex gap-sm" style="align-items:center;">
+                @if (livePositions)
+                {
+                    <span class="badge badge-success">● LIVE</span>
+                }
+                <small class="text-muted">Posisi terakhir tiap kurir</small>
+            </span>
+        </div>
+        <div id="fleet-map" style="height:320px;border-radius:0 0 10px 10px;z-index:1;"></div>
+    </div>
+
+    <div class="grid grid-3 mb-md">
+        @foreach (var courier in couriers)
+        {
+            var stat = performance.FirstOrDefault(p => p.CourierId == courier.Id);
+            var totalDeliveries = stat?.TotalDeliveries ?? 0;
+            var successRate = stat?.SuccessRate ?? 0.0;
+
+            <div class="card">
+                <div class="flex-between">
+                    <div class="flex gap-sm" style="align-items:center;">
+                        <span style="font-size:32px;">@VehicleIcon(courier.VehicleType)</span>
+                        <div>
+                            <strong>@(courier.User?.FullName ?? courier.CourierId)</strong>
+                            <div><small class="text-muted">@courier.CourierId</small></div>
+                        </div>
+                    </div>
+                    <span class="badge @StatusBadge(courier.Status)">@courier.Status</span>
+                </div>
+
+                <div style="margin-top:12px;">
+                    <div class="flex-between"><span>Rating</span><span>⭐ @courier.Rating.ToString("F1")</span></div>
+                    <div class="flex-between"><span>Pengiriman</span><strong>@totalDeliveries</strong></div>
+                    <div class="flex-between"><span>Tingkat sukses</span><strong>@successRate%</strong></div>
+                    <div class="flex-between">
+                        <span>Kendaraan</span><span>@courier.VehicleType · @courier.VehiclePlateNumber</span>
+                    </div>
+                    <div class="flex-between"><span>Muatan</span><span>@courier.CurrentLoadKg / @courier.MaxLoadKg kg</span></div>
+                    <div class="progress-bar" style="margin-top:6px;">
+                        <div class="progress-fill"
+                             style="width:@LoadPercent(courier)%;background:@(LoadPercent(courier) > 80 ? "var(--danger)" : "var(--accent)");"></div>
+                    </div>
+                    @if (courier.LastLocationUpdate.HasValue)
+                    {
+                        <div class="flex-between" style="margin-top:6px;">
+                            <span>Terakhir terlihat</span>
+                            <small class="text-muted">@courier.LastLocationUpdate.Value.ToString("HH:mm dd/MM")</small>
+                        </div>
+                    }
+                </div>
+
+                <div class="flex gap-sm" style="margin-top:12px;flex-wrap:wrap;">
+                    <button class="btn btn-outline btn-sm" @onclick="() => ViewSchedule(courier)">📅 Jadwal</button>
+                    <button class="btn btn-outline btn-sm" @onclick="() => PlanRoute(courier)">🗺️ Optimasi Rute</button>
+                    <button class="btn btn-outline btn-sm" @onclick="() => ToggleStatus(courier)">
+                        @(courier.Status == "AVAILABLE" ? "⏸ Offline" : "▶ Aktifkan")
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (selectedCourier != null)
+    {
+        <div class="card mb-md">
+            <div class="card-header">
+                <span class="card-title">📅 Jadwal — @(selectedCourier.User?.FullName ?? selectedCourier.CourierId)</span>
+                <button class="btn btn-outline btn-sm" @onclick="CloseDetail">✕</button>
+            </div>
+
+            @if (routePlan != null)
+            {
+                <div class="grid grid-4 mb-md">
+                    <div class="card mini-stat">
+                        <span class="mini-label">Jarak optimal</span>
+                        <span class="mini-value">@routePlan.TotalDistanceKm km</span>
+                    </div>
+                    <div class="card mini-stat">
+                        <span class="mini-label">Tanpa optimasi</span>
+                        <span class="mini-value">@routePlan.NaiveDistanceKm km</span>
+                    </div>
+                    <div class="card mini-stat">
+                        <span class="mini-label">Penghematan</span>
+                        <span class="mini-value" style="color:var(--success);">@routePlan.SavingsPercent%</span>
+                    </div>
+                    <div class="card mini-stat">
+                        <span class="mini-label">Estimasi durasi</span>
+                        <span class="mini-value">@(routePlan.EstimatedDurationMinutes / 60)j @(routePlan.EstimatedDurationMinutes % 60)m</span>
+                    </div>
+                </div>
+
+                <div id="route-map" style="height:320px;border-radius:10px;margin-bottom:16px;z-index:1;"></div>
+            }
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr><th>Urutan</th><th>Order</th><th>Tujuan</th><th>Jadwal</th><th>Status</th><th>Jarak</th></tr>
+                    </thead>
+                    <tbody>
+                        @if (scheduleItems.Count == 0)
+                        {
+                            <tr><td colspan="6" class="text-muted">Belum ada pengiriman terjadwal.</td></tr>
+                        }
+                        @foreach (var schedule in scheduleItems.OrderBy(s => s.SequenceNumber))
+                        {
+                            <tr>
+                                <td>#@schedule.SequenceNumber</td>
+                                <td class="font-bold">@schedule.Order?.OrderNumber</td>
+                                <td>@schedule.Order?.RecipientCity</td>
+                                <td>
+                                    @schedule.ScheduledDate.ToString("dd MMM")
+                                    @if (schedule.EstimatedDeliveryTime.HasValue)
+                                    {
+                                        <br/>
+                                        <small class="text-muted">ETA @schedule.EstimatedDeliveryTime.Value.ToString("HH:mm")</small>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge @(schedule.Status == "COMPLETED" ? "badge-success" : "badge-info")">
+                                        @schedule.Status
+                                    </span>
+                                </td>
+                                <td>@schedule.EstimatedDistanceKm.ToString("F1") km</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private List<CourierProfile> couriers = new();
+    private List<DeliverySchedule> scheduleItems = new();
+    private CourierProfile? selectedCourier;
+    private RouteOptimizationService.RoutePlan? routePlan;
+    private bool isLoading = true;
+    private bool mapPending;
+    private bool fleetMapPending;
+    private bool livePositions;
+    private List<CourierPerformance> performance = new();
+    private string? message;
+
+    protected override async Task OnInitializedAsync() => await RefreshData();
+
+    private async Task RefreshData()
+    {
+        isLoading = true;
+        message = null;
+        try
+        {
+            // Every courier, not just the available ones — the page previously fell back to
+            // hardcoded sample couriers whenever none were free.
+            couriers = await CourierService.GetAllCouriersAsync();
+            // Delivery counts come from the order table; CourierProfile.TotalDeliveries is a
+            // denormalised column nothing maintains, so the cards used to read a flat zero.
+            performance = await Analytics.GetCourierPerformanceAsync();
+        }
+        catch (Exception ex)
+        {
+            message = $"Gagal memuat kurir: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            fleetMapPending = couriers.Any(c => c.CurrentLatitude != 0 || c.CurrentLongitude != 0);
+            livePositions = couriers.Any(c => c.LastLocationUpdate > DateTime.UtcNow.AddMinutes(-10));
+        }
+    }
+
+    private async Task ViewSchedule(CourierProfile courier)
+    {
+        selectedCourier = courier;
+        routePlan = null;
+        scheduleItems = await CourierService.GetCourierScheduleAsync(courier.Id);
+    }
+
+    private async Task PlanRoute(CourierProfile courier)
+    {
+        selectedCourier = courier;
+        message = null;
+
+        try
+        {
+            routePlan = await RouteOptimizer.PlanCourierRouteAsync(courier.Id, DateTime.UtcNow);
+            scheduleItems = await CourierService.GetCourierScheduleAsync(courier.Id);
+
+            if (routePlan.Stops.Count <= 1)
+            {
+                message = "Tidak ada pengiriman terjadwal hari ini untuk dioptimasi.";
+                routePlan = null;
+                return;
+            }
+
+            mapPending = true;
+        }
+        catch (Exception ex)
+        {
+            message = $"Gagal mengoptimasi rute: {ex.Message}";
+        }
+    }
+
+    /// <summary>Status change is persisted, not just flipped in the UI.</summary>
+    private async Task ToggleStatus(CourierProfile courier)
+    {
+        var newStatus = courier.Status == "AVAILABLE" ? "OFFLINE" : "AVAILABLE";
+        await CourierService.UpdateStatusAsync(courier.Id, newStatus);
+        courier.Status = newStatus;
+        courier.IsAvailable = newStatus == "AVAILABLE";
+        message = $"Status {courier.User?.FullName ?? courier.CourierId} diubah menjadi {newStatus}.";
+    }
+
+    private void CloseDetail()
+    {
+        selectedCourier = null;
+        routePlan = null;
+        scheduleItems.Clear();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (fleetMapPending)
+        {
+            fleetMapPending = false;
+            try
+            {
+                await JS.InvokeVoidAsync("ngibrid.renderPointsMap", new
+                {
+                    mapId = "fleet-map",
+                    points = couriers
+                        .Where(c => c.CurrentLatitude != 0 || c.CurrentLongitude != 0)
+                        .Select(c => new
+                        {
+                            lat = c.CurrentLatitude,
+                            lng = c.CurrentLongitude,
+                            emoji = VehicleIcon(c.VehicleType),
+                            color = c.Status switch
+                            {
+                                "ON_DELIVERY" => "#1877f2",
+                                "AVAILABLE" => "#31a24c",
+                                "RESTING" => "#f59e0b",
+                                _ => "#8a8d91",
+                            },
+                            title = c.User?.FullName ?? c.CourierId,
+                            subtitle = $"{c.CourierId} · {c.VehicleType} {c.VehiclePlateNumber}",
+                            lines = new[]
+                            {
+                                $"Status: {c.Status}",
+                                $"Muatan: {c.CurrentLoadKg:F0} / {c.MaxLoadKg:F0} kg",
+                                c.LastLocationUpdate is { } t
+                                    ? $"Update: {t.ToLocalTime():dd MMM HH:mm}"
+                                    : "Belum ada update posisi",
+                            },
+                        }),
+                });
+            }
+            catch (JSDisconnectedException) { }
+            catch (Exception) { /* map is supplementary */ }
+        }
+
+        if (!mapPending || routePlan == null) return;
+        mapPending = false;
+
+        try
+        {
+            await JS.InvokeVoidAsync("ngibrid.renderRouteMap", new
+            {
+                mapId = "route-map",
+                stops = routePlan.Stops.Select(s => new
+                {
+                    lat = s.Latitude,
+                    lng = s.Longitude,
+                    label = s.Label,
+                    city = s.City,
+                    eta = s.EstimatedArrival?.ToString("HH:mm")
+                })
+            });
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception) { /* map is supplementary */ }
+    }
+
+    private static double LoadPercent(CourierProfile c) =>
+        c.MaxLoadKg > 0 ? Math.Round(c.CurrentLoadKg / c.MaxLoadKg * 100, 0) : 0;
+
+    private static string VehicleIcon(string type) => type switch
+    {
+        "CAR" => "🚗", "VAN" => "🚐", "TRUCK" => "🚛", _ => "🏍️"
+    };
+
+    private static string StatusBadge(string status) => status switch
+    {
+        "AVAILABLE" => "badge-success",
+        "ON_DELIVERY" => "badge-info",
+        "RESTING" => "badge-warning",
+        _ => "badge-default"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("ngibridCharts.dispose"); }
+        catch { }
+    }
+}
