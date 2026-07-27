@@ -1,0 +1,142 @@
+@page "/wishlist"
+@using System.Security.Claims
+@attribute [Authorize]
+@inject AuthService AuthService
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>@L["Wishlist.Title"] — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Nav.Yours"]</p>
+        <h1>@L["Wishlist.Title"]</h1>
+        <p class="lede">@L["Wishlist.Lede"]</p>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="grid grid-3">
+            @for (var i = 0; i < 3; i++)
+            {
+                <div class="skeleton" style="height:180px;"></div>
+            }
+        </div>
+    }
+    else if (!_items.Any())
+    {
+        <div class="empty">
+            <div style="font-size:3rem;">🤍</div>
+            <h3>@L["Wishlist.EmptyTitle"]</h3>
+            <p>@L["Wishlist.EmptyBody"]</p>
+            <div style="display:flex; gap: var(--s-2); justify-content:center; flex-wrap:wrap;">
+                <a class="btn btn-primary" href="/hotels">@L["Home.SearchHotels"]</a>
+                <a class="btn btn-ghost" href="/activities">@L["Nav.Activities"]</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-3">
+            @foreach (var item in _items)
+            {
+                <article class="travel-card card-media">
+                    <MediaImage Src="@item.ItemImageUrl" Alt="@item.ItemName" Fallback="@IconFor(item.ItemType)" />
+
+                    <div class="card-body">
+                        <div class="card-top">
+                            <span class="badge badge-quiet">@LabelFor(item.ItemType)</span>
+                            <button class="icon-btn remove" title="@L["Wishlist.Remove"]"
+                                    aria-label="@($"{L["Wishlist.Remove"]} {item.ItemName}")"
+                                    @onclick="() => Remove(item.Id)">✕</button>
+                        </div>
+
+                        <h3>@item.ItemName</h3>
+
+                        @if (item.Price.HasValue)
+                        {
+                            <div style="margin-top: var(--s-2);"><Money Amount="@item.Price.Value" /></div>
+                        }
+
+                        <p class="micro">@L["Wishlist.SavedOn"] @item.AddedAt.ToString("dd MMM yyyy")</p>
+
+                        <div class="card-foot">
+                            <a class="btn btn-primary btn-sm" href="@LinkFor(item.ItemType)">@L["Action.Book"]</a>
+                        </div>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); margin-bottom: var(--s-2); }
+    .micro { font-size: var(--t-xs); color: var(--text-muted); margin-top: var(--s-2); }
+
+    .remove { width: 32px; height: 32px; font-size: 0.8rem; }
+    .remove:hover { border-color: var(--accent-danger); color: var(--accent-danger); }
+
+    .card-foot { margin-top: auto; padding-top: var(--s-3); border-top: 2px solid var(--border-color); }
+</style>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<WishlistItem> _items = new();
+    private Guid _userId;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // AuthenticationState, not a cascading HttpContext: HttpContext is null
+        // outside static SSR, which made this page always claim you were signed out.
+        var state = await AuthState;
+
+        if (Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id))
+        {
+            _userId = id;
+            _items = await AuthService.GetUserWishlistAsync(id);
+        }
+
+        _loading = false;
+    }
+
+    private async Task Remove(Guid wishlistId)
+    {
+        await AuthService.RemoveFromWishlistAsync(_userId, wishlistId);
+        _items = await AuthService.GetUserWishlistAsync(_userId);
+    }
+
+    private static string IconFor(string type) => type switch
+    {
+        "Hotel" => "🏨",
+        "Activity" => "🎪",
+        "Car" => "🚗",
+        "Package" => "🎁",
+        "Flight" => "✈️",
+        "Train" => "🚆",
+        _ => "❤️"
+    };
+
+    private string LabelFor(string type) => type switch
+    {
+        "Hotel" => L["Nav.Hotels"],
+        "Activity" => L["Nav.Activities"],
+        "Car" => L["Nav.Cars"],
+        "Package" => L["Nav.Packages"],
+        "Flight" => L["Nav.Flights"],
+        "Train" => L["Nav.Trains"],
+        _ => type
+    };
+
+    private static string LinkFor(string type) => type switch
+    {
+        "Hotel" => "/hotels",
+        "Activity" => "/activities",
+        "Car" => "/cars",
+        "Package" => "/packages",
+        "Flight" => "/flights",
+        "Train" => "/trains",
+        _ => "/"
+    };
+}

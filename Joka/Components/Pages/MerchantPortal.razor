@@ -1,0 +1,961 @@
+@page "/merchant"
+@using Joka.Models.Backoffice
+@using System.Security.Claims
+@attribute [Authorize(Policy = "MerchantArea")]
+@inject AppDbContext DbContext
+@inject MerchantCatalogService Catalog
+@inject Joka.Services.Storage.StorageServiceFactory StorageFactory
+@inject AuthenticationStateProvider AuthProvider
+@inject AnalyticsService Analytics
+
+<PageTitle>Merchant Portal — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="console-head">
+        <div class="page-head" style="margin:0;">
+            <p class="eyebrow">Merchant Portal</p>
+            <h1>@(_merchant?.Name ?? "Partner")</h1>
+        </div>
+        <span class="role-chip">Merchant</span>
+    </div>
+
+    @if (_merchant is null)
+    {
+        <div class="empty">
+            <h3>Akun ini belum terhubung ke partner</h3>
+            <p>Akun merchant harus punya MerchantId. Admin bisa menautkannya dari Admin Console → Pengguna &amp; Role.</p>
+            <a class="btn btn-secondary" href="/admin">Buka Admin Console</a>
+        </div>
+    }
+    else
+    {
+        <div class="tabs">
+            @foreach (var t in _tabs)
+            {
+                <div class="tab-item @(_tab == t.Key ? "active" : "")" role="button" tabindex="0"
+                     @onclick="() => _tab = t.Key">@t.Label</div>
+            }
+        </div>
+
+        @switch (_tab)
+        {
+            case "overview":
+                <div class="kpi-row">
+                    <div class="stat-card"><div class="stat-value">@_merchant.TotalProducts</div><div class="stat-label">Produk aktif</div></div>
+                    <div class="stat-card"><div class="stat-value">@_merchant.AverageRating.ToString("0.0")</div><div class="stat-label">Rating rata-rata</div></div>
+                    <div class="stat-card"><div class="stat-value">@_merchant.CommissionRate.ToString("0.#")%</div><div class="stat-label">Komisi Joka</div></div>
+                    <div class="stat-card"><div class="stat-value">@Rupiah(_settlements.Where(s => s.Status != "Paid").Sum(s => s.NetAmount))</div><div class="stat-label">Belum dibayarkan</div></div>
+                </div>
+
+                <div class="chart-grid">
+                    <Chart Type="line" Data="@_revenueTrend" Format="currency"
+                           Title="Pendapatan kotor" Subtitle="14 hari terakhir, dari booking kamar &amp; jadwal kamu"
+                           Badge="@Rupiah(_revenueTrend.Sum(p => p.Value))" Height="240"
+                           EmptyText="Belum ada booking dalam 14 hari terakhir" />
+
+                    <Chart Type="donut" Data="@_bookingsByProduct" Format="number"
+                           Title="Booking per lini produk" TotalLabel="booking" Height="240"
+                           EmptyText="Belum ada booking" />
+
+                    <Chart Type="bar" Data="@_settlementTrend" Format="currency"
+                           Title="Settlement netto" Subtitle="8 periode terakhir" Height="240"
+                           EmptyText="Belum ada settlement" />
+
+                    <Chart Type="hbar" Data="@_occupancy" Format="number"
+                           Title="Okupansi kamar" Subtitle="Persentase kamar terisi per properti"
+                           Height="240" EmptyText="Belum ada data kamar" />
+                </div>
+
+                <div class="card">
+                    <h3>Profil partner</h3>
+                    <div class="grid grid-2" style="margin-top:var(--s-3);">
+                        <div><span class="field-label">Kode</span><strong class="code">@_merchant.Code</strong></div>
+                        <div><span class="field-label">Kategori</span><strong>@_merchant.Category</strong></div>
+                        <div><span class="field-label">Email</span><strong>@_merchant.ContactEmail</strong></div>
+                        <div><span class="field-label">Status</span><StatusPill Status="@_merchant.Status" /></div>
+                        <div><span class="field-label">Bergabung</span><strong>@_merchant.JoinedAt.ToString("dd MMM yyyy")</strong></div>
+                    </div>
+                </div>
+                break;
+
+            case "products":
+                <p class="hint">Data produk yang kamu kelola. Perubahan harga dan jadwal masuk antrean persetujuan admin.</p>
+
+                @if (_rooms.Any())
+                {
+                    <div class="section-title">Kamar hotel</div>
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>Properti</th><th>Kamar</th><th class="num">Kapasitas</th><th class="num">Harga/malam</th><th class="num">Tersedia</th><th>Aksi</th></tr></thead>
+                            <tbody>
+                                @foreach (var r in _rooms)
+                                {
+                                    <tr>
+                                        <td>@r.Hotel?.Name</td>
+                                        <td><strong>@r.Name</strong></td>
+                                        <td class="num">@r.Capacity</td>
+                                        <td class="num">@Rupiah(r.PricePerNight)</td>
+                                        <td class="num">@r.AvailableRooms / @r.TotalRooms</td>
+                                        <td style="white-space:nowrap;">
+                                            <button class="btn btn-sm btn-ghost" @onclick='() => OpenPrice("Room", r.Id, r.Name, r.PricePerNight)'>Harga</button>
+                                            <button class="btn btn-sm btn-ghost" @onclick="() => OpenRoomStock(r)">Stok</button>
+                                            <button class="btn btn-sm btn-ghost" @onclick="() => OpenRoomContent(r)">Foto</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                @if (_busSchedules.Any())
+                {
+                    <div class="section-title">Jadwal bus &amp; shuttle</div>
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>Armada</th><th>Rute</th><th>Berangkat</th><th class="num">Harga</th><th class="num">Kursi</th><th>Aksi</th></tr></thead>
+                            <tbody>
+                                @foreach (var s in _busSchedules)
+                                {
+                                    <tr>
+                                        <td>@s.BusService?.Name<div style="color:var(--text-muted);font-size:var(--t-xs);">@s.BusService?.Class</div></td>
+                                        <td class="code" style="font-size:var(--t-xs);">@s.DepartureTerminal?.Code → @s.ArrivalTerminal?.Code</td>
+                                        <td>@s.DepartureTime.ToString("dd MMM HH:mm")</td>
+                                        <td class="num">@Rupiah(s.BasePrice)</td>
+                                        <td class="num">@s.AvailableSeats</td>
+                                        <td style="white-space:nowrap;">
+                                            <button class="btn btn-sm btn-ghost" @onclick='() => OpenPrice("BusSchedule", s.Id, s.BusService?.Name ?? "Jadwal", s.BasePrice)'>Harga</button>
+                                            <button class="btn btn-sm btn-ghost" @onclick="() => OpenSeats(s)">Kursi</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                @if (_flights.Any())
+                {
+                    <div class="section-title">Penerbangan</div>
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>Nomor</th><th>Rute</th><th>Berangkat</th><th class="num">Harga</th><th class="num">Kursi</th><th>Aksi</th></tr></thead>
+                            <tbody>
+                                @foreach (var f in _flights)
+                                {
+                                    <tr>
+                                        <td class="code">@f.FlightNumber</td>
+                                        <td class="code" style="font-size:var(--t-xs);">@f.DepartureAirport?.Code → @f.ArrivalAirport?.Code</td>
+                                        <td>@f.DepartureTime.ToString("dd MMM HH:mm")</td>
+                                        <td class="num">@Rupiah(f.BasePrice)</td>
+                                        <td class="num">@f.AvailableSeats / @f.TotalSeats</td>
+                                        <td><button class="btn btn-sm btn-ghost" @onclick='() => OpenPrice("Flight", f.Id, f.FlightNumber, f.BasePrice)'>Harga</button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                @if (_activities.Any())
+                {
+                    <div class="section-title">Aktivitas &amp; event</div>
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>Nama</th><th>Kategori</th><th>Kota</th><th class="num">Harga</th><th class="num">Tiket</th><th>Aksi</th></tr></thead>
+                            <tbody>
+                                @foreach (var a in _activities)
+                                {
+                                    <tr>
+                                        <td><strong>@a.Name</strong></td>
+                                        <td><span class="tag">@a.Category</span></td>
+                                        <td>@a.City</td>
+                                        <td class="num">@Rupiah(a.Price)</td>
+                                        <td class="num">@a.SoldTickets / @a.TotalTickets</td>
+                                        <td style="white-space:nowrap;">
+                                            <button class="btn btn-sm btn-ghost" @onclick='() => OpenPrice("Activity", a.Id, a.Name, a.Price)'>Harga</button>
+                                            <button class="btn btn-sm btn-ghost" @onclick="() => OpenQuota(a)">Kuota</button>
+                                            <button class="btn btn-sm btn-ghost" @onclick="() => OpenActivityContent(a)">Konten</button>
+                                            <button class="btn btn-sm btn-ghost" @onclick='() => ProposeDelete("Activity", a.Id, a.Name)'>Hapus</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                @if (!_rooms.Any() && !_busSchedules.Any() && !_flights.Any() && !_activities.Any())
+                {
+                    <div class="empty">
+                        <h3>Belum ada produk milik partner ini</h3>
+                        <p>Produk ditautkan lewat kolom MerchantId. Admin bisa menautkannya, atau gunakan akun merchant demo yang sudah punya data.</p>
+                    </div>
+                }
+                break;
+
+            case "new":
+                <p class="hint">Daftarkan produk baru. Masuk katalog setelah disetujui admin.</p>
+
+                <div class="grid grid-2" style="gap:var(--s-5); align-items:start;">
+                    <div class="card">
+                        <h3 style="margin-bottom:var(--s-3);">Kamar baru</h3>
+                        @if (_myHotels.Any())
+                        {
+                            <div class="field">
+                                <label for="r-hotel">Properti</label>
+                                <select id="r-hotel" @bind="_newRoom.HotelId">
+                                    <option value="@Guid.Empty">Pilih properti</option>
+                                    @foreach (var h in _myHotels) { <option value="@h.Id">@h.Name</option> }
+                                </select>
+                            </div>
+                            <div class="grid grid-2" style="margin-top:var(--s-3);">
+                                <div class="field">
+                                    <label for="r-name">Nama kamar</label>
+                                    <input id="r-name" @bind="_newRoom.Name" placeholder="Deluxe Ocean View" />
+                                </div>
+                                <div class="field">
+                                    <label for="r-type">Tipe</label>
+                                    <select id="r-type" @bind="_newRoom.Type">
+                                        <option>Standard</option><option>Deluxe</option><option>Suite</option><option>Family</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label for="r-cap">Kapasitas (tamu)</label>
+                                    <input id="r-cap" type="number" min="1" @bind="_newRoom.Capacity" />
+                                </div>
+                                <div class="field">
+                                    <label for="r-units">Jumlah kamar</label>
+                                    <input id="r-units" type="number" min="1" @bind="_newRoom.TotalRooms" />
+                                </div>
+                                <div class="field">
+                                    <label for="r-price">Harga per malam</label>
+                                    <input id="r-price" type="number" min="0" step="50000" @bind="_newRoom.Price" />
+                                </div>
+                                <div class="field" style="display:flex;align-items:flex-end;">
+                                    <label style="display:flex;align-items:center;gap:8px;margin:0;">
+                                        <input type="checkbox" @bind="_newRoom.HasBreakfast" />
+                                        Termasuk sarapan
+                                    </label>
+                                </div>
+                            </div>
+                            <button class="btn btn-primary" style="margin-top:var(--s-4);" @onclick="SubmitRoom">Ajukan kamar</button>
+                        }
+                        else
+                        {
+                            <p style="color:var(--text-secondary);font-size:var(--t-sm);">
+                                Partner ini belum punya properti hotel. Admin perlu menautkannya lebih dulu.
+                            </p>
+                        }
+                    </div>
+
+                    <div class="card">
+                        <h3 style="margin-bottom:var(--s-3);">Aktivitas baru</h3>
+                        <div class="grid grid-2">
+                            <div class="field">
+                                <label for="a-name">Nama</label>
+                                <input id="a-name" @bind="_newActivity.Name" placeholder="Sunset Cruise" />
+                            </div>
+                            <div class="field">
+                                <label for="a-cat">Kategori</label>
+                                <select id="a-cat" @bind="_newActivity.Category">
+                                    <option>Tour</option><option>Attraction</option><option>Concert</option>
+                                    <option>Workshop</option><option>Sports</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="a-city">Kota</label>
+                                <input id="a-city" @bind="_newActivity.City" placeholder="Bali" />
+                            </div>
+                            <div class="field">
+                                <label for="a-loc">Lokasi</label>
+                                <input id="a-loc" @bind="_newActivity.Location" placeholder="Pantai Jimbaran" />
+                            </div>
+                            <div class="field">
+                                <label for="a-price">Harga per tiket</label>
+                                <input id="a-price" type="number" min="0" step="10000" @bind="_newActivity.Price" />
+                            </div>
+                            <div class="field">
+                                <label for="a-qty">Kuota tiket</label>
+                                <input id="a-qty" type="number" min="1" @bind="_newActivity.TotalTickets" />
+                            </div>
+                            <div class="field">
+                                <label for="a-dur">Durasi (menit)</label>
+                                <input id="a-dur" type="number" min="0" @bind="_newActivity.DurationMinutes" />
+                            </div>
+                        </div>
+                        <div class="field" style="margin-top:var(--s-3);">
+                            <label for="a-desc">Deskripsi</label>
+                            <textarea id="a-desc" rows="2" @bind="_newActivity.Description"></textarea>
+                        </div>
+                        <div class="field" style="margin-top:var(--s-3);">
+                            <label>Foto sampul</label>
+                            <InputFile OnChange="OnActivityImage" accept=".jpg,.jpeg,.png,.webp" />
+                            @if (!string.IsNullOrEmpty(_newActivity.ImageUrl))
+                            {
+                                <div style="margin-top:var(--s-2);max-width:200px;">
+                                    <MediaImage Src="@_newActivity.ImageUrl" Alt="Pratinjau" Fallback="🎪" />
+                                </div>
+                            }
+                        </div>
+                        <button class="btn btn-primary" style="margin-top:var(--s-4);" @onclick="SubmitActivity">Ajukan aktivitas</button>
+                    </div>
+                </div>
+                break;
+
+            case "schedules":
+                <p class="hint">Tambah keberangkatan baru. Jadwal masuk katalog setelah disetujui admin.</p>
+
+                @if (_myBusServices.Any())
+                {
+                    <div class="card" style="margin-bottom:var(--s-4);">
+                        <h3 style="margin-bottom:var(--s-3);">Keberangkatan baru</h3>
+                        <div class="grid grid-2">
+                            <div class="field">
+                                <label for="s-fleet">Armada</label>
+                                <select id="s-fleet" @bind="_newSchedule.BusServiceId">
+                                    <option value="@Guid.Empty">Pilih armada</option>
+                                    @foreach (var b in _myBusServices) { <option value="@b.Id">@b.Name (@b.Class)</option> }
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="s-price">Harga per orang</label>
+                                <input id="s-price" type="number" min="0" step="1000" @bind="_newSchedule.Price" />
+                            </div>
+                            <div class="field">
+                                <label for="s-from">Dari terminal</label>
+                                <select id="s-from" @bind="_newSchedule.FromId">
+                                    <option value="@Guid.Empty">Pilih terminal</option>
+                                    @foreach (var t in _terminals) { <option value="@t.Id">@t.City — @t.Name</option> }
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="s-to">Ke terminal</label>
+                                <select id="s-to" @bind="_newSchedule.ToId">
+                                    <option value="@Guid.Empty">Pilih terminal</option>
+                                    @foreach (var t in _terminals) { <option value="@t.Id">@t.City — @t.Name</option> }
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="s-dep">Waktu berangkat</label>
+                                <input id="s-dep" type="datetime-local" @bind="_newSchedule.Departure" />
+                            </div>
+                            <div class="field">
+                                <label for="s-dur">Durasi (menit)</label>
+                                <input id="s-dur" type="number" min="1" @bind="_newSchedule.Duration" />
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" style="margin-top:var(--s-3);" @onclick="SubmitSchedule">
+                            Ajukan jadwal
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty"><h3>Partner ini tidak punya armada bus</h3><p>Fitur jadwal hanya untuk partner transportasi.</p></div>
+                }
+                break;
+
+            case "packages":
+                <p class="hint">Buat paket bundling sendiri. Masuk katalog setelah disetujui admin.</p>
+                <div class="card">
+                    <h3 style="margin-bottom:var(--s-3);">Paket baru</h3>
+                    <div class="grid grid-2">
+                        <div class="field">
+                            <label for="p-name">Nama paket</label>
+                            <input id="p-name" @bind="_newPackage.Name" placeholder="Misal: Bali Family Escape" />
+                        </div>
+                        <div class="field">
+                            <label for="p-dest">Destinasi</label>
+                            <input id="p-dest" @bind="_newPackage.Destination" placeholder="Bali" />
+                        </div>
+                        <div class="field">
+                            <label for="p-days">Durasi (hari)</label>
+                            <input id="p-days" type="number" min="1" @bind="_newPackage.Days" />
+                        </div>
+                        <div class="field">
+                            <label for="p-price">Harga per orang</label>
+                            <input id="p-price" type="number" min="0" step="100000" @bind="_newPackage.Price" />
+                        </div>
+                    </div>
+                    <div class="field" style="margin-top:var(--s-3);">
+                        <label for="p-inc">Komponen paket (satu per baris)</label>
+                        <textarea id="p-inc" rows="4" @bind="_newPackage.IncludesText"
+                                  placeholder="Hotel 4&#10;Tiket pesawat PP&#10;Tur Ubud"></textarea>
+                    </div>
+                    <div class="field" style="margin-top:var(--s-3);">
+                        <label for="p-img">Foto sampul</label>
+                        <InputFile OnChange="OnPackageImage" accept=".jpg,.jpeg,.png,.webp" />
+                        @if (!string.IsNullOrEmpty(_newPackage.ImageUrl))
+                        {
+                            <div style="margin-top:var(--s-2);max-width:220px;">
+                                <MediaImage Src="@_newPackage.ImageUrl" Alt="Pratinjau sampul" Fallback="🎁" />
+                            </div>
+                        }
+                    </div>
+                    <button class="btn btn-primary" style="margin-top:var(--s-4);" @onclick="SubmitPackage">
+                        Ajukan paket
+                    </button>
+                </div>
+                break;
+
+            case "settlement":
+                <p class="hint">Laporan transaksi dan pembayaran dari Joka ke partner.</p>
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Referensi</th><th>Periode</th><th class="num">Transaksi</th><th class="num">Bruto</th><th class="num">Komisi</th><th class="num">Netto</th><th>Status</th><th>Dibayar</th></tr></thead>
+                        <tbody>
+                            @foreach (var s in _settlements)
+                            {
+                                <tr>
+                                    <td class="code" style="font-size:var(--t-xs);">@s.ReferenceNo</td>
+                                    <td style="white-space:nowrap;color:var(--text-muted);">@s.PeriodStart.ToString("dd MMM") – @s.PeriodEnd.ToString("dd MMM")</td>
+                                    <td class="num">@s.TransactionCount</td>
+                                    <td class="num">@Rupiah(s.GrossAmount)</td>
+                                    <td class="num" style="color:var(--text-muted);">−@Rupiah(s.CommissionAmount)</td>
+                                    <td class="num"><strong>@Rupiah(s.NetAmount)</strong></td>
+                                    <td><StatusPill Status="@s.Status" /></td>
+                                    <td style="color:var(--text-muted);">@(s.PaidAt?.ToString("dd MMM yyyy") ?? "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+
+            case "approvals":
+                <p class="hint">Status pengajuan perubahan data master kamu.</p>
+                @if (_approvals.Any())
+                {
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>Entitas</th><th>Jenis</th><th>Ringkasan</th><th>Status</th><th>Catatan admin</th></tr></thead>
+                            <tbody>
+                                @foreach (var a in _approvals)
+                                {
+                                    <tr>
+                                        <td><span class="tag">@a.EntityType</span></td>
+                                        <td>@a.ChangeType</td>
+                                        <td style="max-width:320px;">@a.Summary</td>
+                                        <td><StatusPill Status="@a.Status" /></td>
+                                        <td style="color:var(--text-muted);font-size:var(--t-xs);">@a.ReviewNote</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty"><h3>Belum ada pengajuan</h3><p>Ajukan perubahan harga dari tab Produk.</p></div>
+                }
+                break;
+        }
+    }
+</div>
+
+@* ---------------- Editor modals ---------------- *@
+@if (_editor is not null)
+{
+    <div class="modal-scrim" @onclick="CloseEditor">
+        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true">
+            <h2 style="margin-bottom:var(--s-2);">@_editor.Title</h2>
+            <p style="color:var(--text-secondary);font-size:var(--t-sm);margin-bottom:var(--s-4);">@_editor.Subtitle</p>
+
+            @switch (_editor.Kind)
+            {
+                case "price":
+                    <div class="summary-row"><span>Harga sekarang</span><strong class="price">@Rupiah(_editor.CurrentPrice)</strong></div>
+                    <div class="field" style="margin-top:var(--s-3);">
+                        <label for="e-price">Harga baru</label>
+                        <input id="e-price" type="number" min="0" step="1000" @bind="_editor.NewPrice" />
+                    </div>
+                    <p class="hint" style="margin-top:var(--s-2);">Perubahan harga butuh persetujuan admin sebelum tayang.</p>
+                    break;
+
+                case "roomStock":
+                    <div class="grid grid-2">
+                        <div class="field">
+                            <label for="e-total">Total kamar</label>
+                            <input id="e-total" type="number" min="0" @bind="_editor.Total" />
+                        </div>
+                        <div class="field">
+                            <label for="e-avail">Tersedia</label>
+                            <input id="e-avail" type="number" min="0" @bind="_editor.Available" />
+                        </div>
+                    </div>
+                    <p class="hint" style="margin-top:var(--s-2);">Perubahan stok langsung berlaku.</p>
+                    break;
+
+                case "seats":
+                    <div class="field">
+                        <label for="e-seats">Kursi tersedia</label>
+                        <input id="e-seats" type="number" min="0" @bind="_editor.Available" />
+                    </div>
+                    <p class="hint" style="margin-top:var(--s-2);">Kapasitas armada: @_editor.Total kursi. Langsung berlaku.</p>
+                    break;
+
+                case "quota":
+                    <div class="field">
+                        <label for="e-quota">Total tiket</label>
+                        <input id="e-quota" type="number" min="0" @bind="_editor.Total" />
+                    </div>
+                    <p class="hint" style="margin-top:var(--s-2);">Sudah terjual @_editor.Available tiket. Langsung berlaku.</p>
+                    break;
+
+                case "content":
+                    <div class="field">
+                        <label for="e-desc">Deskripsi</label>
+                        <textarea id="e-desc" rows="3" @bind="_editor.Description"></textarea>
+                    </div>
+                    <div class="field" style="margin-top:var(--s-3);">
+                        <label>Unggah foto (bisa beberapa)</label>
+                        <InputFile OnChange="OnContentImages" multiple accept=".jpg,.jpeg,.png,.webp" />
+                    </div>
+                    @if (_editor.Gallery.Any())
+                    {
+                        <div class="gallery-strip" style="margin-top:var(--s-3);">
+                            @foreach (var g in _editor.Gallery)
+                            {
+                                <div class="gallery-thumb"><img src="@g" alt="" /></div>
+                            }
+                        </div>
+                        <p class="hint" style="margin-top:var(--s-2);">@_editor.Gallery.Count foto siap disimpan. Langsung berlaku.</p>
+                    }
+                    break;
+            }
+
+            @if (_editorError is not null)
+            {
+                <p class="note-bad">@_editorError</p>
+            }
+
+            <div style="display:flex;gap:var(--s-2);justify-content:flex-end;margin-top:var(--s-5);">
+                <button class="btn btn-ghost" @onclick="CloseEditor">Batal</button>
+                <button class="btn btn-primary" @onclick="SaveEditor" disabled="@_saving">
+                    @(_saving ? "Menyimpan…" : "Simpan")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_toast is not null)
+{
+    <div class="toast">@_toast</div>
+}
+
+<style>
+    .hint { font-size: var(--t-sm); color: var(--text-secondary); margin-bottom: var(--s-3); }
+    .field-label {
+        display: block; font-size: var(--t-xs); letter-spacing: 0.1em;
+        text-transform: uppercase; color: var(--text-muted); margin-bottom: 2px;
+    }
+
+    .chart-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: var(--s-4);
+        margin-bottom: var(--s-5);
+    }
+</style>
+
+@code {
+    private record Tab(string Key, string Label);
+
+    private readonly Tab[] _tabs =
+    {
+        new("overview", "Dashboard"), new("products", "Produk & Inventori"),
+        new("new", "Produk Baru"), new("schedules", "Jadwal"), new("packages", "Paket Bundling"),
+        new("settlement", "Settlement"), new("approvals", "Pengajuan")
+    };
+
+    private class NewRoom
+    {
+        public Guid HotelId { get; set; }
+        public string Name { get; set; } = "";
+        public string Type { get; set; } = "Standard";
+        public int Capacity { get; set; } = 2;
+        public int TotalRooms { get; set; } = 10;
+        public decimal Price { get; set; }
+        public bool HasBreakfast { get; set; } = true;
+    }
+
+    private class NewActivity
+    {
+        public string Name { get; set; } = "";
+        public string Category { get; set; } = "Tour";
+        public string City { get; set; } = "";
+        public string? Location { get; set; }
+        public decimal Price { get; set; }
+        public int TotalTickets { get; set; } = 50;
+        public int DurationMinutes { get; set; } = 120;
+        public string? Description { get; set; }
+        public string? ImageUrl { get; set; }
+    }
+
+    private NewRoom _newRoom = new();
+    private NewActivity _newActivity = new();
+    private List<Hotel> _myHotels = new();
+
+    private class Editor
+    {
+        public string Kind = "";
+        public string Title = "";
+        public string Subtitle = "";
+        public string EntityType = "";
+        public Guid EntityId;
+        public decimal CurrentPrice;
+        public decimal NewPrice;
+        public int Total;
+        public int Available;
+        public string? Description;
+        public List<string> Gallery = new();
+    }
+
+    private class NewSchedule
+    {
+        public Guid BusServiceId { get; set; }
+        public Guid FromId { get; set; }
+        public Guid ToId { get; set; }
+        public DateTime Departure { get; set; } = DateTime.Now.Date.AddDays(1).AddHours(8);
+        public int Duration { get; set; } = 180;
+        public decimal Price { get; set; }
+    }
+
+    private class NewPackage
+    {
+        public string Name { get; set; } = "";
+        public string Destination { get; set; } = "";
+        public int Days { get; set; } = 3;
+        public decimal Price { get; set; }
+        public string IncludesText { get; set; } = "";
+        public string? ImageUrl { get; set; }
+    }
+
+    private Editor? _editor;
+    private string? _editorError;
+    private bool _saving;
+
+    private NewSchedule _newSchedule = new();
+    private NewPackage _newPackage = new();
+
+    private List<Joka.Models.Buses.BusService> _myBusServices = new();
+    private List<Joka.Models.Buses.BusTerminal> _terminals = new();
+
+    private string _tab = "overview";
+    private string? _toast;
+
+    private Merchant? _merchant;
+    private List<MerchantSettlement> _settlements = new();
+    private List<ApprovalRequest> _approvals = new();
+    private List<Room> _rooms = new();
+    private List<Joka.Models.Buses.BusSchedule> _busSchedules = new();
+    private List<Flight> _flights = new();
+    private List<Activity> _activities = new();
+
+    private List<Chart.Point> _revenueTrend = new(), _bookingsByProduct = new(),
+                              _settlementTrend = new(), _occupancy = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        var email = state.User.FindFirst(ClaimTypes.Email)?.Value;
+
+        var user = await DbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == email);
+
+        // Admins previewing the portal see the first partner rather than nothing.
+        _merchant = user?.MerchantId is Guid id
+            ? await DbContext.Merchants.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id)
+            : await DbContext.Merchants.AsNoTracking().FirstOrDefaultAsync();
+
+        if (_merchant is null) return;
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _settlements = await DbContext.MerchantSettlements.AsNoTracking()
+            .Where(s => s.MerchantId == _merchant!.Id)
+            .OrderByDescending(s => s.PeriodEnd).ToListAsync();
+
+        _approvals = await DbContext.ApprovalRequests.AsNoTracking()
+            .Where(a => a.MerchantId == _merchant!.Id)
+            .OrderByDescending(a => a.CreatedAt).ToListAsync();
+
+        // Filtered by actual ownership, not by category guess.
+        _rooms = await DbContext.Rooms.AsNoTracking()
+            .Include(r => r.Hotel)
+            .Where(r => r.Hotel!.MerchantId == _merchant!.Id)
+            .OrderBy(r => r.PricePerNight).Take(50).ToListAsync();
+
+        _busSchedules = await DbContext.BusSchedules.AsNoTracking()
+            .Include(s => s.BusService).Include(s => s.DepartureTerminal).Include(s => s.ArrivalTerminal)
+            .Where(s => s.BusService!.MerchantId == _merchant!.Id)
+            .OrderBy(s => s.DepartureTime).Take(50).ToListAsync();
+
+        _flights = await DbContext.Flights.AsNoTracking()
+            .Include(f => f.Airline).Include(f => f.DepartureAirport).Include(f => f.ArrivalAirport)
+            .Where(f => f.MerchantId == _merchant!.Id)
+            .OrderBy(f => f.DepartureTime).Take(50).ToListAsync();
+
+        _activities = await DbContext.Activities.AsNoTracking()
+            .Where(a => a.MerchantId == _merchant!.Id).Take(50).ToListAsync();
+
+        _myBusServices = await DbContext.BusServices.AsNoTracking()
+            .Where(b => b.MerchantId == _merchant!.Id).ToListAsync();
+
+        _terminals = await DbContext.BusTerminals.AsNoTracking()
+            .OrderBy(t => t.City).ToListAsync();
+
+        _myHotels = await DbContext.Hotels.AsNoTracking()
+            .Where(h => h.MerchantId == _merchant!.Id).OrderBy(h => h.Name).ToListAsync();
+
+        // Every series is scoped to this partner - see AnalyticsService.
+        var id = _merchant!.Id;
+        _revenueTrend = ToPoints(await Analytics.MerchantRevenueByDayAsync(id));
+        _bookingsByProduct = ToPoints(await Analytics.MerchantBookingsByProductAsync(id));
+        _settlementTrend = ToPoints(await Analytics.MerchantSettlementTrendAsync(id));
+        _occupancy = ToPoints(await Analytics.MerchantRoomOccupancyAsync(id));
+    }
+
+    private static List<Chart.Point> ToPoints(IEnumerable<ChartPoint> src) =>
+        src.Select(p => new Chart.Point(p.Label, p.Value)).ToList();
+
+    private async Task SubmitRoom()
+    {
+        var result = await Catalog.ProposeRoomAsync(
+            _merchant!, _newRoom.HotelId, _newRoom.Name, _newRoom.Type, _newRoom.Capacity,
+            _newRoom.Price, _newRoom.TotalRooms, _newRoom.HasBreakfast, _merchant!.ContactEmail);
+
+        if (result.Success) _newRoom = new NewRoom();
+        await LoadAsync();
+        await Toast(result.Message);
+    }
+
+    private async Task SubmitActivity()
+    {
+        var result = await Catalog.ProposeActivityAsync(
+            _merchant!, _newActivity.Name, _newActivity.Category, _newActivity.City, _newActivity.Location,
+            _newActivity.Price, _newActivity.TotalTickets, _newActivity.DurationMinutes,
+            _newActivity.Description, _newActivity.ImageUrl, _merchant!.ContactEmail);
+
+        if (result.Success) _newActivity = new NewActivity();
+        await LoadAsync();
+        await Toast(result.Message);
+    }
+
+    private async Task OnActivityImage(InputFileChangeEventArgs e)
+    {
+        var url = await UploadAsync(e.File);
+        if (url is not null) _newActivity.ImageUrl = url;
+    }
+
+    // ------------------------------------------------------------------
+    // Editors
+    // ------------------------------------------------------------------
+    private void OpenPrice(string entityType, Guid id, string label, decimal current) => _editor = new Editor
+    {
+        Kind = "price", EntityType = entityType, EntityId = id,
+        Title = "Ajukan harga baru", Subtitle = label,
+        CurrentPrice = current, NewPrice = current
+    };
+
+    private void OpenRoomStock(Room r) => _editor = new Editor
+    {
+        Kind = "roomStock", EntityType = "Room", EntityId = r.Id,
+        Title = "Ubah stok kamar", Subtitle = $"{r.Hotel?.Name} — {r.Name}",
+        Total = r.TotalRooms, Available = r.AvailableRooms
+    };
+
+    private void OpenSeats(Joka.Models.Buses.BusSchedule s) => _editor = new Editor
+    {
+        Kind = "seats", EntityType = "BusSchedule", EntityId = s.Id,
+        Title = "Ubah sisa kursi",
+        Subtitle = $"{s.DepartureTerminal?.City} → {s.ArrivalTerminal?.City}, {s.DepartureTime:dd MMM HH:mm}",
+        Available = s.AvailableSeats, Total = s.BusService?.TotalSeats ?? 0
+    };
+
+    private void OpenQuota(Activity a) => _editor = new Editor
+    {
+        Kind = "quota", EntityType = "Activity", EntityId = a.Id,
+        Title = "Ubah kuota tiket", Subtitle = a.Name,
+        Total = a.TotalTickets, Available = a.SoldTickets
+    };
+
+    private void OpenRoomContent(Room r) => _editor = new Editor
+    {
+        Kind = "content", EntityType = "Room", EntityId = r.Id,
+        Title = "Kelola foto kamar", Subtitle = $"{r.Hotel?.Name} — {r.Name}",
+        Gallery = ParseGallery(r.ImageUrls)
+    };
+
+    private void OpenActivityContent(Activity a) => _editor = new Editor
+    {
+        Kind = "content", EntityType = "Activity", EntityId = a.Id,
+        Title = "Kelola konten aktivitas", Subtitle = a.Name,
+        Description = a.Description, Gallery = ParseGallery(a.ImageUrls)
+    };
+
+    private void CloseEditor() { _editor = null; _editorError = null; }
+
+    private async Task SaveEditor()
+    {
+        if (_editor is null) return;
+
+        _saving = true;
+        _editorError = null;
+        try
+        {
+            var actor = _merchant!.ContactEmail;
+
+            var result = _editor.Kind switch
+            {
+                "price" => await Catalog.ProposePriceAsync(_merchant, _editor.EntityType, _editor.EntityId,
+                    _editor.Subtitle, _editor.CurrentPrice, _editor.NewPrice, actor),
+
+                "roomStock" => await Catalog.UpdateRoomInventoryAsync(_editor.EntityId,
+                    _editor.Total, _editor.Available, actor),
+
+                "seats" => await Catalog.UpdateScheduleSeatsAsync(_editor.EntityId, _editor.Available, actor),
+
+                "quota" => await Catalog.UpdateActivityQuotaAsync(_editor.EntityId, _editor.Total, actor),
+
+                "content" when _editor.EntityType == "Room" => await Catalog.UpdateRoomContentAsync(
+                    _editor.EntityId, _editor.Description, _editor.Gallery.FirstOrDefault(), _editor.Gallery, actor),
+
+                "content" => await Catalog.UpdateActivityContentAsync(
+                    _editor.EntityId, _editor.Description, _editor.Gallery.FirstOrDefault(), _editor.Gallery, actor),
+
+                _ => new CatalogResult(false, "Aksi tidak dikenali.")
+            };
+
+            if (!result.Success) { _editorError = result.Message; return; }
+
+            CloseEditor();
+            await LoadAsync();
+            await Toast(result.Message);
+        }
+        finally { _saving = false; }
+    }
+
+    // ------------------------------------------------------------------
+    // Uploads - through IStorageService, not straight to disk
+    // ------------------------------------------------------------------
+    private async Task OnContentImages(InputFileChangeEventArgs e)
+    {
+        if (_editor is null) return;
+
+        foreach (var file in e.GetMultipleFiles(6))
+        {
+            var url = await UploadAsync(file);
+            if (url is not null) _editor.Gallery.Add(url);
+        }
+    }
+
+    private async Task OnPackageImage(InputFileChangeEventArgs e)
+    {
+        var url = await UploadAsync(e.File);
+        if (url is not null) _newPackage.ImageUrl = url;
+    }
+
+    private async Task<string?> UploadAsync(IBrowserFile file)
+    {
+        const long maxBytes = 5 * 1024 * 1024;
+        if (file.Size > maxBytes) { _editorError = $"{file.Name} lebih dari 5 MB."; return null; }
+
+        try
+        {
+            var storage = StorageFactory.Create();
+            var safeName = $"merchant/{_merchant!.Code}/{Guid.NewGuid():N}{Path.GetExtension(file.Name)}";
+
+            await using var stream = file.OpenReadStream(maxBytes);
+            return await storage.UploadAsync(safeName, stream, file.ContentType);
+        }
+        catch (Exception ex)
+        {
+            _editorError = $"Unggah gagal: {ex.Message}";
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // New schedule / package
+    // ------------------------------------------------------------------
+    private async Task SubmitSchedule()
+    {
+        var result = await Catalog.ProposeScheduleAsync(
+            _merchant!, _newSchedule.BusServiceId, _newSchedule.FromId, _newSchedule.ToId,
+            _newSchedule.Departure.ToUniversalTime(), _newSchedule.Duration, _newSchedule.Price,
+            _merchant!.ContactEmail);
+
+        if (result.Success) _newSchedule = new NewSchedule();
+        await LoadAsync();
+        await Toast(result.Message);
+    }
+
+    private async Task SubmitPackage()
+    {
+        var includes = _newPackage.IncludesText
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        var result = await Catalog.ProposePackageAsync(
+            _merchant!, _newPackage.Name, _newPackage.Destination, _newPackage.Days,
+            _newPackage.Price, includes, _newPackage.ImageUrl, _merchant!.ContactEmail);
+
+        if (result.Success) _newPackage = new NewPackage();
+        await LoadAsync();
+        await Toast(result.Message);
+    }
+
+    private async Task ProposeDelete(string entityType, Guid id, string label)
+    {
+        var result = await Catalog.ProposeDeleteAsync(_merchant!, entityType, id, label, _merchant!.ContactEmail);
+        await LoadAsync();
+        await Toast(result.Message);
+    }
+
+    private static List<string> ParseGallery(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    private async Task Toast(string message)
+    {
+        _toast = message;
+        StateHasChanged();
+        await Task.Delay(2800);
+        _toast = null;
+    }
+
+    private async Task ProposePrice(string entityType, string entityId, string label, decimal currentPrice)
+    {
+        var proposed = Math.Round(currentPrice * 1.1m, 0);
+
+        DbContext.ApprovalRequests.Add(new ApprovalRequest
+        {
+            MerchantId = _merchant!.Id,
+            EntityType = entityType,
+            EntityId = entityId,
+            ChangeType = "Update",
+            Summary = $"Naikkan harga {label} dari {Rupiah(currentPrice)} ke {Rupiah(proposed)}",
+            PayloadJson = $"{{\"Price\":{proposed}}}",
+            RequestedBy = _merchant.ContactEmail,
+            Status = "Pending"
+        });
+
+        await DbContext.SaveChangesAsync();
+        await LoadAsync();
+
+        _toast = "Pengajuan dikirim ke admin untuk disetujui.";
+        StateHasChanged();
+        await Task.Delay(2600);
+        _toast = null;
+    }
+
+    private static string Rupiah(decimal v) => $"Rp{v:N0}";
+}

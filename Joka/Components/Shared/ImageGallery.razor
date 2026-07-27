@@ -1,0 +1,61 @@
+@* Lead image plus a thumbnail strip. Falls back to a single frame when the
+   record only has one photo, so callers never have to branch. *@
+
+<div class="gallery">
+    <MediaImage Src="@_active" Alt="@Alt" Fallback="@Fallback" CssClass="gallery-main" />
+
+    @if (_images.Count > 1)
+    {
+        <div class="gallery-strip" role="tablist" aria-label="Galeri foto @Alt">
+            @foreach (var img in _images)
+            {
+                var isActive = img == _active;
+                <button type="button"
+                        class="gallery-thumb @(isActive ? "active" : "")"
+                        role="tab"
+                        aria-selected="@isActive"
+                        aria-label="Lihat foto @(_images.IndexOf(img) + 1) dari @_images.Count"
+                        @onclick="() => _active = img">
+                    <img src="@img" alt="" loading="lazy" decoding="async" />
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Primary image, used as the lead and as a fallback if Urls is empty.</summary>
+    [Parameter] public string? Src { get; set; }
+
+    /// <summary>JSON array of image URLs, as stored in the ImageUrls columns.</summary>
+    [Parameter] public string? Urls { get; set; }
+
+    [Parameter] public string Alt { get; set; } = "";
+    [Parameter] public string Fallback { get; set; } = "🖼️";
+
+    private List<string> _images = new();
+    private string? _active;
+
+    protected override void OnParametersSet()
+    {
+        _images = Parse(Urls);
+
+        if (!string.IsNullOrWhiteSpace(Src) && !_images.Contains(Src))
+            _images.Insert(0, Src);
+
+        // Keep the current selection when the parent re-renders for other reasons.
+        if (_active is null || !_images.Contains(_active))
+            _active = _images.FirstOrDefault() ?? Src;
+    }
+
+    private static List<string> Parse(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json)?
+                .Where(u => !string.IsNullOrWhiteSpace(u)).ToList() ?? new();
+        }
+        catch { return new(); }
+    }
+}

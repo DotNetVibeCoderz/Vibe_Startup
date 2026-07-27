@@ -1,0 +1,382 @@
+@page "/"
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>Joka — Jelajahi Dunia Tanpa Batas</PageTitle>
+
+<div class="fade-in">
+
+    @* The hero is the search. Getting from "mau ke mana" to results is the page's one job. *@
+    <section class="hero home-hero">
+        <p class="hero-eyebrow">@L["Home.Eyebrow"]</p>
+        <h1>@L["Home.Title"]</h1>
+        <p>@L["Home.Subtitle"]</p>
+
+        <div class="search-panel">
+            <div class="tabs">
+                <div class="tab-item @(_activeTab == "flight" ? "active" : "")" role="button" tabindex="0"
+                     @onclick='() => _activeTab = "flight"'>✈️ @L["Home.TabFlight"]</div>
+                <div class="tab-item @(_activeTab == "train" ? "active" : "")" role="button" tabindex="0"
+                     @onclick='() => _activeTab = "train"'>🚆 @L["Home.TabTrain"]</div>
+                <div class="tab-item @(_activeTab == "bus" ? "active" : "")" role="button" tabindex="0"
+                     @onclick='() => _activeTab = "bus"'>🚌 @L["Home.TabBus"]</div>
+                <div class="tab-item @(_activeTab == "hotel" ? "active" : "")" role="button" tabindex="0"
+                     @onclick='() => _activeTab = "hotel"'>🏨 @L["Home.TabHotel"]</div>
+            </div>
+
+            @if (_activeTab == "flight")
+            {
+                <div class="search-row">
+                    <div class="field">
+                        <label for="f-from">@L["Label.From"]</label>
+                        <select id="f-from" @bind="_searchFrom">
+                            <option value="">@L["Label.PickCity"]</option>
+                            @foreach (var a in _airports) { <option value="@a.Code">@a.City (@a.Code)</option> }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="f-to">@L["Label.To"]</label>
+                        <select id="f-to" @bind="_searchTo">
+                            <option value="">@L["Label.PickCity"]</option>
+                            @foreach (var a in _airports) { <option value="@a.Code">@a.City (@a.Code)</option> }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="f-date">@L["Label.DepartureDate"]</label>
+                        <input id="f-date" type="date" @bind="_searchDate" />
+                    </div>
+                    <button class="btn btn-primary btn-lg" @onclick="SearchFlights">@L["Home.SearchFlights"]</button>
+                </div>
+            }
+            else if (_activeTab == "train")
+            {
+                <div class="search-row">
+                    <div class="field">
+                        <label for="t-from">@L["Label.From"]</label>
+                        <select id="t-from" @bind="_trainFrom">
+                            <option value="">@L["Home.PickStation"]</option>
+                            @foreach (var s in _stations) { <option value="@s.Code">@s.City (@s.Code)</option> }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="t-to">@L["Label.To"]</label>
+                        <select id="t-to" @bind="_trainTo">
+                            <option value="">@L["Home.PickStation"]</option>
+                            @foreach (var s in _stations) { <option value="@s.Code">@s.City (@s.Code)</option> }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="t-date">@L["Label.DepartureDate"]</label>
+                        <input id="t-date" type="date" @bind="_searchDate" />
+                    </div>
+                    <button class="btn btn-primary btn-lg" @onclick="SearchTrains">@L["Home.SearchTrains"]</button>
+                </div>
+            }
+            else if (_activeTab == "bus")
+            {
+                <div class="search-row">
+                    <div class="field">
+                        <label for="b-from">@L["Label.From"]</label>
+                        <select id="b-from" @bind="_busFrom">
+                            <option value="">@L["Label.PickCity"]</option>
+                            @foreach (var t in _terminals) { <option value="@t.Code">@t.City (@t.Code)</option> }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="b-to">@L["Label.To"]</label>
+                        <select id="b-to" @bind="_busTo">
+                            <option value="">@L["Label.PickCity"]</option>
+                            @foreach (var t in _terminals) { <option value="@t.Code">@t.City (@t.Code)</option> }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="b-date">@L["Label.DepartureDate"]</label>
+                        <input id="b-date" type="date" @bind="_searchDate" />
+                    </div>
+                    <button class="btn btn-primary btn-lg" @onclick="SearchBuses">@L["Home.SearchBuses"]</button>
+                </div>
+            }
+            else
+            {
+                <div class="search-row">
+                    <div class="field" style="flex:2;">
+                        <label for="h-city">@L["Home.CityOrDestination"]</label>
+                        <select id="h-city" @bind="_hotelCity">
+                            <option value="">@L["Label.PickCity"]</option>
+                            @foreach (var c in _hotelCities) { <option value="@c">@c</option> }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="h-in">@L["Home.CheckIn"]</label>
+                        <input id="h-in" type="date" @bind="_searchDate" />
+                    </div>
+                    <button class="btn btn-primary btn-lg" @onclick="SearchHotels">@L["Home.SearchHotels"]</button>
+                </div>
+            }
+        </div>
+    </section>
+
+    @* Numbers set in mono so they read as live inventory, not marketing *@
+    <div class="grid grid-4 stagger" style="margin-bottom: var(--s-7);">
+        <div class="stat-card">
+            <div class="stat-value">@_flightCount</div>
+            <div class="stat-label">@L["Home.StatFlights"]</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_hotelCount</div>
+            <div class="stat-label">@L["Home.StatHotels"]</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_activityCount</div>
+            <div class="stat-label">@L["Home.StatActivities"]</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_userCount</div>
+            <div class="stat-label">@L["Home.StatUsers"]</div>
+        </div>
+    </div>
+
+    @if (_promos.Any())
+    {
+        <section style="margin-bottom: var(--s-7);">
+            <div class="section-head">
+                <h2>@L["Home.PromoTitle"]</h2>
+                <a href="/promos">@L["Home.PromoAll"]</a>
+            </div>
+            <div class="grid grid-3">
+                @foreach (var promo in _promos)
+                {
+                    <article class="travel-card promo-card">
+                        <h3>@promo.Name</h3>
+                        <p style="color: var(--text-secondary); font-size: var(--t-sm); margin: var(--s-2) 0 var(--s-3);">@promo.Description</p>
+                        <div style="display:flex; align-items:center; gap: var(--s-2); flex-wrap: wrap;">
+                            <span class="code voucher-code">@promo.Code</span>
+                            <span style="font-size: var(--t-xs); color: var(--text-muted);">
+                                @L["Home.ValidUntil"] @promo.ValidUntil.ToString("dd MMM yyyy")
+                            </span>
+                        </div>
+                    </article>
+                }
+            </div>
+        </section>
+    }
+
+    <section style="margin-bottom: var(--s-7);">
+        <div class="section-head">
+            <h2>@L["Home.PopularFlights"]</h2>
+            <a href="/flights">@L["Home.AllFlights"]</a>
+        </div>
+        <div style="display:flex; flex-direction:column; gap: var(--s-3);">
+            @foreach (var flight in _flights)
+            {
+                <article class="stub">
+                    <div class="stub-main">
+                        <div style="display:flex; align-items:center; gap: var(--s-2); margin-bottom: var(--s-3); flex-wrap: wrap;">
+                            <span class="badge badge-quiet">@flight.Airline?.Name</span>
+                            <span class="code" style="font-size: var(--t-xs); color: var(--text-muted);">@flight.FlightNumber</span>
+                        </div>
+                        <div class="board">
+                            <div>
+                                <div class="board-time">@flight.DepartureTime.ToString("HH:mm")</div>
+                                <div class="board-code">@flight.DepartureAirport?.Code</div>
+                                <div class="board-city">@flight.DepartureAirport?.City</div>
+                            </div>
+                            <div class="board-path">
+                                <div class="board-meta">@FormatDuration(flight.DurationMinutes)</div>
+                                <div class="rule"></div>
+                                <div class="board-meta">@(flight.StopCount == 0 ? "Langsung" : $"{flight.StopCount} transit")</div>
+                            </div>
+                            <div>
+                                <div class="board-time">@flight.ArrivalTime.ToString("HH:mm")</div>
+                                <div class="board-code">@flight.ArrivalAirport?.Code</div>
+                                <div class="board-city">@flight.ArrivalAirport?.City</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stub-end">
+                        <div>
+                            <div style="font-size: var(--t-xs); color: var(--text-muted);">@L["Label.StartingFrom"]</div>
+                            <div><Money Amount="@flight.BasePrice" /></div>
+                        </div>
+                        <a class="btn btn-primary btn-sm" href="/flights">@L["Action.Select"]</a>
+                    </div>
+                </article>
+            }
+        </div>
+    </section>
+
+    <section style="margin-bottom: var(--s-7);">
+        <div class="section-head">
+            <h2>@L["Home.FavouriteHotels"]</h2>
+            <a href="/hotels">@L["Home.AllHotels"]</a>
+        </div>
+        <div class="grid grid-3">
+            @foreach (var hotel in _hotels)
+            {
+                <article class="travel-card">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap: var(--s-2);">
+                        <h3>@hotel.Name</h3>
+                        <span class="badge badge-success">@hotel.AverageRating.ToString("F1")</span>
+                    </div>
+                    <p style="color: var(--text-secondary); font-size: var(--t-sm); margin: var(--s-1) 0 var(--s-3);">
+                        @hotel.City · @(new string('★', hotel.StarRating)) · @hotel.ReviewCount ulasan
+                    </p>
+                    <div style="display:flex; gap: var(--s-1); flex-wrap: wrap;">
+                        @foreach (var f in Facilities(hotel.Facilities)) { <span class="tag">@f</span> }
+                    </div>
+                </article>
+            }
+        </div>
+    </section>
+
+    @* Kept deliberately quiet: the hero already spends this page's boldness *@
+    <section class="card bolang-cta">
+        <div>
+            <h2>@L["Home.BolangTitle"]</h2>
+            <p style="color: var(--text-secondary); margin-top: var(--s-2);">
+                @L["Home.BolangBody"]
+            </p>
+        </div>
+        <a class="btn btn-accent btn-lg" href="/chat">@L["Home.BolangCta"]</a>
+    </section>
+</div>
+
+<style>
+    .home-hero { padding-bottom: var(--s-6); }
+    .hero-eyebrow {
+        font-family: var(--font-mono);
+        font-size: var(--t-xs);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        opacity: 0.85;
+        margin-bottom: var(--s-3);
+    }
+
+    .search-panel {
+        background: var(--bg-secondary);
+        border: 2px solid var(--tinta);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-md);
+        padding: var(--s-4) var(--s-5) var(--s-5);
+        margin-top: var(--s-5);
+        color: var(--text-primary);
+    }
+
+    .search-panel .tabs { margin-bottom: var(--s-4); }
+
+    .search-row { display: flex; gap: var(--s-3); align-items: flex-end; flex-wrap: wrap; }
+    .search-row .field { flex: 1; min-width: 160px; }
+    .search-row .btn { flex: none; }
+
+    .section-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--s-4);
+        margin-bottom: var(--s-4);
+    }
+    .section-head a { font-size: var(--t-sm); font-weight: 600; white-space: nowrap; }
+
+    .promo-card { border-left: 6px solid var(--accent-primary); }
+
+    .voucher-code {
+        display: inline-block;
+        padding: 3px 10px;
+        font-size: var(--t-xs);
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        border: 2px dashed var(--border-strong);
+        border-radius: var(--radius-sm);
+        background: var(--bg-tertiary);
+    }
+
+    .bolang-cta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--s-5);
+        flex-wrap: wrap;
+    }
+
+    @@media (max-width: 620px) {
+        .search-row .btn { width: 100%; }
+    }
+</style>
+
+@code {
+    private List<Airport> _airports = new();
+    private List<TrainStation> _stations = new();
+    private List<Joka.Models.Buses.BusTerminal> _terminals = new();
+    private List<Flight> _flights = new();
+    private List<Hotel> _hotels = new();
+    private List<PromoVoucher> _promos = new();
+    private List<string> _hotelCities = new();
+
+    private string _activeTab = "flight";
+    private string? _searchFrom, _searchTo, _trainFrom, _trainTo, _busFrom, _busTo, _hotelCity;
+    private DateOnly? _searchDate;
+    private int _flightCount, _hotelCount, _activityCount, _userCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Read-only page: no change tracking needed.
+        _airports = await DbContext.Airports.AsNoTracking().OrderBy(a => a.City).ToListAsync();
+        _stations = await DbContext.TrainStations.AsNoTracking().OrderBy(s => s.City).ToListAsync();
+        _terminals = await DbContext.BusTerminals.AsNoTracking().OrderBy(t => t.City).ToListAsync();
+
+        _flights = await DbContext.Flights.AsNoTracking()
+            .Include(f => f.Airline)
+            .Include(f => f.DepartureAirport)
+            .Include(f => f.ArrivalAirport)
+            .OrderBy(f => f.BasePrice)
+            .Take(4).ToListAsync();
+
+        _hotels = await DbContext.Hotels.AsNoTracking()
+            .OrderByDescending(h => h.AverageRating).Take(6).ToListAsync();
+
+        _hotelCities = await DbContext.Hotels.AsNoTracking()
+            .Select(h => h.City).Distinct().OrderBy(c => c).ToListAsync();
+
+        var now = DateTime.UtcNow;
+        _promos = await DbContext.PromoVouchers.AsNoTracking()
+            .Where(v => v.IsActive && v.ValidUntil > now).Take(3).ToListAsync();
+
+        _flightCount = await DbContext.Flights.CountAsync();
+        _hotelCount = await DbContext.Hotels.CountAsync();
+        _activityCount = await DbContext.Activities.CountAsync();
+        _userCount = await DbContext.Users.CountAsync();
+    }
+
+    private static string Rupiah(decimal value) => $"Rp{value:N0}";
+
+    private static string FormatDuration(int minutes) =>
+        minutes >= 60 ? $"{minutes / 60}j {minutes % 60:00}m" : $"{minutes}m";
+
+    private static IEnumerable<string> Facilities(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return Array.Empty<string>();
+        try { return System.Text.Json.JsonSerializer.Deserialize<string[]>(json)?.Take(4) ?? Array.Empty<string>(); }
+        catch { return Array.Empty<string>(); }
+    }
+
+    private void SearchFlights() => Navigation.NavigateTo(BuildUrl("/flights", _searchFrom, _searchTo));
+    private void SearchTrains() => Navigation.NavigateTo(BuildUrl("/trains", _trainFrom, _trainTo));
+    private void SearchBuses() => Navigation.NavigateTo(BuildUrl("/buses", _busFrom, _busTo));
+
+    private void SearchHotels()
+    {
+        var url = "/hotels";
+        if (!string.IsNullOrEmpty(_hotelCity)) url += $"?city={Uri.EscapeDataString(_hotelCity)}";
+        Navigation.NavigateTo(url);
+    }
+
+    private string BuildUrl(string path, string? from, string? to)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(from)) parts.Add($"from={from}");
+        if (!string.IsNullOrEmpty(to)) parts.Add($"to={to}");
+        if (_searchDate.HasValue) parts.Add($"date={_searchDate.Value:yyyy-MM-dd}");
+        return parts.Any() ? $"{path}?{string.Join("&", parts)}" : path;
+    }
+}

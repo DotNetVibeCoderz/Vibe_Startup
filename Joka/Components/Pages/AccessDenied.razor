@@ -1,0 +1,19 @@
+@page "/access-denied"
+@inject IStringLocalizer<SharedResource> L
+
+@* Cookie auth sends 403s here. Pointing AccessDeniedPath at /login instead
+   put already-signed-in users into a redirect loop. *@
+
+<PageTitle>Akses ditolak — Joka</PageTitle>
+
+<div class="fade-in" style="display:flex; align-items:center; justify-content:center; min-height:60vh;">
+    <div class="empty" style="max-width: 480px;">
+        <div style="font-size:3rem;">⛔</div>
+        <h3>@L["State.AccessDenied"]</h3>
+        <p>@L["State.AccessDeniedBody"]</p>
+        <div style="display:flex; gap: var(--s-2); justify-content:center; flex-wrap:wrap;">
+            <a class="btn btn-primary" href="/">@L["State.BackHome"]</a>
+            <a class="btn btn-ghost" href="/support">Hubungi bantuan</a>
+        </div>
+    </div>
+</div>

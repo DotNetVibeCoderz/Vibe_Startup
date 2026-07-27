@@ -1,0 +1,23 @@
+@* Maps a status string to a consistent colour so every back-office table
+   reads the same way. Unknown values fall back to muted rather than
+   silently picking a colour that implies a meaning. *@
+
+<span class="pill @Tone">@Status</span>
+
+@code {
+    [Parameter, EditorRequired] public string Status { get; set; } = "";
+
+    private string Tone => Status switch
+    {
+        "Active" or "Approved" or "Paid" or "Resolved" or "Cleared" or "Healthy"
+            or "Connected" or "Completed" or "Confirmed" or "Reconciled" => "pill-ok",
+
+        "Pending" or "Reviewing" or "InProgress" or "Degraded" or "Open" or "Disputed" => "pill-warn",
+
+        "Rejected" or "Suspended" or "Down" or "Critical" or "Blocked" => "pill-danger",
+
+        "Sandbox" or "Production" => "pill-info",
+
+        _ => "pill-muted"
+    };
+}

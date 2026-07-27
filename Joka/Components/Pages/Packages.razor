@@ -1,0 +1,157 @@
+@page "/packages"
+@inject AppDbContext DbContext
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>@L["Packages.Title"] — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Packages.Eyebrow"]</p>
+        <h1>@L["Packages.Title"]</h1>
+        <p class="lede">@L["Packages.Lede"]</p>
+    </div>
+
+    @if (_packages.Any())
+    {
+        <div class="grid grid-3">
+            @foreach (var pkg in _packages)
+            {
+                <article class="travel-card card-media">
+                    <ImageGallery Src="@pkg.ImageUrl" Urls="@pkg.ImageUrls" Alt="@pkg.Name" Fallback="🎁" />
+
+                    <div class="card-body">
+                        <div class="card-top">
+                            <span class="badge badge-quiet">@pkg.Destination</span>
+                            <WishlistButton ItemType="Package" ItemId="@pkg.Id.ToString()" ItemName="@pkg.Name"
+                                            Price="pkg.Price" ImageUrl="@pkg.ImageUrl" />
+                        </div>
+
+                        <h3>@pkg.Name</h3>
+
+                        <p class="muted-line">
+                            @pkg.DurationDays @L["Packages.Days"] · @pkg.BookedCount @L["Packages.Booked"]
+                        </p>
+
+                        <p class="clamp-2">@pkg.Description</p>
+
+                        <ul class="includes">
+                            @foreach (var item in Includes(pkg.Includes))
+                            {
+                                <li>@item</li>
+                            }
+                        </ul>
+
+                        <div class="card-foot">
+                            <div>
+                                <Money Amount="@pkg.Price" />
+                                <div class="micro">@L["Label.PerPerson"]</div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" @onclick="() => BookPackage(pkg)">
+                                @L["Action.Book"]
+                            </button>
+                        </div>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="empty">
+            <h3>@L["Packages.EmptyTitle"]</h3>
+        </div>
+    }
+</div>
+
+@if (_bookingSuccess)
+{
+    <div class="modal-scrim">
+        <div class="modal" style="text-align:center;" role="dialog" aria-modal="true">
+            <div style="font-size:3rem;">🎁</div>
+            <h2 style="margin: var(--s-3) 0 var(--s-2);">@L["Label.Confirmed"]</h2>
+            <p style="color: var(--text-secondary);">@L["Label.BookingCode"]</p>
+            <p class="code booking-code">@_bookingCode</p>
+            <div style="display:flex; gap: var(--s-2); justify-content:center; margin-top: var(--s-5);">
+                <button class="btn btn-primary" @onclick="() => _bookingSuccess = false">@L["Action.Close"]</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); margin-bottom: var(--s-2); }
+    .muted-line { font-size: var(--t-sm); color: var(--text-secondary); margin: var(--s-1) 0 var(--s-2); }
+
+    .clamp-2 {
+        font-size: var(--t-sm); color: var(--text-muted);
+        display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2;
+        -webkit-box-orient: vertical; overflow: hidden;
+    }
+
+    /* Checklist, because the contents of a bundle are the reason to buy it */
+    .includes { list-style: none; padding: 0; margin: var(--s-3) 0; font-size: var(--t-sm); }
+    .includes li { display: flex; gap: var(--s-2); padding: 2px 0; color: var(--text-secondary); }
+    .includes li::before { content: '✓'; color: var(--accent-success); font-weight: 700; flex: none; }
+
+    .micro { font-size: var(--t-xs); color: var(--text-muted); }
+
+    .card-foot {
+        display: flex; align-items: flex-end; justify-content: space-between;
+        gap: var(--s-3); margin-top: auto; padding-top: var(--s-3);
+        border-top: 2px solid var(--border-color);
+    }
+
+    .booking-code {
+        font-size: 1.4rem; font-weight: 700; letter-spacing: 0.08em;
+        padding: var(--s-3); margin-top: var(--s-2);
+        border: 2px dashed var(--border-strong); border-radius: var(--radius-md);
+        background: var(--bg-tertiary); word-break: break-all;
+    }
+</style>
+
+@code {
+    private List<TravelPackage> _packages = new();
+    private bool _bookingSuccess;
+    private string _bookingCode = "";
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load() =>
+        _packages = await DbContext.TravelPackages.AsNoTracking()
+            .Where(p => p.IsActive)
+            .OrderBy(p => p.Price)
+            .ToListAsync();
+
+    private static IEnumerable<string> Includes(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return Array.Empty<string>();
+        try { return System.Text.Json.JsonSerializer.Deserialize<string[]>(json)?.Take(5) ?? Array.Empty<string>(); }
+        catch { return Array.Empty<string>(); }
+    }
+
+    private async Task BookPackage(TravelPackage pkg)
+    {
+        var tracked = await DbContext.TravelPackages.FirstOrDefaultAsync(p => p.Id == pkg.Id);
+        if (tracked is null) return;
+
+        var booking = new TravelPackageBooking
+        {
+            UserId = Guid.NewGuid(),
+            TravelPackageId = pkg.Id,
+            BookingCode = $"JKA-PK-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(1000, 9999)}",
+            Status = "Confirmed",
+            Participants = 1,
+            TotalPrice = pkg.Price,
+            TravelDate = DateTime.UtcNow.AddDays(14),
+            BookingDate = DateTime.UtcNow
+        };
+
+        DbContext.TravelPackageBookings.Add(booking);
+        tracked.BookedCount++;
+        await DbContext.SaveChangesAsync();
+
+        _bookingCode = booking.BookingCode;
+        _bookingSuccess = true;
+        await Load();
+    }
+}

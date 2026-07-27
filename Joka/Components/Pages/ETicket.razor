@@ -1,0 +1,301 @@
+@page "/eticket/{bookingType}/{bookingCode}"
+@using QRCoder
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>E-Ticket @BookingCode — Joka</PageTitle>
+
+<div class="fade-in eticket-page">
+
+    @if (_notFound)
+    {
+        <div class="empty">
+            <h3>E-ticket tidak ditemukan</h3>
+            <p>Kode booking <span class="code">@BookingCode</span> tidak cocok dengan pesanan mana pun.</p>
+            <a class="btn btn-secondary" href="/my-bookings">Buka Booking Saya</a>
+        </div>
+    }
+    else
+    {
+        @* The ticket is the ticket: one stub, torn down the perforation *@
+        <article class="stub eticket">
+            <div class="stub-main">
+                <header class="eticket-head">
+                    <span class="brand">JOKA</span>
+                    <span class="badge badge-success">Terkonfirmasi</span>
+                </header>
+
+                <p class="eyebrow">@TypeLabel</p>
+                <h1 class="route">@_route</h1>
+
+                <div class="eticket-grid">
+                    <div>
+                        <span class="field-label">Penumpang</span>
+                        <span class="field-value">@_passenger</span>
+                    </div>
+                    <div>
+                        <span class="field-label">Tanggal</span>
+                        <span class="field-value code">@_dateInfo</span>
+                    </div>
+                    <div>
+                        <span class="field-label">@_detailLabel</span>
+                        <span class="field-value">@_detail</span>
+                    </div>
+                    <div>
+                        <span class="field-label">Total</span>
+                        <span class="field-value code">@_total</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stub-end eticket-stub">
+                <div class="qr-frame">
+                    @if (_qrDataUri is not null)
+                    {
+                        <img src="@_qrDataUri" alt="Kode QR untuk booking @BookingCode" width="150" height="150" />
+                    }
+                </div>
+                <div class="stub-code">
+                    <span class="field-label">Kode booking</span>
+                    <span class="code">@BookingCode</span>
+                </div>
+            </div>
+        </article>
+
+        <p class="scan-note">Tunjukkan kode QR ini di konter check-in.</p>
+
+        <div class="eticket-actions no-print">
+            <button class="btn btn-primary" @onclick="Print">Cetak e-ticket</button>
+            <a class="btn btn-ghost" href="/my-bookings">Booking Saya</a>
+        </div>
+    }
+</div>
+
+<style>
+    .eticket-page { max-width: 780px; margin: 0 auto; }
+
+    .eticket { margin-bottom: var(--s-4); }
+    .eticket:hover { transform: none; box-shadow: var(--shadow-sm); }
+
+    .eticket-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--s-3);
+        padding-bottom: var(--s-3);
+        margin-bottom: var(--s-4);
+        border-bottom: 2px solid var(--border-strong);
+    }
+
+    .eticket-head .brand {
+        font-family: var(--font-display);
+        font-size: 1.25rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+    }
+
+    .eticket .eyebrow {
+        font-family: var(--font-mono);
+        font-size: var(--t-xs);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--accent-primary);
+        margin-bottom: var(--s-2);
+    }
+
+    .eticket .route { font-size: 1.75rem; margin-bottom: var(--s-5); }
+
+    .eticket-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--s-4);
+    }
+
+    .field-label {
+        display: block;
+        font-size: var(--t-xs);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 2px;
+    }
+
+    .field-value { display: block; font-weight: 600; }
+
+    .eticket-stub {
+        width: 210px;
+        align-items: center;
+        justify-content: center;
+        gap: var(--s-3);
+        text-align: center;
+    }
+
+    /* QR always sits on white - scanners need the contrast, in either theme */
+    .qr-frame {
+        background: #fff;
+        padding: 8px;
+        border: 2px solid var(--tinta);
+        border-radius: var(--radius-sm);
+        line-height: 0;
+    }
+
+    .stub-code .code { font-size: 1rem; font-weight: 700; letter-spacing: 0.08em; }
+
+    .scan-note {
+        text-align: center;
+        font-size: var(--t-sm);
+        color: var(--text-secondary);
+        margin-bottom: var(--s-5);
+    }
+
+    .eticket-actions { display: flex; gap: var(--s-2); justify-content: center; flex-wrap: wrap; }
+
+    @@media (max-width: 720px) {
+        .eticket-stub { width: auto; flex-direction: column; text-align: center; }
+        .eticket .route { font-size: 1.4rem; }
+        .eticket-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+</style>
+
+@code {
+    [Parameter] public string BookingType { get; set; } = "flight";
+    [Parameter] public string BookingCode { get; set; } = "";
+
+    private string _route = "", _dateInfo = "", _detail = "", _detailLabel = "Detail", _total = "", _passenger = "—";
+    private string? _qrDataUri;
+    private bool _notFound;
+
+    private string TypeLabel => BookingType switch
+    {
+        "hotel" => "Voucher Hotel",
+        "train" => "Tiket Kereta",
+        "bus" => "Tiket Bus & Shuttle",
+        "transport" => "Voucher Penjemputan",
+        _ => "Boarding Pass"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        switch (BookingType)
+        {
+            case "hotel": await LoadHotelAsync(); break;
+            case "train": await LoadTrainAsync(); break;
+            case "bus": await LoadBusAsync(); break;
+            case "transport": await LoadTransportAsync(); break;
+            default: await LoadFlightAsync(); break;
+        }
+
+        if (!_notFound) _qrDataUri = BuildQrCode();
+    }
+
+    private async Task LoadFlightAsync()
+    {
+        var booking = await DbContext.FlightBookings.AsNoTracking()
+            .Include(b => b.Flight!).ThenInclude(f => f.Airline)
+            .Include(b => b.Flight!).ThenInclude(f => f.DepartureAirport)
+            .Include(b => b.Flight!).ThenInclude(f => f.ArrivalAirport)
+            .FirstOrDefaultAsync(b => b.BookingCode == BookingCode);
+
+        if (booking?.Flight is null) { _notFound = true; return; }
+
+        var flight = booking.Flight;
+        _route = $"{flight.DepartureAirport?.Code} → {flight.ArrivalAirport?.Code}";
+        _dateInfo = flight.DepartureTime.ToString("dd MMM yyyy · HH:mm");
+        _detailLabel = "Penerbangan";
+        _detail = $"{flight.Airline?.Name} {flight.FlightNumber}";
+        _passenger = $"{booking.PassengerCount} orang";
+        _total = Rupiah(booking.TotalPrice);
+    }
+
+    private async Task LoadHotelAsync()
+    {
+        var booking = await DbContext.HotelBookings.AsNoTracking()
+            .Include(b => b.Room!).ThenInclude(r => r.Hotel)
+            .FirstOrDefaultAsync(b => b.BookingCode == BookingCode);
+
+        if (booking?.Room is null) { _notFound = true; return; }
+
+        _route = booking.Room.Hotel?.Name ?? "Hotel";
+        _dateInfo = $"{booking.CheckInDate:dd MMM} – {booking.CheckOutDate:dd MMM yyyy}";
+        _detailLabel = "Kamar";
+        _detail = $"{booking.Room.Name} · {booking.Nights} malam";
+        _total = Rupiah(booking.TotalPrice);
+    }
+
+    private async Task LoadTrainAsync()
+    {
+        var booking = await DbContext.TrainBookings.AsNoTracking()
+            .Include(b => b.TrainSchedule!).ThenInclude(s => s.Train)
+            .Include(b => b.TrainSchedule!).ThenInclude(s => s.DepartureStation)
+            .Include(b => b.TrainSchedule!).ThenInclude(s => s.ArrivalStation)
+            .FirstOrDefaultAsync(b => b.BookingCode == BookingCode);
+
+        if (booking?.TrainSchedule is null) { _notFound = true; return; }
+
+        var schedule = booking.TrainSchedule;
+        _route = $"{schedule.DepartureStation?.Code} → {schedule.ArrivalStation?.Code}";
+        _dateInfo = schedule.DepartureTime.ToString("dd MMM yyyy · HH:mm");
+        _detailLabel = "Kereta";
+        _detail = schedule.Train?.Name ?? "—";
+        _total = Rupiah(booking.TotalPrice);
+    }
+
+    private async Task LoadBusAsync()
+    {
+        var booking = await DbContext.BusBookings.AsNoTracking()
+            .Include(b => b.BusSchedule!).ThenInclude(s => s.BusService!).ThenInclude(v => v.Operator)
+            .Include(b => b.BusSchedule!).ThenInclude(s => s.DepartureTerminal)
+            .Include(b => b.BusSchedule!).ThenInclude(s => s.ArrivalTerminal)
+            .FirstOrDefaultAsync(b => b.BookingCode == BookingCode);
+
+        if (booking?.BusSchedule is null) { _notFound = true; return; }
+
+        var schedule = booking.BusSchedule;
+        _route = $"{schedule.DepartureTerminal?.Code} → {schedule.ArrivalTerminal?.Code}";
+        _dateInfo = schedule.DepartureTime.ToString("dd MMM yyyy · HH:mm");
+        _detailLabel = schedule.BusService?.ServiceType == "Shuttle" ? "Shuttle" : "Bus";
+        _detail = $"{schedule.BusService?.Operator?.Name} · {schedule.BusService?.Class}";
+        _passenger = booking.PickupAddress is null
+            ? $"{booking.PassengerCount} orang"
+            : $"{booking.PassengerCount} orang · dijemput di {booking.PickupAddress}";
+        _total = Rupiah(booking.TotalPrice);
+    }
+
+    private async Task LoadTransportAsync()
+    {
+        var booking = await DbContext.TransportBookings.AsNoTracking()
+            .Include(b => b.Option!).ThenInclude(o => o.Provider)
+            .FirstOrDefaultAsync(b => b.BookingCode == BookingCode);
+
+        if (booking?.Option is null) { _notFound = true; return; }
+
+        _route = $"{booking.PickupAddress} → {booking.DropoffAddress}";
+        _dateInfo = booking.PickupTime.ToString("dd MMM yyyy · HH:mm");
+        _detailLabel = booking.Option.ServiceType == "AirportTransfer" ? "Antar-jemput" : "Kendaraan";
+        _detail = $"{booking.Option.Provider?.Name} · {booking.Option.Name}";
+
+        _passenger = booking.FlightNumber is null
+            ? $"{booking.PassengerCount} orang"
+            : $"{booking.PassengerCount} orang · penerbangan {booking.FlightNumber}";
+
+        _total = Rupiah(booking.TotalPrice);
+    }
+
+    // Encoded as a verifiable payload rather than the bare code, so a scan
+    // says which booking on which system it belongs to.
+    private string BuildQrCode()
+    {
+        var payload = $"JOKA|{BookingType.ToUpperInvariant()}|{BookingCode}";
+
+        using var generator = new QRCodeGenerator();
+        using var data = generator.CreateQrCode(payload, QRCodeGenerator.ECCLevel.Q);
+        var png = new PngByteQRCode(data).GetGraphic(8);
+
+        return $"data:image/png;base64,{Convert.ToBase64String(png)}";
+    }
+
+    private async Task Print() => await JS.InvokeVoidAsync("joka.print");
+
+    private static string Rupiah(decimal value) => $"Rp{value:N0}";
+}

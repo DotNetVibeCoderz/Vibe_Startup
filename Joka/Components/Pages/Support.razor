@@ -1,0 +1,365 @@
+@page "/support"
+@using System.Security.Claims
+@using Joka.Models.Support
+@implements IDisposable
+@inject SupportService Tickets
+@inject SupportBroadcaster Broadcaster
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>@L["Support.Title"] — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Support.Eyebrow"]</p>
+        <h1>@L["Support.Title"]</h1>
+        <p class="lede">@L["Support.Lede"]</p>
+    </div>
+
+    <div class="grid grid-3" style="margin-bottom: var(--s-7);">
+        <div class="card channel">
+            <span class="channel-icon">🤖</span>
+            <h3>@L["Support.ChatTitle"]</h3>
+            <p>@L["Support.ChatBody"]</p>
+            <a class="btn btn-primary btn-sm" href="/chat">@L["Support.ChatCta"]</a>
+        </div>
+
+        <div class="card channel">
+            <span class="channel-icon">🧑‍💼</span>
+            <h3>@L["Support.AgentTitle"]</h3>
+            <p>@L["Support.AgentBody"]</p>
+            <a class="btn btn-secondary btn-sm" href="#live-agent">@L["Support.AgentCta"]</a>
+        </div>
+
+        <div class="card channel">
+            <span class="channel-icon">📞</span>
+            <h3>@L["Support.PhoneTitle"]</h3>
+            <p class="code">+62 21 1234 5678</p>
+            <p class="micro">@L["Support.PhoneBody"]</p>
+            <a class="btn btn-secondary btn-sm" href="tel:+622112345678">@L["Support.PhoneTitle"]</a>
+        </div>
+
+        <div class="card channel">
+            <span class="channel-icon">📧</span>
+            <h3>@L["Support.EmailTitle"]</h3>
+            <p class="code">support@joka.id</p>
+            <p class="micro">@L["Support.EmailBody"]</p>
+            <a class="btn btn-secondary btn-sm" href="mailto:support@joka.id">@L["Support.EmailTitle"]</a>
+        </div>
+    </div>
+
+    @* ---- Live agent ---- *@
+    <div class="section-title" id="live-agent">@L["Support.AgentTitle"]</div>
+
+    <AuthorizeView>
+        <Authorized>
+            @if (_ticket is null)
+            {
+                <div class="card">
+                    <p class="hint">@L["Support.AgentIntro"]</p>
+
+                    @if (_formError is not null)
+                    {
+                        <p class="note-err">@_formError</p>
+                    }
+
+                    <div class="grid grid-2">
+                        <div class="field">
+                            <label for="cs-subject">@L["Support.Subject"]</label>
+                            <input id="cs-subject" @bind="_subject" maxlength="120" />
+                        </div>
+                        <div class="field">
+                            <label for="cs-cat">@L["Support.Category"]</label>
+                            <select id="cs-cat" @bind="_category">
+                                <option value="General">@L["Support.CatGeneral"]</option>
+                                <option value="Booking">@L["Support.CatBooking"]</option>
+                                <option value="Payment">@L["Support.CatPayment"]</option>
+                                <option value="Refund">@L["Support.CatRefund"]</option>
+                                <option value="Technical">@L["Support.CatTechnical"]</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="field" style="margin-top: var(--s-3);">
+                        <label for="cs-booking">@L["Support.BookingCode"]</label>
+                        <input id="cs-booking" @bind="_bookingCode" placeholder="JKA-…" />
+                    </div>
+
+                    <div class="field" style="margin-top: var(--s-3);">
+                        <label for="cs-body">@L["Support.Message"]</label>
+                        <textarea id="cs-body" rows="3" @bind="_firstMessage" maxlength="1000"></textarea>
+                    </div>
+
+                    <button class="btn btn-primary" style="margin-top: var(--s-4);"
+                            @onclick="OpenTicket" disabled="@_busy">
+                        @(_busy ? L["Action.Processing"] : L["Support.OpenTicket"])
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="card">
+                    <div class="thread-head">
+                        <div>
+                            <strong>@_ticket.Subject</strong>
+                            <div class="thread-meta">
+                                <span class="code">@_ticket.TicketCode</span> ·
+                                @_ticket.Category
+                                @if (_ticket.RelatedBookingCode is not null)
+                                {
+                                    <span> · <span class="code">@_ticket.RelatedBookingCode</span></span>
+                                }
+                            </div>
+                        </div>
+                        <StatusPill Status="@_ticket.Status" />
+                    </div>
+
+                    <div class="thread">
+                        @foreach (var m in _messages)
+                        {
+                            <div class="msg @(m.Sender == "Customer" ? "mine" : "theirs")">
+                                <div class="msg-bubble">@m.Body</div>
+                                <div class="msg-meta">@m.SenderName · @m.SentAt.ToString("dd MMM HH:mm")</div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (_ticket.Status == "Open" && _ticket.AssignedTo is null)
+                    {
+                        <p class="hint" style="margin-top: var(--s-3);">@L["Support.WaitingAgent"]</p>
+                    }
+
+                    <div class="composer">
+                        <textarea rows="2" @bind="_reply" placeholder="@L["Support.ReplyPlaceholder"]" maxlength="1000"></textarea>
+                        <button class="btn btn-primary" @onclick="SendReply" disabled="@_busy">@L["Chat.Send"]</button>
+                    </div>
+                </div>
+            }
+
+            @if (_history.Any())
+            {
+                <details class="faq" style="margin-top: var(--s-3);">
+                    <summary>@L["Support.History"] (@_history.Count)</summary>
+                    <div style="margin-top: var(--s-3);">
+                        @foreach (var t in _history)
+                        {
+                            <div class="history-row">
+                                <span class="code">@t.TicketCode</span>
+                                <span>@t.Subject</span>
+                                <StatusPill Status="@t.Status" />
+                            </div>
+                        }
+                    </div>
+                </details>
+            }
+        </Authorized>
+        <NotAuthorized>
+            <div class="card">
+                <p class="hint" style="margin:0;">
+                    <a href="/login">@L["Top.SignIn"]</a> @L["Support.LoginToChat"]
+                </p>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+
+    <div class="section-title">@L["Support.Faq"]</div>
+
+    <div class="faq-list">
+        @foreach (var faq in _faqs)
+        {
+            @* <details> gives keyboard and screen-reader behaviour for free,
+               which the old hand-rolled toggle did not have. *@
+            <details class="faq">
+                <summary>@faq.Question</summary>
+                <p>@faq.Answer</p>
+            </details>
+        }
+    </div>
+</div>
+
+<style>
+    .channel { text-align: center; display: flex; flex-direction: column; align-items: center; }
+    .channel-icon { font-size: 2.25rem; margin-bottom: var(--s-2); }
+    .channel h3 { margin-bottom: var(--s-2); }
+    .channel p { font-size: var(--t-sm); color: var(--text-secondary); margin-bottom: var(--s-2); }
+    .channel .btn { margin-top: auto; }
+    .micro { font-size: var(--t-xs); color: var(--text-muted); }
+
+    .faq-list { display: flex; flex-direction: column; gap: var(--s-2); }
+
+    .faq {
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: var(--s-4);
+    }
+    .faq summary {
+        cursor: pointer; font-weight: 700;
+        list-style: none; display: flex; justify-content: space-between; gap: var(--s-3);
+    }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq summary::after { content: '+'; color: var(--accent-primary); font-size: 1.25rem; line-height: 1; }
+    .faq[open] summary::after { content: '−'; }
+    .faq[open] { border-color: var(--border-strong); }
+    .faq p {
+        margin-top: var(--s-3); padding-top: var(--s-3);
+        border-top: 1px solid var(--border-color);
+        font-size: var(--t-sm); color: var(--text-secondary);
+    }
+
+    /* ---- live agent ---- */
+    .hint { font-size: var(--t-sm); color: var(--text-secondary); margin-bottom: var(--s-3); }
+    .note-err { color: var(--accent-danger); font-weight: 600; font-size: var(--t-sm); margin-bottom: var(--s-3); }
+
+    .thread-head {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        gap: var(--s-3); padding-bottom: var(--s-3); margin-bottom: var(--s-3);
+        border-bottom: 2px solid var(--border-color);
+    }
+    .thread-meta { font-size: var(--t-xs); color: var(--text-muted); margin-top: 2px; }
+
+    .thread {
+        display: flex; flex-direction: column; gap: var(--s-3);
+        max-height: 380px; overflow-y: auto; padding-right: var(--s-2);
+    }
+
+    .msg { display: flex; flex-direction: column; max-width: 78%; }
+    .msg.mine { align-self: flex-end; align-items: flex-end; }
+    .msg.theirs { align-self: flex-start; align-items: flex-start; }
+
+    .msg-bubble {
+        padding: var(--s-2) var(--s-3);
+        font-size: var(--t-sm); white-space: pre-wrap;
+        background: var(--bg-tertiary);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
+    }
+    .msg.mine .msg-bubble {
+        background: var(--accent-primary); color: #fff;
+        border-color: var(--border-strong);
+        border-radius: var(--radius-lg) var(--radius-sm) var(--radius-lg) var(--radius-lg);
+    }
+    .msg-meta { font-size: var(--t-xs); color: var(--text-muted); margin-top: 4px; }
+
+    .composer {
+        display: flex; gap: var(--s-2); align-items: flex-end;
+        margin-top: var(--s-4); padding-top: var(--s-3);
+        border-top: 2px solid var(--border-color);
+    }
+    .composer textarea { flex: 1; resize: none; }
+
+    .history-row {
+        display: flex; align-items: center; gap: var(--s-3);
+        padding: var(--s-2) 0; font-size: var(--t-sm);
+        border-bottom: 1px solid var(--border-color);
+    }
+    .history-row:last-child { border-bottom: none; }
+</style>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private SupportTicket? _ticket;
+    private List<SupportMessage> _messages = new();
+    private List<SupportTicket> _history = new();
+
+    private Guid _userId;
+    private string _userName = "", _userEmail = "";
+    private string _subject = "", _category = "General", _bookingCode = "", _firstMessage = "", _reply = "";
+    private string? _formError;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState;
+
+        if (!Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out _userId))
+            return;
+
+        _userName = state.User.FindFirst(ClaimTypes.Name)?.Value ?? "Pelanggan Joka";
+        _userEmail = state.User.FindFirst(ClaimTypes.Email)?.Value ?? "";
+
+        // Push, not polling: the operator's reply lands on this page directly.
+        Broadcaster.MessagePosted += OnMessagePosted;
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _ticket = await Tickets.GetActiveForUserAsync(_userId);
+        _messages = _ticket is null ? new() : await Tickets.GetThreadAsync(_ticket.Id);
+        _history = await Tickets.GetHistoryForUserAsync(_userId);
+
+        if (_ticket is not null)
+            await Tickets.MarkReadAsync(_ticket.Id, "Customer");
+    }
+
+    private async Task OnMessagePosted(Guid ticketId, SupportMessage message)
+    {
+        if (_ticket is null || ticketId != _ticket.Id) return;
+
+        await InvokeAsync(async () =>
+        {
+            _messages = await Tickets.GetThreadAsync(_ticket.Id);
+            StateHasChanged();
+        });
+    }
+
+    private async Task OpenTicket()
+    {
+        _busy = true;
+        _formError = null;
+        try
+        {
+            var result = await Tickets.OpenTicketAsync(
+                _userId, _userName, _userEmail, _subject, _category, _firstMessage, _bookingCode);
+
+            if (!result.Success)
+            {
+                _formError = result.Message;
+                // The service hands back the existing thread when there already
+                // is one, so show it instead of leaving the customer stuck.
+                if (result.Ticket is not null) await LoadAsync();
+                return;
+            }
+
+            _subject = _firstMessage = _bookingCode = "";
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SendReply()
+    {
+        if (_ticket is null || string.IsNullOrWhiteSpace(_reply)) return;
+
+        _busy = true;
+        try
+        {
+            await Tickets.PostAsync(_ticket.Id, "Customer", _userName, _reply);
+            _reply = "";
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    public void Dispose() => Broadcaster.MessagePosted -= OnMessagePosted;
+
+    private record Faq(string Question, string Answer);
+
+    private readonly Faq[] _faqs =
+    {
+        new("Bagaimana cara memesan tiket?",
+            "Cari rute penerbangan, kereta, atau bus, pilih jadwal, lalu selesaikan pembayaran. E-ticket langsung tersedia di halaman Booking Saya."),
+        new("Apakah bisa refund atau reschedule?",
+            "Tergantung kebijakan maskapai atau hotel. Tiket bertanda 'Bisa refund' dapat diajukan lewat customer support, dan operator kami akan memprosesnya."),
+        new("Di mana saya melihat e-ticket?",
+            "Buka Booking Saya, lalu tekan 'Lihat e-ticket'. QR code di sana bisa langsung dipindai di konter check-in."),
+        new("Metode pembayaran apa saja yang tersedia?",
+            "Transfer bank, e-wallet, QRIS, kartu kredit, dan PayLater dengan tenor 3, 6, atau 12 bulan."),
+        new("Bagaimana cara memakai voucher promo?",
+            "Masukkan kodenya di halaman checkout sebelum membayar. Sistem akan memeriksa masa berlaku, kuota, dan minimum transaksinya."),
+        new("Bagaimana poin loyalitas dihitung?",
+            "Kamu mendapat 1 poin untuk setiap Rp10.000 yang dibayarkan. Tier naik otomatis begitu ambangnya terlampaui — lihat halaman My Points.")
+    };
+}

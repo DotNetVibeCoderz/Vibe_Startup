@@ -1,0 +1,192 @@
+@inherits LayoutComponentBase
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject CurrencyService Currency
+@inject UserPreferences Prefs
+@inject IStringLocalizer<SharedResource> L
+@inject IConfiguration Config
+
+<div class="joka-layout">
+
+    <aside class="sidebar @(_collapsed ? "collapsed" : "") @(_drawerOpen ? "open" : "")">
+        <button class="sidebar-brand" @onclick="ToggleSidebar" title="@L["Top.CollapseMenu"]" aria-label="@L["Top.CollapseMenu"]">
+            <span class="brand-icon">
+                <svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                    <rect width="40" height="40" rx="12" fill="var(--accent-primary)" />
+                    <path d="M20 8C13.37 8 8 13.37 8 20s5.37 12 12 12 12-5.37 12-12S26.63 8 20 8z" fill="white" opacity="0.9" />
+                    <path d="M24 16l-8 4 8 4-8 4" stroke="var(--accent-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                    <circle cx="14" cy="20" r="2" fill="var(--accent-secondary)" />
+                </svg>
+            </span>
+            <span class="brand-text">Joka</span>
+        </button>
+
+        @* Two groups because the split is real: things you book, and things that are yours *@
+        <nav class="sidebar-nav" @onclick="CloseDrawer">
+            <div class="nav-section">@L["Nav.Book"]</div>
+            <NavLink href="/" Match="NavLinkMatch.All"><span class="nav-icon">🏠</span><span class="nav-text">@L["Nav.Home"]</span></NavLink>
+            <NavLink href="/flights"><span class="nav-icon">✈️</span><span class="nav-text">@L["Nav.Flights"]</span></NavLink>
+            <NavLink href="/trains"><span class="nav-icon">🚆</span><span class="nav-text">@L["Nav.Trains"]</span></NavLink>
+            <NavLink href="/buses"><span class="nav-icon">🚌</span><span class="nav-text">@L["Nav.Buses"]</span></NavLink>
+            <NavLink href="/hotels"><span class="nav-icon">🏨</span><span class="nav-text">@L["Nav.Hotels"]</span></NavLink>
+            <NavLink href="/cars"><span class="nav-icon">🚗</span><span class="nav-text">@L["Nav.Cars"]</span></NavLink>
+            <NavLink href="/transport"><span class="nav-icon">🛵</span><span class="nav-text">@L["Nav.Transport"]</span></NavLink>
+            <NavLink href="/activities"><span class="nav-icon">🎪</span><span class="nav-text">@L["Nav.Activities"]</span></NavLink>
+            <NavLink href="/packages"><span class="nav-icon">🎁</span><span class="nav-text">@L["Nav.Packages"]</span></NavLink>
+            <NavLink href="/insurance"><span class="nav-icon">🛡️</span><span class="nav-text">@L["Nav.Insurance"]</span></NavLink>
+            <NavLink href="/promos"><span class="nav-icon">🏷️</span><span class="nav-text">@L["Nav.Promos"]</span></NavLink>
+
+            <div class="nav-section">@L["Nav.Yours"]</div>
+            <NavLink href="/my-bookings"><span class="nav-icon">🎫</span><span class="nav-text">@L["Nav.MyBookings"]</span></NavLink>
+            <NavLink href="/wishlist"><span class="nav-icon">❤️</span><span class="nav-text">@L["Nav.Wishlist"]</span></NavLink>
+            <NavLink href="/my-points"><span class="nav-icon">⭐</span><span class="nav-text">@L["Nav.MyPoints"]</span></NavLink>
+            <NavLink href="/trip-planner"><span class="nav-icon">🗺️</span><span class="nav-text">@L["Nav.TripPlanner"]</span></NavLink>
+            <NavLink href="/chat"><span class="nav-icon">🤖</span><span class="nav-text">Mas Bolang</span></NavLink>
+            <NavLink href="/support"><span class="nav-icon">🎧</span><span class="nav-text">@L["Nav.Support"]</span></NavLink>
+
+            @* Back-office entries appear only for the roles that can use them. *@
+            <AuthorizeView Roles="Admin">
+                <div class="nav-section">@L["Nav.Admin"]</div>
+                <NavLink href="/admin" Match="NavLinkMatch.All"><span class="nav-icon">🛡️</span><span class="nav-text">Admin Console</span></NavLink>
+                <NavLink href="/admin/settings"><span class="nav-icon">⚙️</span><span class="nav-text">Pengaturan</span></NavLink>
+            </AuthorizeView>
+
+            <AuthorizeView Roles="Admin,Operator">
+                <div class="nav-section">@L["Nav.Operations"]</div>
+                <NavLink href="/operator"><span class="nav-icon">🛠️</span><span class="nav-text">Operator Desk</span></NavLink>
+            </AuthorizeView>
+
+            <AuthorizeView Roles="Admin,Merchant">
+                <div class="nav-section">@L["Nav.Partner"]</div>
+                <NavLink href="/merchant"><span class="nav-icon">🏪</span><span class="nav-text">Merchant Portal</span></NavLink>
+            </AuthorizeView>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button class="icon-btn" @onclick="ToggleTheme" title="@(_dark ? L["Top.ThemeToLight"] : L["Top.ThemeToDark"])"
+                    aria-label="@(_dark ? L["Top.ThemeToLight"] : L["Top.ThemeToDark"])">
+                @(_dark ? "☀️" : "🌙")
+            </button>
+            <AuthorizeView>
+                <Authorized>
+                    <a class="side-user" href="/profile"><span class="nav-icon">👤</span><span>@DisplayName(context)</span></a>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="side-user" href="/login"><span class="nav-icon">🔑</span><span>@L["Top.SignIn"]</span></a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </aside>
+
+    @if (_drawerOpen)
+    {
+        <button class="scrim" @onclick="CloseDrawer" aria-label="@L["Top.CloseMenu"]"></button>
+    }
+
+    <main class="main-content">
+        <header class="top-bar">
+            <button class="icon-btn" @onclick="ToggleSidebar" aria-label="@L["Top.Menu"]" title="@L["Top.Menu"]">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+                    <path d="M3 12h18M3 6h18M3 18h18" />
+                </svg>
+            </button>
+
+            <div class="search-bar">
+                <label class="visually-hidden" for="global-search">@L["Top.SearchLabel"]</label>
+                <input id="global-search" type="search" placeholder="@L["Top.SearchPlaceholder"]" />
+            </div>
+
+            <div class="top-actions">
+                @* Posts to the server so the cookie is set before the next
+                   render - a client-only change would not reach SSR. *@
+                <form method="post" action="/set-preference" class="pref-form">
+                    <input type="hidden" name="returnUrl" value="@CurrentPath" />
+                    <label class="visually-hidden" for="cur">@L["Top.Currency"]</label>
+                    <select id="cur" name="currency" onchange="this.form.submit()">
+                        @foreach (var c in Currency.Supported)
+                        {
+                            <option value="@c.Code" selected="@(c.Code == Prefs.CurrencyCode)">@c.Code</option>
+                        }
+                    </select>
+                </form>
+
+                @* Hidden until translation coverage is complete: switching to EN
+                   today gives a mixed-language page, because only the shell and
+                   the main booking flow are translated. Flip
+                   AppSettings:ShowLanguageSwitcher once the rest is done. *@
+                @if (ShowLanguageSwitcher)
+                {
+                    <form method="post" action="/set-preference" class="pref-form">
+                        <input type="hidden" name="returnUrl" value="@CurrentPath" />
+                        <label class="visually-hidden" for="lang">@L["Top.Language"]</label>
+                        <select id="lang" name="culture" onchange="this.form.submit()">
+                            <option value="id" selected="@(CurrentCulture == "id")">ID</option>
+                            <option value="en" selected="@(CurrentCulture == "en")">EN</option>
+                        </select>
+                    </form>
+                }
+
+                <AuthorizeView>
+                    <Authorized>
+                        <NotificationBell />
+                        <a class="avatar-btn" href="/profile" title="@L["Top.Profile"]" aria-label="@L["Top.Profile"]">👤</a>
+                    </Authorized>
+                    <NotAuthorized>
+                        <a class="btn btn-primary btn-sm" href="/login">@L["Top.SignIn"]</a>
+                    </NotAuthorized>
+                </AuthorizeView>
+            </div>
+        </header>
+
+        <div class="page-content">@Body</div>
+    </main>
+</div>
+
+@code {
+    private bool _collapsed, _drawerOpen, _dark;
+    /// <summary>
+    /// Off by default: only the shell and the main booking flow are translated,
+    /// so offering EN today would produce a half-Indonesian page. Turn it on
+    /// from Admin → Pengaturan once coverage is complete.
+    /// </summary>
+    private bool ShowLanguageSwitcher =>
+        Config.GetValue("AppSettings:ShowLanguageSwitcher", false);
+
+    private static string CurrentCulture =>
+        System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+
+    private string CurrentPath =>
+        new Uri(Nav.Uri).PathAndQuery is { Length: > 0 } p && p.StartsWith('/') ? p : "/";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        // The theme is already applied by the bootstrap script in App.razor;
+        // read it back so the toggle shows the right icon.
+        _dark = await JS.InvokeAsync<string>("joka.getTheme") == "dark";
+        StateHasChanged();
+    }
+
+    private async Task ToggleTheme()
+    {
+        _dark = await JS.InvokeAsync<string>("joka.toggleTheme") == "dark";
+    }
+
+    // One button, two jobs: collapse the rail on desktop, open the drawer on mobile.
+    private void ToggleSidebar()
+    {
+        _collapsed = !_collapsed;
+        _drawerOpen = !_drawerOpen;
+    }
+
+    private void CloseDrawer() => _drawerOpen = false;
+
+    private static string DisplayName(AuthenticationState state)
+    {
+        var user = state.User;
+        return user.FindFirst(ClaimTypes.GivenName)?.Value
+            ?? user.FindFirst(ClaimTypes.Name)?.Value
+            ?? "Akun";
+    }
+}

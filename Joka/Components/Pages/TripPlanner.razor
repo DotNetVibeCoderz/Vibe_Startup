@@ -1,0 +1,322 @@
+@page "/trip-planner"
+@using System.Security.Claims
+@inject AppDbContext DbContext
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Trip Planner — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">Trip Planner</p>
+        <h1>Itinerary dari booking kamu</h1>
+        <p class="lede">Disusun otomatis dari pesanan yang sudah kamu buat, bukan contoh.</p>
+    </div>
+
+    @if (!_isAuthenticated)
+    {
+        <div class="empty">
+            <h3>Masuk untuk melihat itinerary</h3>
+            <p>Trip Planner menyusun rencana dari booking yang tersimpan di akunmu.</p>
+            <a class="btn btn-primary" href="/login?ReturnUrl=%2Ftrip-planner">Masuk</a>
+        </div>
+    }
+    else if (_loading)
+    {
+        <div class="skeleton" style="height:300px;"></div>
+    }
+    else if (!_trips.Any())
+    {
+        <div class="empty">
+            <h3>Belum ada perjalanan untuk direncanakan</h3>
+            <p>Pesan tiket atau hotel dulu, lalu itinerary-nya muncul di sini secara otomatis.</p>
+            <div style="display:flex;gap:var(--s-2);justify-content:center;flex-wrap:wrap;">
+                <a class="btn btn-primary" href="/flights">Cari tiket</a>
+                <a class="btn btn-ghost" href="/hotels">Cari hotel</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        @foreach (var trip in _trips)
+        {
+            <section class="trip">
+                <header class="trip-head">
+                    <div>
+                        <h2>@trip.Destination</h2>
+                        <p class="trip-dates code">
+                            @trip.Start.ToString("dd MMM yyyy")
+                            @(trip.Start.Date == trip.End.Date ? "" : $" – {trip.End:dd MMM yyyy}")
+                            · @trip.DayCount hari
+                        </p>
+                    </div>
+                    <div class="trip-total">
+                        <div style="font-size:var(--t-xs);color:var(--text-muted);">Total pesanan</div>
+                        <div><Money Amount="@(trip.Total)" /></div>
+                    </div>
+                </header>
+
+                <ol class="timeline">
+                    @foreach (var day in trip.Days)
+                    {
+                        <li class="day">
+                            <div class="day-marker">
+                                <span class="day-num">@day.Index</span>
+                                <span class="day-date code">@day.Date.ToString("dd MMM")</span>
+                            </div>
+                            <div class="day-items">
+                                @foreach (var item in day.Items)
+                                {
+                                    <div class="itin-item">
+                                        <span class="itin-icon">@item.Icon</span>
+                                        <div style="flex:1;min-width:0;">
+                                            <div style="font-weight:700;">@item.Title</div>
+                                            <div style="font-size:var(--t-sm);color:var(--text-secondary);">@item.Detail</div>
+                                        </div>
+                                        <span class="code itin-time">@item.Time</span>
+                                    </div>
+                                }
+                            </div>
+                        </li>
+                    }
+                </ol>
+
+                @if (trip.Suggestions.Any())
+                {
+                    <div class="suggest">
+                        <div class="section-title" style="margin-top:0;">Bisa ditambahkan di @trip.Destination</div>
+                        <div class="grid grid-3">
+                            @foreach (var s in trip.Suggestions)
+                            {
+                                <a class="travel-card" href="/activities" style="text-decoration:none;color:inherit;">
+                                    <strong>@s.Name</strong>
+                                    <div style="font-size:var(--t-sm);color:var(--text-secondary);margin:var(--s-1) 0;">@s.Category</div>
+                                    <div style="font-size:1rem;"><Money Amount="@(s.Price)" /></div>
+                                </a>
+                            }
+                        </div>
+                    </div>
+                }
+            </section>
+        }
+    }
+</div>
+
+<style>
+    .trip {
+        border: 2px solid var(--border-strong); border-radius: var(--radius-lg);
+        background: var(--bg-secondary); box-shadow: var(--shadow-sm);
+        padding: var(--s-5); margin-bottom: var(--s-5);
+    }
+    .trip-head {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        gap: var(--s-4); flex-wrap: wrap;
+        padding-bottom: var(--s-4); margin-bottom: var(--s-4);
+        border-bottom: 2px solid var(--border-color);
+    }
+    .trip-dates { font-size: var(--t-sm); color: var(--text-secondary); margin-top: var(--s-1); }
+    .trip-total { text-align: right; }
+
+    .timeline { list-style: none; padding: 0; margin: 0; }
+    .day { display: flex; gap: var(--s-4); padding-bottom: var(--s-4); }
+    .day-marker {
+        flex: none; width: 64px; text-align: center;
+        border-right: 2px dashed var(--border-color); padding-right: var(--s-3);
+    }
+    .day-num {
+        display: block; font-family: var(--font-display);
+        font-size: 1.5rem; font-weight: 800; line-height: 1;
+    }
+    .day-date { display: block; font-size: var(--t-xs); color: var(--text-muted); margin-top: 2px; }
+    .day-items { flex: 1; display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+
+    .itin-item {
+        display: flex; align-items: center; gap: var(--s-3);
+        padding: var(--s-3);
+        border: 2px solid var(--border-color); border-radius: var(--radius-md);
+    }
+    .itin-icon { font-size: 1.25rem; flex: none; }
+    .itin-time { font-size: var(--t-sm); color: var(--text-muted); flex: none; }
+
+    .suggest { margin-top: var(--s-4); padding-top: var(--s-4); border-top: 2px solid var(--border-color); }
+
+    @@media (max-width: 620px) {
+        .day-marker { width: 52px; }
+        .itin-item { flex-wrap: wrap; }
+    }
+</style>
+
+@code {
+    private record Item(DateTime When, string Icon, string Title, string Detail, string Time);
+    private record Day(int Index, DateTime Date, List<Item> Items);
+    private record Suggestion(string Name, string Category, decimal Price);
+    private record Trip(string Destination, DateTime Start, DateTime End, int DayCount,
+        decimal Total, List<Day> Days, List<Suggestion> Suggestions);
+
+    private bool _isAuthenticated, _loading = true;
+    private List<Trip> _trips = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        _isAuthenticated = state.User.Identity?.IsAuthenticated == true;
+
+        if (!_isAuthenticated ||
+            !Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId))
+        {
+            _loading = false;
+            return;
+        }
+
+        await BuildAsync(userId);
+        _loading = false;
+    }
+
+    /// <summary>
+    /// Pulls every booking the user owns, groups them into trips by destination
+    /// city, then lays each trip out day by day. No templates involved.
+    /// </summary>
+    private async Task BuildAsync(Guid userId)
+    {
+        var entries = new List<(string City, Item Item, decimal Price)>();
+
+        var flights = await DbContext.FlightBookings.AsNoTracking()
+            .Include(b => b.Flight!).ThenInclude(f => f.Airline)
+            .Include(b => b.Flight!).ThenInclude(f => f.DepartureAirport)
+            .Include(b => b.Flight!).ThenInclude(f => f.ArrivalAirport)
+            .Where(b => b.UserId == userId && b.Flight != null)
+            .ToListAsync();
+
+        foreach (var b in flights)
+        {
+            var f = b.Flight!;
+            entries.Add((f.ArrivalAirport?.City ?? "Perjalanan",
+                new Item(f.DepartureTime, "✈️",
+                    $"Terbang ke {f.ArrivalAirport?.City}",
+                    $"{f.Airline?.Name} {f.FlightNumber} · {f.DepartureAirport?.Code}→{f.ArrivalAirport?.Code} · {b.PassengerCount} pax",
+                    f.DepartureTime.ToString("HH:mm")),
+                b.TotalPrice));
+        }
+
+        var trains = await DbContext.TrainBookings.AsNoTracking()
+            .Include(b => b.TrainSchedule!).ThenInclude(s => s.Train)
+            .Include(b => b.TrainSchedule!).ThenInclude(s => s.ArrivalStation)
+            .Where(b => b.UserId == userId && b.TrainSchedule != null)
+            .ToListAsync();
+
+        foreach (var b in trains)
+        {
+            var s = b.TrainSchedule!;
+            entries.Add((s.ArrivalStation?.City ?? "Perjalanan",
+                new Item(s.DepartureTime, "🚆",
+                    $"Kereta ke {s.ArrivalStation?.City}",
+                    $"{s.Train?.Name} · {s.Train?.Class}",
+                    s.DepartureTime.ToString("HH:mm")),
+                b.TotalPrice));
+        }
+
+        var buses = await DbContext.BusBookings.AsNoTracking()
+            .Include(b => b.BusSchedule!).ThenInclude(s => s.BusService!).ThenInclude(v => v.Operator)
+            .Include(b => b.BusSchedule!).ThenInclude(s => s.ArrivalTerminal)
+            .Where(b => b.UserId == userId && b.BusSchedule != null)
+            .ToListAsync();
+
+        foreach (var b in buses)
+        {
+            var s = b.BusSchedule!;
+            entries.Add((s.ArrivalTerminal?.City ?? "Perjalanan",
+                new Item(s.DepartureTime, "🚌",
+                    $"Bus ke {s.ArrivalTerminal?.City}",
+                    $"{s.BusService?.Operator?.Name} · {s.BusService?.Class}",
+                    s.DepartureTime.ToString("HH:mm")),
+                b.TotalPrice));
+        }
+
+        var hotels = await DbContext.HotelBookings.AsNoTracking()
+            .Include(b => b.Room!).ThenInclude(r => r.Hotel)
+            .Where(b => b.UserId == userId && b.Room != null)
+            .ToListAsync();
+
+        foreach (var b in hotels)
+        {
+            var hotel = b.Room!.Hotel;
+            entries.Add((hotel?.City ?? "Perjalanan",
+                new Item(b.CheckInDate, "🏨",
+                    $"Check-in {hotel?.Name}",
+                    $"{b.Room.Name} · {b.Nights} malam · {b.GuestCount} tamu",
+                    "14:00"),
+                b.TotalPrice));
+
+            entries.Add((hotel?.City ?? "Perjalanan",
+                new Item(b.CheckOutDate, "🧳",
+                    $"Check-out {hotel?.Name}",
+                    "Jangan tinggalkan barang", "12:00"),
+                0));
+        }
+
+        if (entries.Count == 0) return;
+
+        var activities = await DbContext.Activities.AsNoTracking().ToListAsync();
+
+        _trips = entries
+            .GroupBy(e => e.City)
+            .Select(group =>
+            {
+                var items = group.Select(g => g.Item).OrderBy(i => i.When).ToList();
+                var start = items.First().When.Date;
+                var end = items.Last().When.Date;
+                var dayCount = (int)(end - start).TotalDays + 1;
+
+                var days = items
+                    .GroupBy(i => i.When.Date)
+                    .OrderBy(d => d.Key)
+                    .Select(d => new Day(
+                        (int)(d.Key - start).TotalDays + 1,
+                        d.Key,
+                        d.OrderBy(i => i.When).ToList()))
+                    .ToList();
+
+                // Suggest activities in the same city. The alias step matters:
+                // airports store "Denpasar" while activities store "Bali", so a
+                // plain name match would silently return nothing.
+                var suggestions = activities
+                    .Where(a => CityMatches(group.Key, a.City))
+                    .Take(3)
+                    .Select(a => new Suggestion(a.Name, a.Category, a.Price))
+                    .ToList();
+
+                return new Trip(group.Key, start, end, dayCount,
+                    group.Sum(g => g.Price), days, suggestions);
+            })
+            .OrderBy(t => t.Start)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Same inconsistency the chatbot hit: the seed data names the same place
+    /// differently per table, so matching has to consider both spellings.
+    /// </summary>
+    private static readonly Dictionary<string, string> CityAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Denpasar"] = "Bali",
+        ["Bali"] = "Denpasar",
+        ["Yogyakarta"] = "Jogja",
+        ["Jogja"] = "Yogyakarta",
+        ["Solo"] = "Surakarta",
+        ["Surakarta"] = "Solo"
+    };
+
+    private static bool CityMatches(string tripCity, string activityCity)
+    {
+        if (string.IsNullOrWhiteSpace(tripCity) || string.IsNullOrWhiteSpace(activityCity))
+            return false;
+
+        if (tripCity.Contains(activityCity, StringComparison.OrdinalIgnoreCase) ||
+            activityCity.Contains(tripCity, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return CityAliases.TryGetValue(tripCity, out var alias)
+            && activityCity.Contains(alias, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string Rupiah(decimal value) => $"Rp{value:N0}";
+}

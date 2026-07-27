@@ -1,0 +1,174 @@
+@page "/cars"
+@inject AppDbContext DbContext
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>@L["Cars.Title"] — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Cars.Eyebrow"]</p>
+        <h1>@L["Cars.Title"]</h1>
+        <p class="lede">@L["Cars.Lede"]</p>
+    </div>
+
+    @if (_cars.Any())
+    {
+        <div class="grid grid-3">
+            @foreach (var car in _cars)
+            {
+                <article class="travel-card card-media">
+                    @* Falls back to the vehicle-type icon when a unit has no photo. *@
+                    <ImageGallery Src="@car.ImageUrl" Urls="@car.ImageUrls" Alt="@car.Name"
+                                  Fallback="@IconFor(car.Type)" />
+
+                    <div class="card-body">
+                        <div class="card-top">
+                            <span class="badge badge-quiet">@car.Type</span>
+                            <WishlistButton ItemType="Car" ItemId="@car.Id.ToString()" ItemName="@car.Name"
+                                            Price="car.PricePerDay" ImageUrl="@car.ImageUrl" />
+                        </div>
+
+                        <h3>@car.Name</h3>
+
+                        <p class="muted-line">
+                            @car.Seats @L["Cars.Seats"] · @car.Transmission
+                        </p>
+
+                        <div class="meta-row">
+                            <span class="badge @(car.IncludeDriver ? "badge-success" : "badge-quiet")">
+                                @(car.IncludeDriver ? L["Cars.WithDriver"] : L["Cars.SelfDrive"])
+                            </span>
+                            <span>@car.AvailableUnits / @car.TotalUnits @L["Cars.UnitsAvailable"]</span>
+                        </div>
+
+                        @if (PickupLocations(car.PickupLocations).Any())
+                        {
+                            <div style="display:flex; gap: var(--s-1); flex-wrap: wrap;">
+                                @foreach (var city in PickupLocations(car.PickupLocations))
+                                {
+                                    <span class="tag">@city</span>
+                                }
+                            </div>
+                        }
+
+                        <div class="card-foot">
+                            <div>
+                                <Money Amount="@car.PricePerDay" />
+                                <div class="micro">@L["Cars.PerDay"]</div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" @onclick="() => BookCar(car)"
+                                    disabled="@(car.AvailableUnits <= 0)">
+                                @L["Cars.Rent"]
+                            </button>
+                        </div>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="empty">
+            <h3>@L["Cars.EmptyTitle"]</h3>
+        </div>
+    }
+</div>
+
+@if (_bookingSuccess)
+{
+    <div class="modal-scrim">
+        <div class="modal" style="text-align:center;" role="dialog" aria-modal="true">
+            <div style="font-size:3rem;">🔑</div>
+            <h2 style="margin: var(--s-3) 0 var(--s-2);">@L["Label.Confirmed"]</h2>
+            <p style="color: var(--text-secondary);">@L["Label.BookingCode"]</p>
+            <p class="code booking-code">@_bookingCode</p>
+            <div style="display:flex; gap: var(--s-2); justify-content:center; margin-top: var(--s-5);">
+                <button class="btn btn-primary" @onclick="() => _bookingSuccess = false">@L["Action.Close"]</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); margin-bottom: var(--s-2); }
+    .muted-line { font-size: var(--t-sm); color: var(--text-secondary); margin: var(--s-1) 0 var(--s-2); }
+
+    .meta-row {
+        display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap;
+        margin-bottom: var(--s-3); font-size: var(--t-xs); color: var(--text-secondary);
+    }
+
+    .micro { font-size: var(--t-xs); color: var(--text-muted); }
+
+    .card-foot {
+        display: flex; align-items: flex-end; justify-content: space-between;
+        gap: var(--s-3); margin-top: auto; padding-top: var(--s-3);
+        border-top: 2px solid var(--border-color);
+    }
+
+    .booking-code {
+        font-size: 1.4rem; font-weight: 700; letter-spacing: 0.08em;
+        padding: var(--s-3); margin-top: var(--s-2);
+        border: 2px dashed var(--border-strong); border-radius: var(--radius-md);
+        background: var(--bg-tertiary); word-break: break-all;
+    }
+</style>
+
+@code {
+    private List<CarRental> _cars = new();
+    private bool _bookingSuccess;
+    private string _bookingCode = "";
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load() =>
+        _cars = await DbContext.CarRentals.AsNoTracking()
+            .Where(c => c.IsActive)
+            .OrderBy(c => c.PricePerDay)
+            .ToListAsync();
+
+    private static string IconFor(string type) => type switch
+    {
+        "MPV" => "🚐",
+        "SUV" => "🚙",
+        "Hatchback" => "🚗",
+        "Luxury" => "🚘",
+        _ => "🚗"
+    };
+
+    private static IEnumerable<string> PickupLocations(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return Array.Empty<string>();
+        try { return System.Text.Json.JsonSerializer.Deserialize<string[]>(json)?.Take(4) ?? Array.Empty<string>(); }
+        catch { return Array.Empty<string>(); }
+    }
+
+    private async Task BookCar(CarRental car)
+    {
+        // Adjust availability on a tracked copy; the listed one is untracked.
+        var tracked = await DbContext.CarRentals.FirstOrDefaultAsync(c => c.Id == car.Id);
+        if (tracked is null || tracked.AvailableUnits <= 0) return;
+
+        var booking = new CarRentalBooking
+        {
+            UserId = Guid.NewGuid(),
+            CarRentalId = car.Id,
+            BookingCode = $"JKA-CR-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(1000, 9999)}",
+            Status = "Confirmed",
+            PickupDate = DateTime.UtcNow.AddDays(3),
+            ReturnDate = DateTime.UtcNow.AddDays(5),
+            Days = 2,
+            IncludeDriver = car.IncludeDriver,
+            TotalPrice = car.PricePerDay * 2 + (car.IncludeDriver ? (car.DriverPricePerDay ?? 0) * 2 : 0),
+            BookingDate = DateTime.UtcNow
+        };
+
+        DbContext.CarRentalBookings.Add(booking);
+        tracked.AvailableUnits--;
+        await DbContext.SaveChangesAsync();
+
+        _bookingCode = booking.BookingCode;
+        _bookingSuccess = true;
+        await Load();
+    }
+}

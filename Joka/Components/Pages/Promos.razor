@@ -1,0 +1,136 @@
+@page "/promos"
+@inject AppDbContext DbContext
+@inject IStringLocalizer<SharedResource> L
+@inject UserPreferences Prefs
+
+<PageTitle>@L["Promos.Title"] — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Promos.Eyebrow"]</p>
+        <h1>@L["Promos.Title"]</h1>
+        <p class="lede">@L["Promos.Lede"]</p>
+    </div>
+
+    @if (_vouchers.Any())
+    {
+        <div class="grid grid-2">
+            @foreach (var v in _vouchers)
+            {
+                var remaining = Math.Max(0, v.TotalQuota - v.UsedCount);
+                var usedPercent = v.TotalQuota <= 0 ? 0 : Math.Clamp(v.UsedCount * 100.0 / v.TotalQuota, 0, 100);
+
+                @* Perforated coupon: the value tears off from the terms *@
+                <article class="stub coupon">
+                    <div class="stub-main">
+                        <h3>@v.Name</h3>
+                        <p class="muted-line">@v.Description</p>
+
+                        <div class="terms">
+                            <div>
+                                <span class="term-label">@L["Promos.MinTransaction"]</span>
+                                <Money Amount="@v.MinPurchase" />
+                            </div>
+                            @if (v.MaxDiscount > 0)
+                            {
+                                <div>
+                                    <span class="term-label">@L["Promos.MaxDiscount"]</span>
+                                    <Money Amount="@v.MaxDiscount" />
+                                </div>
+                            }
+                            <div>
+                                <span class="term-label">@L["Home.ValidUntil"]</span>
+                                <span class="code">@v.ValidUntil.ToString("dd MMM yyyy")</span>
+                            </div>
+                        </div>
+
+                        <div class="quota">
+                            <div class="quota-track">
+                                <div class="quota-fill" style="width:@usedPercent.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)%;"></div>
+                            </div>
+                            <span class="micro">@remaining.ToString("N0") @L["Promos.QuotaLeft"]</span>
+                        </div>
+                    </div>
+
+                    <div class="stub-end coupon-end">
+                        <div class="coupon-value">
+                            @(v.Type == "Percentage"
+                                ? $"{v.Value:0.#}%"
+                                : Prefs.Format(v.Value))
+                        </div>
+                        <span class="badge badge-quiet">@v.ApplicableTo</span>
+                        <div class="code coupon-code">@v.Code</div>
+                    </div>
+                </article>
+            }
+        </div>
+
+        <div class="card cta-row">
+            <p>@L["Promos.Lede"]</p>
+            <a class="btn btn-primary" href="/flights">@L["Home.SearchFlights"]</a>
+        </div>
+    }
+    else
+    {
+        <div class="empty">
+            <h3>@L["Promos.EmptyTitle"]</h3>
+            <p>@L["Promos.EmptyBody"]</p>
+            <a class="btn btn-secondary" href="/">@L["State.BackHome"]</a>
+        </div>
+    }
+</div>
+
+<style>
+    .coupon:hover { transform: none; box-shadow: var(--shadow-sm); }
+    .muted-line { font-size: var(--t-sm); color: var(--text-secondary); margin: var(--s-1) 0 var(--s-3); }
+
+    .terms { display: flex; gap: var(--s-5); flex-wrap: wrap; margin-bottom: var(--s-3); }
+    .term-label {
+        display: block; font-size: var(--t-xs); letter-spacing: 0.1em;
+        text-transform: uppercase; color: var(--text-muted); margin-bottom: 2px;
+    }
+
+    .quota { display: flex; align-items: center; gap: var(--s-3); }
+    .quota-track {
+        flex: 1; height: 8px; border-radius: 50px;
+        background: var(--bg-tertiary); border: 1px solid var(--border-color); overflow: hidden;
+    }
+    .quota-fill { height: 100%; background: var(--accent-primary); }
+    .micro { font-size: var(--t-xs); color: var(--text-muted); white-space: nowrap; }
+
+    .coupon-end { width: 190px; align-items: center; text-align: center; }
+    .coupon-value {
+        font-family: var(--font-display); font-size: 1.9rem; font-weight: 800;
+        letter-spacing: -0.03em; line-height: 1; color: var(--accent-primary);
+    }
+    .coupon-code {
+        font-size: 0.95rem; font-weight: 700; letter-spacing: 0.1em;
+        padding: 5px 10px; border: 2px dashed var(--border-strong);
+        border-radius: var(--radius-sm); background: var(--bg-tertiary);
+    }
+
+    .cta-row {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: var(--s-4); flex-wrap: wrap; margin-top: var(--s-5);
+    }
+    .cta-row p { color: var(--text-secondary); }
+
+    @@media (max-width: 720px) {
+        .coupon-end { width: auto; }
+    }
+</style>
+
+@code {
+    private List<PromoVoucher> _vouchers = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var now = DateTime.UtcNow;
+
+        // Only what a customer can actually redeem right now.
+        _vouchers = await DbContext.PromoVouchers.AsNoTracking()
+            .Where(v => v.IsActive && v.ValidFrom <= now && v.ValidUntil >= now && v.UsedCount < v.TotalQuota)
+            .OrderBy(v => v.ValidUntil)
+            .ToListAsync();
+    }
+}

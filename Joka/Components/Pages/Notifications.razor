@@ -1,0 +1,175 @@
+@page "/notifications"
+@using System.Security.Claims
+@attribute [Authorize]
+@inject AppDbContext DbContext
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>@L["Notif.Title"] — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="console-head">
+        <div class="page-head" style="margin:0;">
+            <p class="eyebrow">@L["Nav.Yours"]</p>
+            <h1>@L["Notif.Title"]</h1>
+            <p class="lede">@L["Notif.Lede"]</p>
+        </div>
+
+        @if (_unread > 0)
+        {
+            <button class="btn btn-ghost btn-sm" @onclick="MarkAllRead">@L["Notif.MarkAllRead"]</button>
+        }
+    </div>
+
+    @if (_loading)
+    {
+        <div class="skeleton" style="height:240px;"></div>
+    }
+    else if (!_items.Any())
+    {
+        <div class="empty">
+            <div style="font-size:3rem;">🔔</div>
+            <h3>@L["Notif.EmptyTitle"]</h3>
+            <p>@L["Notif.EmptyBody"]</p>
+            <a class="btn btn-secondary" href="/">@L["State.BackHome"]</a>
+        </div>
+    }
+    else
+    {
+        @if (_unread > 0)
+        {
+            <p class="count-line"><strong>@_unread</strong> @L["Notif.Unread"]</p>
+        }
+
+        <div class="notif-list">
+            @foreach (var n in _items)
+            {
+                <article class="notif @(n.IsRead ? "" : "unread")">
+                    <span class="notif-icon">@IconFor(n.Type)</span>
+
+                    <div class="notif-body">
+                        <div class="notif-head">
+                            <strong>@n.Title</strong>
+                            <time class="micro">@Ago(n.SentAt)</time>
+                        </div>
+                        <p>@n.Message</p>
+
+                        <div class="notif-actions">
+                            @if (!string.IsNullOrEmpty(n.ActionUrl))
+                            {
+                                <a class="btn btn-sm btn-ghost" href="@n.ActionUrl">@L["Action.Select"]</a>
+                            }
+                            @if (!n.IsRead)
+                            {
+                                <button class="btn btn-sm btn-ghost" @onclick="() => MarkRead(n)">@L["Notif.MarkRead"]</button>
+                            }
+                        </div>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .count-line { font-size: var(--t-sm); color: var(--text-secondary); margin-bottom: var(--s-3); }
+
+    .notif-list { display: flex; flex-direction: column; gap: var(--s-2); }
+
+    .notif {
+        display: flex; gap: var(--s-3); align-items: flex-start;
+        padding: var(--s-4);
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-lg);
+    }
+
+    /* Unread carries a left bar rather than a different background, so it
+       stays legible in both themes. */
+    .notif.unread { border-left: 6px solid var(--accent-primary); }
+
+    .notif-icon { font-size: 1.25rem; flex: none; }
+    .notif-body { flex: 1; min-width: 0; }
+
+    .notif-head {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: var(--s-3); margin-bottom: var(--s-1);
+    }
+    .notif-body p { font-size: var(--t-sm); color: var(--text-secondary); }
+    .micro { font-size: var(--t-xs); color: var(--text-muted); white-space: nowrap; }
+
+    .notif-actions { display: flex; gap: var(--s-2); margin-top: var(--s-3); flex-wrap: wrap; }
+</style>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<UserNotification> _items = new();
+    private Guid _userId;
+    private int _unread;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState;
+
+        if (Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id))
+        {
+            _userId = id;
+            await Load();
+        }
+
+        _loading = false;
+    }
+
+    private async Task Load()
+    {
+        // Tracked on purpose: this page flips IsRead on these rows.
+        _items = await DbContext.UserNotifications
+            .Where(n => n.UserId == _userId)
+            .OrderByDescending(n => n.SentAt)
+            .Take(50).ToListAsync();
+
+        _unread = _items.Count(n => !n.IsRead);
+    }
+
+    private async Task MarkRead(UserNotification n)
+    {
+        n.IsRead = true;
+        n.ReadAt = DateTime.UtcNow;
+        await DbContext.SaveChangesAsync();
+        _unread = _items.Count(x => !x.IsRead);
+    }
+
+    private async Task MarkAllRead()
+    {
+        foreach (var n in _items.Where(n => !n.IsRead))
+        {
+            n.IsRead = true;
+            n.ReadAt = DateTime.UtcNow;
+        }
+
+        await DbContext.SaveChangesAsync();
+        _unread = 0;
+    }
+
+    private static string IconFor(string? type) => type switch
+    {
+        "Transaction" => "💳",
+        "Promo" => "🏷️",
+        "Reminder" => "⏰",
+        _ => "🔔"
+    };
+
+    /// <summary>Relative time reads faster than a timestamp in a feed.</summary>
+    private static string Ago(DateTime when)
+    {
+        var span = DateTime.UtcNow - when;
+
+        if (span.TotalMinutes < 1) return "·";
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours}j";
+        if (span.TotalDays < 7) return $"{(int)span.TotalDays}h";
+
+        return when.ToString("dd MMM yyyy");
+    }
+}

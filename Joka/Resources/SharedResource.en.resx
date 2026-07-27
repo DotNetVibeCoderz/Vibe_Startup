@@ -1,0 +1,443 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <!-- Navigation -->
+  <data name="Nav.Book"><value>Book</value></data>
+  <data name="Nav.Yours"><value>Yours</value></data>
+  <data name="Nav.Home"><value>Home</value></data>
+  <data name="Nav.Flights"><value>Flights</value></data>
+  <data name="Nav.Trains"><value>Trains</value></data>
+  <data name="Nav.Buses"><value>Bus &amp; Shuttle</value></data>
+  <data name="Nav.Hotels"><value>Hotels</value></data>
+  <data name="Nav.Cars"><value>Car Rental</value></data>
+  <data name="Nav.Activities"><value>Activities</value></data>
+  <data name="Nav.Packages"><value>Travel Packages</value></data>
+  <data name="Nav.Insurance"><value>Insurance</value></data>
+  <data name="Nav.Promos"><value>Promos</value></data>
+  <data name="Nav.MyBookings"><value>My Bookings</value></data>
+  <data name="Nav.Wishlist"><value>Wishlist</value></data>
+  <data name="Nav.MyPoints"><value>My Points</value></data>
+  <data name="Nav.TripPlanner"><value>Trip Planner</value></data>
+  <data name="Nav.Chat"><value>Mas Bolang</value></data>
+  <data name="Nav.Support"><value>Support</value></data>
+  <data name="Nav.Admin"><value>Admin</value></data>
+  <data name="Nav.Operations"><value>Operations</value></data>
+  <data name="Nav.Partner"><value>Partner</value></data>
+
+  <!-- Top bar -->
+  <data name="Top.SearchPlaceholder"><value>Where to?</value></data>
+  <data name="Top.SearchLabel"><value>Search destinations</value></data>
+  <data name="Top.Currency"><value>Currency</value></data>
+  <data name="Top.Language"><value>Language</value></data>
+  <data name="Top.Notifications"><value>Notifications</value></data>
+  <data name="Top.Profile"><value>Profile</value></data>
+  <data name="Top.SignIn"><value>Sign in</value></data>
+  <data name="Top.Menu"><value>Menu</value></data>
+  <data name="Top.CollapseMenu"><value>Collapse menu</value></data>
+  <data name="Top.CloseMenu"><value>Close menu</value></data>
+  <data name="Top.ThemeToLight"><value>Switch to light theme</value></data>
+  <data name="Top.ThemeToDark"><value>Switch to dark theme</value></data>
+  <data name="Top.Account"><value>Account</value></data>
+
+  <!-- Shared actions -->
+  <data name="Action.Search"><value>Search</value></data>
+  <data name="Action.Reset"><value>Reset</value></data>
+  <data name="Action.Select"><value>Select</value></data>
+  <data name="Action.Book"><value>Book</value></data>
+  <data name="Action.Cancel"><value>Cancel</value></data>
+  <data name="Action.Close"><value>Close</value></data>
+  <data name="Action.Save"><value>Save</value></data>
+  <data name="Action.PayNow"><value>Pay now</value></data>
+  <data name="Action.ViewEticket"><value>View e-ticket</value></data>
+  <data name="Action.SearchAgain"><value>Search again</value></data>
+  <data name="Action.BookNow"><value>Book now</value></data>
+  <data name="Action.Processing"><value>Processing…</value></data>
+  <data name="Action.Delete"><value>Delete</value></data>
+
+  <!-- Shared labels -->
+  <data name="Label.From"><value>From</value></data>
+  <data name="Label.To"><value>To</value></data>
+  <data name="Label.Date"><value>Date</value></data>
+  <data name="Label.DepartureDate"><value>Departure date</value></data>
+  <data name="Label.MaxPrice"><value>Max price</value></data>
+  <data name="Label.SortBy"><value>Sort by</value></data>
+  <data name="Label.Passengers"><value>Passengers</value></data>
+  <data name="Label.PerPerson"><value>Per person</value></data>
+  <data name="Label.StartingFrom"><value>From</value></data>
+  <data name="Label.PerNight"><value>per night</value></data>
+  <data name="Label.Total"><value>Total</value></data>
+  <data name="Label.Anything"><value>Any price</value></data>
+  <data name="Label.AllCities"><value>All cities</value></data>
+  <data name="Label.AllAirports"><value>All airports</value></data>
+  <data name="Label.PickCity"><value>Pick a city</value></data>
+  <data name="Label.Cheapest"><value>Cheapest</value></data>
+  <data name="Label.EarliestDeparture"><value>Earliest departure</value></data>
+  <data name="Label.Fastest"><value>Fastest</value></data>
+  <data name="Label.Direct"><value>Non-stop</value></data>
+  <data name="Label.BookingCode"><value>Your booking code</value></data>
+  <data name="Label.Confirmed"><value>Booking confirmed</value></data>
+
+  <!-- Home -->
+  <data name="Home.Eyebrow"><value>Flights · Trains · Hotels · Cars · Activities</value></data>
+  <data name="Home.Title"><value>Explore the world without limits</value></data>
+  <data name="Home.Subtitle"><value>One place for every trip. Search, compare, book.</value></data>
+  <data name="Home.TabFlight"><value>Flights</value></data>
+  <data name="Home.TabTrain"><value>Trains</value></data>
+  <data name="Home.TabBus"><value>Bus</value></data>
+  <data name="Home.TabHotel"><value>Hotels</value></data>
+  <data name="Home.SearchFlights"><value>Search flights</value></data>
+  <data name="Home.SearchTrains"><value>Search trains</value></data>
+  <data name="Home.SearchBuses"><value>Search buses</value></data>
+  <data name="Home.SearchHotels"><value>Search hotels</value></data>
+  <data name="Home.StatFlights"><value>Flight routes</value></data>
+  <data name="Home.StatHotels"><value>Places to stay</value></data>
+  <data name="Home.StatActivities"><value>Activities &amp; events</value></data>
+  <data name="Home.StatUsers"><value>Registered travellers</value></data>
+  <data name="Home.PromoTitle"><value>Promos you can use</value></data>
+  <data name="Home.PromoAll"><value>See all promos</value></data>
+  <data name="Home.PopularFlights"><value>Popular flights</value></data>
+  <data name="Home.AllFlights"><value>All flights</value></data>
+  <data name="Home.FavouriteHotels"><value>Traveller favourites</value></data>
+  <data name="Home.AllHotels"><value>All hotels</value></data>
+  <data name="Home.BolangTitle"><value>Not sure where to go?</value></data>
+  <data name="Home.BolangBody"><value>Mas Bolang helps you find tickets, compare hotels, and plan the trip.</value></data>
+  <data name="Home.BolangCta"><value>Ask Mas Bolang</value></data>
+  <data name="Home.CheckIn"><value>Check-in</value></data>
+  <data name="Home.CityOrDestination"><value>City or destination</value></data>
+  <data name="Home.PickStation"><value>Pick a station</value></data>
+  <data name="Home.ValidUntil"><value>Valid until</value></data>
+
+  <!-- Flights -->
+  <data name="Flights.Eyebrow"><value>Flights</value></data>
+  <data name="Flights.Title"><value>Find a flight</value></data>
+  <data name="Flights.Lede"><value>Compare fares and schedules across airlines.</value></data>
+  <data name="Flights.Found"><value>flights found</value></data>
+  <data name="Flights.EmptyTitle"><value>No flights match this search</value></data>
+  <data name="Flights.EmptyBody"><value>Try another date, raise the price cap, or drop the non-stop filter.</value></data>
+  <data name="Flights.NonStop"><value>Non-stop</value></data>
+  <data name="Flights.Baggage"><value>Baggage</value></data>
+  <data name="Flights.MealIncluded"><value>Meal included</value></data>
+  <data name="Flights.Refundable"><value>Refundable</value></data>
+  <data name="Flights.SeatsLeft"><value>seats left</value></data>
+  <data name="Flights.ConfirmTitle"><value>Confirm your booking</value></data>
+  <data name="Flights.Airline"><value>Airline</value></data>
+  <data name="Flights.Route"><value>Route</value></data>
+  <data name="Flights.Departs"><value>Departs</value></data>
+  <data name="Flights.PricePerPerson"><value>Price per person</value></data>
+
+  <!-- Buses -->
+  <data name="Buses.Eyebrow"><value>Bus &amp; Shuttle</value></data>
+  <data name="Buses.Title"><value>Find an intercity bus</value></data>
+  <data name="Buses.Lede"><value>Intercity coaches and door-to-door shuttles, with live schedules and seat counts.</value></data>
+  <data name="Buses.Kind"><value>Type</value></data>
+  <data name="Buses.All"><value>All</value></data>
+  <data name="Buses.Found"><value>departures found</value></data>
+  <data name="Buses.EmptyTitle"><value>No departures on this route</value></data>
+  <data name="Buses.EmptyBody"><value>Try another date, pick a different city, or show every fleet type.</value></data>
+  <data name="Buses.ArrivesTomorrow"><value>Arrives tomorrow</value></data>
+  <data name="Buses.PickupAddress"><value>Pickup address</value></data>
+  <data name="Buses.Fleet"><value>Fleet</value></data>
+
+  <!-- Hotels -->
+  <data name="Hotels.Eyebrow"><value>Hotels &amp; Stays</value></data>
+  <data name="Hotels.Title"><value>Find a place to stay</value></data>
+  <data name="Hotels.Lede"><value>Hotels, villas, resorts and apartments with real traveller reviews.</value></data>
+  <data name="Hotels.MinStars"><value>Minimum stars</value></data>
+  <data name="Hotels.Type"><value>Type</value></data>
+  <data name="Hotels.Found"><value>places found</value></data>
+  <data name="Hotels.ViewRooms"><value>View rooms</value></data>
+  <data name="Hotels.RoomOptions"><value>Room options</value></data>
+  <data name="Hotels.Guests"><value>guests</value></data>
+  <data name="Hotels.BreakfastIncluded"><value>breakfast included</value></data>
+  <data name="Hotels.RoomsLeft"><value>{0} rooms left</value></data>
+  <data name="Hotels.Full"><value>Sold out</value></data>
+  <data name="Hotels.Reviews"><value>reviews</value></data>
+  <data name="Hotels.EmptyTitle"><value>No stays match these filters</value></data>
+  <data name="Hotels.EmptyBody"><value>Try another city or lower the star requirement.</value></data>
+
+  <!-- Seat map -->
+  <data name="Seat.Pick"><value>Pick your seats</value></data>
+  <data name="Seat.Available"><value>Available</value></data>
+  <data name="Seat.Yours"><value>Your pick</value></data>
+  <data name="Seat.Taken"><value>Taken</value></data>
+  <data name="Seat.Front"><value>Front / Driver</value></data>
+  <data name="Seat.Direction"><value>Direction of travel</value></data>
+
+  <!-- Auth -->
+  <data name="Auth.SignInTitle"><value>Sign in to Joka</value></data>
+  <data name="Auth.SignInSubtitle"><value>Pick up where you left off.</value></data>
+  <data name="Auth.Email"><value>Email</value></data>
+  <data name="Auth.Password"><value>Password</value></data>
+  <data name="Auth.Forgot"><value>Forgot your password?</value></data>
+  <data name="Auth.Or"><value>or</value></data>
+  <data name="Auth.WithGoogle"><value>Sign in with Google</value></data>
+  <data name="Auth.NoAccount"><value>No account yet?</value></data>
+  <data name="Auth.Register"><value>Create one</value></data>
+  <data name="Auth.DemoAccounts"><value>Demo accounts</value></data>
+
+  <!-- Empty / error states -->
+  <data name="State.AccessDenied"><value>Access denied</value></data>
+  <data name="State.AccessDeniedBody"><value>Your account cannot open that page. If that looks wrong, ask an admin to check your role.</value></data>
+  <data name="State.BackHome"><value>Back to home</value></data>
+  <data name="State.NotFound"><value>Page not found</value></data>
+  <data name="State.NotFoundBody"><value>Looks like you took a wrong turn. Let us get you home.</value></data>
+  <data name="State.NeedSignIn"><value>You need to sign in first</value></data>
+  <data name="State.NeedSignInBody"><value>This page is only for signed-in users.</value></data>
+  <!-- Trains -->
+  <data name="Trains.Eyebrow"><value>Trains</value></data>
+  <data name="Trains.Title"><value>Find a train</value></data>
+  <data name="Trains.Lede"><value>Compare classes and schedules, and pick your own seat.</value></data>
+  <data name="Trains.Found"><value>departures found</value></data>
+  <data name="Trains.EmptyTitle"><value>No departures on this route</value></data>
+  <data name="Trains.EmptyBody"><value>Try another station or clear the route filter.</value></data>
+  <data name="Trains.Wifi"><value>WiFi</value></data>
+  <data name="Trains.Meal"><value>Meal</value></data>
+  <data name="Trains.Entertainment"><value>Entertainment</value></data>
+  <data name="Trains.SeatsAvailable"><value>seats available</value></data>
+  <data name="Trains.AllStations"><value>All stations</value></data>
+
+  <!-- Activities -->
+  <data name="Activities.Eyebrow"><value>Activities &amp; Events</value></data>
+  <data name="Activities.Title"><value>Find something to do</value></data>
+  <data name="Activities.Lede"><value>Concerts, attractions, tours and workshops across Indonesia.</value></data>
+  <data name="Activities.All"><value>All</value></data>
+  <data name="Activities.Attraction"><value>Attractions</value></data>
+  <data name="Activities.Concert"><value>Concerts</value></data>
+  <data name="Activities.Tour"><value>Tours</value></data>
+  <data name="Activities.Workshop"><value>Workshops</value></data>
+  <data name="Activities.Sports"><value>Sports</value></data>
+  <data name="Activities.Sold"><value>sold</value></data>
+  <data name="Activities.Duration"><value>minutes</value></data>
+  <data name="Activities.PerTicket"><value>per ticket</value></data>
+  <data name="Activities.Buy"><value>Buy tickets</value></data>
+  <data name="Activities.EmptyTitle"><value>Nothing in this category</value></data>
+  <data name="Activities.EmptyBody"><value>Try another category, or browse everything.</value></data>
+
+  <!-- Cars -->
+  <data name="Cars.Eyebrow"><value>Car Rental</value></data>
+  <data name="Cars.Title"><value>Rent a car for your trip</value></data>
+  <data name="Cars.Lede"><value>Self-drive or with a driver, for as long as you need.</value></data>
+  <data name="Cars.Seats"><value>seats</value></data>
+  <data name="Cars.UnitsAvailable"><value>units available</value></data>
+  <data name="Cars.WithDriver"><value>Driver included</value></data>
+  <data name="Cars.SelfDrive"><value>Self-drive</value></data>
+  <data name="Cars.PerDay"><value>per day</value></data>
+  <data name="Cars.Rent"><value>Rent</value></data>
+  <data name="Cars.EmptyTitle"><value>No vehicles available yet</value></data>
+
+  <!-- Packages -->
+  <data name="Packages.Eyebrow"><value>Travel Packages</value></data>
+  <data name="Packages.Title"><value>One package, just go</value></data>
+  <data name="Packages.Lede"><value>Flights, hotels and activities bundled into a single price.</value></data>
+  <data name="Packages.Days"><value>days</value></data>
+  <data name="Packages.Booked"><value>already booked</value></data>
+  <data name="Packages.EmptyTitle"><value>No packages available yet</value></data>
+
+  <!-- Insurance -->
+  <data name="Insurance.Eyebrow"><value>Travel Insurance</value></data>
+  <data name="Insurance.Title"><value>Protect your trip</value></data>
+  <data name="Insurance.Lede"><value>Cover for delays, cancellations and medical costs.</value></data>
+  <data name="Insurance.Coverage"><value>Coverage</value></data>
+  <data name="Insurance.Benefits"><value>Benefits</value></data>
+  <data name="Insurance.Provider"><value>Provider</value></data>
+  <data name="Insurance.AddAtCheckout"><value>Choose this plan at checkout.</value></data>
+  <data name="Insurance.EmptyTitle"><value>No active insurance plans</value></data>
+
+  <!-- Promos -->
+  <data name="Promos.Eyebrow"><value>Promos &amp; Vouchers</value></data>
+  <data name="Promos.Title"><value>Save a little more</value></data>
+  <data name="Promos.Lede"><value>Enter a voucher code at checkout before you pay.</value></data>
+  <data name="Promos.MinTransaction"><value>Min. spend</value></data>
+  <data name="Promos.MaxDiscount"><value>Max. discount</value></data>
+  <data name="Promos.QuotaLeft"><value>left</value></data>
+  <data name="Promos.EmptyTitle"><value>No active promos right now</value></data>
+  <data name="Promos.EmptyBody"><value>Check back later — new promos land regularly.</value></data>
+
+  <!-- Wishlist -->
+  <data name="Wishlist.Title"><value>Wishlist</value></data>
+  <data name="Wishlist.Lede"><value>Things you saved but have not booked yet.</value></data>
+  <data name="Wishlist.Remove"><value>Remove</value></data>
+  <data name="Wishlist.EmptyTitle"><value>Your wishlist is empty</value></data>
+  <data name="Wishlist.EmptyBody"><value>Tap the heart on any hotel, activity, car or package to save it here.</value></data>
+  <data name="Wishlist.SavedOn"><value>Saved</value></data>
+  <!-- My Bookings -->
+  <data name="Bookings.Title"><value>My Bookings</value></data>
+  <data name="Bookings.Lede"><value>Every order you have made, from tickets to hotels.</value></data>
+  <data name="Bookings.All"><value>All</value></data>
+  <data name="Bookings.Upcoming"><value>Upcoming</value></data>
+  <data name="Bookings.Past"><value>Past</value></data>
+  <data name="Bookings.EmptyTitle"><value>No bookings yet</value></data>
+  <data name="Bookings.EmptyBody"><value>Anything you book will show up here with its e-ticket.</value></data>
+  <data name="Bookings.BookedOn"><value>Booked</value></data>
+  <data name="Bookings.Pax"><value>passengers</value></data>
+  <data name="Bookings.Nights"><value>nights</value></data>
+  <data name="Bookings.Seats"><value>Seats</value></data>
+
+  <!-- Notifications -->
+  <data name="Notif.Title"><value>Notifications</value></data>
+  <data name="Notif.Lede"><value>Booking updates, promos and travel reminders.</value></data>
+  <data name="Notif.MarkAllRead"><value>Mark all as read</value></data>
+  <data name="Notif.MarkRead"><value>Mark as read</value></data>
+  <data name="Notif.Unread"><value>unread</value></data>
+  <data name="Notif.EmptyTitle"><value>Nothing here yet</value></data>
+  <data name="Notif.EmptyBody"><value>We will let you know when a booking changes or a new promo lands.</value></data>
+
+  <!-- Profile -->
+  <data name="Profile.Title"><value>My profile</value></data>
+  <data name="Profile.Lede"><value>Manage your account details and travel preferences.</value></data>
+  <data name="Profile.FullName"><value>Full name</value></data>
+  <data name="Profile.Phone"><value>Phone number</value></data>
+  <data name="Profile.Member"><value>Member since</value></data>
+  <data name="Profile.Tier"><value>Membership tier</value></data>
+  <data name="Profile.Points"><value>Loyalty points</value></data>
+  <data name="Profile.Saved"><value>Profile updated.</value></data>
+  <data name="Profile.SignOut"><value>Sign out</value></data>
+  <data name="Profile.ViewPoints"><value>View My Points</value></data>
+  <data name="Profile.ChangePhoto"><value>Change photo</value></data>
+  <data name="Profile.RemovePhoto"><value>Remove photo</value></data>
+  <data name="Profile.PhotoUploading"><value>Uploading…</value></data>
+  <data name="Profile.PhotoSaved"><value>Profile photo updated.</value></data>
+  <data name="Profile.PhotoRemoved"><value>Profile photo removed.</value></data>
+  <data name="Profile.PhotoHint"><value>JPG, PNG, or WebP. 2 MB maximum.</value></data>
+  <data name="Profile.PhotoTooBig"><value>That photo is larger than 2 MB.</value></data>
+  <data name="Profile.PhotoWrongType"><value>Unsupported format. Use JPG, PNG, or WebP.</value></data>
+  <data name="Profile.PhotoFailed"><value>Upload failed. Please try again.</value></data>
+
+  <!-- Support -->
+  <data name="Support.Eyebrow"><value>Support</value></data>
+  <data name="Support.Title"><value>We are here to help</value></data>
+  <data name="Support.Lede"><value>Pick whichever channel suits you.</value></data>
+  <data name="Support.ChatTitle"><value>Chat with Mas Bolang</value></data>
+  <data name="Support.ChatBody"><value>Our AI assistant can look up bookings and schedules straight from the system.</value></data>
+  <data name="Support.ChatCta"><value>Open chat</value></data>
+  <data name="Support.PhoneTitle"><value>Phone</value></data>
+  <data name="Support.PhoneBody"><value>Mon–Sun, 08:00–22:00 WIB</value></data>
+  <data name="Support.EmailTitle"><value>Email</value></data>
+  <data name="Support.EmailBody"><value>Answered within 24 hours</value></data>
+  <data name="Support.Faq"><value>Frequently asked</value></data>
+
+  <!-- Register / reset -->
+  <data name="Register.Title"><value>Create a Joka account</value></data>
+  <data name="Register.Subtitle"><value>Free, and you can book straight away.</value></data>
+  <data name="Register.Username"><value>Username</value></data>
+  <data name="Register.Submit"><value>Create account</value></data>
+  <data name="Register.HaveAccount"><value>Already have an account?</value></data>
+  <data name="Reset.Title"><value>Reset your password</value></data>
+  <data name="Reset.Subtitle"><value>Enter your email and we will send you a link.</value></data>
+  <data name="Reset.Request"><value>Send reset link</value></data>
+  <data name="Reset.NewPassword"><value>New password</value></data>
+  <data name="Reset.Submit"><value>Save new password</value></data>
+  <data name="Reset.BackToLogin"><value>Back to sign in</value></data>
+
+  <!-- Chat -->
+  <data name="Chat.Greeting"><value>Hi! I am Mas Bolang</value></data>
+  <data name="Chat.Intro"><value>I can find flights, trains, buses, hotels, cars and activities — all straight from Joka's own data.</value></data>
+  <data name="Chat.NewChat"><value>New chat</value></data>
+  <data name="Chat.Reset"><value>Reset session</value></data>
+  <data name="Chat.Placeholder"><value>Message Mas Bolang…</value></data>
+  <data name="Chat.Send"><value>Send</value></data>
+  <data name="Chat.Online"><value>Online</value></data>
+  <data name="Chat.Model"><value>Model</value></data>
+  <data name="Chat.Messages"><value>messages</value></data>
+  <data name="Chat.Assistant"><value>Joka virtual assistant</value></data>
+  <data name="Chat.Temperature"><value>Temperature</value></data>
+  <data name="Chat.Untitled"><value>New chat</value></data>
+  <data name="Chat.GroupSearch"><value>Search &amp; book</value></data>
+  <data name="Chat.GroupPrice"><value>Prices &amp; promos</value></data>
+  <data name="Chat.GroupMine"><value>My orders</value></data>
+  <data name="Chat.GroupOutside"><value>Beyond Joka</value></data>
+
+  <!-- Hotel reviews -->
+  <data name="Reviews.Title"><value>Guest reviews</value></data>
+  <data name="Reviews.None"><value>No published reviews for this property yet.</value></data>
+  <data name="Reviews.Stayed"><value>stayed</value></data>
+  <data name="Reviews.Verified"><value>Verified stay</value></data>
+  <data name="Reviews.WriteTitle"><value>Write your review</value></data>
+  <data name="Reviews.Rating"><value>Rating</value></data>
+  <data name="Reviews.Headline"><value>Short headline</value></data>
+  <data name="Reviews.Comment"><value>Tell us about your stay</value></data>
+  <data name="Reviews.Pros"><value>What you liked</value></data>
+  <data name="Reviews.Cons"><value>What fell short</value></data>
+  <data name="Reviews.Submit"><value>Submit review</value></data>
+  <data name="Reviews.ModerationNote"><value>Reviews are checked by a moderator before they go live, usually within 24 hours.</value></data>
+  <data name="Reviews.LoginToWrite"><value>to write a review.</value></data>
+
+  <!-- Live agent -->
+  <data name="Support.AgentTitle"><value>Chat with an agent</value></data>
+  <data name="Support.AgentBody"><value>Need a human? Our agents answer right here.</value></data>
+  <data name="Support.AgentCta"><value>Start a conversation</value></data>
+  <data name="Support.AgentIntro"><value>Tell us what went wrong and an agent will reply on this page. You will also get a notification when they do.</value></data>
+  <data name="Support.Subject"><value>Topic</value></data>
+  <data name="Support.Category"><value>Category</value></data>
+  <data name="Support.CatGeneral"><value>General</value></data>
+  <data name="Support.CatBooking"><value>Booking</value></data>
+  <data name="Support.CatPayment"><value>Payment</value></data>
+  <data name="Support.CatRefund"><value>Refund</value></data>
+  <data name="Support.CatTechnical"><value>Technical</value></data>
+  <data name="Support.BookingCode"><value>Booking code (optional)</value></data>
+  <data name="Support.Message"><value>Message</value></data>
+  <data name="Support.OpenTicket"><value>Send to an agent</value></data>
+  <data name="Support.WaitingAgent"><value>Waiting for an agent to pick this up…</value></data>
+  <data name="Support.ReplyPlaceholder"><value>Write a reply…</value></data>
+  <data name="Support.History"><value>Ticket history</value></data>
+  <data name="Support.LoginToChat"><value>to chat with an agent.</value></data>
+
+  <!-- Local transport -->
+  <data name="Transport.Eyebrow"><value>Local transport</value></data>
+  <data name="Transport.Title"><value>Rides &amp; airport transfers</value></data>
+  <data name="Transport.Lede"><value>Book a bike, a car, or an airport pickup to round out your trip.</value></data>
+  <data name="Transport.RideHailing"><value>Bikes &amp; cars</value></data>
+  <data name="Transport.AirportTransfer"><value>Airport transfer</value></data>
+  <data name="Transport.Distance"><value>Distance (km)</value></data>
+  <data name="Transport.DistanceHint"><value>Fares come from the distance: base fare plus a per-kilometre rate, with a minimum.</value></data>
+  <data name="Transport.Vehicle"><value>Vehicle</value></data>
+  <data name="Transport.AnyVehicle"><value>Any vehicle</value></data>
+  <data name="Transport.Motorcycle"><value>Motorbike</value></data>
+  <data name="Transport.Car"><value>Car</value></data>
+  <data name="Transport.Airport"><value>Airport</value></data>
+  <data name="Transport.AnyAirport"><value>Any airport</value></data>
+  <data name="Transport.Minutes"><value>min</value></data>
+  <data name="Transport.FlatRate"><value>flat route price</value></data>
+  <data name="Transport.For"><value>for</value></data>
+  <data name="Transport.Pickup"><value>Pickup address</value></data>
+  <data name="Transport.Dropoff"><value>Drop-off address</value></data>
+  <data name="Transport.PickupTime"><value>Pickup time</value></data>
+  <data name="Transport.FlightNumber"><value>Flight number</value></data>
+  <data name="Transport.FlightHint"><value>The driver tracks this flight, so pickup shifts if you land late.</value></data>
+  <data name="Transport.Notes"><value>Note for the driver</value></data>
+  <data name="Transport.NoResultsBody"><value>Try a different city, vehicle type, or airport.</value></data>
+  <data name="Nav.Transport"><value>Local transport</value></data>
+</root>

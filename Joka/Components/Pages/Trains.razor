@@ -1,0 +1,286 @@
+@page "/trains"
+@using Joka.Services.Trains
+@inject AppDbContext DbContext
+@inject TrainScheduleService Schedules
+@inject IStringLocalizer<SharedResource> L
+@inject NavigationManager Navigation
+
+<div class="fade-in">
+    <div class="card" style="margin-bottom: 24px;">
+        <h1 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 16px;">🚂 Tiket Kereta Api</h1>
+        <p style="color: var(--text-secondary); margin-bottom: 16px;">
+            @(Schedules.KaiEnabled
+                ? "Jadwal diambil langsung dari KAI, dengan jadwal Joka sebagai cadangan."
+                : "Jadwal dari inventori Joka. Sambungkan API KAI di appsettings untuk jadwal langsung.")
+        </p>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+            <div style="flex: 1; min-width: 130px;">
+                <label style="font-weight: 600; font-size: 0.85rem;">Dari</label>
+                <select @bind="_fromCode" style="width:100%;padding:10px;border:2px solid var(--border-strong);border-radius:var(--radius-md);">
+                    <option value="">Semua</option>
+                    @foreach (var s in _stations) { <option value="@s.Code">@s.City (@s.Code)</option> }
+                </select>
+            </div>
+            <div style="flex: 1; min-width: 130px;">
+                <label style="font-weight: 600; font-size: 0.85rem;">Ke</label>
+                <select @bind="_toCode" style="width:100%;padding:10px;border:2px solid var(--border-strong);border-radius:var(--radius-md);">
+                    <option value="">Semua</option>
+                    @foreach (var s in _stations) { <option value="@s.Code">@s.City (@s.Code)</option> }
+                </select>
+            </div>
+            <button class="btn btn-primary" @onclick="Search">🔍 Cari</button>
+        </div>
+    </div>
+
+    @if (_departures.Any())
+    {
+        @if (_usedFallback)
+        {
+            @* Say it out loud rather than quietly showing stale data. *@
+            <p style="font-size: var(--t-sm); color: var(--text-muted); margin-bottom: var(--s-3);">
+                KAI tidak mengembalikan jadwal untuk rute ini, jadi yang tampil adalah jadwal Joka.
+            </p>
+        }
+
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+            @foreach (var departure in _departures)
+            {
+                <div class="travel-card" style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
+                    <div style="min-width: 120px; text-align: center;">
+                        <div>🚂</div>
+                        <div style="font-weight: 700;">@departure.TrainName</div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted);">@departure.TrainNumber</div>
+                        <span class="badge badge-info">@departure.Class</span>
+                    </div>
+
+                    <div style="flex: 1; display: flex; align-items: center; gap: 16px; min-width: 250px;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 1.3rem; font-weight: 700;">@departure.DepartureTime.ToString("HH:mm")</div>
+                            <div style="font-weight: 600;">@departure.DepartureStationCode</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">@departure.DepartureStationName</div>
+                        </div>
+                        <div style="flex: 1; text-align: center;">
+                            <div style="font-size: 0.8rem; color: var(--text-muted);">@departure.DurationMinutes mnt</div>
+                            <div style="border-top: 2px solid var(--border-color); margin: 4px 0;"></div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 1.3rem; font-weight: 700;">@departure.ArrivalTime.ToString("HH:mm")</div>
+                            <div style="font-weight: 600;">@departure.ArrivalStationCode</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">@departure.ArrivalStationName</div>
+                        </div>
+                    </div>
+
+                    <div style="text-align: right; min-width: 150px;">
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">Mulai dari</div>
+                        <div style="font-size: 1.3rem; font-weight: 800; color: var(--accent-primary);"><Money Amount="@departure.Price" /></div>
+                        <div style="font-size: 0.8rem;">@departure.AvailableSeats kursi tersedia</div>
+
+                        @if (departure.IsBookable)
+                        {
+                            <button class="btn btn-primary btn-sm" style="margin-top: 8px;"
+                                    @onclick="() => OpenBooking(departure)">Pilih kursi</button>
+                        }
+                        else
+                        {
+                            @* Jadwal dari KAI belum bisa dipesan lewat Joka -
+                               tidak ada baris inventori yang bisa dikunci. *@
+                            <span class="tag" style="margin-top: 8px; display:inline-block;">Info @departure.Source</span>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="card" style="text-align: center; padding: 48px;">
+            <div style="font-size: 3rem;">🚂</div>
+            <h3>Tidak ada jadwal kereta ditemukan</h3>
+            <p style="color: var(--text-secondary);">Coba ubah rute atau tanggal pencarian.</p>
+        </div>
+    }
+</div>
+
+@if (_showBooking && _selected is not null)
+{
+    <div class="modal-scrim" @onclick="() => _showBooking = false">
+        <div class="modal modal-wide" @onclick:stopPropagation="true" role="dialog" aria-modal="true">
+            <h2 style="margin-bottom: var(--s-2);">@_selected.Train?.Name</h2>
+            <p style="color:var(--text-secondary);font-size:var(--t-sm);margin-bottom:var(--s-4);">
+                @_selected.DepartureStation?.Code → @_selected.ArrivalStation?.Code ·
+                @_selected.DepartureTime.ToString("ddd, dd MMM yyyy HH:mm") ·
+                @_selected.Train?.Class
+            </p>
+
+            <div class="field">
+                <label for="pax">@L["Label.Passengers"]</label>
+                <input id="pax" type="number" min="1" max="@Math.Min(6, _selected.AvailableSeats)" @bind="_passengerCount" />
+            </div>
+
+            <div style="margin-top: var(--s-4);">
+                <label>@L["Seat.Pick"]</label>
+                @* Executive coaches are 2-2; economy is 2-3. *@
+                <SeatMap Layout="@(_selected.Train?.Class == "Ekonomi" ? "2-3" : "2-2")"
+                         TotalSeats="@Math.Min(_selected.Train?.TotalSeats ?? 40, 60)"
+                         PassengerCount="_passengerCount"
+                         Occupied="_occupiedSeats"
+                         FrontLabel="@L["Seat.Direction"]"
+                         SelectedChanged="seats => _selectedSeats = seats" />
+            </div>
+
+            <div class="summary-row total" style="margin-top:var(--s-4);">
+                <span>@L["Label.Total"]</span>
+                <strong><Money Amount="@(_selected.BasePrice * _passengerCount)" /></strong>
+            </div>
+
+            @if (_error is not null)
+            {
+                <p class="note-bad">@_error</p>
+            }
+
+            <div style="display:flex;gap:var(--s-2);justify-content:flex-end;margin-top:var(--s-5);">
+                <button class="btn btn-ghost" @onclick="() => _showBooking = false">@L["Action.Cancel"]</button>
+                <button class="btn btn-primary" @onclick="ConfirmBooking" disabled="@_booking">
+                    @(_booking ? L["Action.Processing"] : L["Action.BookNow"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_bookingSuccess)
+{
+    <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+        <div class="card" style="max-width: 400px; width: 90%; text-align: center;">
+            <div style="font-size: 4rem;">🎫</div>
+            <h2>Tiket Kereta Berhasil!</h2>
+            <p>Kode booking: <strong>@_bookingCode</strong></p>
+            <button class="btn btn-primary" @onclick='() => _bookingSuccess = false'>OK</button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<TrainStation> _stations = new();
+    private List<TrainDeparture> _departures = new();
+    private bool _usedFallback;
+    private string? _fromCode, _toCode;
+    private bool _bookingSuccess, _showBooking, _booking;
+    private string _bookingCode = "";
+    private string? _error;
+    private TrainSchedule? _selected;
+    private int _passengerCount = 1;
+    private List<string> _selectedSeats = new();
+    private List<string> _occupiedSeats = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stations = await DbContext.TrainStations.ToListAsync();
+        await Search();
+    }
+
+    private async Task Search()
+    {
+        // Goes through the provider so KAI is consulted first when configured.
+        var result = await Schedules.SearchAsync(_fromCode, _toCode, null);
+        _departures = result.Departures;
+        _usedFallback = result.UsedFallback;
+    }
+
+    private async Task OpenBooking(TrainDeparture departure)
+    {
+        // Only locally-backed departures reach here, but load the tracked row
+        // anyway: seats are locked against our own inventory, not a remote list.
+        if (departure.ScheduleId is not Guid scheduleId) return;
+
+        var schedule = await DbContext.TrainSchedules
+            .Include(t => t.Train)
+            .Include(t => t.DepartureStation)
+            .Include(t => t.ArrivalStation)
+            .FirstOrDefaultAsync(t => t.Id == scheduleId);
+
+        if (schedule is null) return;
+
+        _selected = schedule;
+        _passengerCount = 1;
+        _selectedSeats = new();
+        _error = null;
+
+        _occupiedSeats = await LoadOccupiedAsync(schedule.Id);
+        _showBooking = true;
+    }
+
+    private async Task<List<string>> LoadOccupiedAsync(Guid scheduleId)
+    {
+        var taken = await DbContext.TrainBookings.AsNoTracking()
+            .Where(b => b.TrainScheduleId == scheduleId && b.SelectedSeats != null && b.Status != "Cancelled")
+            .Select(b => b.SelectedSeats!)
+            .ToListAsync();
+
+        return taken
+            .SelectMany(s => s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private async Task ConfirmBooking()
+    {
+        if (_selected is null || _booking) return;
+
+        _booking = true;
+        _error = null;
+        try
+        {
+            var schedule = await DbContext.TrainSchedules.FirstOrDefaultAsync(s => s.Id == _selected.Id);
+            if (schedule is null) { _error = "Jadwal ini sudah tidak tersedia."; return; }
+
+            if (_passengerCount < 1 || _passengerCount > schedule.AvailableSeats)
+            {
+                _error = $"Hanya tersisa {schedule.AvailableSeats} kursi.";
+                return;
+            }
+
+            if (_selectedSeats.Count != _passengerCount)
+            {
+                _error = $"Pilih tepat {_passengerCount} kursi (sekarang {_selectedSeats.Count}).";
+                return;
+            }
+
+            // Someone may have taken a seat while the modal was open.
+            var occupiedNow = await LoadOccupiedAsync(schedule.Id);
+            var clash = occupiedNow.Intersect(_selectedSeats, StringComparer.OrdinalIgnoreCase).ToList();
+
+            if (clash.Any())
+            {
+                _error = $"Kursi {string.Join(", ", clash)} baru saja diambil. Pilih kursi lain.";
+                _occupiedSeats = occupiedNow;
+                _selectedSeats.Clear();
+                return;
+            }
+
+            var booking = new TrainBooking
+            {
+                UserId = Guid.NewGuid(),
+                TrainScheduleId = schedule.Id,
+                BookingCode = $"JKA-TR-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(1000, 9999)}",
+                Status = "Confirmed",
+                PassengerCount = _passengerCount,
+                SelectedSeats = string.Join(",", _selectedSeats),
+                TotalPrice = schedule.BasePrice * _passengerCount,
+                BookingDate = DateTime.UtcNow
+            };
+
+            DbContext.TrainBookings.Add(booking);
+            schedule.AvailableSeats -= _passengerCount;
+            await DbContext.SaveChangesAsync();
+
+            _bookingCode = booking.BookingCode;
+            _showBooking = false;
+            _bookingSuccess = true;
+            await Search();
+        }
+        finally { _booking = false; }
+    }
+
+    private static string Rupiah(decimal value) => $"Rp{value:N0}";
+}

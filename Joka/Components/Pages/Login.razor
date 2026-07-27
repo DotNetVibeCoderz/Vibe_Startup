@@ -1,0 +1,172 @@
+@page "/login"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Microsoft.AspNetCore.Components.Endpoints
+
+@* Static SSR. SignInAsync writes the auth cookie onto the response, which only
+   exists during a real HTTP request - under InteractiveServer the cascading
+   HttpContext is null and every login attempt threw NullReferenceException. *@
+@attribute [ExcludeFromInteractiveRouting]
+
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+@inject IConfiguration Config
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>Masuk — Joka</PageTitle>
+
+<div class="fade-in auth-page">
+    <div class="card auth-card">
+        <div style="text-align:center; margin-bottom: var(--s-5);">
+            <div style="font-size:2.5rem;">🔐</div>
+            <h1 style="margin-top: var(--s-2);">@L["Auth.SignInTitle"]</h1>
+            <p style="color: var(--text-secondary); font-size: var(--t-sm);">@L["Auth.SignInSubtitle"]</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger" role="alert">@_error</div>
+        }
+
+        <EditForm Model="Input" OnValidSubmit="HandleLogin" FormName="login" method="post">
+            <div class="field">
+                <label for="email">@L["Auth.Email"]</label>
+                <InputText id="email" @bind-Value="Input.Email" type="email" autocomplete="username"
+                           placeholder="nama@example.com" required />
+            </div>
+
+            <div class="field" style="margin-top: var(--s-3);">
+                <label for="password">@L["Auth.Password"]</label>
+                <InputText id="password" @bind-Value="Input.Password" type="password"
+                           autocomplete="current-password" placeholder="••••••••" required />
+            </div>
+
+            <div style="text-align:right; margin: var(--s-3) 0 var(--s-4);">
+                <a href="/reset-password" style="font-size: var(--t-sm);">@L["Auth.Forgot"]</a>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg btn-block">@L["Top.SignIn"]</button>
+        </EditForm>
+
+        @if (_googleEnabled)
+        {
+            <div class="auth-divider"><span>@L["Auth.Or"]</span></div>
+
+            <form action="/login-google" method="post">
+                <AntiforgeryToken />
+                <button type="submit" class="btn btn-secondary btn-lg btn-block">
+                    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" /><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" /><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" /><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" /></svg>
+                    @L["Auth.WithGoogle"]
+                </button>
+            </form>
+        }
+
+        <p style="text-align:center; margin-top: var(--s-5); font-size: var(--t-sm);">
+            @L["Auth.NoAccount"] <a href="/register">@L["Auth.Register"]</a>
+        </p>
+
+        <details class="demo-accounts">
+            <summary>@L["Auth.DemoAccounts"]</summary>
+            <p>Password semua akun: <span class="code">Joka123!</span></p>
+            <ul>
+                <li><span class="code">demo@joka.id</span> — pelanggan</li>
+                <li><span class="code">admin@joka.id</span> — admin</li>
+                <li><span class="code">operator@joka.id</span> — operator</li>
+                <li><span class="code">merchant@joka.id</span> — merchant</li>
+            </ul>
+        </details>
+    </div>
+</div>
+
+<style>
+    .auth-page { display: flex; justify-content: center; align-items: center; min-height: 70vh; }
+    .auth-card { max-width: 440px; width: 100%; }
+
+    .alert {
+        padding: var(--s-3);
+        border-radius: var(--radius-md);
+        border: 2px solid currentColor;
+        font-size: var(--t-sm);
+        font-weight: 600;
+        margin-bottom: var(--s-4);
+    }
+    .alert-danger { color: var(--accent-danger); }
+
+    .auth-divider {
+        display: flex; align-items: center; gap: var(--s-3);
+        margin: var(--s-4) 0; color: var(--text-muted); font-size: var(--t-sm);
+    }
+    .auth-divider::before, .auth-divider::after {
+        content: ''; flex: 1; height: 2px; background: var(--border-color);
+    }
+
+    .demo-accounts {
+        margin-top: var(--s-5); padding-top: var(--s-4);
+        border-top: 2px dashed var(--border-color);
+        font-size: var(--t-sm); color: var(--text-secondary);
+    }
+    .demo-accounts summary { cursor: pointer; font-weight: 700; color: var(--text-primary); }
+    .demo-accounts ul { margin: var(--s-2) 0 0 1.1rem; }
+    .demo-accounts li { margin-bottom: 2px; }
+</style>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    // Static SSR posts the form back, so the model has to come from the form data.
+    [SupplyParameterFromForm] private LoginRequest Input { get; set; } = new();
+
+    [SupplyParameterFromQuery(Name = "error")] private string? QueryError { get; set; }
+    [SupplyParameterFromQuery(Name = "ReturnUrl")] private string? ReturnUrl { get; set; }
+
+    private string? _error;
+
+    private bool _googleEnabled =>
+        !string.IsNullOrWhiteSpace(Config["AppSettings:Auth:GoogleClientId"])
+        && !string.IsNullOrWhiteSpace(Config["AppSettings:Auth:GoogleClientSecret"]);
+
+    protected override void OnParametersSet()
+    {
+        // Form binding hands back null when the POST carries no matching fields;
+        // EditForm throws outright if Model is null, so never let that happen.
+        Input ??= new LoginRequest();
+        _error ??= QueryError;
+    }
+
+    private async Task HandleLogin()
+    {
+        var (success, message, user) = await AuthService.LoginAsync(Input);
+
+        if (!success || user is null)
+        {
+            _error = message;
+            return;
+        }
+
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Name, user.Username),
+            new(ClaimTypes.Email, user.Email),
+            new(ClaimTypes.GivenName, user.FullName ?? user.Username),
+            new("AvatarUrl", user.AvatarUrl ?? ""),
+            new("MembershipTier", user.MembershipTier),
+            new(ClaimTypes.Role, user.Role)
+        };
+
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+
+        await HttpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            new ClaimsPrincipal(identity),
+            new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddDays(7) });
+
+        // Only follow local return URLs - an open redirect here would be a real hole.
+        var destination = !string.IsNullOrEmpty(ReturnUrl) && ReturnUrl.StartsWith('/')
+            ? ReturnUrl
+            : "/";
+
+        Navigation.NavigateTo(destination);
+    }
+}

@@ -1,0 +1,1049 @@
+@page "/admin"
+@using Joka.Models.Backoffice
+@attribute [Authorize(Policy = "AdminOnly")]
+@inject AppDbContext DbContext
+@inject HealthProbeService HealthProbe
+@inject AnalyticsService Analytics
+@inject ReviewService Reviews
+
+<PageTitle>Admin Console — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="console-head">
+        <div class="page-head" style="margin:0;">
+            <p class="eyebrow">Admin Console</p>
+            <h1>Kontrol sistem</h1>
+        </div>
+        <span class="role-chip">Admin</span>
+    </div>
+
+    <div class="tabs">
+        @foreach (var t in _tabs)
+        {
+            <div class="tab-item @(_tab == t.Key ? "active" : "")" role="button" tabindex="0"
+                 @onclick="() => _tab = t.Key">@t.Label</div>
+        }
+    </div>
+
+    @if (_loading)
+    {
+        <div class="skeleton" style="height:280px;"></div>
+    }
+    else
+    {
+        @switch (_tab)
+        {
+            case "overview":
+                <div class="kpi-row">
+                    <div class="stat-card"><div class="stat-value">@_txCount</div><div class="stat-label">Transaksi tercatat</div></div>
+                    <div class="stat-card"><div class="stat-value">@Rupiah(_txVolume)</div><div class="stat-label">Volume transaksi</div></div>
+                    <div class="stat-card"><div class="stat-value">@_users.Count</div><div class="stat-label">Total pengguna</div></div>
+                    <div class="stat-card"><div class="stat-value">@_merchants.Count</div><div class="stat-label">Partner terdaftar</div></div>
+                    <div class="stat-card"><div class="stat-value">@_openFraud</div><div class="stat-label">Alert fraud terbuka</div></div>
+                    <div class="stat-card"><div class="stat-value">@_pendingApprovals</div><div class="stat-label">Approval menunggu</div></div>
+                </div>
+
+                <div class="section-title">Analitik</div>
+                <div class="chart-grid">
+                    <Chart Type="line" Data="@_revenueTrend" Format="currency"
+                           Title="Volume pembayaran" Subtitle="14 hari terakhir, transaksi berstatus Completed"
+                           Badge="@Rupiah(_revenueTrend.Sum(p => p.Value))" Height="240"
+                           EmptyText="Belum ada pembayaran yang selesai" />
+
+                    <Chart Type="donut" Data="@_byMethod" Format="number"
+                           Title="Metode pembayaran" Subtitle="Jumlah transaksi per metode"
+                           TotalLabel="transaksi" Height="240"
+                           EmptyText="Belum ada transaksi" />
+
+                    <Chart Type="hbar" Data="@_byProduct" Format="number"
+                           Title="Booking per lini produk" Subtitle="Seluruh tabel booking"
+                           Height="240" EmptyText="Belum ada booking" />
+
+                    <Chart Type="bar" Data="@_userGrowth" Format="number"
+                           Title="Pengguna baru" Subtitle="6 bulan terakhir"
+                           Height="240" EmptyText="Belum ada pendaftaran" />
+                </div>
+
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--s-3);flex-wrap:wrap;">
+                    <div class="section-title" style="margin:0;">Kesehatan sistem</div>
+                    <button class="btn btn-sm btn-ghost" @onclick="RefreshHealth" disabled="@_probing">
+                        @(_probing ? "Memeriksa…" : "Periksa ulang")
+                    </button>
+                </div>
+                <div class="table-scroll" style="margin-top:var(--s-3);">
+                    <table class="data-table">
+                        <thead><tr><th>Komponen</th><th>Status</th><th class="num">Respons</th><th class="num">Uptime</th><th class="num">Error 24j</th><th>Catatan</th></tr></thead>
+                        <tbody>
+                            @foreach (var h in _health)
+                            {
+                                <tr>
+                                    <td><strong>@h.Component</strong></td>
+                                    <td><StatusPill Status="@h.Status" /></td>
+                                    <td class="num">@h.ResponseTimeMs ms</td>
+                                    <td class="num">@h.UptimePercent.ToString("0.##")%</td>
+                                    <td class="num">@h.ErrorCount24h</td>
+                                    <td style="color:var(--text-muted);">@h.Message</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+
+            case "users":
+                <p class="hint">Ubah role atau blokir akun. Perubahan langsung tercatat di Audit Log.</p>
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Pengguna</th><th>Email</th><th>Role</th><th>Status</th><th>Tier</th><th>Aksi</th></tr></thead>
+                        <tbody>
+                            @foreach (var u in _users)
+                            {
+                                <tr>
+                                    <td><strong>@u.FullName</strong><div style="color:var(--text-muted);font-size:var(--t-xs);">@@@u.Username</div></td>
+                                    <td class="code" style="font-size:var(--t-xs);">@u.Email</td>
+                                    <td>
+                                        <select value="@u.Role" @onchange="e => ChangeRole(u, e.Value?.ToString())" style="width:auto;padding:4px 8px;font-size:var(--t-xs);">
+                                            @foreach (var r in Roles.All) { <option value="@r">@r</option> }
+                                        </select>
+                                    </td>
+                                    <td><StatusPill Status="@(u.IsBlocked ? "Blocked" : "Active")" /></td>
+                                    <td>@u.MembershipTier</td>
+                                    <td>
+                                        <button class="btn btn-sm @(u.IsBlocked ? "btn-secondary" : "btn-ghost")"
+                                                @onclick="() => ToggleBlock(u)">
+                                            @(u.IsBlocked ? "Buka blokir" : "Blokir")
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+
+            case "transactions":
+                <p class="hint">Monitoring transaksi pembayaran yang tercatat di sistem.</p>
+                @if (_transactions.Any())
+                {
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>Kode</th><th>Metode</th><th>Status</th><th class="num">Jumlah</th><th>Waktu</th></tr></thead>
+                            <tbody>
+                                @foreach (var t in _transactions)
+                                {
+                                    <tr>
+                                        <td class="code" style="font-size:var(--t-xs);">@t.TransactionCode</td>
+                                        <td>@t.PaymentMethod</td>
+                                        <td><StatusPill Status="@t.Status" /></td>
+                                        <td class="num">@Rupiah(t.Amount)</td>
+                                        <td style="color:var(--text-muted);">@t.CreatedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty">
+                        <h3>Belum ada transaksi pembayaran</h3>
+                        <p>Halaman checkout belum menyimpan PaymentTransaction, jadi tabel ini masih kosong. Lihat Progress.md butir P5-1.</p>
+                    </div>
+                }
+                break;
+
+            case "settlement":
+                <p class="hint">Cocokkan nilai internal dengan rekening koran partner. Selisih ditandai otomatis.</p>
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Referensi</th><th>Partner</th><th>Periode</th><th class="num">Transaksi</th><th class="num">Bruto</th><th class="num">Komisi</th><th class="num">Netto</th><th class="num">Selisih</th><th>Status</th><th>Aksi</th></tr></thead>
+                        <tbody>
+                            @foreach (var s in _settlements)
+                            {
+                                <tr>
+                                    <td class="code" style="font-size:var(--t-xs);">@s.ReferenceNo</td>
+                                    <td>@s.Merchant?.Name</td>
+                                    <td style="white-space:nowrap;color:var(--text-muted);">@s.PeriodStart.ToString("dd MMM") – @s.PeriodEnd.ToString("dd MMM")</td>
+                                    <td class="num">@s.TransactionCount</td>
+                                    <td class="num">@Rupiah(s.GrossAmount)</td>
+                                    <td class="num">@Rupiah(s.CommissionAmount)</td>
+                                    <td class="num"><strong>@Rupiah(s.NetAmount)</strong></td>
+                                    <td class="num" style="color:@(s.VarianceAmount != 0 ? "var(--accent-danger)" : "var(--text-muted)");">
+                                        @(s.VarianceAmount == 0 ? "—" : Rupiah(s.VarianceAmount))
+                                    </td>
+                                    <td><StatusPill Status="@s.Status" /></td>
+                                    <td>
+                                        @if (s.Status is "Reconciled" or "Pending")
+                                        {
+                                            <button class="btn btn-sm btn-primary" @onclick="() => MarkPaid(s)">Tandai dibayar</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+
+            case "fraud":
+                <p class="hint">Alert dari aturan deteksi. Tinjau lalu tandai aman atau konfirmasi fraud.</p>
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Transaksi</th><th>Akun</th><th>Aturan</th><th>Alasan</th><th class="num">Skor</th><th class="num">Nilai</th><th>Severity</th><th>Status</th><th>Aksi</th></tr></thead>
+                        <tbody>
+                            @foreach (var f in _fraud)
+                            {
+                                <tr>
+                                    <td class="code" style="font-size:var(--t-xs);">@f.TransactionCode</td>
+                                    <td style="font-size:var(--t-xs);">@f.UserEmail</td>
+                                    <td><span class="tag">@f.Rule</span></td>
+                                    <td style="max-width:260px;color:var(--text-secondary);">@f.Reason</td>
+                                    <td class="num"><strong style="color:@RiskColor(f.RiskScore);">@f.RiskScore</strong></td>
+                                    <td class="num">@Rupiah(f.Amount)</td>
+                                    <td><StatusPill Status="@f.Severity" /></td>
+                                    <td><StatusPill Status="@f.Status" /></td>
+                                    <td>
+                                        @if (f.Status is "Open" or "Reviewing")
+                                        {
+                                            <div style="display:flex;gap:4px;">
+                                                <button class="btn btn-sm btn-ghost" @onclick='() => ResolveFraud(f, "Cleared")'>Aman</button>
+                                                <button class="btn btn-sm btn-secondary" @onclick='() => ResolveFraud(f, "Confirmed")'>Fraud</button>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span style="color:var(--text-muted);font-size:var(--t-xs);">@f.ReviewedBy</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+
+            case "approvals":
+                <p class="hint">Perubahan data master dari merchant menunggu validasi sebelum masuk ke katalog.</p>
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Partner</th><th>Entitas</th><th>Jenis</th><th>Ringkasan</th><th>Diminta oleh</th><th>Status</th><th>Aksi</th></tr></thead>
+                        <tbody>
+                            @foreach (var a in _approvals)
+                            {
+                                <tr>
+                                    <td>@a.Merchant?.Name</td>
+                                    <td><span class="tag">@a.EntityType</span></td>
+                                    <td>@a.ChangeType</td>
+                                    <td style="max-width:320px;">@a.Summary</td>
+                                    <td style="font-size:var(--t-xs);color:var(--text-muted);">@a.RequestedBy</td>
+                                    <td><StatusPill Status="@a.Status" /></td>
+                                    <td>
+                                        @if (a.Status == "Pending")
+                                        {
+                                            <div style="display:flex;gap:4px;">
+                                                <button class="btn btn-sm btn-primary" @onclick='() => ReviewApproval(a, "Approved")'>Setujui</button>
+                                                <button class="btn btn-sm btn-ghost" @onclick='() => ReviewApproval(a, "Rejected")'>Tolak</button>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span style="color:var(--text-muted);font-size:var(--t-xs);">@a.ReviewNote</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+
+            case "promos":
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--s-3);flex-wrap:wrap;margin-bottom:var(--s-3);">
+                    <p class="hint" style="margin:0;">Buat, ubah, aktifkan, atau nonaktifkan voucher.</p>
+                    <button class="btn btn-primary btn-sm" @onclick="NewVoucher">Voucher baru</button>
+                </div>
+
+                @if (_voucherForm is not null)
+                {
+                    <div class="card" style="margin-bottom:var(--s-4);">
+                        <h3 style="margin-bottom:var(--s-3);">@(_voucherForm.Id == Guid.Empty ? "Voucher baru" : "Ubah voucher")</h3>
+                        <div class="grid grid-3">
+                            <div class="field">
+                                <label for="v-code">Kode</label>
+                                <input id="v-code" @bind="_voucherForm.Code" placeholder="JOKA50" />
+                            </div>
+                            <div class="field">
+                                <label for="v-name">Nama</label>
+                                <input id="v-name" @bind="_voucherForm.Name" />
+                            </div>
+                            <div class="field">
+                                <label for="v-type">Tipe</label>
+                                <select id="v-type" @bind="_voucherForm.Type">
+                                    <option value="Percentage">Persentase</option>
+                                    <option value="FixedAmount">Nominal tetap</option>
+                                    <option value="Cashback">Cashback</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="v-value">Nilai (@(_voucherForm.Type == "Percentage" ? "%" : "Rp"))</label>
+                                <input id="v-value" type="number" min="0" @bind="_voucherForm.Value" />
+                            </div>
+                            <div class="field">
+                                <label for="v-min">Min. transaksi</label>
+                                <input id="v-min" type="number" min="0" step="10000" @bind="_voucherForm.MinPurchase" />
+                            </div>
+                            <div class="field">
+                                <label for="v-max">Plafon diskon</label>
+                                <input id="v-max" type="number" min="0" step="10000" @bind="_voucherForm.MaxDiscount" />
+                            </div>
+                            <div class="field">
+                                <label for="v-from">Berlaku dari</label>
+                                <input id="v-from" type="date" @bind="_voucherForm.ValidFrom" />
+                            </div>
+                            <div class="field">
+                                <label for="v-until">Berlaku sampai</label>
+                                <input id="v-until" type="date" @bind="_voucherForm.ValidUntil" />
+                            </div>
+                            <div class="field">
+                                <label for="v-quota">Kuota</label>
+                                <input id="v-quota" type="number" min="1" @bind="_voucherForm.TotalQuota" />
+                            </div>
+                            <div class="field">
+                                <label for="v-scope">Berlaku untuk</label>
+                                <select id="v-scope" @bind="_voucherForm.ApplicableTo">
+                                    <option value="All">Semua produk</option>
+                                    <option value="flight">Pesawat</option>
+                                    <option value="train">Kereta</option>
+                                    <option value="bus">Bus &amp; Shuttle</option>
+                                    <option value="hotel">Hotel</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        @if (_voucherError is not null)
+                        {
+                            <p class="note-bad">@_voucherError</p>
+                        }
+
+                        <div style="display:flex;gap:var(--s-2);margin-top:var(--s-4);">
+                            <button class="btn btn-primary" @onclick="SaveVoucher">Simpan</button>
+                            <button class="btn btn-ghost" @onclick="() => _voucherForm = null">Batal</button>
+                        </div>
+                    </div>
+                }
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Kode</th><th>Nama</th><th>Tipe</th><th class="num">Nilai</th><th class="num">Terpakai</th><th>Berlaku sampai</th><th>Status</th><th>Aksi</th></tr></thead>
+                        <tbody>
+                            @foreach (var v in _vouchers)
+                            {
+                                <tr>
+                                    <td class="code"><strong>@v.Code</strong></td>
+                                    <td>@v.Name</td>
+                                    <td>@v.Type</td>
+                                    <td class="num">@(v.Type == "Percentage" ? $"{v.Value:0.#}%" : Rupiah(v.Value))</td>
+                                    <td class="num">@v.UsedCount / @v.TotalQuota</td>
+                                    <td>@v.ValidUntil.ToString("dd MMM yyyy")</td>
+                                    <td><StatusPill Status="@(v.IsActive ? "Active" : "Suspended")" /></td>
+                                    <td style="white-space:nowrap;">
+                                        <button class="btn btn-sm btn-ghost" @onclick="() => EditVoucher(v)">Ubah</button>
+                                        <button class="btn btn-sm btn-ghost" @onclick="() => ToggleVoucher(v)">
+                                            @(v.IsActive ? "Nonaktifkan" : "Aktifkan")
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+
+            case "reviews":
+                <p class="hint">
+                    Ulasan tamu tidak langsung tayang. Rating hotel dihitung ulang dari
+                    ulasan yang <strong>disetujui</strong> saja — menolak ulasan benar-benar
+                    menarik bintangnya kembali.
+                </p>
+
+                <div class="filter-bar">
+                    @foreach (var f in _reviewFilters)
+                    {
+                        <button class="tag @(_reviewFilter == f.Key ? "active" : "")"
+                                @onclick="() => SetReviewFilter(f.Key)">
+                            @f.Label (@CountReviews(f.Key))
+                        </button>
+                    }
+                </div>
+
+                @if (_reviewError is not null)
+                {
+                    <p class="err">@_reviewError</p>
+                }
+
+                @if (!FilteredReviews.Any())
+                {
+                    <div class="empty"><p>Tidak ada ulasan pada filter ini.</p></div>
+                }
+                else
+                {
+                    <div class="review-list">
+                        @foreach (var r in FilteredReviews)
+                        {
+                            <article class="review @(r.Status == "Pending" ? "waiting" : "")">
+                                <div class="review-top">
+                                    <div>
+                                        <strong>@(r.Title ?? "Tanpa judul")</strong>
+                                        <div class="review-meta">
+                                            @r.Hotel?.Name · @r.AuthorName ·
+                                            menginap @r.StayDate.ToString("MMM yyyy") ·
+                                            <span class="code">@(new string('★', Math.Clamp(r.Rating, 0, 5)))@(new string('☆', 5 - Math.Clamp(r.Rating, 0, 5)))</span>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;gap:var(--s-2);align-items:center;flex-wrap:wrap;">
+                                        @if (r.IsVerified)
+                                        {
+                                            <span class="badge badge-success">Terverifikasi menginap</span>
+                                        }
+                                        <StatusPill Status="@r.Status" />
+                                    </div>
+                                </div>
+
+                                <p class="review-body">@r.Comment</p>
+
+                                @if (r.Pros is not null || r.Cons is not null)
+                                {
+                                    <div class="review-pc">
+                                        @if (r.Pros is not null) { <span>👍 @r.Pros</span> }
+                                        @if (r.Cons is not null) { <span>👎 @r.Cons</span> }
+                                    </div>
+                                }
+
+                                @if (r.Status == "Pending")
+                                {
+                                    <div class="review-actions">
+                                        <input placeholder="Catatan / alasan (wajib untuk menolak)"
+                                               value="@GetNote(r.Id)"
+                                               @oninput="e => SetNote(r.Id, e.Value?.ToString())" />
+                                        <button class="btn btn-sm btn-primary" @onclick='() => Moderate(r, "Approved")'>Setujui</button>
+                                        <button class="btn btn-sm btn-ghost" @onclick='() => Moderate(r, "Rejected")'>Tolak</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="review-decided">
+                                        @r.Status oleh @r.ModeratedBy · @r.ModeratedAt?.ToString("dd MMM yyyy HH:mm")
+                                        @if (r.ModerationNote is not null)
+                                        {
+                                            <span> — @r.ModerationNote</span>
+                                        }
+                                    </div>
+                                }
+                            </article>
+                        }
+                    </div>
+                }
+                break;
+
+            case "integrations":
+                <p class="hint">Koneksi ke sistem maskapai, hotel, transportasi, dan pembayaran.</p>
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Integrasi</th><th>Provider</th><th>Kategori</th><th>Environment</th><th>Status</th><th class="num">Latensi</th><th>Sinkron terakhir</th><th>Aksi</th></tr></thead>
+                        <tbody>
+                            @foreach (var i in _integrations)
+                            {
+                                <tr>
+                                    <td><strong>@i.Name</strong>
+                                        @if (i.LastError is not null)
+                                        {
+                                            <div style="color:var(--accent-danger);font-size:var(--t-xs);">@i.LastError</div>
+                                        }
+                                    </td>
+                                    <td>@i.Provider</td>
+                                    <td><span class="tag">@i.Category</span></td>
+                                    <td><StatusPill Status="@i.Environment" /></td>
+                                    <td><StatusPill Status="@i.Status" /></td>
+                                    <td class="num">@(i.LastLatencyMs.HasValue ? $"{i.LastLatencyMs} ms" : "—")</td>
+                                    <td style="color:var(--text-muted);">@(i.LastSyncAt?.ToString("dd MMM HH:mm") ?? "—")</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-ghost" @onclick="() => ToggleIntegration(i)">
+                                            @(i.IsEnabled ? "Matikan" : "Nyalakan")
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+
+            case "audit":
+                <p class="hint">Catatan aktivitas admin, operator, dan sistem.</p>
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Waktu</th><th>Aktor</th><th>Aksi</th><th>Entitas</th><th>Perubahan</th></tr></thead>
+                        <tbody>
+                            @foreach (var a in _audit)
+                            {
+                                <tr>
+                                    <td style="white-space:nowrap;color:var(--text-muted);">@a.Timestamp.ToString("dd MMM HH:mm")</td>
+                                    <td style="font-size:var(--t-xs);">@a.UserId</td>
+                                    <td><span class="tag">@a.Action</span></td>
+                                    <td>@a.EntityName <span style="color:var(--text-muted);">@a.EntityId</span></td>
+                                    <td class="code" style="font-size:var(--t-xs);color:var(--text-secondary);">@a.Changes</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+        }
+    }
+</div>
+
+<style>
+    .hint { font-size: var(--t-sm); color: var(--text-secondary); margin-bottom: var(--s-3); }
+
+    .chart-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: var(--s-4);
+        margin-bottom: var(--s-6);
+    }
+
+    .filter-bar { display: flex; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-4); }
+    .filter-bar .tag { cursor: pointer; }
+    .err { color: var(--accent-danger); font-size: var(--t-sm); font-weight: 600; margin-bottom: var(--s-3); }
+
+    .review-list { display: flex; flex-direction: column; gap: var(--s-3); }
+
+    .review {
+        padding: var(--s-4);
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-lg);
+    }
+    /* Left bar rather than a tint, so it survives the dark theme. */
+    .review.waiting { border-left: 6px solid var(--accent-secondary); }
+
+    .review-top {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        gap: var(--s-3); flex-wrap: wrap; margin-bottom: var(--s-2);
+    }
+    .review-meta { font-size: var(--t-xs); color: var(--text-muted); margin-top: 2px; }
+    .review-body { font-size: var(--t-sm); color: var(--text-secondary); }
+
+    .review-pc {
+        display: flex; gap: var(--s-4); flex-wrap: wrap;
+        margin-top: var(--s-2); font-size: var(--t-xs); color: var(--text-secondary);
+    }
+
+    .review-actions {
+        display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap;
+        margin-top: var(--s-3); padding-top: var(--s-3);
+        border-top: 1px solid var(--border-color);
+    }
+    .review-actions input { flex: 1; min-width: 220px; }
+
+    .review-decided {
+        margin-top: var(--s-3); padding-top: var(--s-3);
+        border-top: 1px solid var(--border-color);
+        font-size: var(--t-xs); color: var(--text-muted);
+    }
+</style>
+
+@code {
+    private record Tab(string Key, string Label);
+
+    private readonly Tab[] _tabs =
+    {
+        new("overview", "Ringkasan"), new("users", "Pengguna & Role"), new("transactions", "Transaksi"),
+        new("settlement", "Settlement"), new("fraud", "Fraud"), new("approvals", "Approval"),
+        new("promos", "Promo"), new("reviews", "Ulasan"),
+        new("integrations", "Integrasi API"), new("audit", "Audit Log")
+    };
+
+    private readonly Tab[] _reviewFilters =
+    {
+        new("Pending", "Menunggu"), new("Approved", "Tayang"),
+        new("Rejected", "Ditolak"), new("", "Semua")
+    };
+
+    private string _tab = "overview";
+    private bool _loading = true, _probing;
+    private PromoVoucher? _voucherForm;
+    private string? _voucherError;
+
+    private List<User> _users = new();
+    private List<Merchant> _merchants = new();
+    private List<MerchantSettlement> _settlements = new();
+    private List<FraudAlert> _fraud = new();
+    private List<ApprovalRequest> _approvals = new();
+    private List<PromoVoucher> _vouchers = new();
+    private List<ApiIntegration> _integrations = new();
+    private List<SystemHealthCheck> _health = new();
+    private List<AuditLog> _audit = new();
+    private List<PaymentTransaction> _transactions = new();
+
+    private int _txCount, _openFraud, _pendingApprovals;
+    private decimal _txVolume;
+
+    private List<Chart.Point> _revenueTrend = new(), _byMethod = new(), _byProduct = new(), _userGrowth = new();
+
+    private List<HotelReview> _reviews = new();
+    private readonly Dictionary<Guid, string> _reviewNotes = new();
+    private string _reviewFilter = "Pending";
+    private string? _reviewError;
+
+    private IEnumerable<HotelReview> FilteredReviews =>
+        string.IsNullOrEmpty(_reviewFilter) ? _reviews : _reviews.Where(r => r.Status == _reviewFilter);
+
+    private int CountReviews(string key) =>
+        string.IsNullOrEmpty(key) ? _reviews.Count : _reviews.Count(r => r.Status == key);
+
+    private void SetReviewFilter(string key)
+    {
+        _reviewFilter = key;
+        _reviewError = null;
+    }
+
+    private string GetNote(Guid id) => _reviewNotes.GetValueOrDefault(id, "");
+    private void SetNote(Guid id, string? value) => _reviewNotes[id] = value ?? "";
+
+    private async Task Moderate(HotelReview review, string decision)
+    {
+        _reviewError = null;
+
+        var (success, message) = await Reviews.ModerateAsync(
+            review.Id, decision, "admin@joka.id", GetNote(review.Id));
+
+        if (!success)
+        {
+            _reviewError = message;
+            return;
+        }
+
+        _reviewNotes.Remove(review.Id);
+
+        await Audit("HotelReview", review.Hotel?.Name ?? review.HotelId.ToString(), decision,
+            $"Rating {review.Rating}★ oleh {review.AuthorName} -> {decision}");
+
+        await LoadAsync();
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+
+        // Tracked on purpose: this console edits these rows in place.
+        _users = await DbContext.Users.OrderBy(u => u.Role).ThenBy(u => u.Username).ToListAsync();
+        _merchants = await DbContext.Merchants.ToListAsync();
+        _settlements = await DbContext.MerchantSettlements.Include(s => s.Merchant)
+            .OrderByDescending(s => s.PeriodEnd).ToListAsync();
+        _fraud = await DbContext.FraudAlerts.OrderByDescending(f => f.RiskScore).ToListAsync();
+        _approvals = await DbContext.ApprovalRequests.Include(a => a.Merchant)
+            .OrderBy(a => a.Status == "Pending" ? 0 : 1).ThenByDescending(a => a.CreatedAt).ToListAsync();
+        _vouchers = await DbContext.PromoVouchers.OrderByDescending(v => v.ValidUntil).ToListAsync();
+        _integrations = await DbContext.ApiIntegrations.ToListAsync();
+        _health = await DbContext.SystemHealthChecks.AsNoTracking().ToListAsync();
+        _audit = await DbContext.AuditLogs.AsNoTracking().OrderByDescending(a => a.Timestamp).Take(50).ToListAsync();
+        _transactions = await DbContext.PaymentTransactions.AsNoTracking()
+            .OrderByDescending(t => t.CreatedAt).Take(50).ToListAsync();
+
+        _txCount = await DbContext.PaymentTransactions.CountAsync();
+        // What was actually charged, not the pre-discount subtotal.
+        _txVolume = _transactions.Sum(t => t.FinalAmount);
+        _openFraud = _fraud.Count(f => f.Status is "Open" or "Reviewing");
+        _pendingApprovals = _approvals.Count(a => a.Status == "Pending");
+
+        _reviews = await Reviews.GetForModerationAsync();
+
+        _revenueTrend = ToPoints(await Analytics.RevenueByDayAsync());
+        _byMethod = ToPoints(await Analytics.TransactionsByMethodAsync());
+        _byProduct = ToPoints(await Analytics.BookingsByProductAsync());
+        _userGrowth = ToPoints(await Analytics.UserGrowthAsync());
+
+        _loading = false;
+    }
+
+    private static List<Chart.Point> ToPoints(IEnumerable<ChartPoint> src) =>
+        src.Select(p => new Chart.Point(p.Label, p.Value)).ToList();
+
+    // Every mutation writes an audit row - that is the point of the audit tab.
+    private async Task Audit(string entity, string id, string action, string change)
+    {
+        DbContext.AuditLogs.Add(new AuditLog
+        {
+            EntityName = entity, EntityId = id, Action = action,
+            Changes = change, UserId = "admin@joka.id", Timestamp = DateTime.UtcNow
+        });
+        await DbContext.SaveChangesAsync();
+    }
+
+    private async Task ChangeRole(User user, string? role)
+    {
+        if (string.IsNullOrEmpty(role) || role == user.Role) return;
+
+        var before = user.Role;
+        user.Role = role;
+        user.UpdatedAt = DateTime.UtcNow;
+        await Audit("User", user.Email, "ChangeRole", $"Role: {before} -> {role}");
+        await LoadAsync();
+    }
+
+    private async Task ToggleBlock(User user)
+    {
+        user.IsBlocked = !user.IsBlocked;
+        user.BlockedAt = user.IsBlocked ? DateTime.UtcNow : null;
+        user.BlockedBy = user.IsBlocked ? "admin@joka.id" : null;
+        user.BlockedReason = user.IsBlocked ? "Diblokir manual oleh admin" : null;
+
+        await Audit("User", user.Email, user.IsBlocked ? "Block" : "Unblock",
+            $"IsBlocked: {!user.IsBlocked} -> {user.IsBlocked}");
+        await LoadAsync();
+    }
+
+    private async Task MarkPaid(MerchantSettlement s)
+    {
+        s.Status = "Paid";
+        s.PaidAt = DateTime.UtcNow;
+        await Audit("MerchantSettlement", s.ReferenceNo, "Pay", $"Status -> Paid ({Rupiah(s.NetAmount)})");
+        await LoadAsync();
+    }
+
+    private async Task ResolveFraud(FraudAlert f, string status)
+    {
+        f.Status = status;
+        f.ReviewedBy = "admin@joka.id";
+        f.ReviewedAt = DateTime.UtcNow;
+        await Audit("FraudAlert", f.TransactionCode, status, $"Status -> {status}");
+        await LoadAsync();
+    }
+
+    private async Task ReviewApproval(ApprovalRequest a, string status)
+    {
+        a.Status = status;
+        a.ReviewedBy = "admin@joka.id";
+        a.ReviewedAt = DateTime.UtcNow;
+
+        var applied = status == "Approved" ? await ApplyPayloadAsync(a) : null;
+
+        a.ReviewNote = status == "Approved"
+            ? applied ?? "Disetujui, tapi perubahan tidak bisa diterapkan otomatis."
+            : "Ditolak admin.";
+
+        await Audit("ApprovalRequest", $"{a.EntityType}/{a.EntityId}", status, a.ReviewNote);
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Approving used to only flip a status; the proposed values never reached
+    /// the product tables. This applies the payload for the change types the
+    /// merchant portal can actually submit.
+    /// </summary>
+    private async Task<string?> ApplyPayloadAsync(ApprovalRequest a)
+    {
+        if (string.IsNullOrWhiteSpace(a.PayloadJson)) return null;
+
+        System.Text.Json.JsonElement root;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(a.PayloadJson);
+            root = doc.RootElement.Clone();
+        }
+        catch { return null; }
+
+        if (a.ChangeType == "Create") return await ApplyCreateAsync(a, root);
+        if (a.ChangeType == "Delete") return await ApplyDeleteAsync(a);
+
+        if (!Guid.TryParse(a.EntityId, out var id)) return null;
+
+        var price = root.TryGetProperty("Price", out var p) && p.TryGetDecimal(out var v)
+            ? (decimal?)v : null;
+
+        if (price is not decimal newPrice) return null;
+
+        switch (a.EntityType)
+        {
+            case "Room":
+                var room = await DbContext.Rooms.FirstOrDefaultAsync(r => r.Id == id);
+                if (room is null) return null;
+                var oldRoom = room.PricePerNight;
+                room.PricePerNight = newPrice;
+                return $"Harga {room.Name}: {Rupiah(oldRoom)} → {Rupiah(newPrice)}";
+
+            case "BusSchedule":
+                var sched = await DbContext.BusSchedules.FirstOrDefaultAsync(s => s.Id == id);
+                if (sched is null) return null;
+                var oldBus = sched.BasePrice;
+                sched.BasePrice = newPrice;
+                return $"Harga jadwal bus: {Rupiah(oldBus)} → {Rupiah(newPrice)}";
+
+            case "Flight":
+                var flight = await DbContext.Flights.FirstOrDefaultAsync(f => f.Id == id);
+                if (flight is null) return null;
+                var oldFlight = flight.BasePrice;
+                flight.BasePrice = newPrice;
+                return $"Harga {flight.FlightNumber}: {Rupiah(oldFlight)} → {Rupiah(newPrice)}";
+
+            case "Activity":
+                var act = await DbContext.Activities.FirstOrDefaultAsync(x => x.Id == id);
+                if (act is null) return null;
+                var oldAct = act.Price;
+                act.Price = newPrice;
+                return $"Harga {act.Name}: {Rupiah(oldAct)} → {Rupiah(newPrice)}";
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>Inserts the record the merchant proposed into the live catalogue.</summary>
+    private async Task<string?> ApplyCreateAsync(ApprovalRequest a, System.Text.Json.JsonElement root)
+    {
+        switch (a.EntityType)
+        {
+            case "BusSchedule":
+                if (!root.TryGetProperty("BusServiceId", out var svcEl) || !svcEl.TryGetGuid(out var svcId) ||
+                    !root.TryGetProperty("DepartureTerminalId", out var fromEl) || !fromEl.TryGetGuid(out var fromId) ||
+                    !root.TryGetProperty("ArrivalTerminalId", out var toEl) || !toEl.TryGetGuid(out var toId) ||
+                    !root.TryGetProperty("DepartureTime", out var depEl) || !depEl.TryGetDateTime(out var departure) ||
+                    !root.TryGetProperty("DurationMinutes", out var durEl) || !durEl.TryGetInt32(out var duration) ||
+                    !root.TryGetProperty("Price", out var priceEl) || !priceEl.TryGetDecimal(out var busPrice))
+                    return null;
+
+                var service = await DbContext.BusServices.AsNoTracking().FirstOrDefaultAsync(b => b.Id == svcId);
+                if (service is null) return null;
+
+                DbContext.BusSchedules.Add(new Joka.Models.Buses.BusSchedule
+                {
+                    BusServiceId = svcId,
+                    DepartureTerminalId = fromId,
+                    ArrivalTerminalId = toId,
+                    DepartureTime = departure,
+                    ArrivalTime = departure.AddMinutes(duration),
+                    DurationMinutes = duration,
+                    BasePrice = busPrice,
+                    AvailableSeats = service.TotalSeats,
+                    IsActive = true
+                });
+
+                return $"Jadwal bus baru ditambahkan ({Rupiah(busPrice)})";
+
+            case "TravelPackage":
+                if (!root.TryGetProperty("Name", out var nameEl) ||
+                    !root.TryGetProperty("Destination", out var destEl) ||
+                    !root.TryGetProperty("DurationDays", out var daysEl) || !daysEl.TryGetInt32(out var days) ||
+                    !root.TryGetProperty("Price", out var pkgPriceEl) || !pkgPriceEl.TryGetDecimal(out var pkgPrice))
+                    return null;
+
+                var includes = root.TryGetProperty("Includes", out var incEl)
+                    ? incEl.ToString()
+                    : "[]";
+
+                DbContext.TravelPackages.Add(new TravelPackage
+                {
+                    MerchantOwned = true,
+                    Name = nameEl.GetString() ?? "Paket",
+                    Destination = destEl.GetString() ?? "",
+                    DurationDays = days,
+                    Price = pkgPrice,
+                    Includes = includes,
+                    ImageUrl = root.TryGetProperty("ImageUrl", out var imgEl) ? imgEl.GetString() : null,
+                    IsActive = true
+                });
+
+                return $"Paket \"{nameEl.GetString()}\" ditambahkan ke katalog";
+
+            case "Room":
+                if (!root.TryGetProperty("HotelId", out var hotelEl) || !hotelEl.TryGetGuid(out var hotelId) ||
+                    !root.TryGetProperty("Name", out var roomNameEl) ||
+                    !root.TryGetProperty("Capacity", out var capEl) || !capEl.TryGetInt32(out var capacity) ||
+                    !root.TryGetProperty("Price", out var roomPriceEl) || !roomPriceEl.TryGetDecimal(out var roomPrice) ||
+                    !root.TryGetProperty("TotalRooms", out var totalEl) || !totalEl.TryGetInt32(out var totalRooms))
+                    return null;
+
+                DbContext.Rooms.Add(new Room
+                {
+                    HotelId = hotelId,
+                    Name = roomNameEl.GetString() ?? "Kamar",
+                    Type = root.TryGetProperty("Type", out var typeEl) ? typeEl.GetString() ?? "Standard" : "Standard",
+                    Capacity = capacity,
+                    PricePerNight = roomPrice,
+                    TotalRooms = totalRooms,
+                    AvailableRooms = totalRooms,
+                    HasBreakfast = root.TryGetProperty("HasBreakfast", out var bfEl) && bfEl.GetBoolean(),
+                    IsActive = true
+                });
+
+                return $"Kamar \"{roomNameEl.GetString()}\" ditambahkan ({Rupiah(roomPrice)}/malam)";
+
+            case "Activity":
+                if (!root.TryGetProperty("Name", out var actNameEl) ||
+                    !root.TryGetProperty("City", out var cityEl) ||
+                    !root.TryGetProperty("Price", out var actPriceEl) || !actPriceEl.TryGetDecimal(out var actPrice) ||
+                    !root.TryGetProperty("TotalTickets", out var ticketsEl) || !ticketsEl.TryGetInt32(out var tickets))
+                    return null;
+
+                DbContext.Activities.Add(new Activity
+                {
+                    Name = actNameEl.GetString() ?? "Aktivitas",
+                    Category = root.TryGetProperty("Category", out var catEl) ? catEl.GetString() ?? "Tour" : "Tour",
+                    City = cityEl.GetString() ?? "",
+                    Location = root.TryGetProperty("Location", out var locEl) ? locEl.GetString() : null,
+                    Description = root.TryGetProperty("Description", out var descEl) ? descEl.GetString() : null,
+                    ImageUrl = root.TryGetProperty("ImageUrl", out var actImgEl) ? actImgEl.GetString() : null,
+                    Price = actPrice,
+                    TotalTickets = tickets,
+                    DurationMinutes = root.TryGetProperty("DurationMinutes", out var durMinEl) && durMinEl.TryGetInt32(out var dm) ? dm : 0,
+                    MerchantId = a.MerchantId,
+                    IsActive = true
+                });
+
+                return $"Aktivitas \"{actNameEl.GetString()}\" ditambahkan ke katalog";
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>Soft-deletes so the record stays auditable and bookings keep resolving.</summary>
+    private async Task<string?> ApplyDeleteAsync(ApprovalRequest a)
+    {
+        if (!Guid.TryParse(a.EntityId, out var id)) return null;
+
+        switch (a.EntityType)
+        {
+            case "Activity":
+                var act = await DbContext.Activities.FirstOrDefaultAsync(x => x.Id == id);
+                if (act is null) return null;
+                act.IsDeleted = true;
+                return $"Aktivitas \"{act.Name}\" dihapus dari katalog";
+
+            case "BusSchedule":
+                var sched = await DbContext.BusSchedules.FirstOrDefaultAsync(s => s.Id == id);
+                if (sched is null) return null;
+                sched.IsActive = false;
+                return "Jadwal bus dinonaktifkan";
+
+            case "Room":
+                var room = await DbContext.Rooms.FirstOrDefaultAsync(r => r.Id == id);
+                if (room is null) return null;
+                room.IsActive = false;
+                return $"Kamar \"{room.Name}\" dinonaktifkan";
+
+            default:
+                return null;
+        }
+    }
+
+    private async Task ToggleVoucher(PromoVoucher v)
+    {
+        v.IsActive = !v.IsActive;
+        await Audit("PromoVoucher", v.Code, "Update", $"IsActive -> {v.IsActive}");
+        await LoadAsync();
+    }
+
+    // ---------------- Voucher create / edit ----------------
+    private void NewVoucher()
+    {
+        _voucherError = null;
+        _voucherForm = new PromoVoucher
+        {
+            Id = Guid.Empty,
+            Type = "Percentage",
+            ApplicableTo = "All",
+            ValidFrom = DateTime.UtcNow.Date,
+            ValidUntil = DateTime.UtcNow.Date.AddMonths(1),
+            TotalQuota = 100,
+            IsActive = true
+        };
+    }
+
+    private void EditVoucher(PromoVoucher v)
+    {
+        _voucherError = null;
+        // Copy so an abandoned edit does not leave the tracked entity dirty.
+        _voucherForm = new PromoVoucher
+        {
+            Id = v.Id, Code = v.Code, Name = v.Name, Description = v.Description,
+            Type = v.Type, Value = v.Value, MinPurchase = v.MinPurchase, MaxDiscount = v.MaxDiscount,
+            ValidFrom = v.ValidFrom, ValidUntil = v.ValidUntil,
+            TotalQuota = v.TotalQuota, UsedCount = v.UsedCount,
+            ApplicableTo = v.ApplicableTo, IsActive = v.IsActive
+        };
+    }
+
+    private async Task SaveVoucher()
+    {
+        if (_voucherForm is null) return;
+
+        var form = _voucherForm;
+        var code = form.Code?.Trim().ToUpperInvariant() ?? "";
+
+        if (string.IsNullOrWhiteSpace(code)) { _voucherError = "Kode wajib diisi."; return; }
+        if (string.IsNullOrWhiteSpace(form.Name)) { _voucherError = "Nama wajib diisi."; return; }
+        if (form.Value <= 0) { _voucherError = "Nilai harus lebih besar dari nol."; return; }
+        if (form.Type == "Percentage" && form.Value > 100) { _voucherError = "Persentase tidak boleh di atas 100."; return; }
+        if (form.ValidUntil <= form.ValidFrom) { _voucherError = "Tanggal berakhir harus setelah tanggal mulai."; return; }
+        if (form.TotalQuota < 1) { _voucherError = "Kuota minimal 1."; return; }
+
+        var duplicate = await DbContext.PromoVouchers
+            .AnyAsync(v => v.Code == code && v.Id != form.Id);
+
+        if (duplicate) { _voucherError = $"Kode {code} sudah dipakai voucher lain."; return; }
+
+        if (form.Id == Guid.Empty)
+        {
+            form.Code = code;
+            DbContext.PromoVouchers.Add(form);
+            await Audit("PromoVoucher", code, "Create", $"{form.Type} {form.Value}, kuota {form.TotalQuota}");
+        }
+        else
+        {
+            var existing = await DbContext.PromoVouchers.FirstOrDefaultAsync(v => v.Id == form.Id);
+            if (existing is null) { _voucherError = "Voucher tidak ditemukan."; return; }
+
+            existing.Code = code;
+            existing.Name = form.Name;
+            existing.Type = form.Type;
+            existing.Value = form.Value;
+            existing.MinPurchase = form.MinPurchase;
+            existing.MaxDiscount = form.MaxDiscount;
+            existing.ValidFrom = form.ValidFrom;
+            existing.ValidUntil = form.ValidUntil;
+            existing.TotalQuota = form.TotalQuota;
+            existing.ApplicableTo = form.ApplicableTo;
+            existing.UpdatedAt = DateTime.UtcNow;
+
+            await Audit("PromoVoucher", code, "Update", $"Nilai {form.Value}, kuota {form.TotalQuota}");
+        }
+
+        _voucherForm = null;
+        await LoadAsync();
+    }
+
+    private async Task RefreshHealth()
+    {
+        _probing = true;
+        try
+        {
+            _health = await HealthProbe.ProbeAsync();
+        }
+        finally { _probing = false; }
+    }
+
+    private async Task ToggleIntegration(ApiIntegration i)
+    {
+        i.IsEnabled = !i.IsEnabled;
+        await Audit("ApiIntegration", i.Name, "Update", $"IsEnabled -> {i.IsEnabled}");
+        await LoadAsync();
+    }
+
+    private static string Rupiah(decimal v) => $"Rp{v:N0}";
+
+    private static string RiskColor(int score) => score >= 80 ? "var(--accent-danger)"
+        : score >= 60 ? "var(--accent-warning)" : "var(--text-secondary)";
+}

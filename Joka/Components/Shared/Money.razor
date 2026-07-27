@@ -1,0 +1,22 @@
+@* Renders an IDR amount in the visitor's chosen currency.
+   Keeps the original Rupiah figure in the tooltip so a converted price is
+   always traceable back to what the merchant actually charges. *@
+@inject UserPreferences Prefs
+
+<span class="price @CssClass" title="@_hint">@_text</span>
+
+@code {
+    [Parameter, EditorRequired] public decimal Amount { get; set; }
+    [Parameter] public string? CssClass { get; set; }
+
+    private string _text = "";
+    private string? _hint;
+
+    protected override void OnParametersSet()
+    {
+        _text = Prefs.Format(Amount);
+
+        var original = Prefs.OriginalHint(Amount);
+        _hint = original is null ? null : $"Harga asli {original}";
+    }
+}

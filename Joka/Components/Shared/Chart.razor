@@ -1,0 +1,155 @@
+@* Thin wrapper over wwwroot/js/charts.js. The component owns the data and the
+   title; D3 owns the drawing. Colours come from CSS tokens inside charts.js,
+   so nothing here needs to know about the theme. *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="chart-card">
+    @if (!string.IsNullOrEmpty(Title))
+    {
+        <div class="chart-head">
+            <div>
+                <div class="chart-title">@Title</div>
+                @if (!string.IsNullOrEmpty(Subtitle))
+                {
+                    <div class="chart-sub">@Subtitle</div>
+                }
+            </div>
+            @if (Badge is not null)
+            {
+                <span class="chart-badge">@Badge</span>
+            }
+        </div>
+    }
+
+    <div class="chart-host" style="height:@(Height)px;" @ref="_host"></div>
+
+    @if (ShowLegend && Type == "donut" && Data.Count > 0)
+    {
+        <div class="chart-legend">
+            @for (var i = 0; i < Data.Count; i++)
+            {
+                <span class="legend-item">
+                    <i class="swatch" style="background: @SwatchColor(i);"></i>
+                    @Data[i].Label
+                </span>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .chart-card {
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-strong);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        padding: var(--s-4);
+    }
+
+    .chart-head {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: var(--s-3); margin-bottom: var(--s-3);
+    }
+    .chart-title { font-weight: 700; font-size: var(--t-sm); }
+    .chart-sub { font-size: var(--t-xs); color: var(--text-muted); margin-top: 2px; }
+    .chart-badge {
+        font-family: var(--font-mono); font-size: var(--t-xs);
+        padding: 2px 8px; border-radius: var(--radius-sm);
+        border: 2px solid var(--border-color); color: var(--text-secondary);
+        white-space: nowrap;
+    }
+
+    .chart-host { position: relative; width: 100%; }
+
+    /* Created by charts.js inside .chart-host, so it never passes through
+       Razor and a scoped rule would not reach it. Rules in this block are
+       global - only .razor.css files get scoped - which is what we want. */
+    .chart-tip {
+        position: absolute; pointer-events: none; opacity: 0;
+        padding: 6px 10px; font-size: var(--t-xs); line-height: 1.35;
+        background: var(--bg-primary);
+        border: 2px solid var(--border-strong);
+        border-radius: var(--radius-sm);
+        box-shadow: var(--shadow-sm);
+        transition: opacity 0.12s ease;
+        z-index: 5; white-space: nowrap;
+    }
+
+    .chart-empty {
+        display: flex; align-items: center; justify-content: center;
+        height: 100%; font-size: var(--t-sm); color: var(--text-muted);
+    }
+
+    .chart-legend {
+        display: flex; flex-wrap: wrap; gap: var(--s-3);
+        margin-top: var(--s-3); padding-top: var(--s-3);
+        border-top: 1px solid var(--border-color);
+        font-size: var(--t-xs); color: var(--text-secondary);
+    }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch {
+        width: 10px; height: 10px; border-radius: 2px;
+        border: 1.5px solid var(--border-strong);
+    }
+</style>
+
+@code {
+    public record Point(string Label, decimal Value);
+
+    [Parameter] public string Type { get; set; } = "bar";        // bar, line, donut, hbar
+    [Parameter] public IReadOnlyList<Point> Data { get; set; } = Array.Empty<Point>();
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public string? Badge { get; set; }
+    [Parameter] public int Height { get; set; } = 240;
+    [Parameter] public string Format { get; set; } = "number";   // number, currency, compact
+    [Parameter] public string? TotalLabel { get; set; }
+    [Parameter] public string EmptyText { get; set; } = "Belum ada data";
+    [Parameter] public bool ShowLegend { get; set; } = true;
+
+    private ElementReference _host;
+    private string? _lastSignature;
+
+    // Same rotation as seriesColours() in charts.js — kept in step by hand
+    // because the legend is rendered by Blazor, not by D3.
+    private static readonly string[] Swatches =
+    {
+        "var(--accent-primary)", "var(--accent-secondary)", "var(--accent-info)",
+        "var(--accent-success)", "var(--accent-danger)", "var(--text-muted)"
+    };
+
+    private static string SwatchColor(int i) => Swatches[i % Swatches.Length];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Redraw only when the data actually changed; every parent re-render
+        // would otherwise restart the animation.
+        var signature = $"{Type}|{Format}|{Height}|" +
+            string.Join(";", Data.Select(d => $"{d.Label}={d.Value}"));
+
+        if (!firstRender && signature == _lastSignature) return;
+        _lastSignature = signature;
+
+        try
+        {
+            await JS.InvokeVoidAsync("joka.charts.render", _host, new
+            {
+                type = Type,
+                height = Height,
+                format = Format,
+                totalLabel = TotalLabel,
+                emptyText = EmptyText,
+                data = Data.Select(d => new { label = d.Label, value = d.Value })
+            });
+        }
+        catch (JSDisconnectedException) { /* circuit closed mid-render */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("joka.charts.dispose", _host); }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { /* prerender: no JS yet */ }
+    }
+}

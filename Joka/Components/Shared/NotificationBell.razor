@@ -1,0 +1,63 @@
+@* Live unread badge. Subscribes to the singleton broadcaster, so a notification
+   raised by an operator's action reaches this user's open page immediately -
+   Blazor Server already pushes over its own SignalR connection. *@
+@using System.Security.Claims
+@implements IDisposable
+@inject NotificationService Notifications
+@inject NotificationBroadcaster Broadcaster
+@inject AuthenticationStateProvider AuthProvider
+
+<a class="icon-btn bell" href="/notifications" title="Notifikasi" aria-label="@Label">
+    🔔
+    @if (_unread > 0)
+    {
+        <span class="bell-count">@(_unread > 9 ? "9+" : _unread.ToString())</span>
+    }
+</a>
+
+<style>
+    .bell { position: relative; }
+    .bell-count {
+        position: absolute;
+        top: -5px; right: -5px;
+        min-width: 18px; height: 18px;
+        padding: 0 4px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 0.65rem; font-weight: 700; line-height: 1;
+        color: #fff; background: var(--accent-danger);
+        border: 2px solid var(--bg-secondary);
+        border-radius: 50px;
+    }
+</style>
+
+@code {
+    private Guid? _userId;
+    private int _unread;
+
+    private string Label => _unread > 0 ? $"Notifikasi, {_unread} belum dibaca" : "Notifikasi";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+
+        if (!Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id))
+            return;
+
+        _userId = id;
+        _unread = await Notifications.UnreadCountAsync(id);
+
+        Broadcaster.Notified += OnNotified;
+    }
+
+    private Task OnNotified(Guid userId, Joka.Models.Users.UserNotification notification)
+    {
+        if (userId != _userId) return Task.CompletedTask;
+
+        _unread++;
+
+        // Marshals back onto the circuit's synchronisation context.
+        return InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => Broadcaster.Notified -= OnNotified;
+}

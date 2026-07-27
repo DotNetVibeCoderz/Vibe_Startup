@@ -1,0 +1,511 @@
+@page "/hotels"
+@using System.Security.Claims
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+@inject ReviewService Reviews
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>Hotel &amp; Akomodasi — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Hotels.Eyebrow"]</p>
+        <h1>@L["Hotels.Title"]</h1>
+        <p class="lede">@L["Hotels.Lede"]</p>
+    </div>
+
+    <div class="card" style="margin-bottom: var(--s-5);">
+        <div class="search-row">
+            <div class="field" style="flex:2;">
+                <label for="city">@L["Home.CityOrDestination"]</label>
+                <select id="city" @bind="_searchCity">
+                    <option value="">@L["Label.AllCities"]</option>
+                    @foreach (var city in _cities) { <option value="@city">@city</option> }
+                </select>
+            </div>
+            <div class="field">
+                <label for="stars">@L["Hotels.MinStars"]</label>
+                <select id="stars" @bind="_minStars">
+                    <option value="">Semua</option>
+                    <option value="5">5 bintang</option>
+                    <option value="4">4 bintang ke atas</option>
+                    <option value="3">3 bintang ke atas</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="type">@L["Hotels.Type"]</label>
+                <select id="type" @bind="_typeFilter">
+                    <option value="">Semua</option>
+                    <option>Hotel</option><option>Villa</option><option>Resort</option><option>Apartment</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" @onclick="Search">@L["Action.Search"]</button>
+        </div>
+    </div>
+
+    @if (_hotels.Any())
+    {
+        <p class="result-count"><strong>@_hotels.Count</strong> @L["Hotels.Found"]</p>
+
+        <div class="grid grid-3">
+            @foreach (var hotel in _hotels)
+            {
+                <article class="travel-card card-media">
+                    <MediaImage Src="@hotel.ImageUrl" Alt="@hotel.Name" Fallback="🏨">
+                        <span class="badge media-tag">@hotel.Type</span>
+                    </MediaImage>
+
+                    <div class="card-body">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap: var(--s-2);">
+                            <h3>@hotel.Name</h3>
+                            <div style="display:flex; align-items:center; gap: var(--s-2); flex:none;">
+                                <span class="badge badge-success">@hotel.AverageRating.ToString("F1")</span>
+                                <WishlistButton ItemType="Hotel" ItemId="@hotel.Id.ToString()" ItemName="@hotel.Name"
+                                                Price="@(hotel.Rooms?.Any() == true ? hotel.Rooms.Min(r => r.PricePerNight) : null)"
+                                                ImageUrl="@hotel.ImageUrl" />
+                            </div>
+                        </div>
+
+                        <p style="color: var(--text-secondary); font-size: var(--t-sm); margin: var(--s-1) 0 var(--s-2);">
+                            @hotel.City · @(new string('★', hotel.StarRating)) · @hotel.ReviewCount @L["Hotels.Reviews"]
+                        </p>
+
+                        <p class="clamp-2">@hotel.Description</p>
+
+                        <div style="display:flex; gap: var(--s-1); flex-wrap: wrap; margin: var(--s-3) 0;">
+                            @foreach (var f in Facilities(hotel.Facilities)) { <span class="tag">@f</span> }
+                        </div>
+
+                        <div class="card-foot">
+                            @if (hotel.Rooms?.Any() == true)
+                            {
+                                var minPrice = hotel.Rooms.Min(r => r.PricePerNight);
+                                <div>
+                                    <div style="font-size: var(--t-xs); color: var(--text-muted);">@L["Label.StartingFrom"]</div>
+                                    <div><Money Amount="@minPrice" /></div>
+                                    <div style="font-size: var(--t-xs); color: var(--text-muted);">@L["Label.PerNight"]</div>
+                                </div>
+                            }
+                            <button class="btn btn-primary btn-sm" @onclick="() => ViewHotel(hotel)">@L["Hotels.ViewRooms"]</button>
+                        </div>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="empty">
+            <h3>@L["Hotels.EmptyTitle"]</h3>
+            <p>@L["Hotels.EmptyBody"]</p>
+            <button class="btn btn-secondary" @onclick="Reset">@L["Action.Reset"]</button>
+        </div>
+    }
+</div>
+
+@if (_showHotelDetail && _selectedHotel is not null)
+{
+    <div class="modal-scrim" @onclick="() => _showHotelDetail = false">
+        <div class="modal modal-lg" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="hotel-title">
+            <ImageGallery Src="@_selectedHotel.ImageUrl" Urls="@_selectedHotel.ImageUrls"
+                          Alt="@_selectedHotel.Name" Fallback="🏨" />
+
+            <h2 id="hotel-title" style="margin-top: var(--s-4);">@_selectedHotel.Name</h2>
+            <p style="color: var(--text-secondary); font-size: var(--t-sm); margin: var(--s-1) 0 var(--s-3);">
+                @_selectedHotel.City, @_selectedHotel.Country · @(new string('★', _selectedHotel.StarRating))
+                · rating @_selectedHotel.AverageRating.ToString("F1") dari @_selectedHotel.ReviewCount ulasan
+            </p>
+            <p style="color: var(--text-secondary);">@_selectedHotel.Description</p>
+
+            <h3 style="margin: var(--s-5) 0 var(--s-3);">@L["Hotels.RoomOptions"]</h3>
+
+            @if (_hotelRooms.Any())
+            {
+                <div style="display:flex; flex-direction:column; gap: var(--s-4);">
+                    @foreach (var room in _hotelRooms)
+                    {
+                        <div class="room-row">
+                            <div class="room-media">
+                                <ImageGallery Src="@room.ImageUrl" Urls="@room.ImageUrls"
+                                              Alt="@($"{room.Name} di {_selectedHotel.Name}")" Fallback="🛏️" />
+                            </div>
+
+                            <div class="room-info">
+                                <h4>@room.Name</h4>
+                                <p style="font-size: var(--t-sm); color: var(--text-secondary); margin: var(--s-1) 0;">
+                                    @room.Capacity tamu@(room.HasBreakfast ? " · termasuk sarapan" : "")@(room.IsRefundable ? " · bisa refund" : "")
+                                </p>
+                                <p style="font-size: var(--t-xs); color: var(--text-muted);">
+                                    Tersisa @room.AvailableRooms kamar
+                                </p>
+
+                                <div class="room-buy">
+                                    <div>
+                                        <div><Money Amount="@room.PricePerNight" /></div>
+                                        <div style="font-size: var(--t-xs); color: var(--text-muted);">@L["Label.PerNight"]</div>
+                                    </div>
+                                    <button class="btn btn-primary btn-sm" @onclick="() => BookRoom(room)"
+                                            disabled="@(room.AvailableRooms <= 0)">
+                                        @(room.AvailableRooms > 0 ? L["Action.Book"] : L["Hotels.Full"])
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <p style="color: var(--text-secondary);">Belum ada kamar yang terdaftar untuk properti ini.</p>
+            }
+
+            @* ---- Ulasan tamu: hanya yang sudah lolos moderasi admin ---- *@
+            <h3 style="margin: var(--s-6) 0 var(--s-3);">@L["Reviews.Title"]</h3>
+
+            @if (_reviews.Any())
+            {
+                <div class="review-list">
+                    @foreach (var r in _reviews)
+                    {
+                        <div class="review">
+                            <div class="review-top">
+                                <div>
+                                    <strong>@(r.Title ?? r.AuthorName)</strong>
+                                    <div class="review-meta">
+                                        @r.AuthorName · @L["Reviews.Stayed"] @r.StayDate.ToString("MMM yyyy")
+                                    </div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <span class="code stars">@(new string('★', Math.Clamp(r.Rating, 0, 5)))</span>
+                                    @if (r.IsVerified)
+                                    {
+                                        <div class="badge badge-success" style="margin-top:4px;">@L["Reviews.Verified"]</div>
+                                    }
+                                </div>
+                            </div>
+                            <p class="review-body">@r.Comment</p>
+                            @if (r.Pros is not null || r.Cons is not null)
+                            {
+                                <div class="review-pc">
+                                    @if (r.Pros is not null) { <span>👍 @r.Pros</span> }
+                                    @if (r.Cons is not null) { <span>👎 @r.Cons</span> }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <p style="color: var(--text-secondary); font-size: var(--t-sm);">@L["Reviews.None"]</p>
+            }
+
+            <AuthorizeView>
+                <Authorized>
+                    @if (_reviewMessage is not null)
+                    {
+                        <p class="@(_reviewOk ? "note-ok" : "note-err")">@_reviewMessage</p>
+                    }
+
+                    @if (!_reviewOk)
+                    {
+                        <div class="review-form">
+                            <div class="section-title" style="margin-top:0;">@L["Reviews.WriteTitle"]</div>
+
+                            <div class="field">
+                                <label for="rv-rating">@L["Reviews.Rating"]</label>
+                                <select id="rv-rating" @bind="_newRating">
+                                    @for (var s = 5; s >= 1; s--)
+                                    {
+                                        <option value="@s">@(new string('★', s)) (@s)</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="field" style="margin-top: var(--s-3);">
+                                <label for="rv-title">@L["Reviews.Headline"]</label>
+                                <input id="rv-title" @bind="_newTitle" maxlength="80" />
+                            </div>
+
+                            <div class="field" style="margin-top: var(--s-3);">
+                                <label for="rv-body">@L["Reviews.Comment"]</label>
+                                <textarea id="rv-body" rows="3" @bind="_newComment" maxlength="600"></textarea>
+                            </div>
+
+                            <div class="grid grid-2" style="margin-top: var(--s-3);">
+                                <div class="field">
+                                    <label for="rv-pros">@L["Reviews.Pros"]</label>
+                                    <input id="rv-pros" @bind="_newPros" maxlength="120" />
+                                </div>
+                                <div class="field">
+                                    <label for="rv-cons">@L["Reviews.Cons"]</label>
+                                    <input id="rv-cons" @bind="_newCons" maxlength="120" />
+                                </div>
+                            </div>
+
+                            <p style="font-size: var(--t-xs); color: var(--text-muted); margin-top: var(--s-2);">
+                                @L["Reviews.ModerationNote"]
+                            </p>
+
+                            <button class="btn btn-primary btn-sm" style="margin-top: var(--s-3);"
+                                    @onclick="SubmitReview" disabled="@_submittingReview">
+                                @(_submittingReview ? L["Action.Processing"] : L["Reviews.Submit"])
+                            </button>
+                        </div>
+                    }
+                </Authorized>
+                <NotAuthorized>
+                    <p style="font-size: var(--t-sm); color: var(--text-muted); margin-top: var(--s-4);">
+                        <a href="/login">@L["Top.SignIn"]</a> @L["Reviews.LoginToWrite"]
+                    </p>
+                </NotAuthorized>
+            </AuthorizeView>
+
+            <div style="display:flex; justify-content:flex-end; margin-top: var(--s-5);">
+                <button class="btn btn-ghost" @onclick="() => _showHotelDetail = false">@L["Action.Close"]</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_bookingSuccess)
+{
+    <div class="modal-scrim">
+        <div class="modal" style="text-align:center;" role="dialog" aria-modal="true">
+            <div style="font-size:3rem;">🎫</div>
+            <h2 style="margin: var(--s-3) 0 var(--s-2);">@L["Label.Confirmed"]</h2>
+            <p style="color: var(--text-secondary);">@L["Label.BookingCode"]</p>
+            <p class="code booking-code">@_bookingCode</p>
+            <div style="display:flex; gap: var(--s-2); justify-content:center; margin-top: var(--s-5); flex-wrap: wrap;">
+                <a class="btn btn-primary" href="@($"/payment-checkout/hotel/{_bookingCode}")">@L["Action.PayNow"]</a>
+                <a class="btn btn-ghost" href="@($"/eticket/hotel/{_bookingCode}")">Lihat voucher</a>
+                <button class="btn btn-ghost" @onclick="() => _bookingSuccess = false">@L["Action.Close"]</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .search-row { display: flex; gap: var(--s-3); align-items: flex-end; flex-wrap: wrap; }
+    .search-row .field { flex: 1; min-width: 160px; }
+    .search-row .btn { flex: none; }
+
+    .result-count { font-size: var(--t-sm); color: var(--text-secondary); margin-bottom: var(--s-3); }
+
+    .clamp-2 {
+        font-size: var(--t-sm);
+        color: var(--text-muted);
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .card-foot {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: var(--s-3);
+        margin-top: auto;
+        padding-top: var(--s-3);
+        border-top: 2px solid var(--border-color);
+    }
+
+    .modal-lg { max-width: 780px; }
+
+    .room-row {
+        display: grid;
+        grid-template-columns: 260px 1fr;
+        gap: var(--s-4);
+        padding: var(--s-4);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-lg);
+    }
+
+    .room-buy {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: var(--s-3);
+        margin-top: var(--s-3);
+        padding-top: var(--s-3);
+        border-top: 1px solid var(--border-color);
+    }
+
+    .booking-code {
+        font-size: 1.5rem; font-weight: 700; letter-spacing: 0.08em;
+        padding: var(--s-3); margin-top: var(--s-2);
+        border: 2px dashed var(--border-strong); border-radius: var(--radius-md);
+        background: var(--bg-tertiary); word-break: break-all;
+    }
+
+    .review-list { display: flex; flex-direction: column; gap: var(--s-2); }
+
+    .review {
+        padding: var(--s-3) var(--s-4);
+        background: var(--bg-tertiary);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-md);
+    }
+    .review-top {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        gap: var(--s-3); margin-bottom: var(--s-2);
+    }
+    .review-meta { font-size: var(--t-xs); color: var(--text-muted); margin-top: 2px; }
+    .review-body { font-size: var(--t-sm); color: var(--text-secondary); }
+    .review-pc {
+        display: flex; gap: var(--s-4); flex-wrap: wrap;
+        margin-top: var(--s-2); font-size: var(--t-xs); color: var(--text-secondary);
+    }
+    .stars { color: var(--accent-secondary); letter-spacing: 1px; }
+
+    .review-form {
+        margin-top: var(--s-5); padding-top: var(--s-4);
+        border-top: 2px solid var(--border-color);
+    }
+    .note-ok { color: var(--accent-success); font-weight: 600; font-size: var(--t-sm); margin-top: var(--s-4); }
+    .note-err { color: var(--accent-danger); font-weight: 600; font-size: var(--t-sm); margin-top: var(--s-4); }
+
+    @@media (max-width: 640px) {
+        .room-row { grid-template-columns: minmax(0, 1fr); }
+    }
+</style>
+
+@code {
+    private List<Hotel> _hotels = new();
+    private List<Room> _hotelRooms = new();
+    private List<string> _cities = new();
+    private string? _searchCity, _minStars, _typeFilter;
+    private bool _showHotelDetail, _bookingSuccess;
+    private Hotel? _selectedHotel;
+    private string _bookingCode = "";
+
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<HotelReview> _reviews = new();
+    private int _newRating = 5;
+    private string _newTitle = "", _newComment = "", _newPros = "", _newCons = "";
+    private string? _reviewMessage;
+    private bool _reviewOk, _submittingReview;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cities = await DbContext.Hotels.AsNoTracking()
+            .Select(h => h.City).Distinct().OrderBy(c => c).ToListAsync();
+
+        ReadQueryString();
+        await Search();
+    }
+
+    private void ReadQueryString()
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(Navigation.Uri).Query);
+        if (!string.IsNullOrEmpty(query["city"])) _searchCity = query["city"];
+    }
+
+    private async Task Search()
+    {
+        var query = DbContext.Hotels.AsNoTracking().Include(h => h.Rooms).AsQueryable();
+
+        if (!string.IsNullOrEmpty(_searchCity)) query = query.Where(h => h.City == _searchCity);
+        if (!string.IsNullOrEmpty(_typeFilter)) query = query.Where(h => h.Type == _typeFilter);
+
+        if (int.TryParse(_minStars, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var stars))
+            query = query.Where(h => h.StarRating >= stars);
+
+        _hotels = await query.OrderByDescending(h => h.AverageRating).Take(24).ToListAsync();
+    }
+
+    private async Task Reset()
+    {
+        _searchCity = _minStars = _typeFilter = null;
+        await Search();
+    }
+
+    private async Task ViewHotel(Hotel hotel)
+    {
+        _selectedHotel = hotel;
+        _hotelRooms = await DbContext.Rooms.AsNoTracking()
+            .Where(r => r.HotelId == hotel.Id)
+            .OrderBy(r => r.PricePerNight)
+            .ToListAsync();
+
+        // Only moderator-approved reviews are ever fetched for the public view.
+        _reviews = await Reviews.GetApprovedAsync(hotel.Id);
+
+        _reviewMessage = null;
+        _reviewOk = false;
+        _newRating = 5;
+        _newTitle = _newComment = _newPros = _newCons = "";
+
+        _showHotelDetail = true;
+    }
+
+    private async Task SubmitReview()
+    {
+        if (_selectedHotel is null) return;
+
+        _submittingReview = true;
+        try
+        {
+            var state = await AuthState;
+
+            if (!Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId))
+            {
+                _reviewMessage = L["Reviews.LoginToWrite"];
+                _reviewOk = false;
+                return;
+            }
+
+            var author = state.User.FindFirst(ClaimTypes.Name)?.Value;
+
+            var (success, message) = await Reviews.SubmitAsync(
+                _selectedHotel.Id, userId, author,
+                _newRating, _newTitle, _newComment, _newPros, _newCons, null);
+
+            _reviewMessage = message;
+            _reviewOk = success;
+        }
+        finally { _submittingReview = false; }
+    }
+
+    private async Task BookRoom(Room room)
+    {
+        // The listed room is untracked, so adjust availability on a tracked copy.
+        var tracked = await DbContext.Rooms.FirstOrDefaultAsync(r => r.Id == room.Id);
+        if (tracked is null || tracked.AvailableRooms <= 0) return;
+
+        var booking = new HotelBooking
+        {
+            UserId = Guid.NewGuid(),
+            RoomId = room.Id,
+            BookingCode = $"JKA-HT-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(1000, 9999)}",
+            Status = "Confirmed",
+            CheckInDate = DateTime.UtcNow.AddDays(7),
+            CheckOutDate = DateTime.UtcNow.AddDays(9),
+            Nights = 2,
+            TotalPrice = room.PricePerNight * 2,
+            BookingDate = DateTime.UtcNow,
+            GuestCount = room.Capacity
+        };
+
+        DbContext.HotelBookings.Add(booking);
+        tracked.AvailableRooms--;
+        await DbContext.SaveChangesAsync();
+
+        _bookingCode = booking.BookingCode;
+        _showHotelDetail = false;
+        _bookingSuccess = true;
+    }
+
+    private static string Rupiah(decimal value) => $"Rp{value:N0}";
+
+    private static IEnumerable<string> Facilities(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return Array.Empty<string>();
+        try { return System.Text.Json.JsonSerializer.Deserialize<string[]>(json)?.Take(4) ?? Array.Empty<string>(); }
+        catch { return Array.Empty<string>(); }
+    }
+}

@@ -1,0 +1,334 @@
+@page "/profile"
+@using System.Security.Claims
+@attribute [Authorize]
+@inject AuthService AuthService
+@inject Joka.Services.Storage.StorageServiceFactory StorageFactory
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>@L["Profile.Title"] — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Nav.Yours"]</p>
+        <h1>@L["Profile.Title"]</h1>
+        <p class="lede">@L["Profile.Lede"]</p>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="skeleton" style="height:300px;"></div>
+    }
+    else
+    {
+        <div class="grid grid-2" style="gap: var(--s-5); align-items:start;">
+
+            @* ---- Identity ---- *@
+            <div class="card identity">
+                <div class="avatar-slot">
+                    <MediaImage Src="@_avatarUrl" Alt="@_fullName" Fallback="👤" CssClass="avatar" />
+
+                    @if (_uploading)
+                    {
+                        <div class="avatar-veil">@L["Profile.PhotoUploading"]</div>
+                    }
+                </div>
+
+                @* The file input itself is hidden: a bare <input type=file> ignores
+                   the design system, so the label is styled as the button instead. *@
+                <div class="avatar-actions">
+                    <label class="btn btn-secondary btn-sm" for="avatar">@L["Profile.ChangePhoto"]</label>
+                    <InputFile id="avatar" OnChange="OnAvatarSelected" class="visually-hidden"
+                               accept="image/jpeg,image/png,image/webp" disabled="@_uploading" />
+
+                    @if (!string.IsNullOrWhiteSpace(_avatarUrl))
+                    {
+                        <button class="btn btn-ghost btn-sm" @onclick="RemoveAvatar" disabled="@_uploading">
+                            @L["Profile.RemovePhoto"]
+                        </button>
+                    }
+                </div>
+
+                <p class="micro">@L["Profile.PhotoHint"]</p>
+
+                @if (_avatarMessage is not null)
+                {
+                    <p class="@(_avatarFailed ? "note-bad" : "note-ok")">@_avatarMessage</p>
+                }
+
+                <h2 style="margin-top: var(--s-4);">@_fullName</h2>
+                <p class="code muted">@@@_username</p>
+                <p class="muted">@_email</p>
+
+                <div class="identity-stats">
+                    <div>
+                        <span class="stat-label">@L["Profile.Tier"]</span>
+                        <span class="badge badge-warning">@_membershipTier</span>
+                    </div>
+                    <div>
+                        <span class="stat-label">@L["Profile.Points"]</span>
+                        <strong class="code">@_loyaltyPoints.ToString("N0")</strong>
+                    </div>
+                    <div>
+                        <span class="stat-label">@L["Profile.Member"]</span>
+                        <strong class="code">@_memberSince.ToString("MMM yyyy")</strong>
+                    </div>
+                </div>
+
+                <div class="identity-actions">
+                    <a class="btn btn-secondary btn-sm" href="/my-points">@L["Profile.ViewPoints"]</a>
+
+                    @* Plain form post: sign-out has to happen on a real request. *@
+                    <form action="/logout" method="post">
+                        <button type="submit" class="btn btn-ghost btn-sm">@L["Profile.SignOut"]</button>
+                    </form>
+                </div>
+            </div>
+
+            @* ---- Editable details ---- *@
+            <div class="card">
+                <h2 style="margin-bottom: var(--s-4);">@L["Profile.Lede"]</h2>
+
+                @if (_saveMessage is not null)
+                {
+                    <p class="note-ok">@_saveMessage</p>
+                }
+
+                <div class="field">
+                    <label for="name">@L["Profile.FullName"]</label>
+                    <input id="name" @bind="_editFullName" />
+                </div>
+
+                <div class="field" style="margin-top: var(--s-3);">
+                    <label for="phone">@L["Profile.Phone"]</label>
+                    <input id="phone" @bind="_editPhone" placeholder="+62…" />
+                </div>
+
+                <div class="grid grid-2" style="margin-top: var(--s-3);">
+                    <div class="field">
+                        <label for="lang">@L["Top.Language"]</label>
+                        <select id="lang" @bind="_editLanguage">
+                            <option value="id">Bahasa Indonesia</option>
+                            <option value="en">English</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="cur">@L["Top.Currency"]</label>
+                        <select id="cur" @bind="_editCurrency">
+                            <option value="IDR">IDR</option>
+                            <option value="USD">USD</option>
+                            <option value="SGD">SGD</option>
+                            <option value="EUR">EUR</option>
+                        </select>
+                    </div>
+                </div>
+
+                @* Honest about scope: these are stored on the account, while the
+                   top bar switcher drives what the current session displays. *@
+                <p class="micro" style="margin-top: var(--s-2);">
+                    Preferensi ini tersimpan di akun. Untuk sesi saat ini, gunakan pemilih di bilah atas.
+                </p>
+
+                <button class="btn btn-primary" style="margin-top: var(--s-4);"
+                        @onclick="SaveProfile" disabled="@_saving">
+                    @(_saving ? L["Action.Processing"] : L["Action.Save"])
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .identity { text-align: center; }
+    .identity .avatar { width: 110px; aspect-ratio: 1; margin: 0 auto; border-radius: 50%; }
+    .muted { color: var(--text-secondary); font-size: var(--t-sm); }
+
+    .avatar-slot { position: relative; width: 110px; margin: 0 auto; }
+    .avatar-veil {
+        position: absolute; inset: 0; border-radius: 50%;
+        display: grid; place-items: center;
+        background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+        font-size: var(--t-xs); font-weight: 600; color: var(--text-secondary);
+    }
+
+    .avatar-actions {
+        display: flex; gap: var(--s-2); justify-content: center;
+        flex-wrap: wrap; margin-top: var(--s-3);
+    }
+    /* The label stands in for the file input, so it needs the pointer too. */
+    .avatar-actions label { cursor: pointer; margin: 0; }
+
+    .identity-stats {
+        display: grid; grid-template-columns: repeat(3, 1fr);
+        gap: var(--s-3); margin: var(--s-5) 0;
+        padding: var(--s-4) 0;
+        border-top: 2px solid var(--border-color);
+        border-bottom: 2px solid var(--border-color);
+    }
+    .stat-label {
+        display: block; font-size: var(--t-xs); letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--text-muted); margin-bottom: var(--s-1);
+    }
+
+    .identity-actions { display: flex; gap: var(--s-2); justify-content: center; flex-wrap: wrap; }
+    .note-ok { color: var(--accent-success); font-weight: 600; font-size: var(--t-sm); margin-bottom: var(--s-3); }
+    .micro { font-size: var(--t-xs); color: var(--text-muted); }
+</style>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private Guid _userId;
+    private string _username = "", _fullName = "", _email = "", _membershipTier = "";
+    private string? _avatarUrl;
+    private int _loyaltyPoints;
+    private DateTime _memberSince = DateTime.UtcNow;
+
+    private string _editFullName = "", _editPhone = "", _editLanguage = "id", _editCurrency = "IDR";
+    private string? _saveMessage;
+    private bool _loading = true, _saving;
+
+    private string? _avatarMessage;
+    private bool _uploading, _avatarFailed;
+
+    // Deliberately narrower than AppSettings:AllowedUploadExtensions, which also
+    // permits .pdf and .docx: an avatar is rendered as an image on a page other
+    // people load, so only real raster formats belong here. The extension is
+    // taken from this map rather than from the uploaded file name - a name like
+    // "cat.png.html" served back from wwwroot would be stored XSS.
+    private static readonly Dictionary<string, string> AllowedAvatarTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["image/jpeg"] = ".jpg",
+        ["image/png"] = ".png",
+        ["image/webp"] = ".webp"
+    };
+
+    private const long MaxAvatarBytes = 2 * 1024 * 1024;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState;
+
+        if (Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id))
+        {
+            _userId = id;
+            var user = await AuthService.GetUserByIdAsync(id);
+
+            if (user is not null)
+            {
+                _username = user.Username;
+                _fullName = user.FullName ?? user.Username;
+                _email = user.Email;
+                _membershipTier = user.MembershipTier;
+                _loyaltyPoints = user.LoyaltyPoints;
+                _avatarUrl = user.AvatarUrl;
+                _memberSince = user.CreatedAt;
+
+                _editFullName = user.FullName ?? "";
+                _editPhone = user.PhoneNumber ?? "";
+                _editLanguage = user.PreferredLanguage;
+                _editCurrency = user.PreferredCurrency;
+            }
+        }
+
+        _loading = false;
+    }
+
+    private async Task OnAvatarSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        _avatarMessage = null;
+        _avatarFailed = false;
+
+        if (!AllowedAvatarTypes.TryGetValue(file.ContentType ?? "", out var extension))
+        {
+            SetAvatarError(L["Profile.PhotoWrongType"]);
+            return;
+        }
+
+        if (file.Size > MaxAvatarBytes)
+        {
+            SetAvatarError(L["Profile.PhotoTooBig"]);
+            return;
+        }
+
+        _uploading = true;
+        try
+        {
+            var storage = StorageFactory.Create();
+
+            // Keyed by user id so one account's avatars stay together, and by a
+            // fresh Guid so a new upload never has to overwrite a file that a
+            // still-open page is pointing at.
+            var name = $"avatars/{_userId:N}/{Guid.NewGuid():N}{extension}";
+
+            await using var stream = file.OpenReadStream(MaxAvatarBytes);
+            var url = await storage.UploadAsync(name, stream, file.ContentType!);
+
+            await PersistAvatarAsync(url, L["Profile.PhotoSaved"]);
+        }
+        catch (Exception)
+        {
+            // The provider's own message can name a bucket or a path, so it is
+            // logged by the storage layer rather than shown to the customer.
+            SetAvatarError(L["Profile.PhotoFailed"]);
+        }
+        finally { _uploading = false; }
+    }
+
+    private async Task RemoveAvatar()
+    {
+        // Only the reference is dropped. The blob is left in storage on purpose:
+        // deleting it would break any e-ticket or review still rendering it.
+        await PersistAvatarAsync("", L["Profile.PhotoRemoved"]);
+    }
+
+    private async Task PersistAvatarAsync(string url, string successMessage)
+    {
+        // AvatarUrl is null-coalesced in UpdateProfileAsync, so an empty string
+        // is what actually clears it - null would mean "leave it alone".
+        var (success, _) = await AuthService.UpdateProfileAsync(_userId, new UpdateProfileRequest
+        {
+            AvatarUrl = url
+        });
+
+        if (!success)
+        {
+            SetAvatarError(L["Profile.PhotoFailed"]);
+            return;
+        }
+
+        _avatarUrl = string.IsNullOrEmpty(url) ? null : url;
+        _avatarMessage = successMessage;
+        _avatarFailed = false;
+    }
+
+    private void SetAvatarError(string message)
+    {
+        _avatarMessage = message;
+        _avatarFailed = true;
+    }
+
+    private async Task SaveProfile()
+    {
+        _saving = true;
+        try
+        {
+            var request = new UpdateProfileRequest
+            {
+                FullName = _editFullName,
+                PhoneNumber = _editPhone,
+                PreferredLanguage = _editLanguage,
+                PreferredCurrency = _editCurrency
+            };
+
+            var (success, _) = await AuthService.UpdateProfileAsync(_userId, request);
+
+            if (success)
+            {
+                _fullName = string.IsNullOrWhiteSpace(_editFullName) ? _username : _editFullName;
+                _saveMessage = L["Profile.Saved"];
+            }
+        }
+        finally { _saving = false; }
+    }
+}

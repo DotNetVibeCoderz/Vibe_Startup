@@ -1,0 +1,87 @@
+@* Add/remove a product from the signed-in user's wishlist.
+   Before this existed nothing ever wrote to WishlistItem, so /wishlist could
+   only ever be empty. *@
+@using System.Security.Claims
+@inject AppDbContext DbContext
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Navigation
+
+<button type="button"
+        class="wish-btn @(_saved ? "saved" : "")"
+        title="@(_userId is null ? "Masuk untuk menyimpan" : _saved ? "Hapus dari wishlist" : "Simpan ke wishlist")"
+        aria-pressed="@_saved"
+        aria-label="@(_saved ? $"Hapus {ItemName} dari wishlist" : $"Simpan {ItemName} ke wishlist")"
+        @onclick="Toggle" @onclick:stopPropagation="true">
+    @(_saved ? "❤️" : "🤍")
+</button>
+
+<style>
+    .wish-btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 36px; height: 36px; flex: none;
+        font-size: 1.05rem; line-height: 1; cursor: pointer;
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-color);
+        border-radius: 50%;
+        transition: var(--transition);
+    }
+    .wish-btn:hover { border-color: var(--accent-danger); transform: scale(1.08); }
+    .wish-btn.saved { border-color: var(--accent-danger); }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public string ItemType { get; set; } = "";
+    [Parameter, EditorRequired] public string ItemId { get; set; } = "";
+    [Parameter, EditorRequired] public string ItemName { get; set; } = "";
+    [Parameter] public decimal? Price { get; set; }
+    [Parameter] public string? ImageUrl { get; set; }
+
+    private Guid? _userId;
+    private bool _saved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+
+        if (Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id))
+        {
+            _userId = id;
+            _saved = await DbContext.WishlistItems.AsNoTracking()
+                .AnyAsync(w => w.UserId == id && w.ItemType == ItemType && w.ItemId == ItemId);
+        }
+    }
+
+    private async Task Toggle()
+    {
+        if (_userId is not Guid userId)
+        {
+            Navigation.NavigateTo($"/login?ReturnUrl={Uri.EscapeDataString(new Uri(Navigation.Uri).PathAndQuery)}");
+            return;
+        }
+
+        var existing = await DbContext.WishlistItems
+            .FirstOrDefaultAsync(w => w.UserId == userId && w.ItemType == ItemType && w.ItemId == ItemId);
+
+        if (existing is not null)
+        {
+            DbContext.WishlistItems.Remove(existing);
+            _saved = false;
+        }
+        else
+        {
+            DbContext.WishlistItems.Add(new WishlistItem
+            {
+                UserId = userId,
+                ItemType = ItemType,
+                ItemId = ItemId,
+                ItemName = ItemName,
+                Price = Price,
+                ItemImageUrl = ImageUrl,
+                AddedAt = DateTime.UtcNow
+            });
+            _saved = true;
+        }
+
+        await DbContext.SaveChangesAsync();
+    }
+}

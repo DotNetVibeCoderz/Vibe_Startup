@@ -1,0 +1,369 @@
+@page "/transport"
+@using System.Security.Claims
+@using Joka.Models.Transport
+@inject TransportService Rides
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>@L["Transport.Title"] — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Transport.Eyebrow"]</p>
+        <h1>@L["Transport.Title"]</h1>
+        <p class="lede">@L["Transport.Lede"]</p>
+    </div>
+
+    <div class="card" style="margin-bottom: var(--s-5);">
+        <div class="mode-switch">
+            <button class="tag @(_serviceType == TransportService.RideHailing ? "active" : "")"
+                    @onclick='() => SwitchMode(TransportService.RideHailing)'>
+                🛵 @L["Transport.RideHailing"]
+            </button>
+            <button class="tag @(_serviceType == TransportService.AirportTransfer ? "active" : "")"
+                    @onclick='() => SwitchMode(TransportService.AirportTransfer)'>
+                ✈️ @L["Transport.AirportTransfer"]
+            </button>
+        </div>
+
+        <div class="search-row">
+            <div class="field" style="flex:2;">
+                <label for="city">@L["Home.CityOrDestination"]</label>
+                <select id="city" @bind="_city">
+                    <option value="">@L["Label.AllCities"]</option>
+                    @foreach (var c in _cities)
+                    {
+                        <option value="@c">@c</option>
+                    }
+                </select>
+            </div>
+
+            @if (_serviceType == TransportService.RideHailing)
+            {
+                <div class="field">
+                    <label for="dist">@L["Transport.Distance"]</label>
+                    <input id="dist" type="number" min="1" max="120" step="1" @bind="_distanceKm" />
+                </div>
+
+                <div class="field">
+                    <label for="veh">@L["Transport.Vehicle"]</label>
+                    <select id="veh" @bind="_vehicleType">
+                        <option value="">@L["Transport.AnyVehicle"]</option>
+                        <option value="Motorcycle">@L["Transport.Motorcycle"]</option>
+                        <option value="Car">@L["Transport.Car"]</option>
+                    </select>
+                </div>
+            }
+            else
+            {
+                <div class="field">
+                    <label for="apt">@L["Transport.Airport"]</label>
+                    <select id="apt" @bind="_airportCode">
+                        <option value="">@L["Transport.AnyAirport"]</option>
+                        <option value="CGK">CGK — Soekarno-Hatta</option>
+                        <option value="DPS">DPS — Ngurah Rai</option>
+                        <option value="YIA">YIA — Yogyakarta</option>
+                        <option value="SUB">SUB — Juanda</option>
+                    </select>
+                </div>
+            }
+
+            <button class="btn btn-primary" @onclick="Search">@L["Action.Search"]</button>
+            <button class="btn btn-ghost" @onclick="Reset">@L["Action.Reset"]</button>
+        </div>
+
+        @if (_serviceType == TransportService.RideHailing)
+        {
+            <p class="hint">@L["Transport.DistanceHint"]</p>
+        }
+    </div>
+
+    @if (_loading)
+    {
+        <div class="grid grid-3">
+            @for (var i = 0; i < 3; i++)
+            {
+                <div class="skeleton" style="height:230px; border-radius: var(--radius-lg);"></div>
+            }
+        </div>
+    }
+    else if (!_quotes.Any())
+    {
+        <div class="empty">
+            <div style="font-size:3rem;">🛵</div>
+            <h3>@L["State.NoResults"]</h3>
+            <p>@L["Transport.NoResultsBody"]</p>
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-3">
+            @foreach (var q in _quotes)
+            {
+                <article class="card ride">
+                    <MediaImage Src="@q.Option.ImageUrl" Alt="@q.Option.Name" Fallback="🚗" CssClass="ride-media" />
+
+                    <div class="ride-top">
+                        <div>
+                            <h3>@q.Option.Name</h3>
+                            <p class="micro">@q.Option.Provider?.Name · ⭐ @q.Option.Provider?.Rating.ToString("0.0")</p>
+                        </div>
+                        <span class="tag">@VehicleLabel(q.Option.VehicleType)</span>
+                    </div>
+
+                    <p class="ride-desc">@q.Option.Description</p>
+
+                    <div class="ride-facts">
+                        <span>👥 @q.Option.Capacity</span>
+                        <span>⏱ @q.EstimatedMinutes @L["Transport.Minutes"]</span>
+                        @if (q.Option.RouteArea is not null)
+                        {
+                            <span>📍 @q.Option.RouteArea</span>
+                        }
+                    </div>
+
+                    <div class="ride-buy">
+                        <div>
+                            <Money Amount="@q.Fare" />
+                            <div class="micro">
+                                @(q.Option.PricingMode == "Flat"
+                                    ? L["Transport.FlatRate"]
+                                    : $"{L["Transport.For"]} {_distanceKm} km")
+                            </div>
+                        </div>
+                        <button class="btn btn-primary btn-sm" @onclick="() => OpenBooking(q)">@L["Action.Book"]</button>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+</div>
+
+@if (_selected is not null)
+{
+    <div class="modal-scrim" @onclick="() => _selected = null">
+        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true">
+            <h2 style="margin-bottom: var(--s-1);">@_selected.Option.Name</h2>
+            <p class="micro" style="margin-bottom: var(--s-4);">
+                @_selected.Option.Provider?.Name · <Money Amount="@_selected.Fare" />
+            </p>
+
+            @if (_bookingError is not null)
+            {
+                <p class="note-err">@_bookingError</p>
+            }
+
+            <div class="field">
+                <label for="pickup">@L["Transport.Pickup"]</label>
+                <input id="pickup" @bind="_pickup" maxlength="160" />
+            </div>
+
+            <div class="field" style="margin-top: var(--s-3);">
+                <label for="dropoff">@L["Transport.Dropoff"]</label>
+                <input id="dropoff" @bind="_dropoff" maxlength="160" />
+            </div>
+
+            <div class="grid grid-2" style="margin-top: var(--s-3);">
+                <div class="field">
+                    <label for="when">@L["Transport.PickupTime"]</label>
+                    <input id="when" type="datetime-local" @bind="_pickupTime" />
+                </div>
+                <div class="field">
+                    <label for="pax">@L["Label.Passengers"]</label>
+                    <input id="pax" type="number" min="1" max="@_selected.Option.Capacity" @bind="_passengers" />
+                </div>
+            </div>
+
+            @if (_selected.Option.ServiceType == TransportService.AirportTransfer)
+            {
+                <div class="field" style="margin-top: var(--s-3);">
+                    <label for="flight">@L["Transport.FlightNumber"]</label>
+                    <input id="flight" @bind="_flightNumber" placeholder="GA-201" />
+                    <p class="micro" style="margin-top:4px;">@L["Transport.FlightHint"]</p>
+                </div>
+            }
+
+            <div class="field" style="margin-top: var(--s-3);">
+                <label for="notes">@L["Transport.Notes"]</label>
+                <input id="notes" @bind="_notes" maxlength="200" />
+            </div>
+
+            <div style="display:flex; gap: var(--s-2); justify-content:flex-end; margin-top: var(--s-5);">
+                <button class="btn btn-ghost" @onclick="() => _selected = null">@L["Action.Close"]</button>
+                <button class="btn btn-primary" @onclick="Book" disabled="@_booking">
+                    @(_booking ? L["Action.Processing"] : L["Action.Book"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_confirmed is not null)
+{
+    <div class="modal-scrim">
+        <div class="modal" style="text-align:center;" role="dialog" aria-modal="true">
+            <div style="font-size:3rem;">🚗</div>
+            <h2 style="margin: var(--s-3) 0 var(--s-2);">@L["Label.Confirmed"]</h2>
+            <p style="color: var(--text-secondary);">@L["Label.BookingCode"]</p>
+            <p class="code booking-code">@_confirmed.BookingCode</p>
+
+            <p style="margin-top: var(--s-3); color: var(--text-secondary);">
+                @_confirmed.PickupAddress → @_confirmed.DropoffAddress<br />
+                @_confirmed.PickupTime.ToString("ddd, dd MMM yyyy · HH:mm")
+            </p>
+
+            <div style="display:flex; gap: var(--s-2); justify-content:center; margin-top: var(--s-5); flex-wrap:wrap;">
+                <a class="btn btn-primary" href="@($"/payment-checkout/transport/{_confirmed.BookingCode}")">@L["Action.PayNow"]</a>
+                <a class="btn btn-ghost" href="@($"/eticket/transport/{_confirmed.BookingCode}")">@L["Action.ViewEticket"]</a>
+                <button class="btn btn-ghost" @onclick="() => _confirmed = null">@L["Action.Close"]</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .mode-switch { display: flex; gap: var(--s-2); margin-bottom: var(--s-4); flex-wrap: wrap; }
+    .mode-switch .tag { cursor: pointer; }
+
+    .search-row { display: flex; gap: var(--s-3); align-items: flex-end; flex-wrap: wrap; }
+    .search-row .field { flex: 1; min-width: 150px; }
+
+    .hint { font-size: var(--t-xs); color: var(--text-muted); margin-top: var(--s-3); }
+
+    .ride { display: flex; flex-direction: column; }
+    .ride-media { aspect-ratio: 16 / 9; border-radius: var(--radius-md); margin-bottom: var(--s-3); }
+
+    .ride-top {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        gap: var(--s-2); margin-bottom: var(--s-2);
+    }
+    .ride-desc { font-size: var(--t-sm); color: var(--text-secondary); }
+    .micro { font-size: var(--t-xs); color: var(--text-muted); }
+
+    .ride-facts {
+        display: flex; gap: var(--s-3); flex-wrap: wrap;
+        margin-top: var(--s-3); font-size: var(--t-xs); color: var(--text-secondary);
+    }
+
+    .ride-buy {
+        display: flex; justify-content: space-between; align-items: flex-end;
+        gap: var(--s-3); margin-top: auto; padding-top: var(--s-4);
+    }
+
+    .note-err { color: var(--accent-danger); font-weight: 600; font-size: var(--t-sm); margin-bottom: var(--s-3); }
+
+    .booking-code {
+        font-size: 1.25rem; letter-spacing: 0.08em; padding: var(--s-2) var(--s-3);
+        border: 2px dashed var(--border-strong); border-radius: var(--radius-md);
+        display: inline-block; margin-top: var(--s-1);
+    }
+</style>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<TransportQuote> _quotes = new();
+    private List<string> _cities = new();
+
+    private string _serviceType = TransportService.RideHailing;
+    private string? _city, _vehicleType, _airportCode;
+    private double _distanceKm = 8;
+    private bool _loading = true;
+
+    private TransportQuote? _selected;
+    private TransportBooking? _confirmed;
+    private string _pickup = "", _dropoff = "", _flightNumber = "", _notes = "";
+    private DateTime _pickupTime = DateTime.Now.AddHours(1);
+    private int _passengers = 1;
+    private string? _bookingError;
+    private bool _booking;
+
+    private Guid? _userId;
+    private string? _email;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState;
+
+        if (Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id))
+            _userId = id;
+
+        _email = state.User.FindFirst(ClaimTypes.Email)?.Value;
+
+        _cities = await Rides.CitiesAsync();
+        await Search();
+    }
+
+    private async Task SwitchMode(string mode)
+    {
+        _serviceType = mode;
+        // The two modes filter on different things; carrying one over would
+        // silently return nothing.
+        _vehicleType = null;
+        _airportCode = null;
+        await Search();
+    }
+
+    private async Task Search()
+    {
+        _loading = true;
+        _quotes = await Rides.SearchAsync(_city, _serviceType, _vehicleType, _distanceKm, _airportCode);
+        _loading = false;
+    }
+
+    private async Task Reset()
+    {
+        _city = _vehicleType = _airportCode = null;
+        _distanceKm = 8;
+        await Search();
+    }
+
+    private void OpenBooking(TransportQuote quote)
+    {
+        _selected = quote;
+        _bookingError = null;
+        _passengers = 1;
+        _pickupTime = DateTime.Now.AddHours(1);
+        _pickup = _dropoff = _flightNumber = _notes = "";
+
+        // Prefill what we already know about a fixed airport route.
+        if (quote.Option.ServiceType == TransportService.AirportTransfer && quote.Option.AirportCode is not null)
+        {
+            _pickup = $"Bandara {quote.Option.AirportCode}";
+            _dropoff = quote.Option.RouteArea ?? "";
+        }
+    }
+
+    private async Task Book()
+    {
+        if (_selected is null) return;
+
+        _booking = true;
+        _bookingError = null;
+        try
+        {
+            var result = await Rides.BookAsync(
+                _userId, _selected.Option.Id, _pickup, _dropoff,
+                _pickupTime.ToUniversalTime(), _distanceKm, _passengers,
+                _flightNumber, _email, null, _notes);
+
+            if (!result.Success)
+            {
+                _bookingError = result.Message;
+                return;
+            }
+
+            _confirmed = result.Booking;
+            _selected = null;
+        }
+        finally { _booking = false; }
+    }
+
+    private string VehicleLabel(string type) => type switch
+    {
+        "Motorcycle" => L["Transport.Motorcycle"],
+        "Car" => L["Transport.Car"],
+        "MPV" => "MPV",
+        "Premium" => "Premium",
+        _ => type
+    };
+}

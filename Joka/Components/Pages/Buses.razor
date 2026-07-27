@@ -1,0 +1,477 @@
+@page "/buses"
+@using Joka.Models.Buses
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>Tiket Bus &amp; Shuttle — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Buses.Eyebrow"]</p>
+        <h1>@L["Buses.Title"]</h1>
+        <p class="lede">@L["Buses.Lede"]</p>
+    </div>
+
+    <div class="card" style="margin-bottom: var(--s-4);">
+        <div class="search-row">
+            <div class="field">
+                <label for="from">@L["Label.From"]</label>
+                <select id="from" @bind="_fromCode">
+                    <option value="">@L["Label.AllCities"]</option>
+                    @foreach (var t in _terminals) { <option value="@t.Code">@t.City — @t.Name</option> }
+                </select>
+            </div>
+            <div class="field">
+                <label for="to">@L["Label.To"]</label>
+                <select id="to" @bind="_toCode">
+                    <option value="">@L["Label.AllCities"]</option>
+                    @foreach (var t in _terminals) { <option value="@t.Code">@t.City — @t.Name</option> }
+                </select>
+            </div>
+            <div class="field">
+                <label for="date">@L["Label.DepartureDate"]</label>
+                <input id="date" type="date" @bind="_dateSearch" />
+            </div>
+            <button class="btn btn-primary" @onclick="Search">@L["Action.Search"]</button>
+            <button class="btn btn-ghost" @onclick="Reset">@L["Action.Reset"]</button>
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <span class="filter-label">@L["Buses.Kind"]</span>
+        <button class="tag @(_serviceType is null ? "active" : "")" @onclick="() => FilterType(null)">@L["Buses.All"]</button>
+        <button class="tag @(_serviceType == "Bus" ? "active" : "")" @onclick='() => FilterType("Bus")'>Bus</button>
+        <button class="tag @(_serviceType == "Shuttle" ? "active" : "")" @onclick='() => FilterType("Shuttle")'>Shuttle</button>
+
+        <span class="filter-sep"></span>
+
+        <span class="filter-label">@L["Label.SortBy"]</span>
+        <button class="tag @(_sortBy == "price" ? "active" : "")" @onclick='() => SortBy("price")'>@L["Label.Cheapest"]</button>
+        <button class="tag @(_sortBy == "departure" ? "active" : "")" @onclick='() => SortBy("departure")'>@L["Label.EarliestDeparture"]</button>
+        <button class="tag @(_sortBy == "duration" ? "active" : "")" @onclick='() => SortBy("duration")'>@L["Label.Fastest"]</button>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div style="display:flex; flex-direction:column; gap: var(--s-3);">
+            @for (var i = 0; i < 4; i++)
+            {
+                <div class="skeleton" style="height:150px; border-radius: var(--radius-lg);"></div>
+            }
+        </div>
+    }
+    else if (_schedules.Any())
+    {
+        <p class="result-count"><strong>@_schedules.Count</strong> @L["Buses.Found"]</p>
+
+        <div style="display:flex; flex-direction:column; gap: var(--s-3);">
+            @foreach (var schedule in _schedules)
+            {
+                var service = schedule.BusService;
+                <article class="stub">
+                    <div class="stub-main">
+                        <div class="stub-top">
+                            <span class="badge @(service?.ServiceType == "Shuttle" ? "badge-info" : "badge-quiet")">
+                                @(service?.ServiceType == "Shuttle" ? "Shuttle" : "Bus")
+                            </span>
+                            <strong>@service?.Operator?.Name</strong>
+                            <span class="code" style="font-size: var(--t-xs); color: var(--text-muted);">@service?.BusNumber</span>
+                            <span class="badge badge-quiet">@service?.Class</span>
+                        </div>
+
+                        <div class="board">
+                            <div>
+                                <div class="board-time">@schedule.DepartureTime.ToString("HH:mm")</div>
+                                <div class="board-code">@schedule.DepartureTerminal?.Code</div>
+                                <div class="board-city">@schedule.DepartureTerminal?.City</div>
+                            </div>
+                            <div class="board-path">
+                                <div class="board-meta">@FormatDuration(schedule.DurationMinutes)</div>
+                                <div class="rule"></div>
+                                <div class="board-meta">
+                                    @(schedule.ArrivalTime.Date > schedule.DepartureTime.Date ? L["Buses.ArrivesTomorrow"].Value : L["Flights.NonStop"].Value)
+                                </div>
+                            </div>
+                            <div>
+                                <div class="board-time">@schedule.ArrivalTime.ToString("HH:mm")</div>
+                                <div class="board-code">@schedule.ArrivalTerminal?.Code</div>
+                                <div class="board-city">@schedule.ArrivalTerminal?.City</div>
+                            </div>
+                        </div>
+
+                        <div class="stub-amenities">
+                            <span>💺 @service?.SeatLayout</span>
+                            @if (service?.HasAirConditioning == true) { <span>❄️ AC</span> }
+                            @if (service?.HasWifi == true) { <span>📶 WiFi</span> }
+                            @if (service?.HasToilet == true) { <span>🚻 Toilet</span> }
+                            @if (service?.HasRecliningSeat == true) { <span>🛋️ Kursi reclining</span> }
+                            @if (service?.HasDoorToDoor == true) { <span>🚪 Dijemput di alamat</span> }
+                            <span>@schedule.AvailableSeats @L["Flights.SeatsLeft"]</span>
+                        </div>
+                    </div>
+
+                    <div class="stub-end">
+                        <div>
+                            <div style="font-size: var(--t-xs); color: var(--text-muted);">@L["Label.PerPerson"]</div>
+                            <div><Money Amount="@schedule.BasePrice" /></div>
+                        </div>
+                        <button class="btn btn-primary btn-sm" @onclick="() => OpenBooking(schedule)">@L["Action.Select"]</button>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="empty">
+            <h3>@L["Buses.EmptyTitle"]</h3>
+            <p>@L["Buses.EmptyBody"]</p>
+            <button class="btn btn-secondary" @onclick="Reset">@L["Action.Reset"]</button>
+        </div>
+    }
+</div>
+
+@if (_showBookingModal && _selected is not null)
+{
+    <div class="modal-scrim" @onclick="CloseModal">
+        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="book-title">
+            <h2 id="book-title" style="margin-bottom: var(--s-4);">@L["Flights.ConfirmTitle"]</h2>
+
+            <div class="summary-row">
+                <span>@L["Buses.Fleet"]</span>
+                <strong>@_selected.BusService?.Operator?.Name · @_selected.BusService?.Class</strong>
+            </div>
+            <div class="summary-row">
+                <span>@L["Flights.Route"]</span>
+                <strong class="code">@_selected.DepartureTerminal?.Code → @_selected.ArrivalTerminal?.Code</strong>
+            </div>
+            <div class="summary-row">
+                <span>@L["Flights.Departs"]</span>
+                <strong>@_selected.DepartureTime.ToString("ddd, dd MMM yyyy · HH:mm")</strong>
+            </div>
+            <div class="summary-row">
+                <span>@L["Flights.PricePerPerson"]</span>
+                <strong><Money Amount="@(_selected.BasePrice)" /></strong>
+            </div>
+
+            <div class="field" style="margin-top: var(--s-4);">
+                <label for="pax">@L["Label.Passengers"]</label>
+                <input id="pax" type="number" @bind="_passengerCount" min="1" max="@_selected.AvailableSeats" />
+                <p style="font-size: var(--t-xs); color: var(--text-muted); margin-top: var(--s-1);">
+                    Tersedia @_selected.AvailableSeats kursi.
+                </p>
+            </div>
+
+            <div style="margin-top: var(--s-4);">
+                <label>@L["Seat.Pick"]</label>
+                <SeatMap Layout="@(_selected.BusService?.SeatLayout ?? "2-2")"
+                         TotalSeats="@(_selected.BusService?.TotalSeats ?? 40)"
+                         PassengerCount="_passengerCount"
+                         Occupied="_occupiedSeats"
+                         FrontLabel="@L["Seat.Front"]"
+                         SelectedChanged="seats => _selectedSeats = seats" />
+            </div>
+
+            @if (_selected.BusService?.HasDoorToDoor == true)
+            {
+                <div class="field" style="margin-top: var(--s-3);">
+                    <label for="pickup">@L["Buses.PickupAddress"]</label>
+                    <input id="pickup" @bind="_pickupAddress" placeholder="Jl. Contoh No. 1, Jakarta Selatan" />
+                    <p style="font-size: var(--t-xs); color: var(--text-muted); margin-top: var(--s-1);">
+                        Shuttle ini menjemput di alamatmu. Kosongkan untuk naik dari terminal.
+                    </p>
+                </div>
+            }
+
+            <div class="summary-row total" style="margin-top: var(--s-4);">
+                <span>@L["Label.Total"]</span>
+                <strong><Money Amount="@(_selected.BasePrice * _passengerCount)" /></strong>
+            </div>
+
+            @if (_error is not null)
+            {
+                <p class="form-error">@_error</p>
+            }
+
+            <div style="display:flex; gap: var(--s-2); justify-content:flex-end; margin-top: var(--s-5);">
+                <button class="btn btn-ghost" @onclick="CloseModal">@L["Action.Cancel"]</button>
+                <button class="btn btn-primary" @onclick="ConfirmBooking" disabled="@_isBooking">
+                    @(_isBooking ? L["Action.Processing"] : L["Action.BookNow"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_bookingSuccess)
+{
+    <div class="modal-scrim">
+        <div class="modal" style="text-align:center;" role="dialog" aria-modal="true">
+            <div style="font-size:3rem;">🎫</div>
+            <h2 style="margin: var(--s-3) 0 var(--s-2);">@L["Label.Confirmed"]</h2>
+            <p style="color: var(--text-secondary);">@L["Label.BookingCode"]</p>
+            <p class="code booking-code">@_bookingCode</p>
+            <div style="display:flex; gap: var(--s-2); justify-content:center; margin-top: var(--s-5); flex-wrap: wrap;">
+                <a class="btn btn-primary" href="@($"/payment-checkout/bus/{_bookingCode}")">@L["Action.PayNow"]</a>
+                <a class="btn btn-ghost" href="@($"/eticket/bus/{_bookingCode}")">@L["Action.ViewEticket"]</a>
+                <button class="btn btn-ghost" @onclick="DismissSuccess">@L["Action.SearchAgain"]</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .search-row { display: flex; gap: var(--s-3); align-items: flex-end; flex-wrap: wrap; }
+    .search-row .field { flex: 1; min-width: 160px; }
+    .search-row .btn { flex: none; }
+
+    .filter-bar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-4); }
+    .filter-label {
+        font-family: var(--font-mono);
+        font-size: var(--t-xs);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+    .filter-sep { width: 1px; height: 22px; background: var(--border-color); }
+    .filter-bar .tag { cursor: pointer; }
+
+    .result-count { font-size: var(--t-sm); color: var(--text-secondary); margin-bottom: var(--s-3); }
+
+    .stub-top { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-3); }
+
+    .stub-amenities {
+        display: flex;
+        gap: var(--s-4);
+        flex-wrap: wrap;
+        margin-top: var(--s-3);
+        padding-top: var(--s-3);
+        border-top: 1px solid var(--border-color);
+        font-size: var(--t-xs);
+        color: var(--text-secondary);
+    }
+
+    .summary-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: var(--s-4);
+        padding: var(--s-2) 0;
+        font-size: var(--t-sm);
+    }
+    .summary-row > span { color: var(--text-secondary); }
+    .summary-row.total { border-top: 2px solid var(--border-strong); padding-top: var(--s-3); font-size: var(--t-body); }
+    .summary-row.total .price { font-size: 1.35rem; color: var(--accent-primary); }
+
+    .form-error {
+        margin-top: var(--s-3);
+        padding: var(--s-2) var(--s-3);
+        border: 2px solid var(--accent-danger);
+        border-radius: var(--radius-md);
+        color: var(--accent-danger);
+        font-size: var(--t-sm);
+    }
+
+    .booking-code {
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        padding: var(--s-3);
+        margin-top: var(--s-2);
+        border: 2px dashed var(--border-strong);
+        border-radius: var(--radius-md);
+        background: var(--bg-tertiary);
+        word-break: break-all;
+    }
+</style>
+
+@code {
+    private List<BusTerminal> _terminals = new();
+    private List<BusSchedule> _schedules = new();
+
+    private string? _fromCode, _toCode, _serviceType, _error;
+    private string _sortBy = "price";
+    private DateOnly? _dateSearch;
+
+    private bool _isLoading, _showBookingModal, _bookingSuccess, _isBooking;
+    private BusSchedule? _selected;
+    private int _passengerCount = 1;
+    private string _pickupAddress = "";
+    private string _bookingCode = "";
+    private List<string> _selectedSeats = new();
+    private List<string> _occupiedSeats = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _terminals = await DbContext.BusTerminals.AsNoTracking()
+            .OrderBy(t => t.City).ToListAsync();
+
+        ReadQueryString();
+        await Search();
+    }
+
+    private void ReadQueryString()
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(Navigation.Uri).Query);
+
+        _fromCode = string.IsNullOrEmpty(query["from"]) ? null : query["from"];
+        _toCode = string.IsNullOrEmpty(query["to"]) ? null : query["to"];
+
+        if (DateOnly.TryParse(query["date"], out var date)) _dateSearch = date;
+    }
+
+    private async Task Search()
+    {
+        _isLoading = true;
+
+        var query = DbContext.BusSchedules.AsNoTracking()
+            .Include(s => s.BusService!).ThenInclude(b => b.Operator)
+            .Include(s => s.DepartureTerminal)
+            .Include(s => s.ArrivalTerminal)
+            .Where(s => s.IsActive)
+            .AsQueryable();
+
+        if (!string.IsNullOrEmpty(_fromCode)) query = query.Where(s => s.DepartureTerminal!.Code == _fromCode);
+        if (!string.IsNullOrEmpty(_toCode)) query = query.Where(s => s.ArrivalTerminal!.Code == _toCode);
+        if (!string.IsNullOrEmpty(_serviceType)) query = query.Where(s => s.BusService!.ServiceType == _serviceType);
+
+        if (_dateSearch.HasValue)
+        {
+            var day = _dateSearch.Value.ToDateTime(TimeOnly.MinValue);
+            query = query.Where(s => s.DepartureTime.Date == day.Date);
+        }
+
+        query = _sortBy switch
+        {
+            "departure" => query.OrderBy(s => s.DepartureTime),
+            "duration" => query.OrderBy(s => s.DurationMinutes),
+            _ => query.OrderBy(s => s.BasePrice)
+        };
+
+        _schedules = await query.Take(30).ToListAsync();
+        _isLoading = false;
+    }
+
+    private async Task FilterType(string? type) { _serviceType = type; await Search(); }
+    private async Task SortBy(string sort) { _sortBy = sort; await Search(); }
+
+    private async Task Reset()
+    {
+        _fromCode = _toCode = _serviceType = null;
+        _dateSearch = null;
+        _sortBy = "price";
+        await Search();
+    }
+
+    private async Task OpenBooking(BusSchedule schedule)
+    {
+        _selected = schedule;
+        _passengerCount = 1;
+        _pickupAddress = "";
+        _error = null;
+        _selectedSeats = new();
+
+        // Seats already taken on this exact departure, so two customers cannot
+        // end up holding the same one.
+        var taken = await DbContext.BusBookings.AsNoTracking()
+            .Where(b => b.BusScheduleId == schedule.Id && b.SelectedSeats != null && b.Status != "Cancelled")
+            .Select(b => b.SelectedSeats!)
+            .ToListAsync();
+
+        _occupiedSeats = taken
+            .SelectMany(s => s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _showBookingModal = true;
+    }
+
+    private void CloseModal() => _showBookingModal = false;
+
+    private async Task DismissSuccess()
+    {
+        _bookingSuccess = false;
+        await Search();
+    }
+
+    private async Task ConfirmBooking()
+    {
+        if (_selected is null || _isBooking) return;
+
+        _isBooking = true;
+        _error = null;
+        try
+        {
+            // Re-read the schedule so the seat check uses current data, not the
+            // untracked copy the list was rendered from.
+            var schedule = await DbContext.BusSchedules.FirstOrDefaultAsync(s => s.Id == _selected.Id);
+            if (schedule is null) { _error = "Jadwal ini sudah tidak tersedia."; return; }
+
+            if (_passengerCount < 1) { _error = "Jumlah penumpang minimal 1."; return; }
+            if (_passengerCount > schedule.AvailableSeats)
+            {
+                _error = $"Hanya tersisa {schedule.AvailableSeats} kursi untuk keberangkatan ini.";
+                return;
+            }
+
+            if (_selectedSeats.Count != _passengerCount)
+            {
+                _error = $"Pilih tepat {_passengerCount} kursi (sekarang {_selectedSeats.Count}).";
+                return;
+            }
+
+            // Re-check against the database: someone else may have taken a seat
+            // while this modal was open.
+            var takenNow = await DbContext.BusBookings.AsNoTracking()
+                .Where(b => b.BusScheduleId == schedule.Id && b.SelectedSeats != null && b.Status != "Cancelled")
+                .Select(b => b.SelectedSeats!)
+                .ToListAsync();
+
+            var clash = takenNow
+                .SelectMany(s => s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Intersect(_selectedSeats, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (clash.Any())
+            {
+                _error = $"Kursi {string.Join(", ", clash)} baru saja diambil orang lain. Pilih kursi lain.";
+                _occupiedSeats = takenNow
+                    .SelectMany(s => s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                _selectedSeats.Clear();
+                return;
+            }
+
+            var booking = new BusBooking
+            {
+                UserId = Guid.NewGuid(),
+                BusScheduleId = schedule.Id,
+                BookingCode = $"JKA-BS-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(1000, 9999)}",
+                Status = "Confirmed",
+                PassengerCount = _passengerCount,
+                TotalPrice = schedule.BasePrice * _passengerCount,
+                SelectedSeats = string.Join(",", _selectedSeats),
+                PickupAddress = string.IsNullOrWhiteSpace(_pickupAddress) ? null : _pickupAddress.Trim(),
+                BookingDate = DateTime.UtcNow
+            };
+
+            DbContext.BusBookings.Add(booking);
+            schedule.AvailableSeats -= _passengerCount;
+            await DbContext.SaveChangesAsync();
+
+            _bookingCode = booking.BookingCode;
+            _showBookingModal = false;
+            _bookingSuccess = true;
+        }
+        finally
+        {
+            _isBooking = false;
+        }
+    }
+
+    private static string Rupiah(decimal value) => $"Rp{value:N0}";
+
+    private static string FormatDuration(int minutes) =>
+        minutes >= 60 ? $"{minutes / 60}j {minutes % 60:00}m" : $"{minutes}m";
+}

@@ -1,0 +1,24 @@
+@* A single photo frame that degrades to an emoji when there is no image. *@
+
+<div class="media @CssClass">
+    @if (!string.IsNullOrWhiteSpace(Src))
+    {
+        <img src="@Src" alt="@Alt" loading="lazy" decoding="async" />
+    }
+    else
+    {
+        <div class="media-fallback" role="img" aria-label="@Alt">@Fallback</div>
+    }
+    @ChildContent
+</div>
+
+@code {
+    [Parameter] public string? Src { get; set; }
+    [Parameter] public string Alt { get; set; } = "";
+
+    /// <summary>Shown when Src is empty - keeps the icon style the app already uses.</summary>
+    [Parameter] public string Fallback { get; set; } = "🖼️";
+
+    [Parameter] public string? CssClass { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

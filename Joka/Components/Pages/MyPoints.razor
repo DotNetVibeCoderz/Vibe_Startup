@@ -1,0 +1,162 @@
+@page "/my-points"
+@using System.Security.Claims
+@attribute [Authorize]
+@inject AppDbContext DbContext
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>My Points — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">Membership</p>
+        <h1>My Points</h1>
+        <p class="lede">Poin bertambah otomatis setiap transaksi selesai — 1 poin per Rp10.000.</p>
+    </div>
+
+    @if (_user is null)
+    {
+        <div class="skeleton" style="height:240px;"></div>
+    }
+    else
+    {
+        <div class="tier-card">
+            <div>
+                <div class="tier-name">@_user.MembershipTier</div>
+                <div class="tier-points">@_user.LoyaltyPoints.ToString("N0") poin</div>
+            </div>
+
+            <div class="tier-progress">
+                @if (_nextTier is null)
+                {
+                    <p>Kamu sudah di tier tertinggi. Terima kasih sudah jalan-jalan bareng Joka.</p>
+                }
+                else
+                {
+                    <div class="progress-head">
+                        <span>Menuju @_nextTier</span>
+                        <span class="code">@_toNext.ToString("N0") poin lagi</span>
+                    </div>
+                    <div class="progress-track" role="progressbar"
+                         aria-valuenow="@((int)_progress)" aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-fill" style="width:@(_progress.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%;"></div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="section-title">Tingkatan membership</div>
+        <div class="grid grid-4">
+            @foreach (var tier in Tiers)
+            {
+                <div class="travel-card @(tier.Name == _user.MembershipTier ? "active" : "")">
+                    <h3>@tier.Name</h3>
+                    <p class="code" style="color:var(--text-muted);font-size:var(--t-xs);margin:var(--s-1) 0 var(--s-2);">
+                        @(tier.Min == 0 ? "0" : tier.Min.ToString("N0"))+ poin
+                    </p>
+                    <p style="font-size:var(--t-sm);color:var(--text-secondary);">@tier.Perk</p>
+                </div>
+            }
+        </div>
+
+        <div class="section-title">Riwayat poin</div>
+        @if (_history.Any())
+        {
+            <div class="table-scroll">
+                <table class="data-table">
+                    <thead><tr><th>Tanggal</th><th>Keterangan</th><th>Tipe</th><th class="num">Poin</th></tr></thead>
+                    <tbody>
+                        @foreach (var t in _history)
+                        {
+                            <tr>
+                                <td style="white-space:nowrap;color:var(--text-muted);">@t.TransactionDate.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>@t.Description</td>
+                                <td><span class="tag">@t.Type</span></td>
+                                <td class="num" style="color:@(t.Points >= 0 ? "var(--accent-success)" : "var(--accent-danger)");font-weight:700;">
+                                    @(t.Points >= 0 ? "+" : "")@t.Points
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <div class="empty">
+                <h3>Belum ada riwayat poin</h3>
+                <p>Selesaikan satu transaksi untuk mulai mengumpulkan poin.</p>
+                <a class="btn btn-primary" href="/flights">Cari tiket</a>
+            </div>
+        }
+    }
+</div>
+
+<style>
+    .tier-card {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: var(--s-6); flex-wrap: wrap;
+        background: var(--accent-primary); color: #fff;
+        border: 2px solid var(--tinta); border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+        padding: var(--s-6);
+        margin-bottom: var(--s-5);
+    }
+    .tier-name {
+        font-family: var(--font-display); font-size: 2rem; font-weight: 800;
+        letter-spacing: -0.03em; line-height: 1;
+    }
+    .tier-points { font-family: var(--font-mono); font-size: 1.1rem; margin-top: var(--s-2); opacity: 0.92; }
+    .tier-progress { flex: 1; min-width: 260px; }
+    .progress-head { display: flex; justify-content: space-between; font-size: var(--t-sm); margin-bottom: var(--s-2); }
+    .progress-track {
+        height: 12px; border-radius: 50px;
+        background: rgba(255,255,255,0.28);
+        border: 2px solid var(--tinta); overflow: hidden;
+    }
+    .progress-fill { height: 100%; background: var(--accent-secondary); transition: width 0.5s ease; }
+</style>
+
+@code {
+    private record Tier(string Name, int Min, string Perk);
+
+    // Thresholds mirror CheckoutService.TierFor - keep them in step.
+    private static readonly Tier[] Tiers =
+    {
+        new("Classic", 0, "Akses semua produk dan promo umum."),
+        new("Silver", 1000, "Prioritas customer support."),
+        new("Gold", 5000, "Bagasi ekstra dan promo khusus member."),
+        new("Platinum", 10000, "Lounge access dan refund fleksibel.")
+    };
+
+    private Joka.Models.Users.User? _user;
+    private List<LoyaltyTransaction> _history = new();
+    private string? _nextTier;
+    private int _toNext;
+    private double _progress;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        if (!Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id)) return;
+
+        _user = await DbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id);
+        if (_user is null) return;
+
+        _history = await DbContext.LoyaltyTransactions.AsNoTracking()
+            .Where(t => t.UserId == id)
+            .OrderByDescending(t => t.TransactionDate)
+            .Take(50).ToListAsync();
+
+        var current = Tiers.Last(t => _user.LoyaltyPoints >= t.Min);
+        var next = Tiers.FirstOrDefault(t => t.Min > _user.LoyaltyPoints);
+
+        if (next is not null)
+        {
+            _nextTier = next.Name;
+            _toNext = next.Min - _user.LoyaltyPoints;
+
+            var span = next.Min - current.Min;
+            _progress = span <= 0 ? 100 : Math.Clamp((_user.LoyaltyPoints - current.Min) * 100.0 / span, 0, 100);
+        }
+    }
+}

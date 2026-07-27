@@ -1,0 +1,391 @@
+@page "/flights"
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>Tiket Pesawat — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Flights.Eyebrow"]</p>
+        <h1>@L["Flights.Title"]</h1>
+        <p class="lede">@L["Flights.Lede"]</p>
+    </div>
+
+    <div class="card" style="margin-bottom: var(--s-4);">
+        <div class="search-row">
+            <div class="field">
+                <label for="from">@L["Label.From"]</label>
+                <select id="from" @bind="_fromCode">
+                    <option value="">@L["Label.AllAirports"]</option>
+                    @foreach (var a in _airports) { <option value="@a.Code">@a.City (@a.Code)</option> }
+                </select>
+            </div>
+            <div class="field">
+                <label for="to">@L["Label.To"]</label>
+                <select id="to" @bind="_toCode">
+                    <option value="">@L["Label.AllAirports"]</option>
+                    @foreach (var a in _airports) { <option value="@a.Code">@a.City (@a.Code)</option> }
+                </select>
+            </div>
+            <div class="field">
+                <label for="date">@L["Label.Date"]</label>
+                <input id="date" type="date" @bind="_dateSearch" />
+            </div>
+            <div class="field">
+                <label for="max">@L["Label.MaxPrice"]</label>
+                <select id="max" @bind="_maxPriceString">
+                    <option value="">@L["Label.Anything"]</option>
+                    <option value="500000">Rp500.000</option>
+                    <option value="1000000">Rp1.000.000</option>
+                    <option value="2000000">Rp2.000.000</option>
+                    <option value="5000000">Rp5.000.000</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" @onclick="Search">@L["Action.Search"]</button>
+            <button class="btn btn-ghost" @onclick="Reset">@L["Action.Reset"]</button>
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <span class="filter-label">@L["Label.SortBy"]</span>
+        <button class="tag @(_sortBy == "price_asc" ? "active" : "")" @onclick='() => SortBy("price_asc")'>@L["Label.Cheapest"]</button>
+        <button class="tag @(_sortBy == "departure" ? "active" : "")" @onclick='() => SortBy("departure")'>@L["Label.EarliestDeparture"]</button>
+        <button class="tag @(_sortBy == "duration" ? "active" : "")" @onclick='() => SortBy("duration")'>@L["Label.Fastest"]</button>
+        <span class="filter-sep"></span>
+        <button class="tag @(_directOnly ? "active" : "")" @onclick="ToggleDirect"
+                aria-pressed="@_directOnly">@L["Label.Direct"]</button>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div style="display:flex; flex-direction:column; gap: var(--s-3);">
+            @for (var i = 0; i < 4; i++)
+            {
+                <div class="skeleton" style="height:132px; border-radius: var(--radius-lg);"></div>
+            }
+        </div>
+    }
+    else if (_flights.Any())
+    {
+        <p class="result-count"><strong>@_flights.Count</strong> @L["Flights.Found"]</p>
+
+        <div style="display:flex; flex-direction:column; gap: var(--s-3);">
+            @foreach (var flight in _flights)
+            {
+                <article class="stub">
+                    <div class="stub-main">
+                        <div class="stub-top">
+                            <span class="badge badge-quiet">@flight.Airline?.Name</span>
+                            <span class="code" style="font-size: var(--t-xs); color: var(--text-muted);">@flight.FlightNumber</span>
+                            <span class="badge badge-quiet">@flight.CabinClass</span>
+                        </div>
+
+                        <div class="board">
+                            <div>
+                                <div class="board-time">@flight.DepartureTime.ToString("HH:mm")</div>
+                                <div class="board-code">@flight.DepartureAirport?.Code</div>
+                                <div class="board-city">@flight.DepartureAirport?.City</div>
+                            </div>
+                            <div class="board-path">
+                                <div class="board-meta">@FormatDuration(flight.DurationMinutes)</div>
+                                <div class="rule"></div>
+                                <div class="board-meta">@(flight.StopCount == 0 ? L["Flights.NonStop"].Value : $"{flight.StopCount} transit")</div>
+                            </div>
+                            <div>
+                                <div class="board-time">@flight.ArrivalTime.ToString("HH:mm")</div>
+                                <div class="board-code">@flight.ArrivalAirport?.Code</div>
+                                <div class="board-city">@flight.ArrivalAirport?.City</div>
+                            </div>
+                        </div>
+
+                        <div class="stub-amenities">
+                            <span>🧳 Bagasi @flight.BaggageAllowanceKg kg</span>
+                            @if (flight.HasMeal) { <span>🍽️ Makanan termasuk</span> }
+                            @if (flight.IsRefundable) { <span>↩️ Bisa refund</span> }
+                            <span>@flight.AvailableSeats @L["Flights.SeatsLeft"]</span>
+                        </div>
+                    </div>
+
+                    <div class="stub-end">
+                        <div>
+                            <div style="font-size: var(--t-xs); color: var(--text-muted);">@L["Label.PerPerson"]</div>
+                            <div><Money Amount="@flight.BasePrice" /></div>
+                        </div>
+                        <button class="btn btn-primary btn-sm" @onclick="() => BookFlight(flight)">@L["Action.Select"]</button>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="empty">
+            <h3>@L["Flights.EmptyTitle"]</h3>
+            <p>@L["Flights.EmptyBody"]</p>
+            <button class="btn btn-secondary" @onclick="Reset">@L["Action.Reset"]</button>
+        </div>
+    }
+</div>
+
+@if (_showBookingModal && _selectedFlight is not null)
+{
+    <div class="modal-scrim" @onclick="CloseModal">
+        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="book-title">
+            <h2 id="book-title" style="margin-bottom: var(--s-4);">@L["Flights.ConfirmTitle"]</h2>
+
+            <div class="summary-row">
+                <span>@L["Flights.Airline"]</span>
+                <strong>@_selectedFlight.Airline?.Name <span class="code">@_selectedFlight.FlightNumber</span></strong>
+            </div>
+            <div class="summary-row">
+                <span>@L["Flights.Route"]</span>
+                <strong class="code">@_selectedFlight.DepartureAirport?.Code → @_selectedFlight.ArrivalAirport?.Code</strong>
+            </div>
+            <div class="summary-row">
+                <span>@L["Flights.Departs"]</span>
+                <strong>@_selectedFlight.DepartureTime.ToString("ddd, dd MMM yyyy · HH:mm")</strong>
+            </div>
+            <div class="summary-row">
+                <span>@L["Flights.PricePerPerson"]</span>
+                <strong><Money Amount="@(_selectedFlight.BasePrice)" /></strong>
+            </div>
+
+            <div class="field" style="margin: var(--s-4) 0;">
+                <label for="pax">@L["Label.Passengers"]</label>
+                <input id="pax" type="number" @bind="_passengerCount" min="1" max="@_selectedFlight.AvailableSeats" />
+                <p style="font-size: var(--t-xs); color: var(--text-muted); margin-top: var(--s-1);">
+                    Tersedia @_selectedFlight.AvailableSeats kursi.
+                </p>
+            </div>
+
+            <div class="summary-row total">
+                <span>@L["Label.Total"]</span>
+                <strong><Money Amount="@(_selectedFlight.BasePrice * _passengerCount)" /></strong>
+            </div>
+
+            <div style="display:flex; gap: var(--s-2); justify-content:flex-end; margin-top: var(--s-5);">
+                <button class="btn btn-ghost" @onclick="CloseModal">@L["Action.Cancel"]</button>
+                <button class="btn btn-primary" @onclick="ConfirmBooking" disabled="@_isBooking">
+                    @(_isBooking ? L["Action.Processing"] : L["Action.BookNow"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_bookingSuccess)
+{
+    <div class="modal-scrim">
+        <div class="modal" style="text-align:center;" role="dialog" aria-modal="true">
+            <div style="font-size:3rem;">🎫</div>
+            <h2 style="margin: var(--s-3) 0 var(--s-2);">@L["Label.Confirmed"]</h2>
+            <p style="color: var(--text-secondary);">@L["Label.BookingCode"]</p>
+            <p class="code booking-code">@_bookingCode</p>
+            <div style="display:flex; gap: var(--s-2); justify-content:center; margin-top: var(--s-5); flex-wrap: wrap;">
+                <a class="btn btn-primary" href="@($"/payment-checkout/flight/{_bookingCode}")">@L["Action.PayNow"]</a>
+                <a class="btn btn-ghost" href="@($"/eticket/flight/{_bookingCode}")">@L["Action.ViewEticket"]</a>
+                <button class="btn btn-ghost" @onclick="DismissSuccess">@L["Action.SearchAgain"]</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .search-row { display: flex; gap: var(--s-3); align-items: flex-end; flex-wrap: wrap; }
+    .search-row .field { flex: 1; min-width: 150px; }
+    .search-row .btn { flex: none; }
+
+    .filter-bar {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        flex-wrap: wrap;
+        margin-bottom: var(--s-4);
+    }
+    .filter-label {
+        font-family: var(--font-mono);
+        font-size: var(--t-xs);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+    .filter-sep { width: 1px; height: 22px; background: var(--border-color); }
+    .filter-bar .tag { cursor: pointer; }
+
+    .result-count { font-size: var(--t-sm); color: var(--text-secondary); margin-bottom: var(--s-3); }
+
+    .stub-top { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-3); }
+
+    .stub-amenities {
+        display: flex;
+        gap: var(--s-4);
+        flex-wrap: wrap;
+        margin-top: var(--s-3);
+        padding-top: var(--s-3);
+        border-top: 1px solid var(--border-color);
+        font-size: var(--t-xs);
+        color: var(--text-secondary);
+    }
+
+    .summary-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: var(--s-4);
+        padding: var(--s-2) 0;
+        font-size: var(--t-sm);
+    }
+    .summary-row > span { color: var(--text-secondary); }
+    .summary-row.total {
+        border-top: 2px solid var(--border-strong);
+        padding-top: var(--s-3);
+        font-size: var(--t-body);
+    }
+    .summary-row.total .price { font-size: 1.35rem; color: var(--accent-primary); }
+
+    .booking-code {
+        font-size: 1.6rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        padding: var(--s-3);
+        margin-top: var(--s-2);
+        border: 2px dashed var(--border-strong);
+        border-radius: var(--radius-md);
+        background: var(--bg-tertiary);
+    }
+</style>
+
+@code {
+    private List<Airport> _airports = new();
+    private List<Flight> _flights = new();
+    private string? _fromCode, _toCode, _maxPriceString;
+    private string _sortBy = "price_asc";
+    private DateOnly? _dateSearch;
+    private bool _directOnly, _isLoading, _showBookingModal, _bookingSuccess, _isBooking;
+    private Flight? _selectedFlight;
+    private int _passengerCount = 1;
+    private string _bookingCode = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _airports = await DbContext.Airports.AsNoTracking().OrderBy(a => a.City).ToListAsync();
+        ReadQueryString();
+        await Search();
+    }
+
+    // The home page links here with from/to/date already chosen - honour them.
+    private void ReadQueryString()
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(Navigation.Uri).Query);
+
+        _fromCode = string.IsNullOrEmpty(query["from"]) ? null : query["from"];
+        _toCode = string.IsNullOrEmpty(query["to"]) ? null : query["to"];
+
+        if (DateOnly.TryParse(query["date"], out var date)) _dateSearch = date;
+    }
+
+    private async Task Search()
+    {
+        _isLoading = true;
+
+        var query = DbContext.Flights.AsNoTracking()
+            .Include(f => f.Airline)
+            .Include(f => f.DepartureAirport)
+            .Include(f => f.ArrivalAirport)
+            .AsQueryable();
+
+        if (!string.IsNullOrEmpty(_fromCode)) query = query.Where(f => f.DepartureAirport!.Code == _fromCode);
+        if (!string.IsNullOrEmpty(_toCode)) query = query.Where(f => f.ArrivalAirport!.Code == _toCode);
+
+        if (_dateSearch.HasValue)
+        {
+            var day = _dateSearch.Value.ToDateTime(TimeOnly.MinValue);
+            query = query.Where(f => f.DepartureTime.Date == day.Date);
+        }
+
+        // Invariant: the dropdown values are raw digits from markup, not localised input.
+        if (decimal.TryParse(_maxPriceString, System.Globalization.NumberStyles.Number,
+                System.Globalization.CultureInfo.InvariantCulture, out var maxPrice))
+            query = query.Where(f => f.BasePrice <= maxPrice);
+        if (_directOnly) query = query.Where(f => f.StopCount == 0);
+
+        query = _sortBy switch
+        {
+            "departure" => query.OrderBy(f => f.DepartureTime),
+            "duration" => query.OrderBy(f => f.DurationMinutes),
+            _ => query.OrderBy(f => f.BasePrice)
+        };
+
+        _flights = await query.Take(30).ToListAsync();
+        _isLoading = false;
+    }
+
+    private async Task SortBy(string sort) { _sortBy = sort; await Search(); }
+    private async Task ToggleDirect() { _directOnly = !_directOnly; await Search(); }
+
+    private async Task Reset()
+    {
+        _fromCode = _toCode = _maxPriceString = null;
+        _dateSearch = null;
+        _directOnly = false;
+        _sortBy = "price_asc";
+        await Search();
+    }
+
+    private void BookFlight(Flight flight)
+    {
+        _selectedFlight = flight;
+        _passengerCount = 1;
+        _showBookingModal = true;
+    }
+
+    private void CloseModal() => _showBookingModal = false;
+
+    private async Task DismissSuccess()
+    {
+        _bookingSuccess = false;
+        await Search();
+    }
+
+    private async Task ConfirmBooking()
+    {
+        if (_selectedFlight is null || _isBooking) return;
+
+        _isBooking = true;
+        try
+        {
+            var booking = new FlightBooking
+            {
+                UserId = Guid.NewGuid(),
+                FlightId = _selectedFlight.Id,
+                BookingCode = $"JKA-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(1000, 9999)}",
+                Status = "Confirmed",
+                PassengerCount = _passengerCount,
+                TotalPrice = _selectedFlight.BasePrice * _passengerCount,
+                BookingDate = DateTime.UtcNow
+            };
+
+            DbContext.FlightBookings.Add(booking);
+
+            // The listed flight is untracked, so adjust seats on a tracked copy.
+            var tracked = await DbContext.Flights.FirstOrDefaultAsync(f => f.Id == _selectedFlight.Id);
+            if (tracked is not null) tracked.AvailableSeats -= _passengerCount;
+
+            await DbContext.SaveChangesAsync();
+
+            _bookingCode = booking.BookingCode;
+            _showBookingModal = false;
+            _bookingSuccess = true;
+        }
+        finally
+        {
+            _isBooking = false;
+        }
+    }
+
+    private static string Rupiah(decimal value) => $"Rp{value:N0}";
+
+    private static string FormatDuration(int minutes) =>
+        minutes >= 60 ? $"{minutes / 60}j {minutes % 60:00}m" : $"{minutes}m";
+}

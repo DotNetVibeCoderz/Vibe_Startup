@@ -1,0 +1,178 @@
+@page "/admin/settings"
+@using Joka.Models.Backoffice
+@attribute [Authorize(Policy = "AdminOnly")]
+@inject SettingsService SettingsSvc
+
+<PageTitle>Pengaturan — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="console-head">
+        <div class="page-head" style="margin:0;">
+            <p class="eyebrow">Admin Console</p>
+            <h1>Pengaturan aplikasi</h1>
+        </div>
+        <a class="btn btn-ghost btn-sm" href="/admin">Kembali ke konsol</a>
+    </div>
+
+    <p class="hint">
+        Nilai di sini menimpa <span class="code">appsettings.json</span> dan langsung berlaku tanpa restart.
+        Kosongkan sebuah kolom untuk kembali memakai nilai dari berkas.
+        Kredensial dan connection string sengaja tidak bisa diubah dari halaman ini.
+    </p>
+
+    @if (_message is not null)
+    {
+        <p class="@(_ok ? "note-ok" : "note-bad")">@_message</p>
+    }
+
+    @if (_items is null)
+    {
+        <div class="skeleton" style="height:320px;"></div>
+    }
+    else
+    {
+        @foreach (var group in _items.GroupBy(i => i.Group))
+        {
+            <div class="section-title">@group.Key</div>
+            <div class="card" style="margin-bottom:var(--s-4);">
+                @foreach (var item in group)
+                {
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <strong>@item.Label</strong>
+                            <div class="code" style="font-size:var(--t-xs);color:var(--text-muted);">@item.Key</div>
+                            @if (item.IsOverridden)
+                            {
+                                <span class="pill pill-info" style="margin-top:4px;">ditimpa</span>
+                            }
+                        </div>
+
+                        <div class="setting-input">
+                            @switch (item.Editor)
+                            {
+                                case "bool":
+                                    <select @bind="_values[item.Key]">
+                                        <option value="">(pakai appsettings)</option>
+                                        <option value="true">Ya</option>
+                                        <option value="false">Tidak</option>
+                                    </select>
+                                    break;
+
+                                case "select":
+                                    <select @bind="_values[item.Key]">
+                                        <option value="">(pakai appsettings)</option>
+                                        @foreach (var o in (item.Options ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+                                        {
+                                            <option value="@o.Trim()">@o.Trim()</option>
+                                        }
+                                    </select>
+                                    break;
+
+                                case "longtext":
+                                    <textarea rows="5" @bind="_values[item.Key]" placeholder="(pakai appsettings)"></textarea>
+                                    break;
+
+                                case "number":
+                                case "decimal":
+                                    <input type="text" inputmode="decimal" @bind="_values[item.Key]"
+                                           placeholder="(pakai appsettings)" />
+                                    break;
+
+                                default:
+                                    <input @bind="_values[item.Key]" placeholder="(pakai appsettings)" />
+                                    break;
+                            }
+
+                            <div class="setting-current">
+                                Berlaku sekarang: <span class="code">@Truncate(item.Effective)</span>
+                            </div>
+                        </div>
+
+                        <div style="flex:none;">
+                            @if (item.IsOverridden)
+                            {
+                                <button class="btn btn-sm btn-ghost" @onclick="() => Reset(item.Key)">Reset</button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <div style="display:flex;gap:var(--s-2);position:sticky;bottom:var(--s-4);">
+            <button class="btn btn-primary btn-lg" @onclick="Save" disabled="@_saving">
+                @(_saving ? "Menyimpan…" : "Simpan pengaturan")
+            </button>
+            <button class="btn btn-ghost btn-lg" @onclick="Load">Batalkan perubahan</button>
+        </div>
+    }
+</div>
+
+<style>
+    .hint { font-size: var(--t-sm); color: var(--text-secondary); margin-bottom: var(--s-4); max-width: 70ch; }
+    .note-ok { color: var(--accent-success); font-weight: 700; margin-bottom: var(--s-3); }
+    .note-bad { color: var(--accent-danger); font-weight: 700; margin-bottom: var(--s-3); }
+
+    .setting-row {
+        display: flex; align-items: flex-start; gap: var(--s-4);
+        padding: var(--s-3) 0; border-bottom: 1px solid var(--border-color);
+    }
+    .setting-row:last-child { border-bottom: none; }
+    .setting-label { flex: 0 0 260px; }
+    .setting-input { flex: 1; min-width: 0; }
+    .setting-current { font-size: var(--t-xs); color: var(--text-muted); margin-top: 4px; }
+
+    @@media (max-width: 760px) {
+        .setting-row { flex-direction: column; gap: var(--s-2); }
+        .setting-label { flex: none; }
+    }
+</style>
+
+@code {
+    private List<SettingItem>? _items;
+    private Dictionary<string, string?> _values = new();
+    private string? _message;
+    private bool _ok, _saving;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _items = await SettingsSvc.GetAllAsync();
+
+        // Only pre-fill boxes that are actually overridden, so an untouched
+        // field stays empty and keeps meaning "inherit from appsettings".
+        _values = _items.ToDictionary(
+            i => i.Key,
+            i => i.IsOverridden ? i.Effective : null);
+
+        _message = null;
+    }
+
+    private async Task Save()
+    {
+        _saving = true;
+        try
+        {
+            var (success, message) = await SettingsSvc.SaveAsync(_values, "admin@joka.id");
+            _ok = success;
+            _message = message;
+
+            if (success) await Load();
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task Reset(string key)
+    {
+        var (success, message) = await SettingsSvc.ResetAsync(key, "admin@joka.id");
+        _ok = success;
+        _message = message;
+        await Load();
+    }
+
+    private static string Truncate(string? value) =>
+        string.IsNullOrEmpty(value) ? "(kosong)"
+        : value.Length <= 70 ? value
+        : value[..70] + "…";
+}

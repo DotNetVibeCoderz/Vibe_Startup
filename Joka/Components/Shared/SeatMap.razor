@@ -1,0 +1,199 @@
+@inject IStringLocalizer<SharedResource> L
+
+@* Seat picker driven by a layout string like "2-2", "2-1" or "1-1".
+   Occupied seats come from existing bookings, so two customers cannot pick
+   the same seat. Selection is capped at the passenger count. *@
+
+<div class="seatmap">
+    <div class="seatmap-front">@FrontLabel</div>
+
+    <div class="seat-rows">
+        @foreach (var row in _rows)
+        {
+            <div class="seat-row">
+                <span class="row-num code">@row.Number</span>
+
+                @foreach (var block in row.Blocks)
+                {
+                    <div class="seat-block">
+                        @foreach (var seat in block)
+                        {
+                            var occupied = _occupied.Contains(seat);
+                            var picked = _selected.Contains(seat);
+
+                            <button type="button"
+                                    class="seat @(occupied ? "occupied" : "") @(picked ? "picked" : "")"
+                                    disabled="@occupied"
+                                    aria-pressed="@picked"
+                                    aria-label="@(occupied ? $"Kursi {seat} sudah terisi" : $"Kursi {seat}")"
+                                    title="@seat"
+                                    @onclick="() => Toggle(seat)">
+                                @seat
+                            </button>
+                        }
+                    </div>
+                    <span class="aisle"></span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="seat-legend">
+        <span><i class="swatch free"></i> @L["Seat.Available"]</span>
+        <span><i class="swatch picked"></i> @L["Seat.Yours"]</span>
+        <span><i class="swatch occupied"></i> @L["Seat.Taken"]</span>
+    </div>
+
+    <p class="seat-status">
+        @if (_selected.Count == 0)
+        {
+            <span>Pilih @PassengerCount kursi.</span>
+        }
+        else
+        {
+            <span>
+                Dipilih: <strong class="code">@string.Join(", ", _selected)</strong>
+                @if (_selected.Count < PassengerCount)
+                {
+                    <text> — kurang @(PassengerCount - _selected.Count) lagi.</text>
+                }
+            </span>
+        }
+    </p>
+</div>
+
+<style>
+    .seatmap { border: 2px solid var(--border-color); border-radius: var(--radius-lg); padding: var(--s-4); }
+
+    .seatmap-front {
+        text-align: center;
+        font-family: var(--font-mono); font-size: var(--t-xs);
+        letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-muted);
+        padding-bottom: var(--s-3); margin-bottom: var(--s-3);
+        border-bottom: 2px dashed var(--border-color);
+    }
+
+    .seat-rows { display: flex; flex-direction: column; gap: 6px; overflow-x: auto; }
+    .seat-row { display: flex; align-items: center; gap: 6px; }
+    .row-num { flex: none; width: 22px; font-size: var(--t-xs); color: var(--text-muted); }
+    .seat-block { display: flex; gap: 6px; }
+    .aisle { width: 18px; flex: none; }
+    .seat-row .aisle:last-child { display: none; }
+
+    .seat {
+        width: 38px; height: 38px; flex: none;
+        font-family: var(--font-mono); font-size: 0.62rem; font-weight: 700;
+        color: var(--text-primary);
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-sm) var(--radius-sm) 10px 10px;
+        cursor: pointer;
+        transition: var(--transition);
+    }
+
+    .seat:hover:not(:disabled) { border-color: var(--accent-primary); transform: translateY(-2px); }
+    .seat.picked { background: var(--accent-primary); color: #fff; border-color: var(--tinta); }
+    .seat.occupied { background: var(--bg-tertiary); color: var(--text-muted); cursor: not-allowed; opacity: 0.55; }
+
+    .seat-legend {
+        display: flex; gap: var(--s-4); flex-wrap: wrap;
+        margin-top: var(--s-4); padding-top: var(--s-3);
+        border-top: 1px solid var(--border-color);
+        font-size: var(--t-xs); color: var(--text-secondary);
+    }
+    .swatch {
+        display: inline-block; width: 12px; height: 12px; margin-right: 5px;
+        border: 2px solid var(--border-color); border-radius: 3px; vertical-align: -2px;
+    }
+    .swatch.picked { background: var(--accent-primary); border-color: var(--tinta); }
+    .swatch.occupied { background: var(--bg-tertiary); opacity: 0.55; }
+
+    .seat-status { font-size: var(--t-sm); color: var(--text-secondary); margin-top: var(--s-3); }
+</style>
+
+@code {
+    /// <summary>e.g. "2-2" for a coach, "2-1" executive, "1-1" sleeper.</summary>
+    [Parameter] public string Layout { get; set; } = "2-2";
+
+    [Parameter] public int TotalSeats { get; set; } = 40;
+    [Parameter] public int PassengerCount { get; set; } = 1;
+
+    /// <summary>Seat codes already taken, from other bookings on this departure.</summary>
+    [Parameter] public IReadOnlyCollection<string> Occupied { get; set; } = Array.Empty<string>();
+
+    [Parameter] public string FrontLabel { get; set; } = "";
+    [Parameter] public EventCallback<List<string>> SelectedChanged { get; set; }
+
+    private record Row(int Number, List<List<string>> Blocks);
+
+    private List<Row> _rows = new();
+    private HashSet<string> _occupied = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _selected = new();
+
+    protected override void OnParametersSet()
+    {
+        _occupied = new HashSet<string>(Occupied, StringComparer.OrdinalIgnoreCase);
+        _rows = BuildRows();
+
+        // A seat that got taken while the modal was open must not stay selected.
+        _selected.RemoveAll(s => _occupied.Contains(s));
+    }
+
+    private List<Row> BuildRows()
+    {
+        var blockSizes = Layout
+            .Split('-', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => int.TryParse(p, out var n) ? n : 0)
+            .Where(n => n > 0)
+            .ToList();
+
+        if (blockSizes.Count == 0) blockSizes = new List<int> { 2, 2 };
+
+        var perRow = blockSizes.Sum();
+        var rowCount = (int)Math.Ceiling(TotalSeats / (double)perRow);
+
+        var rows = new List<Row>();
+        var seatIndex = 0;
+
+        for (var r = 1; r <= rowCount; r++)
+        {
+            var blocks = new List<List<string>>();
+            var letter = 0;
+
+            foreach (var size in blockSizes)
+            {
+                var block = new List<string>();
+
+                for (var i = 0; i < size && seatIndex < TotalSeats; i++, seatIndex++, letter++)
+                    block.Add($"{r}{(char)('A' + letter)}");
+
+                if (block.Count > 0) blocks.Add(block);
+            }
+
+            if (blocks.Count > 0) rows.Add(new Row(r, blocks));
+        }
+
+        return rows;
+    }
+
+    private async Task Toggle(string seat)
+    {
+        if (_occupied.Contains(seat)) return;
+
+        if (_selected.Contains(seat))
+        {
+            _selected.Remove(seat);
+        }
+        else
+        {
+            // Picking past the passenger count drops the oldest choice, which is
+            // friendlier than refusing the click without explanation.
+            if (_selected.Count >= PassengerCount && PassengerCount > 0)
+                _selected.RemoveAt(0);
+
+            _selected.Add(seat);
+        }
+
+        await SelectedChanged.InvokeAsync(_selected.ToList());
+    }
+}

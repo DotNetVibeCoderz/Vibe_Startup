@@ -1,0 +1,800 @@
+@page "/operator"
+@using Joka.Models.Backoffice
+@using Joka.Models.Support
+@using System.Security.Claims
+@attribute [Authorize(Policy = "OperatorArea")]
+@implements IDisposable
+@inject AppDbContext DbContext
+@inject CheckoutService Checkout
+@inject NotificationService Notifications
+@inject SupportService Support
+@inject SupportBroadcaster SupportBus
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Operator Desk — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="console-head">
+        <div class="page-head" style="margin:0;">
+            <p class="eyebrow">Operator Desk</p>
+            <h1>Operasional harian</h1>
+        </div>
+        <span class="role-chip">Operator</span>
+    </div>
+
+    <div class="tabs">
+        @foreach (var t in _tabs)
+        {
+            <div class="tab-item @(_tab == t.Key ? "active" : "")" role="button" tabindex="0"
+                 @onclick="() => _tab = t.Key">@t.Label</div>
+        }
+    </div>
+
+    @if (_loading)
+    {
+        <div class="skeleton" style="height:260px;"></div>
+    }
+    else
+    {
+        @switch (_tab)
+        {
+            case "overview":
+                <div class="kpi-row">
+                    <div class="stat-card"><div class="stat-value">@_orders.Count</div><div class="stat-label">Pesanan tercatat</div></div>
+                    <div class="stat-card"><div class="stat-value">@_pendingRefunds</div><div class="stat-label">Refund menunggu</div></div>
+                    <div class="stat-card"><div class="stat-value">@_openIncidents</div><div class="stat-label">Insiden terbuka</div></div>
+                    <div class="stat-card"><div class="stat-value">@_unverified</div><div class="stat-label">Perlu verifikasi</div></div>
+                    <div class="stat-card"><div class="stat-value">@_openTickets</div><div class="stat-label">Tiket support baru</div></div>
+                </div>
+
+                <div class="section-title">Butuh tindakan sekarang</div>
+                @if (_pendingRefunds + _openIncidents == 0)
+                {
+                    <div class="empty"><h3>Semua beres</h3><p>Tidak ada refund atau insiden yang menunggu.</p></div>
+                }
+                else
+                {
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>Jenis</th><th>Referensi</th><th>Ringkasan</th><th>Status</th></tr></thead>
+                            <tbody>
+                                @foreach (var r in _refunds.Where(r => r.Status == "Pending"))
+                                {
+                                    <tr>
+                                        <td><span class="tag">@r.RequestType</span></td>
+                                        <td class="code" style="font-size:var(--t-xs);">@r.BookingCode</td>
+                                        <td>@r.CustomerName — @r.Reason</td>
+                                        <td><StatusPill Status="@r.Status" /></td>
+                                    </tr>
+                                }
+                                @foreach (var i in _incidents.Where(i => i.Status is "Open" or "InProgress"))
+                                {
+                                    <tr>
+                                        <td><span class="tag">Insiden</span></td>
+                                        <td style="font-size:var(--t-xs);">@i.Category</td>
+                                        <td>@i.Title</td>
+                                        <td><StatusPill Status="@i.Status" /></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                break;
+
+            case "orders":
+                <p class="hint">Semua pesanan pelanggan lintas produk.</p>
+                @if (_orders.Any())
+                {
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>Kode booking</th><th>Jenis</th><th>Detail</th><th class="num">Pax</th><th class="num">Total</th><th>Status</th><th>Aksi</th></tr></thead>
+                            <tbody>
+                                @foreach (var o in _orders)
+                                {
+                                    <tr>
+                                        <td class="code" style="font-size:var(--t-xs);">@o.Code</td>
+                                        <td><span class="tag">@o.Type</span></td>
+                                        <td>@o.Detail</td>
+                                        <td class="num">@o.Pax</td>
+                                        <td class="num">@Rupiah(o.Total)</td>
+                                        <td><StatusPill Status="@o.Status" /></td>
+                                        <td><a class="btn btn-sm btn-ghost" href="@($"/eticket/{o.TypeKey}/{o.Code}")">E-ticket</a></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty">
+                        <h3>Belum ada pesanan</h3>
+                        <p>Buat pesanan dari halaman pencarian untuk melihatnya di sini.</p>
+                        <a class="btn btn-secondary" href="/flights">Buka pencarian tiket</a>
+                    </div>
+                }
+                break;
+
+            case "verify":
+                <p class="hint">Konfirmasi atau tolak pembayaran yang masuk. Transaksi yang ditolak dikembalikan ke status gagal.</p>
+                @if (_transactions.Any())
+                {
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>Kode transaksi</th><th>Jenis</th><th>Metode</th><th class="num">Nilai</th><th>Waktu</th><th>Status</th><th>Aksi</th></tr></thead>
+                            <tbody>
+                                @foreach (var t in _transactions)
+                                {
+                                    <tr>
+                                        <td class="code" style="font-size:var(--t-xs);">@t.TransactionCode</td>
+                                        <td><span class="tag">@t.BookingType</span></td>
+                                        <td>@t.PaymentMethod</td>
+                                        <td class="num">@Rupiah(t.FinalAmount)</td>
+                                        <td style="color:var(--text-muted);white-space:nowrap;">@t.CreatedAt.ToString("dd MMM HH:mm")</td>
+                                        <td><StatusPill Status="@t.Status" /></td>
+                                        <td style="white-space:nowrap;">
+                                            @if (t.Status is "Pending" or "Processing" or "Completed")
+                                            {
+                                                @if (t.Status != "Completed")
+                                                {
+                                                    <button class="btn btn-sm btn-primary" @onclick='() => VerifyPayment(t, "Completed")'>Konfirmasi</button>
+                                                }
+                                                <button class="btn btn-sm btn-ghost" @onclick='() => VerifyPayment(t, "Failed")'>Tolak</button>
+                                                @if (t.DiscountAmount is null or 0)
+                                                {
+                                                    <button class="btn btn-sm btn-ghost" @onclick="() => OpenVoucher(t)">Voucher</button>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span style="color:var(--text-muted);font-size:var(--t-xs);">@t.FailureReason</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty">
+                        <h3>Belum ada pembayaran masuk</h3>
+                        <p>Selesaikan sebuah pesanan lewat halaman checkout untuk melihatnya di sini.</p>
+                    </div>
+                }
+                break;
+
+            case "refunds":
+                <p class="hint">Proses permintaan refund dan reschedule dari pelanggan.</p>
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Booking</th><th>Jenis</th><th>Pelanggan</th><th>Alasan</th><th class="num">Nilai</th><th>Status</th><th>Aksi</th></tr></thead>
+                        <tbody>
+                            @foreach (var r in _refunds)
+                            {
+                                <tr>
+                                    <td class="code" style="font-size:var(--t-xs);">@r.BookingCode<div style="color:var(--text-muted);">@r.BookingType</div></td>
+                                    <td><span class="tag">@r.RequestType</span></td>
+                                    <td>@r.CustomerName</td>
+                                    <td style="max-width:240px;color:var(--text-secondary);">
+                                        @r.Reason
+                                        @if (r.NewDepartureDate.HasValue)
+                                        {
+                                            <div style="font-size:var(--t-xs);">Minta tanggal baru: @r.NewDepartureDate.Value.ToString("dd MMM yyyy")</div>
+                                        }
+                                    </td>
+                                    <td class="num">@Rupiah(r.Amount)</td>
+                                    <td><StatusPill Status="@r.Status" /></td>
+                                    <td>
+                                        @if (r.Status == "Pending")
+                                        {
+                                            <div style="display:flex;gap:4px;">
+                                                <button class="btn btn-sm btn-primary" @onclick='() => HandleRefund(r, "Approved")'>Setujui</button>
+                                                <button class="btn btn-sm btn-ghost" @onclick='() => HandleRefund(r, "Rejected")'>Tolak</button>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span style="color:var(--text-muted);font-size:var(--t-xs);">@r.HandledBy</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+
+            case "incidents":
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--s-3);flex-wrap:wrap;margin-bottom:var(--s-3);">
+                    <p class="hint" style="margin:0;">Catat masalah teknis, fraud, atau keluhan pelanggan.</p>
+                    <button class="btn btn-primary btn-sm" @onclick="() => _showIncidentForm = !_showIncidentForm">
+                        @(_showIncidentForm ? "Batal" : "Laporkan insiden")
+                    </button>
+                </div>
+
+                @if (_showIncidentForm)
+                {
+                    <div class="card" style="margin-bottom:var(--s-4);">
+                        <div class="grid grid-2">
+                            <div class="field">
+                                <label for="i-title">Judul</label>
+                                <input id="i-title" @bind="_newIncident.Title" placeholder="Ringkas dan spesifik" />
+                            </div>
+                            <div class="field">
+                                <label for="i-cat">Kategori</label>
+                                <select id="i-cat" @bind="_newIncident.Category">
+                                    <option>Technical</option><option>Fraud</option><option>Customer</option><option>Partner</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="i-sev">Severity</label>
+                                <select id="i-sev" @bind="_newIncident.Severity">
+                                    <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="i-book">Kode booking terkait (opsional)</label>
+                                <input id="i-book" @bind="_newIncident.RelatedBookingCode" />
+                            </div>
+                        </div>
+                        <div class="field" style="margin-top:var(--s-3);">
+                            <label for="i-desc">Deskripsi</label>
+                            <textarea id="i-desc" rows="3" @bind="_newIncident.Description"></textarea>
+                        </div>
+                        <button class="btn btn-primary" style="margin-top:var(--s-3);" @onclick="SaveIncident"
+                                disabled="@string.IsNullOrWhiteSpace(_newIncident.Title)">Simpan laporan</button>
+                    </div>
+                }
+
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead><tr><th>Judul</th><th>Kategori</th><th>Severity</th><th>Pelapor</th><th>Status</th><th>Aksi</th></tr></thead>
+                        <tbody>
+                            @foreach (var i in _incidents)
+                            {
+                                <tr>
+                                    <td><strong>@i.Title</strong>
+                                        <div style="color:var(--text-muted);font-size:var(--t-xs);max-width:340px;">@i.Description</div>
+                                    </td>
+                                    <td><span class="tag">@i.Category</span></td>
+                                    <td><StatusPill Status="@i.Severity" /></td>
+                                    <td style="font-size:var(--t-xs);">@i.ReportedBy</td>
+                                    <td><StatusPill Status="@i.Status" /></td>
+                                    <td>
+                                        @if (i.Status is "Open" or "InProgress")
+                                        {
+                                            <button class="btn btn-sm btn-ghost" @onclick="() => ResolveIncident(i)">Tandai selesai</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+
+            case "support":
+                <p class="hint">
+                    Antrean live agent. Tiket terlama yang belum dibalas ada di atas.
+                    Ambil dulu sebelum membalas supaya tidak dua agen menjawab satu orang.
+                </p>
+
+                <div class="cs-layout">
+                    <div class="cs-queue">
+                        @if (!_tickets.Any())
+                        {
+                            <div class="empty" style="padding:var(--s-5);"><p>Antrean kosong.</p></div>
+                        }
+                        else
+                        {
+                            @foreach (var t in _tickets)
+                            {
+                                var unread = t.Messages.Count(m => m.Sender == "Customer" && !m.IsRead);
+                                <div class="cs-item @(_activeTicket?.Id == t.Id ? "active" : "")"
+                                     role="button" tabindex="0" @onclick="() => OpenTicket(t)">
+                                    <div class="cs-item-top">
+                                        <strong>@t.Subject</strong>
+                                        @if (unread > 0)
+                                        {
+                                            <span class="badge badge-warning">@unread</span>
+                                        }
+                                    </div>
+                                    <div class="cs-item-meta">
+                                        <span class="code">@t.TicketCode</span> · @t.CustomerName
+                                    </div>
+                                    <div class="cs-item-meta">
+                                        <StatusPill Status="@t.Status" />
+                                        <span class="tag">@t.Priority</span>
+                                        <span>@t.LastMessageAt.ToString("dd MMM HH:mm")</span>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+
+                    <div class="cs-thread card">
+                        @if (_activeTicket is null)
+                        {
+                            <div class="empty" style="padding:var(--s-6);">
+                                <p>Pilih satu tiket dari antrean.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="thread-head">
+                                <div>
+                                    <strong>@_activeTicket.Subject</strong>
+                                    <div class="cs-item-meta">
+                                        <span class="code">@_activeTicket.TicketCode</span> ·
+                                        @_activeTicket.CustomerName
+                                        @if (_activeTicket.CustomerEmail is not null)
+                                        {
+                                            <span> · @_activeTicket.CustomerEmail</span>
+                                        }
+                                        @if (_activeTicket.RelatedBookingCode is not null)
+                                        {
+                                            <span> · booking <span class="code">@_activeTicket.RelatedBookingCode</span></span>
+                                        }
+                                    </div>
+                                </div>
+                                <StatusPill Status="@_activeTicket.Status" />
+                            </div>
+
+                            @if (_csMessage is not null)
+                            {
+                                <p class="@(_csOk ? "note-ok" : "note-bad")">@_csMessage</p>
+                            }
+
+                            <div class="thread">
+                                @foreach (var m in _thread)
+                                {
+                                    <div class="msg @(m.Sender == "Agent" ? "mine" : "theirs")">
+                                        <div class="msg-bubble">@m.Body</div>
+                                        <div class="msg-meta">@m.SenderName · @m.SentAt.ToString("dd MMM HH:mm")</div>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="cs-actions">
+                                @if (_activeTicket.AssignedTo is null)
+                                {
+                                    <button class="btn btn-sm btn-primary" @onclick="ClaimTicket">Ambil tiket</button>
+                                }
+                                else
+                                {
+                                    <span class="tag">Ditangani @_activeTicket.AssignedTo</span>
+                                }
+
+                                @if (_activeTicket.Status != "Resolved")
+                                {
+                                    <input placeholder="Ringkasan penyelesaian" @bind="_resolutionNote" />
+                                    <button class="btn btn-sm btn-ghost" @onclick="ResolveTicket">Tandai selesai</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-ghost" @onclick="CloseTicket">Tutup tiket</button>
+                                }
+                            </div>
+
+                            @if (_activeTicket.Status != "Closed")
+                            {
+                                <div class="composer">
+                                    <textarea rows="2" @bind="_agentReply" placeholder="Tulis balasan ke pelanggan…" maxlength="1000"></textarea>
+                                    <button class="btn btn-primary" @onclick="SendAgentReply" disabled="@_csBusy">Kirim</button>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+                break;
+        }
+    }
+</div>
+
+@if (_voucherTarget is not null)
+{
+    <div class="modal-scrim" @onclick="() => _voucherTarget = null">
+        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true">
+            <h2 style="margin-bottom:var(--s-2);">Terapkan voucher</h2>
+            <p style="color:var(--text-secondary);font-size:var(--t-sm);margin-bottom:var(--s-4);">
+                Transaksi <span class="code">@_voucherTarget.TransactionCode</span> · @Rupiah(_voucherTarget.FinalAmount)
+            </p>
+
+            <div class="field">
+                <label for="v-code">Kode voucher</label>
+                <input id="v-code" @bind="_voucherCode" placeholder="JOKA50" />
+            </div>
+
+            @if (_voucherMessage is not null)
+            {
+                <p class="@(_voucherOk ? "note-ok" : "note-bad")">@_voucherMessage</p>
+            }
+
+            <div style="display:flex;gap:var(--s-2);justify-content:flex-end;margin-top:var(--s-5);">
+                <button class="btn btn-ghost" @onclick="() => _voucherTarget = null">Tutup</button>
+                <button class="btn btn-primary" @onclick="ApplyVoucher" disabled="@_applyingVoucher">
+                    @(_applyingVoucher ? "Menerapkan…" : "Terapkan")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .hint { font-size: var(--t-sm); color: var(--text-secondary); margin-bottom: var(--s-3); }
+    .note-ok { color: var(--accent-success); font-weight: 600; font-size: var(--t-sm); margin-top: var(--s-2); }
+    .note-bad { color: var(--accent-danger); font-weight: 600; font-size: var(--t-sm); margin-top: var(--s-2); }
+
+    /* ---- live agent ---- */
+    .cs-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: var(--s-4); align-items: start; }
+
+    .cs-queue {
+        display: flex; flex-direction: column; gap: var(--s-2);
+        max-height: 620px; overflow-y: auto;
+    }
+
+    .cs-item {
+        padding: var(--s-3);
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-md);
+        cursor: pointer; transition: var(--transition);
+    }
+    .cs-item:hover { border-color: var(--border-strong); }
+    .cs-item.active { border-color: var(--accent-primary); box-shadow: var(--shadow-sm); }
+
+    .cs-item-top { display: flex; justify-content: space-between; gap: var(--s-2); align-items: flex-start; }
+    .cs-item-meta {
+        display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap;
+        font-size: var(--t-xs); color: var(--text-muted); margin-top: 4px;
+    }
+
+    .thread-head {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        gap: var(--s-3); padding-bottom: var(--s-3); margin-bottom: var(--s-3);
+        border-bottom: 2px solid var(--border-color);
+    }
+
+    .thread {
+        display: flex; flex-direction: column; gap: var(--s-3);
+        min-height: 200px; max-height: 380px; overflow-y: auto; padding-right: var(--s-2);
+    }
+
+    .msg { display: flex; flex-direction: column; max-width: 78%; }
+    .msg.mine { align-self: flex-end; align-items: flex-end; }
+    .msg.theirs { align-self: flex-start; align-items: flex-start; }
+
+    .msg-bubble {
+        padding: var(--s-2) var(--s-3);
+        font-size: var(--t-sm); white-space: pre-wrap;
+        background: var(--bg-tertiary);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
+    }
+    .msg.mine .msg-bubble {
+        background: var(--accent-primary); color: #fff;
+        border-color: var(--border-strong);
+        border-radius: var(--radius-lg) var(--radius-sm) var(--radius-lg) var(--radius-lg);
+    }
+    .msg-meta { font-size: var(--t-xs); color: var(--text-muted); margin-top: 4px; }
+
+    .cs-actions {
+        display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap;
+        margin-top: var(--s-4); padding-top: var(--s-3);
+        border-top: 1px solid var(--border-color);
+    }
+    .cs-actions input { flex: 1; min-width: 200px; }
+
+    .composer { display: flex; gap: var(--s-2); align-items: flex-end; margin-top: var(--s-3); }
+    .composer textarea { flex: 1; resize: none; }
+
+    @@media (max-width: 900px) {
+        .cs-layout { grid-template-columns: minmax(0, 1fr); }
+    }
+</style>
+
+@code {
+    private record Tab(string Key, string Label);
+    private record Order(string Code, string Type, string TypeKey, string Detail, int Pax, decimal Total, string Status, DateTime Date);
+
+    private readonly Tab[] _tabs =
+    {
+        new("overview", "Ringkasan"), new("orders", "Pesanan"), new("verify", "Verifikasi Pembayaran"),
+        new("refunds", "Refund & Reschedule"), new("incidents", "Insiden"), new("support", "Tools Support")
+    };
+
+    private string _tab = "overview";
+    private bool _loading = true, _showIncidentForm, _applyingVoucher, _voucherOk;
+    private PaymentTransaction? _voucherTarget;
+    private string _voucherCode = "";
+    private string? _voucherMessage;
+
+    private List<Order> _orders = new();
+    private List<PaymentTransaction> _transactions = new();
+    private List<RefundRequest> _refunds = new();
+    private List<IncidentReport> _incidents = new();
+    private IncidentReport _newIncident = new();
+
+    private int _pendingRefunds, _openIncidents, _unverified, _openTickets;
+
+    // ---- live agent ----
+    private List<SupportTicket> _tickets = new();
+    private List<SupportMessage> _thread = new();
+    private SupportTicket? _activeTicket;
+    private string _agentReply = "", _resolutionNote = "";
+    private string _agentEmail = "operator@joka.id", _agentName = "Agen Joka";
+    private string? _csMessage;
+    private bool _csOk, _csBusy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        _agentEmail = state.User.FindFirst(ClaimTypes.Email)?.Value ?? _agentEmail;
+        _agentName = state.User.FindFirst(ClaimTypes.Name)?.Value ?? _agentName;
+
+        // Push, so a customer reply appears without the operator refreshing.
+        SupportBus.MessagePosted += OnSupportMessage;
+
+        await LoadAsync();
+    }
+
+    public void Dispose() => SupportBus.MessagePosted -= OnSupportMessage;
+
+    private async Task OnSupportMessage(Guid ticketId, SupportMessage message)
+    {
+        await InvokeAsync(async () =>
+        {
+            _tickets = await Support.GetQueueAsync();
+
+            if (_activeTicket is not null && _activeTicket.Id == ticketId)
+                _thread = await Support.GetThreadAsync(ticketId);
+
+            StateHasChanged();
+        });
+    }
+
+    private async Task OpenTicket(SupportTicket ticket)
+    {
+        _activeTicket = ticket;
+        _csMessage = null;
+        _resolutionNote = "";
+        _thread = await Support.GetThreadAsync(ticket.Id);
+        await Support.MarkReadAsync(ticket.Id, "Agent");
+        _tickets = await Support.GetQueueAsync();
+    }
+
+    private async Task ClaimTicket()
+    {
+        if (_activeTicket is null) return;
+
+        var result = await Support.AssignAsync(_activeTicket.Id, _agentEmail);
+        _csMessage = result.Message;
+        _csOk = result.Success;
+
+        await ReloadSupportAsync();
+    }
+
+    private async Task SendAgentReply()
+    {
+        if (_activeTicket is null || string.IsNullOrWhiteSpace(_agentReply)) return;
+
+        _csBusy = true;
+        try
+        {
+            // Replying implicitly claims the ticket, so an agent cannot answer
+            // anonymously and leave it looking unhandled in the queue.
+            if (_activeTicket.AssignedTo is null)
+                await Support.AssignAsync(_activeTicket.Id, _agentEmail);
+
+            var result = await Support.PostAsync(_activeTicket.Id, "Agent", _agentName, _agentReply);
+            _csMessage = result.Success ? null : result.Message;
+            _csOk = result.Success;
+
+            if (result.Success) _agentReply = "";
+            await ReloadSupportAsync();
+        }
+        finally { _csBusy = false; }
+    }
+
+    private async Task ResolveTicket()
+    {
+        if (_activeTicket is null) return;
+
+        var result = await Support.ResolveAsync(_activeTicket.Id, _agentEmail, _resolutionNote);
+        _csMessage = result.Message;
+        _csOk = result.Success;
+
+        if (result.Success) _resolutionNote = "";
+        await ReloadSupportAsync();
+    }
+
+    private async Task CloseTicket()
+    {
+        if (_activeTicket is null) return;
+
+        var result = await Support.CloseAsync(_activeTicket.Id);
+        _csMessage = result.Message;
+        _csOk = result.Success;
+
+        _activeTicket = null;
+        _thread.Clear();
+        _tickets = await Support.GetQueueAsync();
+    }
+
+    private async Task ReloadSupportAsync()
+    {
+        _tickets = await Support.GetQueueAsync();
+
+        if (_activeTicket is not null)
+        {
+            _activeTicket = _tickets.FirstOrDefault(t => t.Id == _activeTicket.Id) ?? _activeTicket;
+            _thread = await Support.GetThreadAsync(_activeTicket.Id);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+
+        // One list across all four booking tables so the operator has a single queue.
+        var flights = await DbContext.FlightBookings.AsNoTracking()
+            .Include(b => b.Flight!).ThenInclude(f => f.Airline)
+            .Select(b => new Order(b.BookingCode, "Pesawat", "flight",
+                b.Flight!.Airline!.Name + " " + b.Flight.FlightNumber, b.PassengerCount, b.TotalPrice, b.Status, b.BookingDate))
+            .ToListAsync();
+
+        var trains = await DbContext.TrainBookings.AsNoTracking()
+            .Include(b => b.TrainSchedule!).ThenInclude(s => s.Train)
+            .Select(b => new Order(b.BookingCode, "Kereta", "train",
+                b.TrainSchedule!.Train!.Name, b.PassengerCount, b.TotalPrice, b.Status, b.BookingDate))
+            .ToListAsync();
+
+        var buses = await DbContext.BusBookings.AsNoTracking()
+            .Include(b => b.BusSchedule!).ThenInclude(s => s.BusService!).ThenInclude(v => v.Operator)
+            .Select(b => new Order(b.BookingCode, "Bus", "bus",
+                b.BusSchedule!.BusService!.Operator!.Name, b.PassengerCount, b.TotalPrice, b.Status, b.BookingDate))
+            .ToListAsync();
+
+        var hotels = await DbContext.HotelBookings.AsNoTracking()
+            .Include(b => b.Room!).ThenInclude(r => r.Hotel)
+            .Select(b => new Order(b.BookingCode, "Hotel", "hotel",
+                b.Room!.Hotel!.Name + " — " + b.Room.Name, b.GuestCount, b.TotalPrice, b.Status, b.BookingDate))
+            .ToListAsync();
+
+        _orders = flights.Concat(trains).Concat(buses).Concat(hotels)
+            .OrderByDescending(o => o.Date).ToList();
+
+        // Tracked: this tab writes verification decisions back.
+        _transactions = await DbContext.PaymentTransactions
+            .OrderByDescending(t => t.CreatedAt).Take(50).ToListAsync();
+
+        _refunds = await DbContext.RefundRequests
+            .OrderBy(r => r.Status == "Pending" ? 0 : 1).ThenByDescending(r => r.CreatedAt).ToListAsync();
+
+        _incidents = await DbContext.IncidentReports
+            .OrderBy(i => i.Status == "Open" ? 0 : 1).ThenByDescending(i => i.CreatedAt).ToListAsync();
+
+        _tickets = await Support.GetQueueAsync();
+
+        _pendingRefunds = _refunds.Count(r => r.Status == "Pending");
+        _openIncidents = _incidents.Count(i => i.Status is "Open" or "InProgress");
+        _unverified = _orders.Count(o => o.Status is "Pending");
+        _openTickets = _tickets.Count(t => t.Status == "Open");
+
+        _loading = false;
+    }
+
+    private async Task HandleRefund(RefundRequest r, string status)
+    {
+        r.Status = status;
+        r.HandledBy = "operator@joka.id";
+        r.HandledAt = DateTime.UtcNow;
+        r.HandlingNote = status == "Approved" ? "Disetujui operator." : "Ditolak: di luar kebijakan.";
+
+        // Tell the customer straight away instead of leaving them to check back.
+        if (r.UserId is Guid customer)
+        {
+            await Notifications.SendAsync(customer,
+                status == "Approved" ? $"{r.RequestType} disetujui" : $"{r.RequestType} ditolak",
+                $"Permintaan {r.RequestType.ToLowerInvariant()} untuk booking {r.BookingCode}: {r.HandlingNote}",
+                "Transaction", "/my-bookings");
+        }
+
+        DbContext.AuditLogs.Add(new AuditLog
+        {
+            EntityName = "RefundRequest", EntityId = r.BookingCode, Action = status,
+            Changes = $"Status -> {status}", UserId = "operator@joka.id", Timestamp = DateTime.UtcNow
+        });
+
+        await DbContext.SaveChangesAsync();
+        await LoadAsync();
+    }
+
+    private void OpenVoucher(PaymentTransaction t)
+    {
+        _voucherTarget = t;
+        _voucherCode = "";
+        _voucherMessage = null;
+        _voucherOk = false;
+    }
+
+    private async Task ApplyVoucher()
+    {
+        if (_voucherTarget is null) return;
+
+        _applyingVoucher = true;
+        try
+        {
+            var result = await Checkout.ApplyVoucherToTransactionAsync(
+                _voucherTarget.Id, _voucherCode, "operator@joka.id");
+
+            _voucherOk = result.Success;
+            _voucherMessage = result.Message;
+
+            if (result.Success)
+            {
+                await LoadAsync();
+                _voucherTarget = null;
+            }
+        }
+        finally { _applyingVoucher = false; }
+    }
+
+    private async Task VerifyPayment(PaymentTransaction t, string status)
+    {
+        var before = t.Status;
+        t.Status = status;
+
+        if (status == "Completed")
+        {
+            t.PaidAt ??= DateTime.UtcNow;
+            t.FailureReason = null;
+        }
+        else
+        {
+            t.FailureReason = "Ditolak operator saat verifikasi manual.";
+            t.PaidAt = null;
+        }
+
+        t.UpdatedAt = DateTime.UtcNow;
+
+        DbContext.AuditLogs.Add(new AuditLog
+        {
+            EntityName = "PaymentTransaction", EntityId = t.TransactionCode,
+            Action = status == "Completed" ? "Verify" : "Reject",
+            Changes = $"Status: {before} -> {status}",
+            UserId = "operator@joka.id", Timestamp = DateTime.UtcNow
+        });
+
+        await DbContext.SaveChangesAsync();
+        await LoadAsync();
+    }
+
+    private async Task ResolveIncident(IncidentReport i)
+    {
+        i.Status = "Resolved";
+        i.ResolvedAt = DateTime.UtcNow;
+        i.Resolution = "Ditangani operator.";
+        await DbContext.SaveChangesAsync();
+        await LoadAsync();
+    }
+
+    private async Task SaveIncident()
+    {
+        if (string.IsNullOrWhiteSpace(_newIncident.Title)) return;
+
+        _newIncident.ReportedBy = "operator@joka.id";
+        _newIncident.Status = "Open";
+        DbContext.IncidentReports.Add(_newIncident);
+        await DbContext.SaveChangesAsync();
+
+        _newIncident = new IncidentReport();
+        _showIncidentForm = false;
+        await LoadAsync();
+    }
+
+    private static string Rupiah(decimal v) => $"Rp{v:N0}";
+}

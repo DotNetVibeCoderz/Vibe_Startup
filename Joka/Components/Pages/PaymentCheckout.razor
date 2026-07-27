@@ -1,0 +1,437 @@
+@page "/payment-checkout"
+@page "/payment-checkout/{bookingType}/{bookingId}"
+@using System.Security.Claims
+@inject AppDbContext DbContext
+@inject CheckoutService Checkout
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Checkout — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">Checkout</p>
+        <h1>Selesaikan pembayaran</h1>
+        <p class="lede">Pilih metode pembayaran, pakai voucher, dan tambahkan proteksi perjalanan.</p>
+    </div>
+
+    @if (_notFound)
+    {
+        <div class="empty">
+            <h3>Pesanan tidak ditemukan</h3>
+            <p>Kode <span class="code">@BookingId</span> tidak cocok dengan pesanan mana pun.</p>
+            <a class="btn btn-secondary" href="/my-bookings">Buka Booking Saya</a>
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-2" style="gap: var(--s-5); align-items:start;">
+
+            @* ---------------- Ringkasan ---------------- *@
+            <div class="card">
+                <h2 style="margin-bottom: var(--s-4);">Ringkasan pesanan</h2>
+
+                <div class="summary-row"><span>Item</span><strong>@_itemName</strong></div>
+                <div class="summary-row"><span>Tanggal</span><strong>@_itemDate</strong></div>
+                <div class="summary-row"><span>Subtotal</span><strong><Money Amount="@(_subtotal)" /></strong></div>
+
+                @if (_discount > 0)
+                {
+                    <div class="summary-row" style="color:var(--accent-success);">
+                        <span>Voucher @_voucher?.Code</span><strong>−<Money Amount="@(_discount)" /></strong>
+                    </div>
+                }
+
+                @if (_selectedInsurance is not null)
+                {
+                    <div class="summary-row">
+                        <span>Asuransi @_selectedInsurance.Name</span><strong><Money Amount="@(_selectedInsurance.Price)" /></strong>
+                    </div>
+                }
+
+                @if (_payLaterTenor > 0 && _selectedPlan is not null)
+                {
+                    <div class="summary-row" style="color:var(--text-muted);">
+                        <span>Bunga PayLater @_payLaterTenor bulan</span><strong><Money Amount="@(_selectedPlan.InterestAmount)" /></strong>
+                    </div>
+                }
+
+                <div class="summary-row total">
+                    <span>Total</span><strong><Money Amount="@(Total)" /></strong>
+                </div>
+
+                @if (_payLaterTenor > 0 && _selectedPlan is not null)
+                {
+                    <p style="font-size:var(--t-sm);color:var(--text-secondary);margin-top:var(--s-2);">
+                        Dicicil @_payLaterTenor× <Money Amount="@(_selectedPlan.MonthlyAmount)" /> per bulan.
+                    </p>
+                }
+
+                <div class="section-title">Proteksi perjalanan</div>
+                <div style="display:flex;flex-direction:column;gap:var(--s-2);">
+                    <label class="option-row">
+                        <input type="radio" name="ins" checked="@(_selectedInsurance is null)"
+                               @onchange="() => _selectedInsurance = null" />
+                        <span style="flex:1;">Tanpa asuransi</span>
+                        <span style="color:var(--text-muted);">Rp0</span>
+                    </label>
+                    @foreach (var ins in _insurances)
+                    {
+                        <label class="option-row">
+                            <input type="radio" name="ins" checked="@(_selectedInsurance?.Id == ins.Id)"
+                                   @onchange="() => _selectedInsurance = ins" />
+                            <span style="flex:1;">
+                                <strong>@ins.Name</strong>
+                                <div style="font-size:var(--t-xs);color:var(--text-muted);">@ins.Description</div>
+                            </span>
+                            <Money Amount="@(ins.Price)" />
+                        </label>
+                    }
+                </div>
+            </div>
+
+            @* ---------------- Pembayaran ---------------- *@
+            <div class="card">
+                <h2 style="margin-bottom: var(--s-4);">Metode pembayaran</h2>
+
+                <div style="display:flex;flex-direction:column;gap:var(--s-2);">
+                    @foreach (var m in _paymentMethods)
+                    {
+                        <label class="option-row @(_selectedPayment == m.Id ? "selected" : "")">
+                            <input type="radio" name="pay" checked="@(_selectedPayment == m.Id)"
+                                   @onchange="() => SelectPayment(m.Id)" />
+                            <span style="font-size:1.25rem;">@m.Icon</span>
+                            <span style="flex:1;">
+                                <strong>@m.Name</strong>
+                                <div style="font-size:var(--t-xs);color:var(--text-muted);">@m.Desc</div>
+                            </span>
+                        </label>
+                    }
+                </div>
+
+                @if (_selectedPayment == "paylater")
+                {
+                    <div class="section-title">Pilih tenor</div>
+                    @if (_plans.Any())
+                    {
+                        <div style="display:flex;flex-direction:column;gap:var(--s-2);">
+                            @foreach (var p in _plans)
+                            {
+                                <label class="option-row @(_payLaterTenor == p.TenorMonths ? "selected" : "")">
+                                    <input type="radio" name="tenor" checked="@(_payLaterTenor == p.TenorMonths)"
+                                           @onchange="() => _payLaterTenor = p.TenorMonths" />
+                                    <span style="flex:1;"><strong>@p.TenorMonths bulan</strong>
+                                        <div style="font-size:var(--t-xs);color:var(--text-muted);">
+                                            Bunga <Money Amount="@(p.InterestAmount)" /> · total <Money Amount="@(p.TotalAmount)" />
+                                        </div>
+                                    </span>
+                                    <span><Money Amount="@(p.MonthlyAmount)" />/bln</span>
+                                </label>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="note">PayLater butuh transaksi minimal <Money Amount="@(Checkout.PayLaterMinimum())" />.</p>
+                    }
+                }
+
+                <div class="section-title">Kode voucher</div>
+                <div style="display:flex;gap:var(--s-2);">
+                    <input @bind="_voucherCode" placeholder="Misal: JOKA50" style="flex:1;" />
+                    <button class="btn btn-secondary" @onclick="ApplyVoucher" disabled="@_checkingVoucher">Pakai</button>
+                </div>
+
+                @if (_voucherMessage is not null)
+                {
+                    <p class="note @(_discount > 0 ? "note-ok" : "note-bad")">@_voucherMessage</p>
+                }
+
+                @if (_error is not null)
+                {
+                    <p class="note note-bad">@_error</p>
+                }
+
+                <button class="btn btn-primary btn-lg btn-block" style="margin-top: var(--s-5);"
+                        @onclick="ProcessPayment" disabled="@(_paying || string.IsNullOrEmpty(_selectedPayment))">
+                    @(_paying ? "Memproses…" : $"Bayar {Rupiah(Total)}")
+                </button>
+
+                @if (!_isAuthenticated)
+                {
+                    <p class="note">Kamu belum masuk. Transaksi tetap tercatat, tapi poin loyalitas tidak bisa diberikan.</p>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@if (_success && _transaction is not null)
+{
+    <div class="modal-scrim">
+        <div class="modal" style="text-align:center;" role="dialog" aria-modal="true">
+
+            @if (_paymentUrl is not null)
+            {
+                @* Gateway sungguhan: uang belum masuk sampai webhook-nya datang,
+                   jadi jangan pernah bilang "berhasil" di layar ini. *@
+                <div style="font-size:3rem;">🏦</div>
+                <h2 style="margin: var(--s-3) 0 var(--s-2);">Selesaikan pembayaran</h2>
+                <p style="color:var(--text-secondary);">Kode transaksi</p>
+                <p class="code booking-code">@_transaction.TransactionCode</p>
+
+                <p style="margin-top:var(--s-3);color:var(--text-secondary);">
+                    Kamu akan diarahkan ke halaman @_transaction.PaymentGateway untuk membayar
+                    <Money Amount="@(_transaction.FinalAmount)" />. Status booking berubah otomatis
+                    begitu pembayaran dikonfirmasi.
+                </p>
+
+                <div style="display:flex;gap:var(--s-2);justify-content:center;margin-top:var(--s-5);flex-wrap:wrap;">
+                    <a class="btn btn-primary" href="@_paymentUrl" target="_blank" rel="noopener">
+                        Bayar di @_transaction.PaymentGateway
+                    </a>
+                    <a class="btn btn-ghost" href="/my-bookings">Booking saya</a>
+                </div>
+            }
+            else
+            {
+                <div style="font-size:3rem;">✅</div>
+                <h2 style="margin: var(--s-3) 0 var(--s-2);">Pembayaran berhasil</h2>
+                <p style="color:var(--text-secondary);">Kode transaksi</p>
+                <p class="code booking-code">@_transaction.TransactionCode</p>
+
+                <p style="margin-top:var(--s-3);color:var(--text-secondary);">
+                    Dibayar <Money Amount="@(_transaction.FinalAmount)" /> via @_transaction.PaymentMethod.
+                </p>
+
+                @if (_pointsEarned > 0)
+                {
+                    <p style="color:var(--accent-success);font-weight:700;">+@_pointsEarned poin loyalitas</p>
+                }
+
+                <div style="display:flex;gap:var(--s-2);justify-content:center;margin-top:var(--s-5);flex-wrap:wrap;">
+                    <a class="btn btn-primary" href="/my-bookings">Booking saya</a>
+                    <a class="btn btn-ghost" href="/">Beranda</a>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<style>
+    .summary-row {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: var(--s-4); padding: var(--s-2) 0; font-size: var(--t-sm);
+    }
+    .summary-row > span { color: var(--text-secondary); }
+    .summary-row.total {
+        border-top: 2px solid var(--border-strong); margin-top: var(--s-2);
+        padding-top: var(--s-3); font-size: var(--t-body);
+    }
+    .summary-row.total .price { font-size: 1.4rem; color: var(--accent-primary); }
+
+    .option-row {
+        display: flex; align-items: center; gap: var(--s-3);
+        padding: var(--s-3); cursor: pointer; font-weight: 400;
+        border: 2px solid var(--border-color); border-radius: var(--radius-md);
+        transition: var(--transition); margin: 0;
+    }
+    .option-row:hover { border-color: var(--border-strong); }
+    .option-row.selected { border-color: var(--accent-primary); box-shadow: var(--shadow-sm); }
+
+    .note { font-size: var(--t-sm); margin-top: var(--s-2); color: var(--text-secondary); }
+    .note-ok { color: var(--accent-success); font-weight: 600; }
+    .note-bad { color: var(--accent-danger); font-weight: 600; }
+
+    .booking-code {
+        font-size: 1.4rem; font-weight: 700; letter-spacing: 0.08em;
+        padding: var(--s-3); margin-top: var(--s-2);
+        border: 2px dashed var(--border-strong); border-radius: var(--radius-md);
+        background: var(--bg-tertiary); word-break: break-all;
+    }
+</style>
+
+@code {
+    [Parameter] public string? BookingType { get; set; }
+    [Parameter] public string? BookingId { get; set; }
+
+    private readonly List<(string Id, string Name, string Icon, string Desc)> _paymentMethods = new()
+    {
+        ("bank", "Transfer Bank", "🏦", "BCA, Mandiri, BNI, BRI"),
+        ("ewallet", "E-Wallet", "📱", "GoPay, OVO, Dana, ShopeePay"),
+        ("qris", "QRIS", "📷", "Scan dengan aplikasi apa pun"),
+        ("card", "Kartu Kredit", "💳", "Visa, Mastercard, JCB"),
+        ("paylater", "PayLater", "🕐", "Cicilan tanpa kartu kredit")
+    };
+
+    private List<TravelInsurance> _insurances = new();
+    private IReadOnlyList<PayLaterPlan> _plans = Array.Empty<PayLaterPlan>();
+
+    private string _itemName = "Pesanan Joka";
+    private string _itemDate = DateTime.Now.ToString("dd MMM yyyy");
+    private decimal _subtotal = 1200000m;
+    private decimal _discount;
+
+    private string _selectedPayment = "bank";
+    private string _voucherCode = "";
+    private string? _voucherMessage, _error;
+    private int _payLaterTenor;
+
+    private PromoVoucher? _voucher;
+    private TravelInsurance? _selectedInsurance;
+    private PaymentTransaction? _transaction;
+    private PayLaterPlan? _selectedPlan;
+
+    private Guid? _userId;
+    private Guid _bookingGuid;
+    private bool _isAuthenticated, _notFound, _paying, _success, _checkingVoucher;
+    private int _pointsEarned;
+
+    /// <summary>Non-null when a real gateway wants the customer on its own page.</summary>
+    private string? _paymentUrl;
+
+    private decimal Total
+    {
+        get
+        {
+            var baseTotal = _subtotal - _discount + (_selectedInsurance?.Price ?? 0);
+            return _selectedPlan is not null && _payLaterTenor > 0 ? _selectedPlan.TotalAmount : baseTotal;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        _isAuthenticated = state.User.Identity?.IsAuthenticated == true;
+
+        if (_isAuthenticated && Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid))
+            _userId = uid;
+
+        _insurances = await DbContext.TravelInsurances.AsNoTracking()
+            .Where(i => i.IsActive).OrderBy(i => i.Price).ToListAsync();
+
+        await LoadBookingAsync();
+        RecalculatePlans();
+    }
+
+    /// <summary>Resolves the real booking so the amount is not a hardcoded guess.</summary>
+    private async Task LoadBookingAsync()
+    {
+        if (string.IsNullOrEmpty(BookingType) || string.IsNullOrEmpty(BookingId)) return;
+
+        switch (BookingType.ToLowerInvariant())
+        {
+            case "flight":
+                var f = await DbContext.FlightBookings.AsNoTracking()
+                    .Include(b => b.Flight!).ThenInclude(x => x.Airline)
+                    .FirstOrDefaultAsync(b => b.BookingCode == BookingId);
+                if (f is null) { _notFound = true; return; }
+                _bookingGuid = f.Id;
+                _subtotal = f.TotalPrice;
+                _itemName = $"{f.Flight?.Airline?.Name} {f.Flight?.FlightNumber} · {f.PassengerCount} pax";
+                _itemDate = f.Flight?.DepartureTime.ToString("dd MMM yyyy HH:mm") ?? _itemDate;
+                break;
+
+            case "bus":
+                var b2 = await DbContext.BusBookings.AsNoTracking()
+                    .Include(b => b.BusSchedule!).ThenInclude(s => s.BusService!).ThenInclude(v => v.Operator)
+                    .FirstOrDefaultAsync(b => b.BookingCode == BookingId);
+                if (b2 is null) { _notFound = true; return; }
+                _bookingGuid = b2.Id;
+                _subtotal = b2.TotalPrice;
+                _itemName = $"{b2.BusSchedule?.BusService?.Operator?.Name} · {b2.PassengerCount} pax";
+                _itemDate = b2.BusSchedule?.DepartureTime.ToString("dd MMM yyyy HH:mm") ?? _itemDate;
+                break;
+
+            case "hotel":
+                var h = await DbContext.HotelBookings.AsNoTracking()
+                    .Include(b => b.Room!).ThenInclude(r => r.Hotel)
+                    .FirstOrDefaultAsync(b => b.BookingCode == BookingId);
+                if (h is null) { _notFound = true; return; }
+                _bookingGuid = h.Id;
+                _subtotal = h.TotalPrice;
+                _itemName = $"{h.Room?.Hotel?.Name} · {h.Room?.Name} · {h.Nights} malam";
+                _itemDate = h.CheckInDate.ToString("dd MMM yyyy");
+                break;
+
+            case "train":
+                var t = await DbContext.TrainBookings.AsNoTracking()
+                    .Include(b => b.TrainSchedule!).ThenInclude(s => s.Train)
+                    .FirstOrDefaultAsync(b => b.BookingCode == BookingId);
+                if (t is null) { _notFound = true; return; }
+                _bookingGuid = t.Id;
+                _subtotal = t.TotalPrice;
+                _itemName = t.TrainSchedule?.Train?.Name ?? "Tiket kereta";
+                _itemDate = t.TrainSchedule?.DepartureTime.ToString("dd MMM yyyy HH:mm") ?? _itemDate;
+                break;
+
+            case "transport":
+                var tr = await DbContext.TransportBookings.AsNoTracking()
+                    .Include(b => b.Option!).ThenInclude(o => o.Provider)
+                    .FirstOrDefaultAsync(b => b.BookingCode == BookingId);
+                if (tr is null) { _notFound = true; return; }
+                _bookingGuid = tr.Id;
+                _subtotal = tr.TotalPrice;
+                _itemName = $"{tr.Option?.Provider?.Name} · {tr.Option?.Name} · {tr.PickupAddress} → {tr.DropoffAddress}";
+                _itemDate = tr.PickupTime.ToString("dd MMM yyyy HH:mm");
+                break;
+        }
+    }
+
+    private void SelectPayment(string id)
+    {
+        _selectedPayment = id;
+        if (id != "paylater") { _payLaterTenor = 0; _selectedPlan = null; }
+        RecalculatePlans();
+    }
+
+    private void RecalculatePlans()
+    {
+        var payable = _subtotal - _discount + (_selectedInsurance?.Price ?? 0);
+        _plans = Checkout.GetPayLaterPlans(payable);
+        _selectedPlan = _plans.FirstOrDefault(p => p.TenorMonths == _payLaterTenor);
+    }
+
+    private async Task ApplyVoucher()
+    {
+        _checkingVoucher = true;
+        try
+        {
+            var result = await Checkout.ApplyVoucherAsync(_voucherCode, _subtotal, BookingType ?? "All");
+            _voucherMessage = result.Message;
+            _discount = result.Discount;
+            _voucher = result.Voucher;
+            RecalculatePlans();
+        }
+        finally { _checkingVoucher = false; }
+    }
+
+    private async Task ProcessPayment()
+    {
+        _paying = true;
+        _error = null;
+        try
+        {
+            RecalculatePlans();
+
+            // Absolute URL: the gateway sends the customer back here from its own site.
+            var returnUrl = Navigation.ToAbsoluteUri("/my-bookings").ToString();
+
+            var result = await Checkout.PayAsync(
+                _userId, BookingType ?? "Unknown", _bookingGuid, _subtotal,
+                _selectedPayment, _voucher, _discount, _selectedInsurance,
+                _selectedPayment == "paylater" ? _payLaterTenor : null,
+                returnUrl);
+
+            if (!result.Success) { _error = result.Message; return; }
+
+            _transaction = result.Transaction;
+            _pointsEarned = result.PointsEarned;
+            _paymentUrl = result.PaymentUrl;
+            _success = true;
+        }
+        finally { _paying = false; }
+    }
+
+    private static string Rupiah(decimal value) => $"Rp{value:N0}";
+}

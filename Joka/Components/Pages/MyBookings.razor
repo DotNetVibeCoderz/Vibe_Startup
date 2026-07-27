@@ -1,0 +1,204 @@
+@page "/my-bookings"
+@using System.Security.Claims
+@attribute [Authorize]
+@inject AppDbContext DbContext
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>@L["Bookings.Title"] — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Nav.Yours"]</p>
+        <h1>@L["Bookings.Title"]</h1>
+        <p class="lede">@L["Bookings.Lede"]</p>
+    </div>
+
+    @if (_loading)
+    {
+        <div style="display:flex; flex-direction:column; gap: var(--s-3);">
+            @for (var i = 0; i < 3; i++)
+            {
+                <div class="skeleton" style="height:130px; border-radius: var(--radius-lg);"></div>
+            }
+        </div>
+    }
+    else if (!_all.Any())
+    {
+        <div class="empty">
+            <div style="font-size:3rem;">🎫</div>
+            <h3>@L["Bookings.EmptyTitle"]</h3>
+            <p>@L["Bookings.EmptyBody"]</p>
+            <div style="display:flex; gap: var(--s-2); justify-content:center; flex-wrap:wrap;">
+                <a class="btn btn-primary" href="/flights">@L["Home.SearchFlights"]</a>
+                <a class="btn btn-ghost" href="/hotels">@L["Home.SearchHotels"]</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="filter-bar">
+            <button class="tag @(_filter == "all" ? "active" : "")" @onclick='() => _filter = "all"'>
+                @L["Bookings.All"] (@_all.Count)
+            </button>
+            <button class="tag @(_filter == "upcoming" ? "active" : "")" @onclick='() => _filter = "upcoming"'>
+                @L["Bookings.Upcoming"] (@_all.Count(b => b.When >= DateTime.UtcNow))
+            </button>
+            <button class="tag @(_filter == "past" ? "active" : "")" @onclick='() => _filter = "past"'>
+                @L["Bookings.Past"] (@_all.Count(b => b.When < DateTime.UtcNow))
+            </button>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap: var(--s-3);">
+            @foreach (var b in Filtered)
+            {
+                <article class="stub">
+                    <div class="stub-main">
+                        <div class="stub-top">
+                            <span class="badge badge-quiet">@b.Icon @b.TypeLabel</span>
+                            <span class="code" style="font-size: var(--t-xs); color: var(--text-muted);">@b.Code</span>
+                            <StatusPill Status="@b.Status" />
+                            @if (b.When < DateTime.UtcNow)
+                            {
+                                <span class="tag">@L["Bookings.Past"]</span>
+                            }
+                        </div>
+
+                        <h3>@b.Title</h3>
+                        <p class="muted-line">@b.Detail</p>
+
+                        <div class="stub-amenities">
+                            <span class="code">@b.When.ToString("ddd, dd MMM yyyy · HH:mm")</span>
+                            @if (!string.IsNullOrEmpty(b.Seats))
+                            {
+                                <span>@L["Bookings.Seats"] @b.Seats</span>
+                            }
+                            <span>@L["Bookings.BookedOn"] @b.BookedAt.ToString("dd MMM yyyy")</span>
+                        </div>
+                    </div>
+
+                    <div class="stub-end">
+                        <div>
+                            <div class="micro">@L["Label.Total"]</div>
+                            <Money Amount="@b.Total" />
+                        </div>
+                        <a class="btn btn-primary btn-sm" href="@($"/eticket/{b.TypeKey}/{b.Code}")">
+                            @L["Action.ViewEticket"]
+                        </a>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .filter-bar { display: flex; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-4); }
+    .filter-bar .tag { cursor: pointer; }
+
+    .stub-top { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-3); }
+    .muted-line { font-size: var(--t-sm); color: var(--text-secondary); margin-top: var(--s-1); }
+
+    .stub-amenities {
+        display: flex; gap: var(--s-4); flex-wrap: wrap;
+        margin-top: var(--s-3); padding-top: var(--s-3);
+        border-top: 1px solid var(--border-color);
+        font-size: var(--t-xs); color: var(--text-secondary);
+    }
+
+    .micro { font-size: var(--t-xs); color: var(--text-muted); }
+</style>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    /// <summary>One shape for every product, so the list can be sorted and filtered as a whole.</summary>
+    private record Booking(
+        string Code, string TypeKey, string TypeLabel, string Icon,
+        string Title, string Detail, string? Seats,
+        DateTime When, DateTime BookedAt, decimal Total, string Status);
+
+    private List<Booking> _all = new();
+    private string _filter = "all";
+    private bool _loading = true;
+
+    private IEnumerable<Booking> Filtered => _filter switch
+    {
+        "upcoming" => _all.Where(b => b.When >= DateTime.UtcNow),
+        "past" => _all.Where(b => b.When < DateTime.UtcNow),
+        _ => _all
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState;
+
+        if (!Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId))
+        {
+            _loading = false;
+            return;
+        }
+
+        var bookings = new List<Booking>();
+
+        var flights = await DbContext.FlightBookings.AsNoTracking()
+            .Include(b => b.Flight!).ThenInclude(f => f.Airline)
+            .Include(b => b.Flight!).ThenInclude(f => f.DepartureAirport)
+            .Include(b => b.Flight!).ThenInclude(f => f.ArrivalAirport)
+            .Where(b => b.UserId == userId && b.Flight != null).ToListAsync();
+
+        bookings.AddRange(flights.Select(b => new Booking(
+            b.BookingCode, "flight", L["Nav.Flights"], "✈️",
+            $"{b.Flight!.DepartureAirport?.City} → {b.Flight.ArrivalAirport?.City}",
+            $"{b.Flight.Airline?.Name} {b.Flight.FlightNumber} · {b.PassengerCount} {L["Bookings.Pax"]}",
+            null, b.Flight.DepartureTime, b.BookingDate, b.TotalPrice, b.Status)));
+
+        var trains = await DbContext.TrainBookings.AsNoTracking()
+            .Include(b => b.TrainSchedule!).ThenInclude(s => s.Train)
+            .Include(b => b.TrainSchedule!).ThenInclude(s => s.DepartureStation)
+            .Include(b => b.TrainSchedule!).ThenInclude(s => s.ArrivalStation)
+            .Where(b => b.UserId == userId && b.TrainSchedule != null).ToListAsync();
+
+        bookings.AddRange(trains.Select(b => new Booking(
+            b.BookingCode, "train", L["Nav.Trains"], "🚆",
+            $"{b.TrainSchedule!.DepartureStation?.City} → {b.TrainSchedule.ArrivalStation?.City}",
+            $"{b.TrainSchedule.Train?.Name} · {b.TrainSchedule.Train?.Class}",
+            b.SelectedSeats, b.TrainSchedule.DepartureTime, b.BookingDate, b.TotalPrice, b.Status)));
+
+        var buses = await DbContext.BusBookings.AsNoTracking()
+            .Include(b => b.BusSchedule!).ThenInclude(s => s.BusService!).ThenInclude(v => v.Operator)
+            .Include(b => b.BusSchedule!).ThenInclude(s => s.DepartureTerminal)
+            .Include(b => b.BusSchedule!).ThenInclude(s => s.ArrivalTerminal)
+            .Where(b => b.UserId == userId && b.BusSchedule != null).ToListAsync();
+
+        bookings.AddRange(buses.Select(b => new Booking(
+            b.BookingCode, "bus", L["Nav.Buses"], "🚌",
+            $"{b.BusSchedule!.DepartureTerminal?.City} → {b.BusSchedule.ArrivalTerminal?.City}",
+            $"{b.BusSchedule.BusService?.Operator?.Name} · {b.PassengerCount} {L["Bookings.Pax"]}",
+            b.SelectedSeats, b.BusSchedule.DepartureTime, b.BookingDate, b.TotalPrice, b.Status)));
+
+        var hotels = await DbContext.HotelBookings.AsNoTracking()
+            .Include(b => b.Room!).ThenInclude(r => r.Hotel)
+            .Where(b => b.UserId == userId && b.Room != null).ToListAsync();
+
+        bookings.AddRange(hotels.Select(b => new Booking(
+            b.BookingCode, "hotel", L["Nav.Hotels"], "🏨",
+            b.Room!.Hotel?.Name ?? "Hotel",
+            $"{b.Room.Name} · {b.Nights} {L["Bookings.Nights"]}",
+            null, b.CheckInDate, b.BookingDate, b.TotalPrice, b.Status)));
+
+        var rides = await DbContext.TransportBookings.AsNoTracking()
+            .Include(b => b.Option!).ThenInclude(o => o.Provider)
+            .Where(b => b.UserId == userId && b.Option != null).ToListAsync();
+
+        bookings.AddRange(rides.Select(b => new Booking(
+            b.BookingCode, "transport", L["Nav.Transport"],
+            b.Option!.VehicleType == "Motorcycle" ? "🛵" : "🚗",
+            $"{b.PickupAddress} → {b.DropoffAddress}",
+            $"{b.Option.Provider?.Name} · {b.Option.Name}",
+            null, b.PickupTime, b.BookingDate, b.TotalPrice, b.Status)));
+
+        // Soonest departure first; past trips fall to the bottom of their filter.
+        _all = bookings.OrderByDescending(b => b.When).ToList();
+        _loading = false;
+    }
+}

@@ -1,0 +1,126 @@
+@page "/register"
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>@L["Register.Title"] — Joka</PageTitle>
+
+<div class="fade-in auth-page">
+    <div class="card auth-card">
+        <div style="text-align:center; margin-bottom: var(--s-5);">
+            <div style="font-size:2.5rem;">🚀</div>
+            <h1 style="margin-top: var(--s-2);">@L["Register.Title"]</h1>
+            <p style="color: var(--text-secondary); font-size: var(--t-sm);">@L["Register.Subtitle"]</p>
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger" role="alert">@_error</div>
+        }
+        @if (_success is not null)
+        {
+            <div class="alert alert-ok" role="status">@_success</div>
+        }
+
+        <div class="field">
+            <label for="name">@L["Profile.FullName"]</label>
+            <input id="name" @bind="_fullName" autocomplete="name" />
+        </div>
+
+        <div class="field" style="margin-top: var(--s-3);">
+            <label for="username">@L["Register.Username"]</label>
+            <input id="username" @bind="_username" autocomplete="username" />
+        </div>
+
+        <div class="field" style="margin-top: var(--s-3);">
+            <label for="email">@L["Auth.Email"]</label>
+            <input id="email" type="email" @bind="_email" autocomplete="email" placeholder="nama@example.com" />
+        </div>
+
+        <div class="field" style="margin-top: var(--s-3);">
+            <label for="password">@L["Auth.Password"]</label>
+            <input id="password" type="password" @bind="_password" autocomplete="new-password" placeholder="••••••••" />
+        </div>
+
+        <div class="field" style="margin-top: var(--s-3);">
+            <label for="confirm">@L["Reset.NewPassword"]</label>
+            <input id="confirm" type="password" @bind="_confirmPassword" autocomplete="new-password" placeholder="••••••••" />
+        </div>
+
+        <button class="btn btn-primary btn-lg btn-block" style="margin-top: var(--s-5);"
+                @onclick="HandleRegister" disabled="@_isLoading">
+            @(_isLoading ? L["Action.Processing"] : L["Register.Submit"])
+        </button>
+
+        <p style="text-align:center; margin-top: var(--s-5); font-size: var(--t-sm);">
+            @L["Register.HaveAccount"] <a href="/login">@L["Top.SignIn"]</a>
+        </p>
+    </div>
+</div>
+
+<style>
+    .auth-page { display: flex; justify-content: center; align-items: center; min-height: 70vh; }
+    .auth-card { max-width: 440px; width: 100%; }
+
+    .alert {
+        padding: var(--s-3); border-radius: var(--radius-md);
+        border: 2px solid currentColor; font-size: var(--t-sm);
+        font-weight: 600; margin-bottom: var(--s-4);
+    }
+    .alert-danger { color: var(--accent-danger); }
+    .alert-ok { color: var(--accent-success); }
+</style>
+
+@code {
+    private string _username = "", _fullName = "", _email = "", _password = "", _confirmPassword = "";
+    private string? _error, _success;
+    private bool _isLoading;
+
+    private async Task HandleRegister()
+    {
+        _error = null;
+        _success = null;
+        _isLoading = true;
+
+        try
+        {
+            // Validate here so the user gets a specific message instead of a
+            // generic failure from the service.
+            if (string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_email))
+            {
+                _error = "Username dan email wajib diisi.";
+                return;
+            }
+
+            if (_password.Length < 6)
+            {
+                _error = "Password minimal 6 karakter.";
+                return;
+            }
+
+            if (_password != _confirmPassword)
+            {
+                _error = "Konfirmasi password tidak cocok.";
+                return;
+            }
+
+            var request = new RegisterRequest
+            {
+                Username = _username.Trim(),
+                FullName = _fullName.Trim(),
+                Email = _email.Trim(),
+                Password = _password,
+                ConfirmPassword = _confirmPassword
+            };
+
+            var (success, message, _) = await AuthService.RegisterAsync(request);
+
+            if (!success) { _error = message; return; }
+
+            _success = message;
+            await Task.Delay(1200);
+            Navigation.NavigateTo("/login", true);
+        }
+        finally { _isLoading = false; }
+    }
+}

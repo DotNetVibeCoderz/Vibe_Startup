@@ -1,0 +1,205 @@
+@page "/activities"
+@inject AppDbContext DbContext
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>@L["Activities.Title"] — Joka</PageTitle>
+
+<div class="fade-in">
+    <div class="page-head">
+        <p class="eyebrow">@L["Activities.Eyebrow"]</p>
+        <h1>@L["Activities.Title"]</h1>
+        <p class="lede">@L["Activities.Lede"]</p>
+    </div>
+
+    <div class="filter-bar">
+        @foreach (var c in _categories)
+        {
+            <button class="tag @(_categoryFilter == c.Key ? "active" : "")" @onclick="() => Filter(c.Key)">
+                @c.Icon @L[c.LabelKey]
+            </button>
+        }
+    </div>
+
+    @if (_activities.Any())
+    {
+        <div class="grid grid-3">
+            @foreach (var activity in _activities)
+            {
+                <article class="travel-card card-media">
+                    <ImageGallery Src="@activity.ImageUrl" Urls="@activity.ImageUrls" Alt="@activity.Name"
+                                  Fallback="@IconFor(activity.Category)" />
+
+                    <div class="card-body">
+                        <div class="card-top">
+                            <span class="badge badge-quiet">@activity.Category</span>
+                            <WishlistButton ItemType="Activity" ItemId="@activity.Id.ToString()" ItemName="@activity.Name"
+                                            Price="activity.Price" ImageUrl="@activity.ImageUrl" />
+                        </div>
+
+                        <h3>@activity.Name</h3>
+
+                        <p class="muted-line">
+                            @activity.City@(string.IsNullOrEmpty(activity.Location) ? "" : $" · {activity.Location}")
+                        </p>
+
+                        <p class="clamp-2">@activity.Description</p>
+
+                        <div class="meta-row">
+                            <span class="badge badge-success">@activity.AverageRating.ToString("F1")</span>
+                            @if (activity.DurationMinutes > 0)
+                            {
+                                <span>@activity.DurationMinutes @L["Activities.Duration"]</span>
+                            }
+                            <span>@activity.SoldTickets / @activity.TotalTickets @L["Activities.Sold"]</span>
+                        </div>
+
+                        @if (activity.EventDate.HasValue)
+                        {
+                            <p class="code event-date">@activity.EventDate.Value.ToString("ddd, dd MMM yyyy")</p>
+                        }
+
+                        <div class="card-foot">
+                            <div>
+                                <Money Amount="@activity.Price" />
+                                <div class="micro">@L["Activities.PerTicket"]</div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" @onclick="() => BookActivity(activity)">
+                                @L["Activities.Buy"]
+                            </button>
+                        </div>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="empty">
+            <h3>@L["Activities.EmptyTitle"]</h3>
+            <p>@L["Activities.EmptyBody"]</p>
+            <button class="btn btn-secondary" @onclick='() => Filter("")'>@L["Activities.All"]</button>
+        </div>
+    }
+</div>
+
+@if (_bookingSuccess)
+{
+    <div class="modal-scrim">
+        <div class="modal" style="text-align:center;" role="dialog" aria-modal="true">
+            <div style="font-size:3rem;">🎫</div>
+            <h2 style="margin: var(--s-3) 0 var(--s-2);">@L["Label.Confirmed"]</h2>
+            <p style="color: var(--text-secondary);">@L["Label.BookingCode"]</p>
+            <p class="code booking-code">@_bookingCode</p>
+            <div style="display:flex; gap: var(--s-2); justify-content:center; margin-top: var(--s-5);">
+                <button class="btn btn-primary" @onclick="() => _bookingSuccess = false">@L["Action.Close"]</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .filter-bar { display: flex; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-5); }
+    .filter-bar .tag { cursor: pointer; }
+
+    .card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); margin-bottom: var(--s-2); }
+    .muted-line { font-size: var(--t-sm); color: var(--text-secondary); margin: var(--s-1) 0 var(--s-2); }
+
+    .clamp-2 {
+        font-size: var(--t-sm); color: var(--text-muted);
+        display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2;
+        -webkit-box-orient: vertical; overflow: hidden;
+    }
+
+    .meta-row {
+        display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap;
+        margin: var(--s-3) 0; font-size: var(--t-xs); color: var(--text-secondary);
+    }
+
+    .event-date { font-size: var(--t-sm); font-weight: 700; }
+    .micro { font-size: var(--t-xs); color: var(--text-muted); }
+
+    .card-foot {
+        display: flex; align-items: flex-end; justify-content: space-between;
+        gap: var(--s-3); margin-top: auto; padding-top: var(--s-3);
+        border-top: 2px solid var(--border-color);
+    }
+
+    .booking-code {
+        font-size: 1.4rem; font-weight: 700; letter-spacing: 0.08em;
+        padding: var(--s-3); margin-top: var(--s-2);
+        border: 2px dashed var(--border-strong); border-radius: var(--radius-md);
+        background: var(--bg-tertiary); word-break: break-all;
+    }
+</style>
+
+@code {
+    private record Category(string Key, string Icon, string LabelKey);
+
+    private readonly Category[] _categories =
+    {
+        new("", "🎯", "Activities.All"),
+        new("Attraction", "🏛️", "Activities.Attraction"),
+        new("Concert", "🎵", "Activities.Concert"),
+        new("Tour", "🗺️", "Activities.Tour"),
+        new("Workshop", "🔧", "Activities.Workshop"),
+        new("Sports", "🏄", "Activities.Sports")
+    };
+
+    private List<Activity> _activities = new();
+    private string _categoryFilter = "";
+    private bool _bookingSuccess;
+    private string _bookingCode = "";
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        var query = DbContext.Activities.AsNoTracking().AsQueryable();
+
+        if (!string.IsNullOrEmpty(_categoryFilter))
+            query = query.Where(a => a.Category == _categoryFilter);
+
+        _activities = await query.OrderByDescending(a => a.AverageRating).Take(24).ToListAsync();
+    }
+
+    private async Task Filter(string category)
+    {
+        _categoryFilter = category;
+        await Load();
+    }
+
+    private static string IconFor(string category) => category switch
+    {
+        "Concert" => "🎵",
+        "Tour" => "🗺️",
+        "Workshop" => "🔧",
+        "Sports" => "🏄",
+        _ => "🏛️"
+    };
+
+    private async Task BookActivity(Activity activity)
+    {
+        // The listed activity is untracked, so update the counter on a tracked copy.
+        var tracked = await DbContext.Activities.FirstOrDefaultAsync(a => a.Id == activity.Id);
+        if (tracked is null || tracked.SoldTickets >= tracked.TotalTickets) return;
+
+        var booking = new ActivityBooking
+        {
+            UserId = Guid.NewGuid(),
+            ActivityId = activity.Id,
+            BookingCode = $"JKA-AC-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(1000, 9999)}",
+            Status = "Confirmed",
+            TicketCount = 1,
+            TotalPrice = activity.Price,
+            VisitDate = activity.EventDate ?? DateTime.UtcNow.AddDays(7)
+        };
+
+        DbContext.ActivityBookings.Add(booking);
+        tracked.SoldTickets++;
+        await DbContext.SaveChangesAsync();
+
+        _bookingCode = booking.BookingCode;
+        _bookingSuccess = true;
+        await Load();
+    }
+}

@@ -1,0 +1,276 @@
+/* ============================================================
+   App shell only - sidebar, top bar, page frame.
+
+   Blazor scopes every selector in this file to MainLayout's markup,
+   so it must contain nothing that pages need. Tokens and all shared
+   component classes live in wwwroot/app.css.
+   ============================================================ */
+
+.joka-layout {
+    display: flex;
+    min-height: 100vh;
+    background: var(--bg-primary);
+}
+
+/* ---------- Sidebar ---------- */
+.sidebar {
+    width: var(--sidebar-width);
+    background: var(--bg-secondary);
+    border-right: 2px solid var(--border-strong);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 100;
+    transition: var(--transition);
+}
+
+.sidebar.collapsed { width: var(--sidebar-collapsed); }
+
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-4);
+    min-height: var(--topbar-height);
+    background: none;
+    border: none;
+    border-bottom: 2px solid var(--border-strong);
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    color: inherit;
+}
+
+.brand-icon { flex: none; }
+.brand-icon svg { width: 36px; height: 36px; }
+
+.brand-text {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+}
+
+.sidebar-nav {
+    flex: 1;
+    padding: var(--s-3) var(--s-2);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.nav-section {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: var(--s-4) var(--s-3) var(--s-2);
+}
+
+.sidebar-nav a {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+    border: 2px solid transparent;
+    white-space: nowrap;
+    transition: var(--transition);
+}
+
+.sidebar-nav a:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+/* Active route reads as a pressed physical key, not just a colour swap */
+.sidebar-nav a.active {
+    background: var(--accent-primary);
+    color: #fff;
+    border-color: var(--tinta);
+    box-shadow: var(--shadow-sm);
+}
+
+.nav-icon { font-size: 1.15rem; flex: none; width: 24px; text-align: center; }
+
+/* Collapsed rail: icons only. Labels stay in the DOM for screen readers. */
+.sidebar.collapsed .nav-text,
+.sidebar.collapsed .brand-text,
+.sidebar.collapsed .nav-section,
+.sidebar.collapsed .side-user span { display: none; }
+
+.sidebar.collapsed .sidebar-nav a { justify-content: center; padding-left: 8px; padding-right: 8px; }
+.sidebar.collapsed .sidebar-brand { justify-content: center; }
+
+.sidebar-footer {
+    padding: var(--s-3);
+    border-top: 2px solid var(--border-strong);
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+}
+
+.sidebar.collapsed .sidebar-footer { flex-direction: column; }
+
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+    transition: var(--transition);
+}
+
+.icon-btn:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); text-decoration: none; }
+
+.side-user {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: var(--t-sm);
+    font-weight: 600;
+}
+
+.side-user:hover { background: var(--bg-tertiary); text-decoration: none; }
+.side-user span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Main column ---------- */
+.main-content {
+    flex: 1;
+    min-width: 0;
+    margin-left: var(--sidebar-width);
+    transition: var(--transition);
+}
+
+.sidebar.collapsed ~ .main-content { margin-left: var(--sidebar-collapsed); }
+
+.top-bar {
+    height: var(--topbar-height);
+    background: var(--bg-secondary);
+    border-bottom: 2px solid var(--border-strong);
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: 0 var(--s-5);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+.search-bar { flex: 1; max-width: 460px; }
+
+.search-bar input {
+    width: 100%;
+    padding: 9px 16px;
+    border: 2px solid var(--border-strong);
+    border-radius: 50px;
+    background: var(--bg-tertiary);
+    font-size: 0.9rem;
+}
+
+.top-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    margin-left: auto;
+}
+
+.top-actions select {
+    width: auto;
+    padding: 7px 10px;
+    font-size: var(--t-xs);
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+}
+
+.avatar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid var(--border-strong);
+    background: var(--bg-tertiary);
+    text-decoration: none;
+    font-size: 1.05rem;
+}
+
+.avatar-btn:hover { box-shadow: var(--shadow-sm); text-decoration: none; }
+
+.page-content {
+    padding: var(--s-5);
+    max-width: 1320px;
+    margin: 0 auto;
+}
+
+/* Scrim only exists on mobile, when the sidebar becomes a drawer */
+.scrim { display: none; }
+
+/* ---------- Responsive: sidebar becomes an overlay drawer ---------- */
+@media (max-width: 900px) {
+    .sidebar {
+        width: var(--sidebar-width);
+        transform: translateX(-100%);
+        box-shadow: var(--shadow-lg);
+    }
+
+    /* On mobile "collapsed" means closed; open is the exception. The drawer
+       is full width, so labels always show regardless of the collapsed flag. */
+    .sidebar.collapsed { width: var(--sidebar-width); transform: translateX(-100%); }
+    .sidebar.open, .sidebar.open.collapsed { transform: none; }
+
+    .sidebar.collapsed .nav-text,
+    .sidebar.collapsed .brand-text,
+    .sidebar.collapsed .nav-section,
+    .sidebar.collapsed .side-user span { display: revert; }
+
+    .sidebar.collapsed .sidebar-nav a,
+    .sidebar.collapsed .sidebar-brand { justify-content: flex-start; padding-left: 12px; padding-right: 12px; }
+    .sidebar.collapsed .sidebar-footer { flex-direction: row; }
+
+    .main-content, .sidebar.collapsed ~ .main-content { margin-left: 0; }
+
+    .scrim {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(20, 22, 28, 0.5);
+        z-index: 90;
+        border: none;
+        animation: fadeIn 0.18s ease-out;
+    }
+
+    .top-bar { padding: 0 var(--s-3); }
+    .page-content { padding: var(--s-4) var(--s-3); }
+    .search-bar { display: none; }
+}
+
+@media (max-width: 520px) {
+    .top-actions select { display: none; }
+}

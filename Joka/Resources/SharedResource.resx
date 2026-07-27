@@ -1,0 +1,448 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!--
+    Neutral culture = Indonesian, the product's default language.
+    Any key missing from SharedResource.en.resx falls back to the value here,
+    so an untranslated page degrades to Indonesian rather than showing keys.
+  -->
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <!-- Navigation -->
+  <data name="Nav.Book"><value>Pesan</value></data>
+  <data name="Nav.Yours"><value>Punyamu</value></data>
+  <data name="Nav.Home"><value>Beranda</value></data>
+  <data name="Nav.Flights"><value>Tiket Pesawat</value></data>
+  <data name="Nav.Trains"><value>Tiket Kereta</value></data>
+  <data name="Nav.Buses"><value>Bus &amp; Shuttle</value></data>
+  <data name="Nav.Hotels"><value>Hotel</value></data>
+  <data name="Nav.Cars"><value>Rental Mobil</value></data>
+  <data name="Nav.Activities"><value>Aktivitas</value></data>
+  <data name="Nav.Packages"><value>Paket Travel</value></data>
+  <data name="Nav.Insurance"><value>Asuransi</value></data>
+  <data name="Nav.Promos"><value>Promo</value></data>
+  <data name="Nav.MyBookings"><value>Booking Saya</value></data>
+  <data name="Nav.Wishlist"><value>Wishlist</value></data>
+  <data name="Nav.MyPoints"><value>My Points</value></data>
+  <data name="Nav.TripPlanner"><value>Trip Planner</value></data>
+  <data name="Nav.Chat"><value>Mas Bolang</value></data>
+  <data name="Nav.Support"><value>Bantuan</value></data>
+  <data name="Nav.Admin"><value>Admin</value></data>
+  <data name="Nav.Operations"><value>Operasional</value></data>
+  <data name="Nav.Partner"><value>Partner</value></data>
+
+  <!-- Top bar -->
+  <data name="Top.SearchPlaceholder"><value>Mau ke mana?</value></data>
+  <data name="Top.SearchLabel"><value>Cari tujuan</value></data>
+  <data name="Top.Currency"><value>Mata uang</value></data>
+  <data name="Top.Language"><value>Bahasa</value></data>
+  <data name="Top.Notifications"><value>Notifikasi</value></data>
+  <data name="Top.Profile"><value>Profil</value></data>
+  <data name="Top.SignIn"><value>Masuk</value></data>
+  <data name="Top.Menu"><value>Menu</value></data>
+  <data name="Top.CollapseMenu"><value>Perkecil menu</value></data>
+  <data name="Top.CloseMenu"><value>Tutup menu</value></data>
+  <data name="Top.ThemeToLight"><value>Ganti ke tema terang</value></data>
+  <data name="Top.ThemeToDark"><value>Ganti ke tema gelap</value></data>
+  <data name="Top.Account"><value>Akun</value></data>
+
+  <!-- Shared actions -->
+  <data name="Action.Search"><value>Cari</value></data>
+  <data name="Action.Reset"><value>Atur ulang</value></data>
+  <data name="Action.Select"><value>Pilih</value></data>
+  <data name="Action.Book"><value>Pesan</value></data>
+  <data name="Action.Cancel"><value>Batal</value></data>
+  <data name="Action.Close"><value>Tutup</value></data>
+  <data name="Action.Save"><value>Simpan</value></data>
+  <data name="Action.PayNow"><value>Bayar sekarang</value></data>
+  <data name="Action.ViewEticket"><value>Lihat e-ticket</value></data>
+  <data name="Action.SearchAgain"><value>Cari lagi</value></data>
+  <data name="Action.BookNow"><value>Pesan sekarang</value></data>
+  <data name="Action.Processing"><value>Memproses…</value></data>
+  <data name="Action.Delete"><value>Hapus</value></data>
+
+  <!-- Shared labels -->
+  <data name="Label.From"><value>Dari</value></data>
+  <data name="Label.To"><value>Ke</value></data>
+  <data name="Label.Date"><value>Tanggal</value></data>
+  <data name="Label.DepartureDate"><value>Tanggal berangkat</value></data>
+  <data name="Label.MaxPrice"><value>Harga maksimal</value></data>
+  <data name="Label.SortBy"><value>Urutkan</value></data>
+  <data name="Label.Passengers"><value>Jumlah penumpang</value></data>
+  <data name="Label.PerPerson"><value>Per orang</value></data>
+  <data name="Label.StartingFrom"><value>Mulai dari</value></data>
+  <data name="Label.PerNight"><value>per malam</value></data>
+  <data name="Label.Total"><value>Total</value></data>
+  <data name="Label.Anything"><value>Berapa pun</value></data>
+  <data name="Label.AllCities"><value>Semua kota</value></data>
+  <data name="Label.AllAirports"><value>Semua bandara</value></data>
+  <data name="Label.PickCity"><value>Pilih kota</value></data>
+  <data name="Label.Cheapest"><value>Termurah</value></data>
+  <data name="Label.EarliestDeparture"><value>Berangkat paling awal</value></data>
+  <data name="Label.Fastest"><value>Tercepat</value></data>
+  <data name="Label.Direct"><value>Tanpa transit</value></data>
+  <data name="Label.BookingCode"><value>Kode booking kamu</value></data>
+  <data name="Label.Confirmed"><value>Pesanan dikonfirmasi</value></data>
+
+  <!-- Home -->
+  <data name="Home.Eyebrow"><value>Pesawat · Kereta · Hotel · Rental · Aktivitas</value></data>
+  <data name="Home.Title"><value>Jelajahi dunia tanpa batas</value></data>
+  <data name="Home.Subtitle"><value>Satu tempat untuk semua perjalananmu. Cari, bandingkan, pesan.</value></data>
+  <data name="Home.TabFlight"><value>Pesawat</value></data>
+  <data name="Home.TabTrain"><value>Kereta</value></data>
+  <data name="Home.TabBus"><value>Bus</value></data>
+  <data name="Home.TabHotel"><value>Hotel</value></data>
+  <data name="Home.SearchFlights"><value>Cari tiket</value></data>
+  <data name="Home.SearchTrains"><value>Cari kereta</value></data>
+  <data name="Home.SearchBuses"><value>Cari bus</value></data>
+  <data name="Home.SearchHotels"><value>Cari hotel</value></data>
+  <data name="Home.StatFlights"><value>Rute penerbangan</value></data>
+  <data name="Home.StatHotels"><value>Pilihan hotel</value></data>
+  <data name="Home.StatActivities"><value>Aktivitas &amp; event</value></data>
+  <data name="Home.StatUsers"><value>Traveler terdaftar</value></data>
+  <data name="Home.PromoTitle"><value>Promo yang bisa kamu pakai</value></data>
+  <data name="Home.PromoAll"><value>Lihat semua promo</value></data>
+  <data name="Home.PopularFlights"><value>Penerbangan populer</value></data>
+  <data name="Home.AllFlights"><value>Semua penerbangan</value></data>
+  <data name="Home.FavouriteHotels"><value>Hotel favorit traveler</value></data>
+  <data name="Home.AllHotels"><value>Semua hotel</value></data>
+  <data name="Home.BolangTitle"><value>Belum yakin mau ke mana?</value></data>
+  <data name="Home.BolangBody"><value>Mas Bolang bantu cari tiket, bandingkan hotel, dan susun rencana perjalanan.</value></data>
+  <data name="Home.BolangCta"><value>Tanya Mas Bolang</value></data>
+  <data name="Home.CheckIn"><value>Check-in</value></data>
+  <data name="Home.CityOrDestination"><value>Kota atau destinasi</value></data>
+  <data name="Home.PickStation"><value>Pilih stasiun</value></data>
+  <data name="Home.ValidUntil"><value>Berlaku s/d</value></data>
+
+  <!-- Flights -->
+  <data name="Flights.Eyebrow"><value>Tiket Pesawat</value></data>
+  <data name="Flights.Title"><value>Cari penerbangan</value></data>
+  <data name="Flights.Lede"><value>Bandingkan harga dan jadwal dari berbagai maskapai.</value></data>
+  <data name="Flights.Found"><value>penerbangan ditemukan</value></data>
+  <data name="Flights.EmptyTitle"><value>Tidak ada penerbangan untuk pencarian ini</value></data>
+  <data name="Flights.EmptyBody"><value>Coba ganti tanggal, naikkan batas harga, atau hapus filter tanpa transit.</value></data>
+  <data name="Flights.NonStop"><value>Langsung</value></data>
+  <data name="Flights.Baggage"><value>Bagasi</value></data>
+  <data name="Flights.MealIncluded"><value>Makanan termasuk</value></data>
+  <data name="Flights.Refundable"><value>Bisa refund</value></data>
+  <data name="Flights.SeatsLeft"><value>kursi tersisa</value></data>
+  <data name="Flights.ConfirmTitle"><value>Konfirmasi pesanan</value></data>
+  <data name="Flights.Airline"><value>Maskapai</value></data>
+  <data name="Flights.Route"><value>Rute</value></data>
+  <data name="Flights.Departs"><value>Berangkat</value></data>
+  <data name="Flights.PricePerPerson"><value>Harga per orang</value></data>
+
+  <!-- Buses -->
+  <data name="Buses.Eyebrow"><value>Bus &amp; Shuttle</value></data>
+  <data name="Buses.Title"><value>Cari bus antar kota</value></data>
+  <data name="Buses.Lede"><value>Bus antar kota dan shuttle door-to-door, dengan jadwal dan sisa kursi terkini.</value></data>
+  <data name="Buses.Kind"><value>Jenis</value></data>
+  <data name="Buses.All"><value>Semua</value></data>
+  <data name="Buses.Found"><value>keberangkatan ditemukan</value></data>
+  <data name="Buses.EmptyTitle"><value>Tidak ada keberangkatan untuk rute ini</value></data>
+  <data name="Buses.EmptyBody"><value>Coba ganti tanggal, pilih kota lain, atau tampilkan semua jenis armada.</value></data>
+  <data name="Buses.ArrivesTomorrow"><value>Tiba besok</value></data>
+  <data name="Buses.PickupAddress"><value>Alamat penjemputan</value></data>
+  <data name="Buses.Fleet"><value>Armada</value></data>
+
+  <!-- Hotels -->
+  <data name="Hotels.Eyebrow"><value>Hotel &amp; Akomodasi</value></data>
+  <data name="Hotels.Title"><value>Cari tempat menginap</value></data>
+  <data name="Hotels.Lede"><value>Hotel, villa, resor, dan apartemen dengan ulasan asli dari traveler.</value></data>
+  <data name="Hotels.MinStars"><value>Bintang minimal</value></data>
+  <data name="Hotels.Type"><value>Tipe</value></data>
+  <data name="Hotels.Found"><value>tempat menginap ditemukan</value></data>
+  <data name="Hotels.ViewRooms"><value>Lihat kamar</value></data>
+  <data name="Hotels.RoomOptions"><value>Pilihan kamar</value></data>
+  <data name="Hotels.Guests"><value>tamu</value></data>
+  <data name="Hotels.BreakfastIncluded"><value>termasuk sarapan</value></data>
+  <data name="Hotels.RoomsLeft"><value>Tersisa {0} kamar</value></data>
+  <data name="Hotels.Full"><value>Penuh</value></data>
+  <data name="Hotels.Reviews"><value>ulasan</value></data>
+  <data name="Hotels.EmptyTitle"><value>Tidak ada tempat menginap untuk filter ini</value></data>
+  <data name="Hotels.EmptyBody"><value>Coba pilih kota lain atau turunkan syarat bintangnya.</value></data>
+
+  <!-- Seat map -->
+  <data name="Seat.Pick"><value>Pilih kursi</value></data>
+  <data name="Seat.Available"><value>Tersedia</value></data>
+  <data name="Seat.Yours"><value>Pilihanmu</value></data>
+  <data name="Seat.Taken"><value>Terisi</value></data>
+  <data name="Seat.Front"><value>Depan / Pengemudi</value></data>
+  <data name="Seat.Direction"><value>Arah perjalanan</value></data>
+
+  <!-- Auth -->
+  <data name="Auth.SignInTitle"><value>Masuk ke Joka</value></data>
+  <data name="Auth.SignInSubtitle"><value>Lanjutkan petualanganmu.</value></data>
+  <data name="Auth.Email"><value>Email</value></data>
+  <data name="Auth.Password"><value>Password</value></data>
+  <data name="Auth.Forgot"><value>Lupa password?</value></data>
+  <data name="Auth.Or"><value>atau</value></data>
+  <data name="Auth.WithGoogle"><value>Masuk dengan Google</value></data>
+  <data name="Auth.NoAccount"><value>Belum punya akun?</value></data>
+  <data name="Auth.Register"><value>Daftar di sini</value></data>
+  <data name="Auth.DemoAccounts"><value>Akun demo</value></data>
+
+  <!-- Empty / error states -->
+  <data name="State.AccessDenied"><value>Akses ditolak</value></data>
+  <data name="State.AccessDeniedBody"><value>Akun kamu tidak punya hak untuk membuka halaman itu. Kalau kamu merasa ini keliru, minta admin memeriksa role akunmu.</value></data>
+  <data name="State.BackHome"><value>Kembali ke beranda</value></data>
+  <data name="State.NotFound"><value>Halaman tidak ditemukan</value></data>
+  <data name="State.NotFoundBody"><value>Sepertinya kamu tersesat. Yuk kembali ke beranda.</value></data>
+  <data name="State.NeedSignIn"><value>Kamu perlu masuk dulu</value></data>
+  <data name="State.NeedSignInBody"><value>Halaman ini hanya untuk pengguna yang sudah login.</value></data>
+  <!-- Trains -->
+  <data name="Trains.Eyebrow"><value>Tiket Kereta</value></data>
+  <data name="Trains.Title"><value>Cari jadwal kereta</value></data>
+  <data name="Trains.Lede"><value>Pilih kelas, bandingkan jadwal, dan pilih kursimu sendiri.</value></data>
+  <data name="Trains.Found"><value>jadwal ditemukan</value></data>
+  <data name="Trains.EmptyTitle"><value>Tidak ada jadwal untuk rute ini</value></data>
+  <data name="Trains.EmptyBody"><value>Coba pilih stasiun lain atau hapus filter rute.</value></data>
+  <data name="Trains.Wifi"><value>WiFi</value></data>
+  <data name="Trains.Meal"><value>Makanan</value></data>
+  <data name="Trains.Entertainment"><value>Hiburan</value></data>
+  <data name="Trains.SeatsAvailable"><value>kursi tersedia</value></data>
+  <data name="Trains.AllStations"><value>Semua stasiun</value></data>
+
+  <!-- Activities -->
+  <data name="Activities.Eyebrow"><value>Aktivitas &amp; Event</value></data>
+  <data name="Activities.Title"><value>Cari pengalaman seru</value></data>
+  <data name="Activities.Lede"><value>Konser, atraksi wisata, tur, dan workshop di seluruh Indonesia.</value></data>
+  <data name="Activities.All"><value>Semua</value></data>
+  <data name="Activities.Attraction"><value>Atraksi</value></data>
+  <data name="Activities.Concert"><value>Konser</value></data>
+  <data name="Activities.Tour"><value>Tur</value></data>
+  <data name="Activities.Workshop"><value>Workshop</value></data>
+  <data name="Activities.Sports"><value>Olahraga</value></data>
+  <data name="Activities.Sold"><value>terjual</value></data>
+  <data name="Activities.Duration"><value>menit</value></data>
+  <data name="Activities.PerTicket"><value>per tiket</value></data>
+  <data name="Activities.Buy"><value>Beli tiket</value></data>
+  <data name="Activities.EmptyTitle"><value>Tidak ada aktivitas di kategori ini</value></data>
+  <data name="Activities.EmptyBody"><value>Coba kategori lain atau lihat semua aktivitas.</value></data>
+
+  <!-- Cars -->
+  <data name="Cars.Eyebrow"><value>Rental Mobil</value></data>
+  <data name="Cars.Title"><value>Sewa mobil untuk perjalananmu</value></data>
+  <data name="Cars.Lede"><value>Lepas kunci atau dengan supir, durasi fleksibel.</value></data>
+  <data name="Cars.Seats"><value>kursi</value></data>
+  <data name="Cars.UnitsAvailable"><value>unit tersedia</value></data>
+  <data name="Cars.WithDriver"><value>Termasuk supir</value></data>
+  <data name="Cars.SelfDrive"><value>Lepas kunci</value></data>
+  <data name="Cars.PerDay"><value>per hari</value></data>
+  <data name="Cars.Rent"><value>Sewa</value></data>
+  <data name="Cars.EmptyTitle"><value>Belum ada kendaraan tersedia</value></data>
+
+  <!-- Packages -->
+  <data name="Packages.Eyebrow"><value>Paket Travel</value></data>
+  <data name="Packages.Title"><value>Satu paket, tinggal berangkat</value></data>
+  <data name="Packages.Lede"><value>Bundling hemat tiket, hotel, dan aktivitas dalam satu harga.</value></data>
+  <data name="Packages.Days"><value>hari</value></data>
+  <data name="Packages.Booked"><value>sudah memesan</value></data>
+  <data name="Packages.EmptyTitle"><value>Belum ada paket tersedia</value></data>
+
+  <!-- Insurance -->
+  <data name="Insurance.Eyebrow"><value>Asuransi Perjalanan</value></data>
+  <data name="Insurance.Title"><value>Lindungi perjalananmu</value></data>
+  <data name="Insurance.Lede"><value>Proteksi keterlambatan, pembatalan, dan biaya medis.</value></data>
+  <data name="Insurance.Coverage"><value>Cakupan</value></data>
+  <data name="Insurance.Benefits"><value>Manfaat</value></data>
+  <data name="Insurance.Provider"><value>Penyedia</value></data>
+  <data name="Insurance.AddAtCheckout"><value>Pilih paket ini saat checkout.</value></data>
+  <data name="Insurance.EmptyTitle"><value>Belum ada paket asuransi aktif</value></data>
+
+  <!-- Promos -->
+  <data name="Promos.Eyebrow"><value>Promo &amp; Voucher</value></data>
+  <data name="Promos.Title"><value>Hemat lebih banyak</value></data>
+  <data name="Promos.Lede"><value>Pakai kode voucher di halaman checkout sebelum membayar.</value></data>
+  <data name="Promos.MinTransaction"><value>Min. transaksi</value></data>
+  <data name="Promos.MaxDiscount"><value>Maks. potongan</value></data>
+  <data name="Promos.QuotaLeft"><value>kuota tersisa</value></data>
+  <data name="Promos.EmptyTitle"><value>Sedang tidak ada promo aktif</value></data>
+  <data name="Promos.EmptyBody"><value>Cek lagi nanti — promo baru muncul berkala.</value></data>
+
+  <!-- Wishlist -->
+  <data name="Wishlist.Title"><value>Wishlist</value></data>
+  <data name="Wishlist.Lede"><value>Barang simpanan yang belum kamu pesan.</value></data>
+  <data name="Wishlist.Remove"><value>Hapus</value></data>
+  <data name="Wishlist.EmptyTitle"><value>Wishlist kamu masih kosong</value></data>
+  <data name="Wishlist.EmptyBody"><value>Tekan ikon hati di halaman hotel, aktivitas, rental mobil, atau paket untuk menyimpannya di sini.</value></data>
+  <data name="Wishlist.SavedOn"><value>Disimpan</value></data>
+  <!-- My Bookings -->
+  <data name="Bookings.Title"><value>Booking Saya</value></data>
+  <data name="Bookings.Lede"><value>Semua pesanan kamu, dari tiket sampai hotel.</value></data>
+  <data name="Bookings.All"><value>Semua</value></data>
+  <data name="Bookings.Upcoming"><value>Akan datang</value></data>
+  <data name="Bookings.Past"><value>Sudah lewat</value></data>
+  <data name="Bookings.EmptyTitle"><value>Belum ada pesanan</value></data>
+  <data name="Bookings.EmptyBody"><value>Pesanan yang kamu buat akan muncul di sini lengkap dengan e-ticket-nya.</value></data>
+  <data name="Bookings.BookedOn"><value>Dipesan</value></data>
+  <data name="Bookings.Pax"><value>penumpang</value></data>
+  <data name="Bookings.Nights"><value>malam</value></data>
+  <data name="Bookings.Seats"><value>Kursi</value></data>
+
+  <!-- Notifications -->
+  <data name="Notif.Title"><value>Notifikasi</value></data>
+  <data name="Notif.Lede"><value>Pembaruan pesanan, promo, dan pengingat perjalanan.</value></data>
+  <data name="Notif.MarkAllRead"><value>Tandai semua dibaca</value></data>
+  <data name="Notif.MarkRead"><value>Tandai dibaca</value></data>
+  <data name="Notif.Unread"><value>belum dibaca</value></data>
+  <data name="Notif.EmptyTitle"><value>Belum ada notifikasi</value></data>
+  <data name="Notif.EmptyBody"><value>Kami akan mengabari kamu saat ada pembaruan pesanan atau promo baru.</value></data>
+
+  <!-- Profile -->
+  <data name="Profile.Title"><value>Profil saya</value></data>
+  <data name="Profile.Lede"><value>Kelola data akun dan preferensi perjalananmu.</value></data>
+  <data name="Profile.FullName"><value>Nama lengkap</value></data>
+  <data name="Profile.Phone"><value>Nomor telepon</value></data>
+  <data name="Profile.Member"><value>Anggota sejak</value></data>
+  <data name="Profile.Tier"><value>Tier membership</value></data>
+  <data name="Profile.Points"><value>Poin loyalitas</value></data>
+  <data name="Profile.Saved"><value>Profil diperbarui.</value></data>
+  <data name="Profile.SignOut"><value>Keluar</value></data>
+  <data name="Profile.ViewPoints"><value>Lihat My Points</value></data>
+  <data name="Profile.ChangePhoto"><value>Ubah foto</value></data>
+  <data name="Profile.RemovePhoto"><value>Hapus foto</value></data>
+  <data name="Profile.PhotoUploading"><value>Mengunggah…</value></data>
+  <data name="Profile.PhotoSaved"><value>Foto profil diperbarui.</value></data>
+  <data name="Profile.PhotoRemoved"><value>Foto profil dihapus.</value></data>
+  <data name="Profile.PhotoHint"><value>JPG, PNG, atau WebP. Maksimal 2 MB.</value></data>
+  <data name="Profile.PhotoTooBig"><value>Ukuran foto melebihi 2 MB.</value></data>
+  <data name="Profile.PhotoWrongType"><value>Format tidak didukung. Gunakan JPG, PNG, atau WebP.</value></data>
+  <data name="Profile.PhotoFailed"><value>Foto gagal diunggah. Coba lagi.</value></data>
+
+  <!-- Support -->
+  <data name="Support.Eyebrow"><value>Bantuan</value></data>
+  <data name="Support.Title"><value>Kami siap membantu</value></data>
+  <data name="Support.Lede"><value>Pilih kanal yang paling nyaman buat kamu.</value></data>
+  <data name="Support.ChatTitle"><value>Chat dengan Mas Bolang</value></data>
+  <data name="Support.ChatBody"><value>Asisten AI kami bisa mencari pesanan dan jadwal langsung dari sistem.</value></data>
+  <data name="Support.ChatCta"><value>Buka chat</value></data>
+  <data name="Support.PhoneTitle"><value>Telepon</value></data>
+  <data name="Support.PhoneBody"><value>Senin–Minggu, 08.00–22.00 WIB</value></data>
+  <data name="Support.EmailTitle"><value>Email</value></data>
+  <data name="Support.EmailBody"><value>Dibalas dalam 1×24 jam</value></data>
+  <data name="Support.Faq"><value>Pertanyaan umum</value></data>
+
+  <!-- Register / reset -->
+  <data name="Register.Title"><value>Daftar akun Joka</value></data>
+  <data name="Register.Subtitle"><value>Gratis, dan langsung bisa memesan.</value></data>
+  <data name="Register.Username"><value>Username</value></data>
+  <data name="Register.Submit"><value>Daftar</value></data>
+  <data name="Register.HaveAccount"><value>Sudah punya akun?</value></data>
+  <data name="Reset.Title"><value>Atur ulang password</value></data>
+  <data name="Reset.Subtitle"><value>Masukkan email kamu, nanti kami kirim tautannya.</value></data>
+  <data name="Reset.Request"><value>Kirim tautan reset</value></data>
+  <data name="Reset.NewPassword"><value>Password baru</value></data>
+  <data name="Reset.Submit"><value>Simpan password baru</value></data>
+  <data name="Reset.BackToLogin"><value>Kembali ke halaman masuk</value></data>
+
+  <!-- Chat -->
+  <data name="Chat.Greeting"><value>Halo! Aku Mas Bolang</value></data>
+  <data name="Chat.Intro"><value>Aku bisa bantu cari tiket pesawat, kereta, bus, hotel, rental mobil, dan aktivitas — semuanya langsung dari data Joka.</value></data>
+  <data name="Chat.NewChat"><value>Chat baru</value></data>
+  <data name="Chat.Reset"><value>Reset sesi</value></data>
+  <data name="Chat.Placeholder"><value>Ketik pesan untuk Mas Bolang…</value></data>
+  <data name="Chat.Send"><value>Kirim</value></data>
+  <data name="Chat.Online"><value>Online</value></data>
+  <data name="Chat.Model"><value>Model</value></data>
+  <data name="Chat.Messages"><value>pesan</value></data>
+  <data name="Chat.Assistant"><value>Asisten virtual Joka</value></data>
+  <data name="Chat.Temperature"><value>Temperature</value></data>
+  <data name="Chat.Untitled"><value>Chat baru</value></data>
+  <data name="Chat.GroupSearch"><value>Cari &amp; pesan</value></data>
+  <data name="Chat.GroupPrice"><value>Harga &amp; promo</value></data>
+  <data name="Chat.GroupMine"><value>Pesanan saya</value></data>
+  <data name="Chat.GroupOutside"><value>Di luar Joka</value></data>
+
+  <!-- Ulasan hotel -->
+  <data name="Reviews.Title"><value>Ulasan tamu</value></data>
+  <data name="Reviews.None"><value>Belum ada ulasan yang tayang untuk properti ini.</value></data>
+  <data name="Reviews.Stayed"><value>menginap</value></data>
+  <data name="Reviews.Verified"><value>Terverifikasi menginap</value></data>
+  <data name="Reviews.WriteTitle"><value>Tulis ulasan kamu</value></data>
+  <data name="Reviews.Rating"><value>Rating</value></data>
+  <data name="Reviews.Headline"><value>Judul singkat</value></data>
+  <data name="Reviews.Comment"><value>Ceritakan pengalamanmu</value></data>
+  <data name="Reviews.Pros"><value>Yang disukai</value></data>
+  <data name="Reviews.Cons"><value>Yang kurang</value></data>
+  <data name="Reviews.Submit"><value>Kirim ulasan</value></data>
+  <data name="Reviews.ModerationNote"><value>Ulasan ditinjau moderator dulu sebelum tayang, biasanya dalam 1x24 jam.</value></data>
+  <data name="Reviews.LoginToWrite"><value>untuk menulis ulasan.</value></data>
+
+  <!-- Live agent -->
+  <data name="Support.AgentTitle"><value>Chat dengan agen</value></data>
+  <data name="Support.AgentBody"><value>Butuh manusia? Agen kami menjawab langsung di sini.</value></data>
+  <data name="Support.AgentCta"><value>Mulai percakapan</value></data>
+  <data name="Support.AgentIntro"><value>Ceritakan masalahmu, agen akan membalas di halaman ini. Kamu juga dapat notifikasi begitu ada balasan.</value></data>
+  <data name="Support.Subject"><value>Topik</value></data>
+  <data name="Support.Category"><value>Kategori</value></data>
+  <data name="Support.CatGeneral"><value>Umum</value></data>
+  <data name="Support.CatBooking"><value>Booking</value></data>
+  <data name="Support.CatPayment"><value>Pembayaran</value></data>
+  <data name="Support.CatRefund"><value>Refund</value></data>
+  <data name="Support.CatTechnical"><value>Teknis</value></data>
+  <data name="Support.BookingCode"><value>Kode booking (opsional)</value></data>
+  <data name="Support.Message"><value>Pesan</value></data>
+  <data name="Support.OpenTicket"><value>Kirim ke agen</value></data>
+  <data name="Support.WaitingAgent"><value>Menunggu agen mengambil tiket ini…</value></data>
+  <data name="Support.ReplyPlaceholder"><value>Tulis balasan…</value></data>
+  <data name="Support.History"><value>Riwayat tiket</value></data>
+  <data name="Support.LoginToChat"><value>untuk mengobrol dengan agen.</value></data>
+
+  <!-- Transportasi lokal -->
+  <data name="Transport.Eyebrow"><value>Transportasi lokal</value></data>
+  <data name="Transport.Title"><value>Ojek &amp; antar-jemput bandara</value></data>
+  <data name="Transport.Lede"><value>Pesan ojek, mobil, atau penjemputan bandara untuk melengkapi perjalananmu.</value></data>
+  <data name="Transport.RideHailing"><value>Ojek &amp; mobil</value></data>
+  <data name="Transport.AirportTransfer"><value>Antar-jemput bandara</value></data>
+  <data name="Transport.Distance"><value>Jarak (km)</value></data>
+  <data name="Transport.DistanceHint"><value>Tarif dihitung dari jarak: tarif dasar + per kilometer, dengan tarif minimum.</value></data>
+  <data name="Transport.Vehicle"><value>Kendaraan</value></data>
+  <data name="Transport.AnyVehicle"><value>Semua kendaraan</value></data>
+  <data name="Transport.Motorcycle"><value>Motor</value></data>
+  <data name="Transport.Car"><value>Mobil</value></data>
+  <data name="Transport.Airport"><value>Bandara</value></data>
+  <data name="Transport.AnyAirport"><value>Semua bandara</value></data>
+  <data name="Transport.Minutes"><value>menit</value></data>
+  <data name="Transport.FlatRate"><value>harga rute tetap</value></data>
+  <data name="Transport.For"><value>untuk</value></data>
+  <data name="Transport.Pickup"><value>Alamat penjemputan</value></data>
+  <data name="Transport.Dropoff"><value>Alamat tujuan</value></data>
+  <data name="Transport.PickupTime"><value>Waktu penjemputan</value></data>
+  <data name="Transport.FlightNumber"><value>Nomor penerbangan</value></data>
+  <data name="Transport.FlightHint"><value>Sopir memantau jadwal ini, jadi penjemputan menyesuaikan kalau pesawatmu telat.</value></data>
+  <data name="Transport.Notes"><value>Catatan untuk sopir</value></data>
+  <data name="Transport.NoResultsBody"><value>Coba ubah kota, jenis kendaraan, atau bandaranya.</value></data>
+  <data name="Nav.Transport"><value>Transportasi lokal</value></data>
+</root>

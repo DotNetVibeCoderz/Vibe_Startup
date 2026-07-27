@@ -1,0 +1,45 @@
+@* AuthorizeRouteView, not RouteView: without it the [Authorize] attributes on
+   the back-office pages are silently ignored and anyone can open them. *@
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+            <NotAuthorized>
+                @if (context.User.Identity?.IsAuthenticated != true)
+                {
+                    <div class="empty" style="margin: 48px auto; max-width: 480px;">
+                        <div style="font-size:3rem;">🔐</div>
+                        <h3>Kamu perlu masuk dulu</h3>
+                        <p>Halaman ini hanya untuk pengguna yang sudah login.</p>
+                        <a class="btn btn-primary" href="/login">Masuk</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty" style="margin: 48px auto; max-width: 480px;">
+                        <div style="font-size:3rem;">⛔</div>
+                        <h3>Akses ditolak</h3>
+                        <p>Akun kamu tidak punya hak untuk membuka halaman ini. Hubungi admin kalau ini keliru.</p>
+                        <a class="btn btn-secondary" href="/">Kembali ke beranda</a>
+                    </div>
+                }
+            </NotAuthorized>
+            <Authorizing>
+                <div class="empty" style="margin: 48px auto; max-width: 420px;">
+                    <div class="spinner" style="margin: 0 auto var(--s-3);"></div>
+                    <p>Memeriksa hak akses…</p>
+                </div>
+            </Authorizing>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(MainLayout)">
+            <div class="empty" style="margin: 48px auto; max-width: 480px;">
+                <div style="font-size:3rem;">🔍</div>
+                <h3>Halaman tidak ditemukan</h3>
+                <p>Sepertinya kamu tersesat. Yuk kembali ke beranda.</p>
+                <a class="btn btn-primary" href="/">Kembali ke beranda</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

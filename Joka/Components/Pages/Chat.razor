@@ -1,0 +1,606 @@
+@page "/chat"
+@inject ChatBotService ChatService
+@inject MarkdownService MarkdownService
+@inject IConfiguration Config
+@inject AppDbContext DbContext
+@inject IStringLocalizer<SharedResource> L
+
+<PageTitle>Mas Bolang — Joka</PageTitle>
+
+@* Mas Bolang — asisten AI Joka. *@
+<div class="fade-in chat-shell">
+
+    @* ---- Riwayat sesi ---- *@
+    <aside class="chat-rail">
+        <div class="rail-head">
+            <div class="rail-brand">
+                <span class="bot-avatar">🤖</span>
+                <div>
+                    <div class="rail-name">Mas Bolang</div>
+                    <div class="micro">@L["Chat.Assistant"]</div>
+                </div>
+            </div>
+            <button class="btn btn-primary btn-sm btn-block" @onclick="CreateNewSession">
+                + @L["Chat.NewChat"]
+            </button>
+        </div>
+
+        <div class="rail-list">
+            @foreach (var session in _sessions.OrderByDescending(s => s.LastMessageAt))
+            {
+                <div class="session @(_activeSession?.Id == session.Id ? "active" : "")"
+                     @onclick='() => LoadSession(session)'>
+                    <div class="session-body">
+                        <div class="session-title">@session.Title</div>
+                        <div class="micro code">@session.LastMessageAt.ToString("dd/MM HH:mm")</div>
+                    </div>
+                    <button class="session-del" title="@L["Action.Delete"]"
+                            @onclick:stopPropagation="true" @onclick='() => DeleteSession(session)'>🗑</button>
+                </div>
+            }
+        </div>
+
+        <div class="rail-foot">
+            <label class="rail-label" for="provider">@L["Chat.Model"]</label>
+            <select id="provider" @bind="_selectedProvider">
+                <option value="OpenAI">OpenAI (GPT-4o)</option>
+                <option value="Anthropic">Anthropic (Claude)</option>
+                <option value="Gemini">Gemini</option>
+                <option value="Ollama">Ollama (local)</option>
+            </select>
+
+            <label class="rail-label" for="temp" style="margin-top: var(--s-3);">
+                @L["Chat.Temperature"] · <span class="code">@_temperature.ToString("F1")</span>
+            </label>
+            <input id="temp" type="range" min="0" max="1" step="0.1" @bind="_temperature" />
+
+            <button class="btn btn-ghost btn-sm btn-block" style="margin-top: var(--s-3);" @onclick="ResetSession">
+                @L["Chat.Reset"]
+            </button>
+        </div>
+    </aside>
+
+    @* ---- Percakapan ---- *@
+    <div class="chat-main">
+
+        <header class="chat-head">
+            <span class="bot-avatar lg">🤖</span>
+            <div>
+                <div class="rail-name">Mas Bolang</div>
+                <div class="status-online">@L["Chat.Online"]</div>
+            </div>
+            <span class="micro code" style="margin-left:auto;">@_messages.Count @L["Chat.Messages"]</span>
+        </header>
+
+        <div class="chat-log">
+            @if (_messages.Count == 0)
+            {
+                <div class="chat-welcome">
+                    <div style="font-size:3.5rem;">🤖</div>
+                    <h2>@L["Chat.Greeting"] 👋</h2>
+                    <p class="lede">@L["Chat.Intro"]</p>
+
+                    @* Dikelompokkan supaya jelas apa yang bisa dijangkau Mas Bolang:
+                       data Joka sendiri, lalu dunia luar, lalu utilitas. *@
+                    <div class="prompt-groups">
+                        @foreach (var group in PromptGroups)
+                        {
+                            <div class="prompt-group">
+                                <div class="prompt-group-title">@group.Title</div>
+                                <div class="prompt-list">
+                                    @foreach (var p in group.Prompts)
+                                    {
+                                        <button type="button" class="prompt-chip" @onclick="() => SendQuickPrompt(p)">@p</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                @foreach (var msg in _messages)
+                {
+                    var mine = msg.Role == "user";
+                    <div class="turn @(mine ? "mine" : "theirs")">
+                        <span class="turn-avatar">@(mine ? "👤" : "🤖")</span>
+                        <div class="turn-body">
+                            <div class="bubble">
+                                @if (mine)
+                                {
+                                    <div class="plain">@msg.Content</div>
+                                }
+                                else
+                                {
+                                    <div class="md-content">@((MarkupString)MarkdownService.ToHtml(msg.Content))</div>
+                                }
+                            </div>
+                            <div class="micro code turn-time">@msg.Timestamp.ToString("HH:mm")</div>
+                        </div>
+                    </div>
+                }
+            }
+
+            @if (_isTyping)
+            {
+                <div class="turn theirs">
+                    <span class="turn-avatar">🤖</span>
+                    <div class="turn-body">
+                        <div class="bubble typing">
+                            <span class="typing-dot"></span>
+                            <span class="typing-dot"></span>
+                            <span class="typing-dot"></span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (_attachments.Any())
+        {
+            <div class="attach-row">
+                @foreach (var att in _attachments)
+                {
+                    <span class="attach">
+                        📎 @att.FileName
+                        <button @onclick='() => RemoveAttachment(att)'>✕</button>
+                    </span>
+                }
+            </div>
+        }
+
+        <div class="composer">
+            <label class="attach-btn" title="Lampiran">
+                📎
+                <InputFile OnChange="OnFileUpload" multiple hidden accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.txt" />
+            </label>
+
+            <textarea @bind="_inputMessage" @bind:event="oninput"
+                      @onkeydown="HandleKeyDown"
+                      placeholder="@L["Chat.Placeholder"]"
+                      rows="2"></textarea>
+
+            <button class="btn btn-primary" @onclick="SendMessage"
+                    disabled="@(_isTyping || string.IsNullOrWhiteSpace(_inputMessage))">
+                @(_isTyping ? "⏳" : L["Chat.Send"])
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .chat-shell {
+        display: flex;
+        height: calc(100vh - var(--topbar-height) - 48px);
+        min-height: 520px;
+    }
+
+    /* ---- rail ---- */
+    .chat-rail {
+        width: 260px; flex: none;
+        display: flex; flex-direction: column;
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-strong);
+        border-right: none;
+        border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+    }
+
+    .rail-head { padding: var(--s-4); border-bottom: 2px solid var(--border-color); }
+    .rail-brand { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-3); }
+    .rail-name { font-weight: 700; }
+
+    .bot-avatar {
+        width: 36px; height: 36px; flex: none;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 50%;
+        background: var(--bg-tertiary);
+        border: 2px solid var(--border-strong);
+    }
+    .bot-avatar.lg { width: 42px; height: 42px; font-size: 1.2rem; }
+
+    .rail-list { flex: 1; overflow-y: auto; padding: var(--s-2); }
+
+    .session {
+        display: flex; align-items: flex-start; gap: var(--s-2);
+        padding: var(--s-2) var(--s-3);
+        border: 2px solid transparent;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        margin-bottom: var(--s-1);
+        transition: var(--transition);
+    }
+    .session:hover { background: var(--bg-tertiary); }
+    .session.active { border-color: var(--accent-primary); background: var(--bg-tertiary); }
+
+    .session-body { flex: 1; min-width: 0; }
+    .session-title {
+        font-size: var(--t-sm); font-weight: 600;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .session-del {
+        background: none; border: none; cursor: pointer;
+        color: var(--text-muted); font-size: var(--t-sm); line-height: 1;
+    }
+    .session-del:hover { color: var(--accent-danger); }
+
+    .rail-foot { padding: var(--s-3) var(--s-4) var(--s-4); border-top: 2px solid var(--border-color); }
+    .rail-label {
+        display: block; font-size: var(--t-xs);
+        color: var(--text-muted); margin-bottom: var(--s-1);
+    }
+    .rail-foot select { width: 100%; }
+    .rail-foot input[type="range"] { width: 100%; accent-color: var(--accent-primary); }
+
+    /* ---- main ---- */
+    .chat-main {
+        flex: 1; min-width: 0;
+        display: flex; flex-direction: column;
+        background: var(--bg-primary);
+        border: 2px solid var(--border-strong);
+        border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    }
+
+    .chat-head {
+        display: flex; align-items: center; gap: var(--s-3);
+        padding: var(--s-3) var(--s-5);
+        border-bottom: 2px solid var(--border-color);
+    }
+    .status-online { font-size: var(--t-xs); color: var(--accent-success); font-weight: 600; }
+    .status-online::before { content: '● '; }
+
+    .chat-log { flex: 1; overflow-y: auto; padding: var(--s-5); scroll-behavior: smooth; }
+
+    .chat-welcome { text-align: center; padding: var(--s-7) var(--s-4); }
+    .chat-welcome h2 { margin: var(--s-3) 0 var(--s-2); }
+    .chat-welcome .lede { max-width: 520px; margin: 0 auto; color: var(--text-secondary); }
+
+    /* ---- turns ---- */
+    .turn { display: flex; gap: var(--s-3); margin-bottom: var(--s-4); }
+    .turn.mine { flex-direction: row-reverse; }
+
+    .turn-avatar {
+        width: 34px; height: 34px; flex: none;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 50%;
+        border: 2px solid var(--border-strong);
+        background: var(--bg-secondary);
+    }
+    .turn.mine .turn-avatar { background: var(--accent-primary); }
+
+    .turn-body { max-width: 75%; min-width: 0; }
+
+    .bubble {
+        padding: var(--s-3) var(--s-4);
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
+        overflow-x: auto;
+    }
+    .turn.mine .bubble {
+        background: var(--accent-primary);
+        color: #fff;
+        border-color: var(--border-strong);
+        border-radius: var(--radius-lg) var(--radius-sm) var(--radius-lg) var(--radius-lg);
+    }
+    .bubble .plain { white-space: pre-wrap; }
+
+    .turn-time { margin-top: var(--s-1); }
+    .turn.mine .turn-time { text-align: right; }
+
+    .bubble.typing { display: flex; gap: 6px; align-items: center; }
+    .typing-dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--text-muted);
+        animation: chat-bounce 1.4s infinite;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @@keyframes chat-bounce {
+        0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+        30% { transform: translateY(-6px); opacity: 1; }
+    }
+
+    /* ---- prompt chips ---- */
+    .prompt-groups {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: var(--s-4);
+        max-width: 760px;
+        margin: var(--s-6) auto 0;
+        text-align: left;
+    }
+    .prompt-group-title {
+        font-family: var(--font-mono);
+        font-size: var(--t-xs);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: var(--s-2);
+    }
+    .prompt-list { display: flex; flex-direction: column; gap: var(--s-2); }
+    .prompt-chip {
+        text-align: left;
+        padding: 10px 12px;
+        font-size: var(--t-sm);
+        font-family: inherit;
+        color: var(--text-primary);
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: var(--transition);
+    }
+    .prompt-chip:hover {
+        border-color: var(--accent-primary);
+        box-shadow: var(--shadow-sm);
+        transform: translate(-1px, -1px);
+    }
+
+    /* ---- composer ---- */
+    .attach-row { display: flex; gap: var(--s-2); flex-wrap: wrap; padding: var(--s-2) var(--s-5) 0; }
+    .attach {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 10px; font-size: var(--t-xs);
+        background: var(--bg-tertiary);
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-sm);
+    }
+    .attach button { background: none; border: none; cursor: pointer; color: var(--accent-danger); }
+
+    .composer {
+        display: flex; gap: var(--s-2); align-items: flex-end;
+        padding: var(--s-4) var(--s-5);
+        border-top: 2px solid var(--border-color);
+    }
+    .composer textarea {
+        flex: 1;
+        padding: 10px var(--s-4);
+        border: 2px solid var(--border-strong);
+        border-radius: var(--radius-lg);
+        resize: none;
+        font-family: inherit;
+        font-size: var(--t-sm);
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+    }
+    .attach-btn {
+        cursor: pointer;
+        padding: 10px;
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-md);
+        background: var(--bg-secondary);
+    }
+
+    .micro { font-size: var(--t-xs); color: var(--text-muted); }
+
+    @@media (max-width: 900px) {
+        .chat-rail { display: none; }
+        .chat-main { border-radius: var(--radius-lg); }
+    }
+</style>
+
+@code {
+    private List<ChatSession> _sessions = new();
+    private ChatSession? _activeSession;
+    private List<(string Role, string Content, DateTime Timestamp)> _messages = new();
+    private List<AttachmentInfo> _attachments = new();
+    private string _inputMessage = "";
+    private string _selectedProvider = "OpenAI";
+    private double _temperature = 0.7;
+    private bool _isTyping;
+
+    private record PromptGroup(string Title, string[] Prompts);
+
+    // Judulnya dilokalkan; isi promptnya tetap Bahasa Indonesia karena itulah
+    // yang benar-benar diketik pengguna — dan bahasa yang dipakai Mas Bolang.
+    private PromptGroup[] PromptGroups =>
+    [
+        new(L["Chat.GroupSearch"],
+        [
+            "Cari tiket pesawat Jakarta ke Bali besok",
+            "Ada bus atau shuttle dari Jakarta ke Bandung?",
+            "Kereta eksekutif Jakarta-Surabaya jam berapa saja?",
+            "Rekomendasi hotel bintang 4 di Yogyakarta"
+        ]),
+        new(L["Chat.GroupPrice"],
+        [
+            "Promo apa saja yang masih berlaku sekarang?",
+            "Paket travel termurah ke Labuan Bajo berapa?",
+            "Kalau paket Bali Honeymoon dibagi 4 orang, per orang berapa?",
+            "Pilihan asuransi perjalanan dan harganya apa saja?"
+        ]),
+        new(L["Chat.GroupMine"],
+        [
+            "Cek status booking JKA-260727-1234",
+            "Aktivitas apa saja yang ada di Bali?"
+        ]),
+        new(L["Chat.GroupOutside"],
+        [
+            "Cari di internet: syarat visa Jepang untuk WNI",
+            "Jam berapa sekarang di Jakarta?",
+            "Konversi 500 USD ke Rupiah"
+        ])
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _selectedProvider = Config["ChatBot:Provider"] ?? "OpenAI";
+
+        // Invariant: appsettings menulis "0.7" tapi app berjalan di id-ID,
+        // di mana parse culture-sensitive membacanya sebagai 7.
+        _temperature = double.TryParse(Config["ChatBot:Temperature"],
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var t) ? t : 0.7;
+
+        await LoadSessions();
+    }
+
+    private async Task LoadSessions()
+    {
+        _sessions = await DbContext.ChatSessions
+            .Where(s => s.IsActive)
+            .OrderByDescending(s => s.LastMessageAt)
+            .ToListAsync();
+
+        if (_sessions.Any())
+            await LoadSession(_sessions.First());
+    }
+
+    private async Task LoadSession(ChatSession session)
+    {
+        _activeSession = session;
+
+        var msgs = await DbContext.ChatMessages
+            .Where(m => m.ChatSessionId == session.Id)
+            .OrderBy(m => m.Timestamp)
+            .ToListAsync();
+
+        _messages = msgs.Select(m => (m.Role, m.Content, m.Timestamp)).ToList();
+    }
+
+    private async Task CreateNewSession()
+    {
+        var session = new ChatSession
+        {
+            UserId = Guid.NewGuid(),
+            Title = L["Chat.Untitled"],
+            ModelProvider = _selectedProvider,
+            Temperature = _temperature
+        };
+
+        DbContext.ChatSessions.Add(session);
+        await DbContext.SaveChangesAsync();
+
+        _sessions.Insert(0, session);
+        await LoadSession(session);
+    }
+
+    private async Task DeleteSession(ChatSession session)
+    {
+        session.IsActive = false;
+        await DbContext.SaveChangesAsync();
+
+        _sessions.Remove(session);
+
+        if (_activeSession?.Id == session.Id)
+        {
+            _activeSession = null;
+            _messages.Clear();
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_inputMessage) || _isTyping) return;
+
+        var userMsg = _inputMessage.Trim();
+
+        if (_activeSession is null)
+            await CreateNewSession();
+
+        DbContext.ChatMessages.Add(new ChatMessage
+        {
+            ChatSessionId = _activeSession!.Id,
+            Role = "user",
+            Content = userMsg,
+            Timestamp = DateTime.UtcNow
+        });
+
+        _activeSession.Title = userMsg.Length > 30 ? userMsg[..30] + "…" : userMsg;
+        _activeSession.LastMessageAt = DateTime.UtcNow;
+        await DbContext.SaveChangesAsync();
+
+        _messages.Add(("user", userMsg, DateTime.UtcNow));
+        _inputMessage = "";
+        _isTyping = true;
+
+        try
+        {
+            var attachmentUrls = _attachments.Select(a => a.Url).ToList();
+            _attachments.Clear();
+
+            await ChatService.InitializeAsync(_selectedProvider);
+            var response = await ChatService.SendMessageAsync(userMsg, attachmentUrls);
+
+            DbContext.ChatMessages.Add(new ChatMessage
+            {
+                ChatSessionId = _activeSession.Id,
+                Role = "assistant",
+                Content = response.Message,
+                TokenCount = response.TokenCount,
+                Timestamp = DateTime.UtcNow
+            });
+
+            _activeSession.LastMessageAt = DateTime.UtcNow;
+            await DbContext.SaveChangesAsync();
+
+            _messages.Add(("assistant", response.Message, DateTime.UtcNow));
+        }
+        catch (Exception ex)
+        {
+            _messages.Add(("assistant",
+                $"⚠️ Maaf, terjadi kesalahan: {ex.Message}\n\nPastikan API key untuk {_selectedProvider} sudah dikonfigurasi.",
+                DateTime.UtcNow));
+        }
+        finally
+        {
+            _isTyping = false;
+        }
+    }
+
+    private async Task SendQuickPrompt(string prompt)
+    {
+        _inputMessage = prompt;
+        await SendMessage();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+            await SendMessage();
+    }
+
+    private void ResetSession()
+    {
+        ChatService.ResetSession();
+        _messages.Clear();
+        _activeSession = null;
+        _attachments.Clear();
+    }
+
+    private async Task OnFileUpload(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles(5))
+        {
+            var buffer = new byte[file.Size];
+            await file.OpenReadStream(10 * 1024 * 1024).ReadAsync(buffer);
+
+            var fileName = $"{Guid.NewGuid():N}_{file.Name}";
+            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", fileName);
+            var dir = Path.GetDirectoryName(filePath);
+
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            await File.WriteAllBytesAsync(filePath, buffer);
+
+            _attachments.Add(new AttachmentInfo
+            {
+                FileName = file.Name,
+                Url = $"/uploads/{fileName}",
+                Size = file.Size
+            });
+        }
+    }
+
+    private void RemoveAttachment(AttachmentInfo att) => _attachments.Remove(att);
+
+    private class AttachmentInfo
+    {
+        public string FileName { get; set; } = "";
+        public string Url { get; set; } = "";
+        public long Size { get; set; }
+    }
+}
