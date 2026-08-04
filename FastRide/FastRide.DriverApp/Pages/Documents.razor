@@ -1,0 +1,166 @@
+@page "/documents"
+@inject ApiClient Api
+
+<div class="topbar">
+    <div class="topbar__mark">Dokumen</div>
+    <div class="topbar__spacer"></div>
+    @if (_profile?.Driver is { IsDocumentVerified: true })
+    {
+        <span class="pill pill--go">Terverifikasi</span>
+    }
+    else
+    {
+        <span class="pill pill--wait">Menunggu</span>
+    }
+</div>
+
+<div class="screen">
+    @if (_message is not null)
+    {
+        <div class="alert @(_messageIsError ? "alert--error" : "alert--ok")" role="alert">@_message</div>
+    }
+
+    <div class="card">
+        <strong>Tiga dokumen wajib</strong>
+        <p class="small muted" style="margin:6px 0 0;">
+            SIM, STNK, dan KTP harus disetujui admin sebelum kamu bisa menerima order.
+            Mengunggah ulang dokumen akan mengembalikan statusnya ke menunggu.
+        </p>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="card stack">
+            @for (var i = 0; i < 3; i++)
+            {
+                <div class="skeleton" style="height:20px"></div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="card card--flush">
+            <div class="rows">
+                @foreach (var type in RequiredTypes)
+                {
+                    var document = _documents.FirstOrDefault(d => d.Type == type);
+
+                    <div class="row-item">
+                        <div class="row-item__body">
+                            <strong>@Display.Label(type)</strong>
+                            @if (document is null)
+                            {
+                                <small>Belum diunggah</small>
+                            }
+                            else
+                            {
+                                <small>
+                                    Diunggah @Display.Since(document.UploadedAt)
+                                    @if (document.Notes is { Length: > 0 })
+                                    {
+                                        <text> · @document.Notes</text>
+                                    }
+                                </small>
+                            }
+                        </div>
+                        <div class="row-item__end stack stack--tight">
+                            @if (document is null)
+                            {
+                                <span class="pill pill--idle">Kosong</span>
+                            }
+                            else
+                            {
+                                <span class="@Display.PillClass(document.Status)">@StatusLabel(document.Status)</span>
+                            }
+                            <button class="btn btn--sm" @onclick="() => UploadAsync(type)" disabled="@_busy">
+                                <i class="bi bi-upload"></i><span>@(document is null ? "Unggah" : "Ganti")</span>
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly DocumentType[] RequiredTypes =
+        [DocumentType.DriverLicense, DocumentType.VehicleRegistration, DocumentType.IdentityCard];
+
+    private List<DriverDocumentResponse> _documents = new();
+    private UserProfileResponse? _profile;
+    private bool _loading = true, _busy;
+    private string? _message;
+    private bool _messageIsError;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _documents = await Api.GetDocumentsAsync();
+        _profile = await Api.GetProfileAsync();
+        _loading = false;
+    }
+
+    private static string StatusLabel(DocumentStatus status) => status switch
+    {
+        DocumentStatus.Approved => "Disetujui",
+        DocumentStatus.Rejected => "Ditolak",
+        _ => "Ditinjau"
+    };
+
+    private async Task UploadAsync(DocumentType type)
+    {
+        _busy = true;
+        _message = null;
+
+        try
+        {
+            var file = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = $"Pilih berkas {Display.Label(type)}",
+                FileTypes = FilePickerFileType.Images
+            });
+
+            if (file is null)
+            {
+                _busy = false;
+                return;
+            }
+
+            using var stream = await file.OpenReadAsync();
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+
+            var content = buffer.ToArray();
+            if (content.Length > 5 * 1024 * 1024)
+            {
+                _messageIsError = true;
+                _message = "Ukuran berkas maksimal 5 MB.";
+                _busy = false;
+                return;
+            }
+
+            var error = await Api.UploadDocumentAsync(
+                type,
+                content,
+                file.ContentType ?? "image/jpeg",
+                // A licence has an expiry the admin needs to see; the other papers do not.
+                type == DocumentType.DriverLicense ? DateTime.UtcNow.AddYears(5) : null);
+
+            _messageIsError = error is not null;
+            _message = error ?? $"{Display.Label(type)} terkirim. Menunggu peninjauan admin.";
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _messageIsError = true;
+            _message = $"Tidak bisa membuka berkas. {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

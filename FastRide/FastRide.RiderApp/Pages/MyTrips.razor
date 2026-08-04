@@ -1,54 +1,85 @@
-@page "/my-trips"
-@using FastRide.RiderApp.Services
+@page "/trips"
 @inject ApiClient Api
+@inject NavigationManager Nav
 
-<div class="p-3">
-    @if (!Api.IsLoggedIn) { <p class="text-center py-5 text-muted">Please login first</p> }
+<div class="topbar">
+    <div class="topbar__mark">Riwayat</div>
+    <div class="topbar__spacer"></div>
+    <span class="dim small num">@_result.Total perjalanan</span>
+</div>
+
+<div class="screen">
+    @if (_loading)
+    {
+        <div class="card card--flush">
+            @for (var i = 0; i < 6; i++)
+            {
+                <div class="row-item"><div class="skeleton" style="width:100%"></div></div>
+            }
+        </div>
+    }
+    else if (_result.Total == 0)
+    {
+        <div class="card">
+            <div class="empty">
+                <i class="bi bi-signpost"></i>
+                <strong>Belum ada perjalanan</strong>
+                <span>Pesan perjalanan pertamamu dari tab Pesan.</span>
+            </div>
+            <button class="btn btn--primary" @onclick="OpenBooking">
+                <i class="bi bi-car-front-fill"></i><span>Pesan sekarang</span>
+            </button>
+        </div>
+    }
     else
     {
-        <h5 class="fw-bold mb-3"><i class="bi bi-clock-history text-warning me-2"></i>My Trips</h5>
-        @if (_loading) { <div class="text-center py-5"><div class="spinner-border text-warning"></div></div> }
-        else if (_trips?.Data.Any() == true)
-        {
-            @foreach (var t in _trips.Data)
-            {
-                <div class="list-group-item mb-2 rounded-3 shadow-sm">
-                    <div class="d-flex justify-content-between">
-                        <strong class="small">@Truncate(t.PickupAddress,16) → @Truncate(t.DropoffAddress,16)</strong>
-                        <span class="badge @StatusBadge(t.Status)">@t.Status</span>
+        <div class="card card--flush">
+            <div class="rows">
+                @foreach (var trip in _result.Data)
+                {
+                    <div class="row-item" role="button" @onclick="() => OpenTrip(trip.Id)">
+                        <div class="row-item__body">
+                            <strong class="truncate">@trip.DropoffAddress</strong>
+                            <small class="truncate">
+                                @trip.Code · @Display.DateTimeShort(trip.CreatedAt) · @(trip.DriverName ?? "Tanpa driver")
+                            </small>
+                        </div>
+                        <div class="row-item__end">
+                            <div class="money small">@Display.Rupiah(trip.FinalFare)</div>
+                            <span class="@Display.PillClass(trip.Status)">@Display.Label(trip.Status)</span>
+                        </div>
                     </div>
-                    <small class="text-muted">@t.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm") · @t.DistanceKm.ToString("F1") km · @t.VehicleCategory</small>
-                    @if (t.Status == "Completed") { <p class="mb-0 mt-1"><small>Rp @t.FinalFare.ToString("N0") · Driver: @(t.DriverName ?? "N/A") @(t.DriverRating != null ? $"⭐ {t.DriverRating}" : "")</small></p> }
-                    else { <p class="mb-0 mt-1"><small class="text-muted">Rp @t.FinalFare.ToString("N0")</small></p> }
-                    @if (t.Status == "Completed" && t.DriverRating == null)
-                    {
-                        <button class="btn btn-outline-warning btn-sm py-0 mt-1" @onclick="() => RateOrder = t">⭐ Rate</button>
-                    }
-                </div>
-            }
-            @if (_trips.Total > _trips.Data.Count) { <button class="btn btn-outline-warning btn-sm w-100 mt-2" @onclick="LoadMore">Load More</button> }
+                }
+            </div>
+        </div>
+
+        @if (_result.TotalPages > 1)
+        {
+            <div class="btn-row">
+                <button class="btn btn--ghost" disabled="@(!_result.HasPrevious)" @onclick="() => GoAsync(_result.Page - 1)">
+                    <i class="bi bi-chevron-left"></i><span>Sebelumnya</span>
+                </button>
+                <button class="btn btn--ghost" disabled="@(!_result.HasNext)" @onclick="() => GoAsync(_result.Page + 1)">
+                    <span>Berikutnya</span><i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
         }
-        else { <p class="text-muted text-center py-3">No trips yet</p> }
     }
 </div>
 
-@if (RateOrder != null)
-{
-    <div class="position-fixed bottom-0 start-0 w-100 bg-dark p-3 border-top border-warning" style="z-index:1000;">
-        <h6>Rate Trip</h6>
-        <div class="d-flex gap-1 mb-2">@for (int i=1;i<=5;i++){<button class="btn btn-sm @(i<=_rateStars?"btn-warning":"btn-outline-warning")" @onclick="()=>_rateStars=i">⭐</button>}</div>
-        <textarea class="form-control form-control-sm mb-2" placeholder="Comment..." @bind="_rateComment"></textarea>
-        <div class="d-flex gap-2"><button class="btn btn-warning btn-sm" @onclick="SubmitRate">Submit</button><button class="btn btn-outline-secondary btn-sm" @onclick="()=>RateOrder=null">Cancel</button></div>
-    </div>
-}
-
 @code {
-    private TripListResult? _trips; private bool _loading = true; private int _page = 1;
-    private TripItem? RateOrder; private int _rateStars = 5; private string _rateComment = "";
+    private PagedResult<OrderListItem> _result = new();
+    private bool _loading = true;
 
-    protected override async Task OnInitializedAsync() { if (Api.IsLoggedIn) _trips = await Api.GetTrips(); _loading = false; }
-    private async Task LoadMore() { _page++; var more = await Api.GetTrips(_page); if (more?.Data != null) _trips!.Data.AddRange(more.Data); }
-    private async Task SubmitRate() { if (RateOrder != null) { await Api.SubmitReview(RateOrder.Id, new Guid("00000000-0000-0000-0000-000000000001"), _rateStars, _rateComment); RateOrder = null; _trips = await Api.GetTrips(); } }
-    private static string Truncate(string t, int l) => t.Length <= l ? t : t[..l] + "...";
-    private static string StatusBadge(string s) => s switch { "Completed" => "bg-success", "Started" => "bg-warning text-dark", "Cancelled" => "bg-danger", _ => "bg-secondary" };
+    private void OpenTrip(Guid orderId) => Nav.NavigateTo($"/track/{orderId}");
+    private void OpenBooking() => Nav.NavigateTo("/book");
+
+    protected override Task OnInitializedAsync() => GoAsync(1);
+
+    private async Task GoAsync(int page)
+    {
+        _loading = true;
+        _result = await Api.GetTripsAsync(page);
+        _loading = false;
+    }
 }

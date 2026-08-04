@@ -1,0 +1,78 @@
+@* ═══════════════════════════════════════════════════════════════════
+   Fleet Pulse — the console's signature element.
+
+   One pip per driver, coloured by signal semantics: jade is free, amber
+   is on a trip, blue is on a break, grey is offline. Read left to right
+   it says "how much of the fleet is actually working right now", which
+   is the first question an operator asks and the one a stat card
+   answers worst.
+   ═══════════════════════════════════════════════════════════════════ *@
+
+<div class="pulse">
+    <div class="row row--tight">
+        <span class="pulse__label">Armada</span>
+        <div class="pulse__pips" title="@PipTitle">
+            @if (Drivers.Count == 0)
+            {
+                @for (var i = 0; i < 24; i++)
+                {
+                    <span class="pip pip--offline"></span>
+                }
+            }
+            else
+            {
+                @foreach (var status in Drivers.OrderBy(SignalOrder))
+                {
+                    <span class="@Display.PipClass(status)"></span>
+                }
+            }
+        </div>
+    </div>
+
+    <div class="pulse__metric">
+        <b class="go">@(Stats?.OnlineDrivers ?? 0)</b>
+        <span>Siap</span>
+    </div>
+
+    <div class="pulse__metric">
+        <b class="wait">@((Stats?.ActiveDrivers ?? 0) - (Stats?.OnlineDrivers ?? 0))</b>
+        <span>Mengantar</span>
+    </div>
+
+    <div class="pulse__metric">
+        <b>@(Stats?.PendingOrders ?? 0)</b>
+        <span>Order menunggu</span>
+    </div>
+
+    <div class="pulse__metric">
+        <b>@Display.RupiahShort(Stats?.RevenueToday ?? 0)</b>
+        <span>Pendapatan hari ini</span>
+    </div>
+
+    <div class="pulse__metric pulse__spacer">
+        <b>@(Stats is null ? "—" : Display.Clock(Stats.Timestamp))</b>
+        <span>Diperbarui</span>
+    </div>
+</div>
+
+@code {
+    [Parameter] public DashboardStatsResponse? Stats { get; set; }
+    [Parameter] public List<DriverStatus> Drivers { get; set; } = new();
+
+    /// <summary>Group the pips by state so the band reads as blocks, not as noise.</summary>
+    private static int SignalOrder(DriverStatus status) => status switch
+    {
+        DriverStatus.Online => 0,
+        DriverStatus.OnTrip => 1,
+        DriverStatus.Break => 2,
+        _ => 3
+    };
+
+    private string PipTitle =>
+        Drivers.Count == 0
+            ? "Belum ada data armada"
+            : $"{Drivers.Count(d => d == DriverStatus.Online)} siap · " +
+              $"{Drivers.Count(d => d == DriverStatus.OnTrip)} mengantar · " +
+              $"{Drivers.Count(d => d == DriverStatus.Break)} istirahat · " +
+              $"{Drivers.Count(d => d == DriverStatus.Offline)} offline";
+}

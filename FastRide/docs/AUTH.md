@@ -1,219 +1,210 @@
-# 🔐 Authentication & Authorization — FastRide
-
-> Complete authentication and authorization guide for the FastRide platform.
+# 🔐 Autentikasi & Otorisasi — FastRide
 
 ---
 
-## 📋 Overview
+## Ringkas
 
-FastRide uses **JWT (JSON Web Token)** Bearer authentication with the following flow:
+FastRide memakai **JWT bearer token** dengan kata sandi di-hash BCrypt (work factor 12).
+Token berlaku 24 jam dan **bisa dibatalkan sebelum kedaluwarsa**.
 
-```
-┌─────────┐     ┌──────────┐     ┌────────────┐
-│  Client  │────▶│  /login  │────▶│  JWT Token │
-│  (App)   │     │  Endpoint│     │  Response  │
-└─────────┘     └──────────┘     └────────────┘
-     │                                  │
-     │    ┌─────────────────────────────┘
-     │    │  Authorization: Bearer <token>
-     ▼    ▼
-┌──────────────────────────────┐
-│       Protected API          │
-│  Validate Token → Allow/Deny │
-└──────────────────────────────┘
-```
+> **Catatan sejarah.** Sampai v1.x, JWT diterbitkan tetapi tidak pernah diperiksa: tidak
+> satu pun endpoint memanggil `RequireAuthorization()` dan tidak ada kebijakan bawaan,
+> sehingga seluruh API bisa diakses anonim. Sejak v2.0 otorisasi benar-benar ditegakkan.
 
 ---
 
-## 👤 User Roles
+## Alur
 
-| Role | Value | Description |
-|------|-------|-------------|
-| `Rider` | 1 | Regular user who books rides |
-| `Driver` | 2 | Driver who accepts and fulfills orders |
-| `Admin` | 3 | Platform administrator with full access |
+```
+register / login  ──►  JWT (24 jam)  ──►  Authorization: Bearer <token>
+                                              │
+                          SecurityStampMiddleware memeriksa
+                          apakah token masih sah untuk sesi ini
+```
+
+### Klaim di dalam token
+
+| Klaim | Isi |
+|-------|-----|
+| `sub` / `nameidentifier` | Id pengguna |
+| `name` | Nama lengkap |
+| `email` | Email |
+| `role` | `Rider`, `Driver`, atau `Admin` |
+| `sstamp` | Security stamp saat token diterbitkan |
+| `jti` | Id token |
 
 ---
 
-## 🔑 Registration
+## Membatalkan token
 
-### Endpoint
+JWT tidak bisa "ditarik kembali" — begitu terbit, ia sah sampai kedaluwarsa. Karena itu
+setiap pengguna punya kolom `SecurityStamp`.
+
+`SecurityStampMiddleware` membandingkan klaim `sstamp` di token dengan nilai terkini milik
+pengguna. Kalau berbeda, permintaan ditolak `401`.
+
+Stamp dinaikkan saat:
+
+| Kejadian | Efek |
+|----------|------|
+| `POST /api/auth/logout` | Semua token pengguna itu langsung tidak berlaku |
+| `POST /api/auth/change-password` | Sama — perangkat lain ikut keluar |
+| `POST /api/auth/reset-password` | Sama |
+| Admin menonaktifkan akun | Sesi berjalan langsung terputus |
+
+Nilai stamp di-cache 5 menit (`ICacheService`), jadi jalur normal tidak menambah query ke
+database per permintaan.
+
+---
+
+## Kebijakan otorisasi
+
+| Kebijakan | Peran yang diterima |
+|-----------|---------------------|
+| `AdminOnly` | `Admin` |
+| `DriverOnly` | `Driver`, `Admin` |
+| `RiderOnly` | `Rider`, `Admin` |
+| `StaffOrDriver` | `Driver`, `Admin` |
+
+### Kepemilikan data
+
+Peran saja tidak cukup. Rute yang memuat `{userId}` juga memeriksa kepemilikan lewat
+`ClaimsPrincipal.CanAccess(userId)`:
+
+```csharp
+public static bool CanAccess(this ClaimsPrincipal principal, Guid targetUserId) =>
+    principal.IsAdmin() || principal.UserId() == targetUserId;
+```
+
+Tanpa ini, setiap rider yang sudah masuk bisa membaca riwayat perjalanan rider lain hanya
+dengan mengganti id pada URL.
+
+Detail order memakai aturan yang sedikit berbeda: yang boleh membaca adalah **peserta
+perjalanan** (rider atau driver pada order itu) atau admin.
+
+---
+
+## Endpoint anonim
+
+Hanya tiga kelompok:
+
+- `GET /api/health`
+- `POST /api/auth/register`, `login`, `forgot-password`, `reset-password`
+- `GET /api/reviews/user/{userId}` — rating publik seorang driver
+
+---
+
+## Batas laju
+
+Endpoint autentikasi adalah yang paling layak diserang, jadi dibatasi lebih ketat:
+
+| Grup | Batas bawaan | Pengaturan |
+|------|--------------|------------|
+| `/api/auth/*` | 30 / menit | `RateLimiting:AuthPermitPerMinute` |
+| Global | 600 / menit | `RateLimiting:GlobalPermitPerMinute` |
+
+Partisi dihitung per pengguna bila sudah masuk, atau per alamat IP bila belum. Melebihi
+batas menghasilkan `429` dengan pesan berbahasa Indonesia.
+
+---
+
+## Reset kata sandi
 
 ```
-POST /api/auth/register
+POST /api/auth/forgot-password   { "email": "..." }
+   → kode 6 digit disimpan di cache selama 15 menit
+
+POST /api/auth/reset-password    { "email": "...", "resetCode": "123456", "newPassword": "..." }
+   → kata sandi diganti, security stamp naik, kode dihapus
 ```
 
-### Request
+Kode dibuat dengan `RandomNumberGenerator`, bukan `Random`.
+
+**Yang masih perlu dikerjakan:** belum ada pengirim email. Di lingkungan Development kode
+dikembalikan langsung di respons supaya alur bisa diuji; di lingkungan lain field `resetCode`
+bernilai `null` dan kode hanya tercatat di log. Sambungkan SMTP di
+`AuthEndpoints.ForgotPassword` sebelum produksi.
+
+---
+
+## Kata sandi
+
+- Hash: **BCrypt**, work factor **12**, dipakai konsisten di API dan seeder.
+- Panjang minimum 8 karakter (`[MinLength(8)]` pada DTO).
+- Verifikasi menangkap `SaltParseException`, jadi hash rusak menghasilkan "gagal masuk",
+  bukan `500`.
+
+---
+
+## Mencegah enumerasi akun
+
+Login membalas pesan yang sama untuk "email tidak ada" dan "kata sandi salah".
+`forgot-password` membalas pesan yang sama untuk email terdaftar maupun tidak. Keduanya
+mencegah endpoint publik dipakai memetakan siapa saja yang punya akun.
+
+---
+
+## Verifikasi driver
+
+Autentikasi tidak cukup untuk driver. Sebelum bisa online atau menerima order, driver
+harus punya tiga dokumen berstatus `Approved`:
+
+| Dokumen | Enum |
+|---------|------|
+| SIM | `DocumentType.DriverLicense` |
+| STNK | `DocumentType.VehicleRegistration` |
+| KTP | `DocumentType.IdentityCard` |
+
+Ditegakkan di dua tempat: `PUT /status` menolak `Online` untuk driver yang belum
+terverifikasi, dan `OrderService.AcceptAsync` menolak pengambilan order.
+
+---
+
+## Konfigurasi
 
 ```json
-{
-  "fullName": "Budi Santoso",
-  "email": "budi@email.com",
-  "phoneNumber": "0812-3456-7890",
-  "password": "SecurePass123!",
-  "role": "Rider"
+"Jwt": {
+  "Secret": "FastRide-Development-Only-Secret-Key-Change-Me-32+",
+  "Issuer": "FastRide",
+  "Audience": "FastRide",
+  "AccessTokenExpirationMinutes": 1440
 }
 ```
 
-### Validation Rules
+API **menolak start** bila `Jwt:Secret` kosong atau kurang dari 32 karakter — kegagalan
+saat start jauh lebih baik daripada diam-diam memakai kunci lemah.
 
-| Field | Rules |
-|-------|-------|
-| `fullName` | Required, 3-200 characters |
-| `email` | Required, valid email format, unique |
-| `phoneNumber` | Required, valid Indonesian phone format |
-| `password` | Required, min 8 characters, 1 uppercase, 1 number |
-| `role` | Optional, defaults to `Rider` |
+Untuk produksi, pasang lewat variabel lingkungan atau secret store, bukan file:
+
+```bash
+export Jwt__Secret="$(openssl rand -base64 48)"
+```
+
+`ClockSkew` diturunkan menjadi 30 detik (bawaan .NET 5 menit) agar token berumur pendek
+berperilaku sesuai perkiraan saat pengujian.
 
 ---
 
-## 🔓 Login
+## Klien
 
-### Endpoint
+| Klien | Penyimpanan token |
+|-------|-------------------|
+| AdminWeb | `ProtectedSessionStorage`, dilingkupi per circuit Blazor |
+| RiderApp / DriverApp | `SecureStorage` milik MAUI (keystore/keychain) |
+| Simulator | Di memori, satu klien HTTP per aktor |
 
-```
-POST /api/auth/login
-```
-
-### Request
-
-```json
-{
-  "email": "budi@email.com",
-  "password": "SecurePass123!"
-}
-```
-
-### Response (planned)
-
-```json
-{
-  "userId": "a1b2c3d4-...",
-  "fullName": "Budi Santoso",
-  "email": "budi@email.com",
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "role": "Rider",
-  "expiresAt": "2025-06-16T10:30:00Z"
-}
-```
-
-### Token Structure
-
-```json
-{
-  "sub": "a1b2c3d4-...",
-  "name": "Budi Santoso",
-  "email": "budi@email.com",
-  "role": "Rider",
-  "iat": 1718436600,
-  "exp": 1718523000,
-  "iss": "FastRide",
-  "aud": "FastRide"
-}
-```
+Ketiganya memperlakukan `401` sebagai "sesi berakhir": sesi lokal dibersihkan dan pengguna
+dikembalikan ke layar masuk.
 
 ---
 
-## 🔄 Password Reset Flow
+## Yang belum ada
 
-### 1. Request Reset Code
+| Item | Catatan |
+|------|---------|
+| Refresh token | Sekarang satu token 24 jam; perpanjangan berarti login ulang |
+| Autentikasi dua faktor | Belum |
+| OAuth / login sosial | Belum |
+| Pengiriman email | Kode reset belum benar-benar dikirim |
 
-```
-POST /api/auth/forgot-password
-```
-
-```json
-{
-  "email": "budi@email.com"
-}
-```
-
-### 2. Reset with Code
-
-```
-POST /api/auth/reset-password
-```
-
-```json
-{
-  "email": "budi@email.com",
-  "resetCode": "ABC123",
-  "newPassword": "NewSecurePass456!"
-}
-```
-
----
-
-## 🛡️ Authorization Rules
-
-### Rider Permissions
-- ✅ Book rides
-- ✅ View own orders
-- ✅ View own profile
-- ✅ Submit reviews
-- ✅ Apply promo codes
-- ❌ Access admin dashboard
-- ❌ View other users' data
-
-### Driver Permissions
-- ✅ View available orders
-- ✅ Accept/decline orders
-- ✅ Update order status
-- ✅ View own earnings
-- ✅ View own profile
-- ❌ Book rides
-- ❌ Access admin dashboard
-
-### Admin Permissions
-- ✅ Full access to all resources
-- ✅ User management
-- ✅ Order management
-- ✅ Driver verification
-- ✅ Promo management
-- ✅ View analytics & reports
-
----
-
-## 🔧 Configuration
-
-### JWT Settings (`appsettings.json`)
-
-```json
-{
-  "Jwt": {
-    "Secret": "your-256-bit-secret-key-here-min-32-chars!",
-    "Issuer": "FastRide",
-    "Audience": "FastRide",
-    "AccessTokenExpirationMinutes": 1440,
-    "RefreshTokenExpirationDays": 30
-  }
-}
-```
-
----
-
-## 🚧 Implementation Status
-
-| Feature | Status | Priority |
-|---------|--------|----------|
-| Registration endpoint | 🟡 Scaffold | High |
-| Login endpoint | 🟡 Scaffold | High |
-| JWT token generation | ⚪ Planned | High |
-| Password hashing (BCrypt) | ⚪ Planned | High |
-| Role-based authorization | ⚪ Planned | Medium |
-| Refresh tokens | ⚪ Planned | Medium |
-| Password reset flow | ⚪ Planned | Low |
-| Email verification | ⚪ Planned | Low |
-| 2FA support | ⚪ Planned | Low |
-
----
-
-## 🔒 Security Best Practices
-
-1. **HTTPS Only** — All API communication over TLS 1.3
-2. **Password Hashing** — BCrypt with salt (work factor 12)
-3. **Token Expiry** — Short-lived access tokens (24h)
-4. **Rate Limiting** — Prevent brute force attacks on login
-5. **CORS Whitelist** — Restrict allowed origins in production
-6. **Audit Logging** — Log all auth events
-7. **Account Lockout** — After 5 failed attempts, lock for 15 minutes
+Lihat [`../PLAN.md`](../PLAN.md) untuk urutan pengerjaannya.

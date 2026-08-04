@@ -1,0 +1,318 @@
+@page "/payment-providers"
+@inject ApiClient Api
+
+<PageTitle>Penyedia Pembayaran · FastRide</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Penyedia Pembayaran</h1>
+        <p>Atur gateway mana yang menangani tiap metode. Perubahan langsung berlaku.</p>
+    </div>
+    <button class="btn btn--ghost" @onclick="LoadAsync"><i class="bi bi-arrow-clockwise"></i><span>Segarkan</span></button>
+</div>
+
+@if (_message is not null)
+{
+    <div class="alert @(_messageIsError ? "alert--error" : "alert--ok")" role="alert">@_message</div>
+}
+
+@if (_activeMethods.Count > 0)
+{
+    <section class="panel">
+        <div class="panel__head">
+            <h2>Metode aktif untuk penumpang</h2>
+            <span class="dim">@_activeMethods.Count dari @TotalMethods metode</span>
+        </div>
+        <div class="panel__body row">
+            @foreach (var method in _activeMethods)
+            {
+                <span class="pill pill--go"><i class="@Display.Icon(method)"></i> @Display.Label(method)</span>
+            }
+        </div>
+    </section>
+}
+else if (!_loading)
+{
+    <div class="alert alert--error">
+        Tidak ada metode pembayaran yang aktif — penumpang tidak akan bisa membayar sama sekali.
+    </div>
+}
+
+@if (_loading)
+{
+    <section class="panel mt"><div class="panel__body stack stack--tight">
+        @for (var i = 0; i < 4; i++)
+        {
+            <div class="skeleton" style="height:22px"></div>
+        }
+    </div></section>
+}
+else
+{
+    <div class="stack mt">
+        @foreach (var provider in _providers)
+        {
+            <section class="panel">
+                <div class="panel__head">
+                    <div class="row row--tight">
+                        <h2>@provider.DisplayName</h2>
+                        <span class="code">@provider.Name</span>
+                        @if (provider.IsEnabled)
+                        {
+                            <span class="pill pill--go">Aktif</span>
+                        }
+                        else
+                        {
+                            <span class="pill pill--idle">Nonaktif</span>
+                        }
+                        @if (provider.IsSandbox)
+                        {
+                            <span class="pill pill--wait">Sandbox</span>
+                        }
+                    </div>
+                    <div class="row row--tight">
+                        <span class="dim">Prioritas @provider.Priority</span>
+                        @if (provider.IsEnabled && NeedsCredentials(provider.Name))
+                        {
+                            <button class="btn btn--sm btn--ghost" @onclick="() => TestAsync(provider)" disabled="@_busy">
+                                <i class="bi bi-plug"></i><span>Uji koneksi</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <div class="panel__body stack">
+                    @{ var form = FormFor(provider); }
+
+                    <div class="filters">
+                        <div class="field">
+                            <label>Status</label>
+                            <select @bind="form.Enabled">
+                                <option value="true">Aktif</option>
+                                <option value="false">Nonaktif</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>Lingkungan</label>
+                            <select @bind="form.Sandbox">
+                                <option value="true">Sandbox</option>
+                                <option value="false">Produksi</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>Prioritas (kecil = didahulukan)</label>
+                            <input type="number" min="1" max="999" @bind="form.Priority" />
+                        </div>
+                        <div class="field">
+                            <label>Masa berlaku tagihan (menit)</label>
+                            <input type="number" min="1" max="1440" @bind="form.ExpiryMinutes" />
+                        </div>
+                    </div>
+
+                    <div class="stack stack--tight">
+                        <span class="tile__label">Metode yang ditangani</span>
+                        <div class="row row--tight">
+                            @foreach (var method in AllMethods)
+                            {
+                                var selected = form.Methods.Contains(method);
+                                <button type="button"
+                                        class="btn btn--sm @(selected ? "btn--primary" : "btn--ghost")"
+                                        @onclick="() => ToggleMethod(form, method)">
+                                    <i class="@Display.Icon(method)"></i><span>@Display.Label(method)</span>
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    @if (NeedsMerchantIdentity(provider.Name))
+                    {
+                        <div class="filters">
+                            <div class="field">
+                                <label>Merchant ID (QRIS)</label>
+                                <input @bind="form.MerchantId" placeholder="ID1234567890123" />
+                            </div>
+                            <div class="field field--grow">
+                                <label>Nama merchant</label>
+                                <input @bind="form.MerchantName" placeholder="FASTRIDE" />
+                            </div>
+                            <div class="field">
+                                <label>Kota merchant</label>
+                                <input @bind="form.MerchantCity" placeholder="JAKARTA" />
+                            </div>
+                        </div>
+                    }
+
+                    @if (NeedsCredentials(provider.Name))
+                    {
+                        <div class="stack stack--tight">
+                            <span class="tile__label">Kredensial</span>
+                            <p class="small dim" style="margin:0;">
+                                Kunci tidak pernah ditampilkan kembali. Biarkan kosong untuk mempertahankan
+                                yang tersimpan; isi untuk menggantinya.
+                            </p>
+
+                            <div class="filters">
+                                <div class="field field--grow">
+                                    <label>Server key @(provider.HasServerKey ? "· tersimpan" : "· belum diisi")</label>
+                                    <input type="password" autocomplete="new-password"
+                                           @bind="form.ServerKey" placeholder="@(provider.HasServerKey ? "••••••••" : "Wajib untuk mengaktifkan")" />
+                                </div>
+                                <div class="field field--grow">
+                                    <label>Client key @(provider.HasClientKey ? "· tersimpan" : "")</label>
+                                    <input type="password" autocomplete="new-password"
+                                           @bind="form.ClientKey" placeholder="@(provider.HasClientKey ? "••••••••" : "Opsional")" />
+                                </div>
+                                <div class="field field--grow">
+                                    <label>Webhook secret @(provider.HasWebhookSecret ? "· tersimpan" : "")</label>
+                                    <input type="password" autocomplete="new-password"
+                                           @bind="form.WebhookSecret" placeholder="@(provider.HasWebhookSecret ? "••••••••" : "Untuk verifikasi callback")" />
+                                </div>
+                                <div class="field field--grow">
+                                    <label>Base URL (opsional)</label>
+                                    <input @bind="form.BaseUrl" placeholder="Kosongkan untuk memakai endpoint bawaan" />
+                                </div>
+                            </div>
+
+                            <div class="alert alert--warn small">
+                                <i class="bi bi-info-circle"></i>
+                                URL callback yang perlu didaftarkan di dashboard @provider.DisplayName:
+                                <code>@WebhookUrl(provider.Name)</code>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="row">
+                        <button class="btn btn--primary" @onclick="() => SaveAsync(provider, form)" disabled="@_busy">
+                            <i class="bi bi-check2"></i><span>Simpan</span>
+                        </button>
+                        @if (provider.UpdatedAt is { } updated)
+                        {
+                            <span class="dim small">Terakhir diubah @Display.DateTimeShort(updated)</span>
+                        }
+                    </div>
+                </div>
+            </section>
+        }
+    </div>
+}
+
+@code {
+    [Inject] private IConfiguration Config { get; set; } = default!;
+
+    private static readonly PaymentMethod[] AllMethods = Enum.GetValues<PaymentMethod>();
+    private static int TotalMethods => AllMethods.Length;
+
+    private List<PaymentProviderResponse> _providers = new();
+    private List<PaymentMethod> _activeMethods = new();
+    private readonly Dictionary<string, ProviderForm> _forms = new(StringComparer.Ordinal);
+    private bool _loading = true, _busy;
+    private string? _message;
+    private bool _messageIsError;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _forms.Clear();
+
+        _providers = await Api.GetPaymentProvidersAsync();
+        _activeMethods = await Api.GetAvailablePaymentMethodsAsync();
+
+        _loading = false;
+    }
+
+    /// <summary>Editable copy — the response record is immutable and never carries secrets.</summary>
+    private ProviderForm FormFor(PaymentProviderResponse provider)
+    {
+        if (_forms.TryGetValue(provider.Name, out var existing)) return existing;
+
+        var form = new ProviderForm
+        {
+            Enabled = provider.IsEnabled ? "true" : "false",
+            Sandbox = provider.IsSandbox ? "true" : "false",
+            Priority = provider.Priority,
+            ExpiryMinutes = provider.ChargeExpiryMinutes,
+            Methods = [.. provider.Methods],
+            MerchantId = provider.MerchantId,
+            MerchantName = provider.MerchantName,
+            MerchantCity = provider.MerchantCity,
+            BaseUrl = provider.BaseUrl
+        };
+
+        _forms[provider.Name] = form;
+        return form;
+    }
+
+    private static void ToggleMethod(ProviderForm form, PaymentMethod method)
+    {
+        if (!form.Methods.Remove(method)) form.Methods.Add(method);
+    }
+
+    /// <summary>Cash and the sandbox need no keys; a real gateway does.</summary>
+    private static bool NeedsCredentials(string name) => name is not ("manual" or "simulated");
+
+    private static bool NeedsMerchantIdentity(string name) => name is not "manual";
+
+    private string WebhookUrl(string name) =>
+        $"{(Config["ApiSettings:BaseUrl"] ?? "https://localhost:5001").TrimEnd('/')}/api/payments/webhook/{name}";
+
+    private async Task SaveAsync(PaymentProviderResponse provider, ProviderForm form)
+    {
+        _busy = true;
+        _message = null;
+
+        var error = await Api.SavePaymentProviderAsync(provider.Name, new SavePaymentProviderRequest(
+            bool.Parse(form.Enabled),
+            bool.Parse(form.Sandbox),
+            form.Methods,
+            form.Priority,
+            Blank(form.MerchantId),
+            Blank(form.MerchantName),
+            Blank(form.MerchantCity),
+            form.ExpiryMinutes,
+            Blank(form.BaseUrl),
+            Blank(form.ServerKey),
+            Blank(form.ClientKey),
+            Blank(form.WebhookSecret)));
+
+        _busy = false;
+        _messageIsError = error is not null;
+        _message = error ?? $"{provider.DisplayName} disimpan.";
+
+        if (error is null)
+        {
+            // Clear the credential boxes so a secret never lingers in the DOM after saving.
+            form.ServerKey = form.ClientKey = form.WebhookSecret = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task TestAsync(PaymentProviderResponse provider)
+    {
+        _busy = true;
+        var (message, error) = await Api.TestPaymentProviderAsync(provider.Name);
+        _busy = false;
+
+        _messageIsError = error is not null;
+        _message = error ?? message;
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private sealed class ProviderForm
+    {
+        public string Enabled { get; set; } = "false";
+        public string Sandbox { get; set; } = "true";
+        public int Priority { get; set; } = 100;
+        public int ExpiryMinutes { get; set; } = 15;
+        public List<PaymentMethod> Methods { get; set; } = [];
+        public string? MerchantId { get; set; }
+        public string? MerchantName { get; set; }
+        public string? MerchantCity { get; set; }
+        public string? BaseUrl { get; set; }
+        public string? ServerKey { get; set; }
+        public string? ClientKey { get; set; }
+        public string? WebhookSecret { get; set; }
+    }
+}

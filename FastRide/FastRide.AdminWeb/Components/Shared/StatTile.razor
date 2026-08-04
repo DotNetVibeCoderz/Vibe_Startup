@@ -1,0 +1,25 @@
+<div class="tile @ToneClass">
+    <span class="tile__label">@Label</span>
+    <span class="tile__value">@Value</span>
+    @if (!string.IsNullOrWhiteSpace(Note))
+    {
+        <span class="tile__note">@Note</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+    [Parameter] public string? Note { get; set; }
+
+    /// <summary>Signal meaning: wait (amber, default), go (jade), stop (vermilion), move (blue).</summary>
+    [Parameter] public string Tone { get; set; } = "wait";
+
+    private string ToneClass => Tone switch
+    {
+        "go" => "tile--jalan",
+        "stop" => "tile--sirene",
+        "move" => "tile--lintas",
+        _ => string.Empty
+    };
+}

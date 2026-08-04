@@ -7,8 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The console talks to the API over HTTP only. It deliberately does not reference
+         FastRide.Data: a second process holding the same DbContext would bypass every rule
+         the API enforces. -->
     <ProjectReference Include="..\FastRide.Shared\FastRide.Shared.csproj" />
-    <ProjectReference Include="..\FastRide.Data\FastRide.Data.csproj" />
   </ItemGroup>
 
 </Project>

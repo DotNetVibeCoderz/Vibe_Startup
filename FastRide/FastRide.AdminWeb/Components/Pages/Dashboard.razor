@@ -1,112 +1,281 @@
 @page "/"
-@inject ApiClient ApiClient
+@implements IAsyncDisposable
+@inject ApiClient Api
+@inject IJSRuntime JS
 
-<PageTitle>FastRide Admin - Dashboard</PageTitle>
+<PageTitle>Ringkasan · FastRide</PageTitle>
 
-@if (_loading)
+<div class="page-head">
+    <div>
+        <h1>Ringkasan</h1>
+        <p>
+            @if (_overview is null)
+            {
+                <span>Memuat data operasi…</span>
+            }
+            else
+            {
+                <span>Diperbarui @Display.Clock(_overview.Stats.Timestamp) · menyegar sendiri tiap 15 detik</span>
+            }
+        </p>
+    </div>
+    <button class="btn btn--ghost" @onclick="LoadAsync" disabled="@_loading">
+        <i class="bi bi-arrow-clockwise"></i><span>Segarkan</span>
+    </button>
+</div>
+
+@if (_error is not null)
 {
-    <div class="text-center py-5"><div class="spinner-border text-warning"></div><p class="mt-2">Loading dashboard...</p></div>
+    <div class="alert alert--error" role="alert">@_error</div>
+}
+
+@if (_overview is null)
+{
+    <div class="grid grid--4">
+        @for (var i = 0; i < 4; i++)
+        {
+            <div class="tile">
+                <div class="skeleton" style="width:60%"></div>
+                <div class="skeleton" style="height:28px"></div>
+            </div>
+        }
+    </div>
 }
 else
 {
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h2 class="fw-bold mb-0"><i class="bi bi-speedometer2 text-warning me-2"></i>Dashboard</h2>
-            <small class="text-muted">Real-time · Auto-refresh every 10s · Last: @_lastRefresh.ToLocalTime().ToString("HH:mm:ss")</small>
-        </div>
-        <button class="btn btn-outline-warning btn-sm" @onclick="RefreshNow"><i class="bi bi-arrow-clockwise me-1"></i> Refresh</button>
+    <div class="grid grid--4">
+        <StatTile Label="Order hari ini"
+                  Value="@Display.Number(_overview.Stats.TotalOrdersToday)"
+                  Note="@($"{_overview.Stats.CompletionRatePercent:0.#}% selesai · {_overview.Stats.CancellationRatePercent:0.#}% batal")" />
+
+        <StatTile Label="Pendapatan hari ini"
+                  Value="@Display.RupiahShort(_overview.Stats.RevenueToday)"
+                  Tone="go"
+                  Note="@($"Rata-rata {Display.Rupiah(_overview.Stats.AverageFare)} per trip")" />
+
+        <StatTile Label="Driver aktif"
+                  Value="@Display.Number(_overview.Stats.ActiveDrivers)"
+                  Tone="move"
+                  Note="@($"{_overview.Stats.OnlineDrivers} siap menerima order")" />
+
+        <StatTile Label="Order menunggu"
+                  Value="@Display.Number(_overview.Stats.PendingOrders)"
+                  Tone="@(_overview.Stats.PendingOrders > 10 ? "stop" : "wait")"
+                  Note="@(_overview.Stats.PendingOrders > 10 ? "Antrian menumpuk — cek ketersediaan driver" : "Antrian normal")" />
     </div>
 
-    <div class="row g-3 mb-4">
-        <div class="col-md-3 col-sm-6"><div class="card stat-card p-3"><div class="d-flex justify-content-between align-items-start"><div><small class="text-muted">Orders Today</small><div class="stat-value">@_ordersToday</div></div><i class="bi bi-car-front-fill stat-icon text-warning"></i></div></div></div>
-        <div class="col-md-3 col-sm-6"><div class="card stat-card p-3"><div class="d-flex justify-content-between align-items-start"><div><small class="text-muted">Active Drivers</small><div class="stat-value">@_activeDrivers</div></div><i class="bi bi-people-fill stat-icon text-info"></i></div></div></div>
-        <div class="col-md-3 col-sm-6"><div class="card stat-card p-3"><div class="d-flex justify-content-between align-items-start"><div><small class="text-muted">Revenue Today</small><div class="stat-value">Rp @_revenue</div></div><i class="bi bi-cash-stack stat-icon text-success"></i></div></div></div>
-        <div class="col-md-3 col-sm-6"><div class="card stat-card p-3"><div class="d-flex justify-content-between align-items-start"><div><small class="text-muted">Avg Rating</small><div class="stat-value">@_avgRating</div></div><i class="bi bi-star-fill stat-icon text-warning"></i></div></div></div>
+    <div class="grid grid--main mt">
+        <section class="panel">
+            <div class="panel__head">
+                <h2>Pendapatan 30 hari</h2>
+                <span class="dim">Bulan ini @Display.Rupiah(_overview.Stats.RevenueMonth)</span>
+            </div>
+            <div class="panel__body">
+                <div class="chart-box chart-box--tall"><canvas id="chart-revenue"></canvas></div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel__head"><h2>Status order</h2></div>
+            <div class="panel__body">
+                <div class="chart-box"><canvas id="chart-status"></canvas></div>
+            </div>
+        </section>
     </div>
 
-    <div class="row g-3 mb-4">
-        <div class="col-lg-8">
-            <div class="chart-container"><h5><i class="bi bi-bar-chart me-2"></i>Orders per Hour (Today)</h5>
-                <div class="d-flex align-items-end gap-1" style="height:180px;">
-                    @foreach (var h in _hourly)
+    <div class="grid grid--main mt">
+        <section class="panel">
+            <div class="panel__head">
+                <h2>Ritme hari ini</h2>
+                <span class="dim">Puncak @PeakHourLabel · sekarang @NowHourLabel</span>
+            </div>
+            <div class="panel__body">
+                @* Drawn as a road: bars stand on a lane line, the current hour is lit jade and
+                   the busiest hour amber. Reading it needs no legend. *@
+                <div class="trafficband">
+                    @foreach (var hour in _overview.Hourly)
                     {
-                        var max = _hourly.Max(x => x.Count);
-                        var pct = max > 0 ? (int)((double)h.Count / max * 100) : 0;
-                        <div class="flex-grow-1 text-center" title="@h.Hour:00 — @h.Count orders">
-                            <small style="font-size:9px;">@h.Count</small>
-                            <div class="bg-warning rounded-top" style="height:@(pct)px;min-height:2px;"></div>
-                            <small style="font-size:9px;">@h.Hour</small>
-                        </div>
+                        <div class="trafficband__bar"
+                             style="height:@(BarHeight(hour.Count))%"
+                             data-peak="@Flag(hour.Hour == PeakHour && hour.Count > 0)"
+                             data-now="@Flag(hour.Hour == DateTime.Now.Hour)"
+                             title="@($"{hour.Hour:00}.00 — {hour.Count} order · {Display.Rupiah(hour.Revenue)}")"></div>
+                    }
+                </div>
+                <div class="trafficband__axis">
+                    @foreach (var hour in _overview.Hourly)
+                    {
+                        <span>@(hour.Hour % 3 == 0 ? hour.Hour.ToString("00") : "")</span>
                     }
                 </div>
             </div>
-        </div>
-        <div class="col-lg-4">
-            <div class="chart-container"><h5><i class="bi bi-pie-chart me-2"></i>Order Status</h5>
-                @foreach (var s in _statusData)
-                {
-                    <div class="d-flex justify-content-between mb-2">
-                        <span class="badge bg-@BadgeColor(s.Status)">@s.Status</span>
-                        <strong>@s.Count</strong>
-                    </div>
-                }
+        </section>
+
+        <section class="panel">
+            <div class="panel__head"><h2>Kategori kendaraan</h2></div>
+            <div class="panel__body">
+                <div class="chart-box"><canvas id="chart-category"></canvas></div>
             </div>
-        </div>
+        </section>
     </div>
 
-    <div class="row g-3">
-        <div class="col-md-3"><div class="card stat-card p-3 text-center"><small class="text-muted">Pending Orders</small><h4 class="text-warning">@_pending</h4></div></div>
-        <div class="col-md-3"><div class="card stat-card p-3 text-center"><small class="text-muted">Trips Today</small><h4 class="text-success">@_tripsToday</h4></div></div>
-        <div class="col-md-3"><div class="card stat-card p-3 text-center"><small class="text-muted">Total Riders</small><h4 class="text-info">@_totalRiders</h4></div></div>
-        <div class="col-md-3"><div class="card stat-card p-3 text-center"><small class="text-muted">Last Update</small><h6 class="text-muted mt-1">@_lastRefresh.ToLocalTime().ToString("dd MMM HH:mm")</h6></div></div>
+    <div class="grid grid--main mt">
+        <section class="panel">
+            <div class="panel__head">
+                <h2>Driver terbaik 30 hari</h2>
+                <a href="/drivers" class="dim">Semua driver →</a>
+            </div>
+            @if (_overview.TopDrivers.Count == 0)
+            {
+                <EmptyState Icon="bi-car-front" Title="Belum ada trip selesai bulan ini"
+                            Hint="Jalankan FastRide.Simulator untuk menghasilkan lalu lintas order." />
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table class="grid-table">
+                        <thead>
+                            <tr>
+                                <th>Driver</th>
+                                <th>Kendaraan</th>
+                                <th class="right">Trip</th>
+                                <th class="right">Rating</th>
+                                <th class="right">Pendapatan</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var driver in _overview.TopDrivers)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="person">
+                                            <img src="@Display.Avatar(driver.PhotoUrl, driver.FullName)" alt="" />
+                                            <div><strong>@driver.FullName</strong></div>
+                                        </div>
+                                    </td>
+                                    <td class="muted">@driver.VehicleType</td>
+                                    <td class="right num">@driver.Trips</td>
+                                    <td class="right num">@driver.Rating.ToString("0.0")</td>
+                                    <td class="right money">@Display.Rupiah(driver.Earnings)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        <section class="panel">
+            <div class="panel__head"><h2>Metode pembayaran</h2></div>
+            <div class="panel__body">
+                @if (_overview.PaymentMethods.Count == 0)
+                {
+                    <EmptyState Icon="bi-wallet2" Title="Belum ada pembayaran"
+                                Hint="Data muncul setelah ada trip yang selesai." />
+                }
+                else
+                {
+                    <div class="chart-box"><canvas id="chart-payment"></canvas></div>
+                }
+            </div>
+        </section>
     </div>
 }
 
 @code {
-    private bool _loading = true;
-    private DateTime _lastRefresh = DateTime.UtcNow;
-    private int _ordersToday, _activeDrivers, _pending, _tripsToday, _totalRiders;
-    private string _revenue = "0", _avgRating = "0";
-    private List<HourlyData> _hourly = new();
-    private List<OrderStatusCount> _statusData = new();
+    private DashboardOverviewResponse? _overview;
+    private string? _error;
+    private bool _loading;
     private Timer? _timer;
+
+    private int MaxHourly => _overview is { Hourly.Count: > 0 } ? _overview.Hourly.Max(h => h.Count) : 0;
+
+    private int PeakHour => _overview is { Hourly.Count: > 0 }
+        ? _overview.Hourly.OrderByDescending(h => h.Count).First().Hour
+        : 0;
+
+    private string PeakHourLabel => $"{PeakHour:00}.00";
+    private string NowHourLabel => $"{DateTime.Now.Hour:00}.00";
+
+    private int BarHeight(int count) => MaxHourly == 0 ? 2 : Math.Max(2, (int)(count * 100.0 / MaxHourly));
+
+    /// <summary>Blazor drops a false bool attribute entirely, so the CSS selector needs a literal string.</summary>
+    private static string Flag(bool value) => value ? "true" : "false";
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadData();
-        _timer = new Timer(async _ => { await LoadData(); await InvokeAsync(StateHasChanged); }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        await LoadAsync();
+
+        _timer = new Timer(async _ => await InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
     }
 
-    private async Task LoadData()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        try
-        {
-            var s = await ApiClient.GetDashboardStats();
-            if (s != null)
-            {
-                _ordersToday = s.TotalOrdersToday;
-                _activeDrivers = s.ActiveDrivers;
-                _pending = s.PendingOrders;
-                _tripsToday = s.TotalTripsToday;
-                _totalRiders = s.ActiveRiders;
-                _revenue = s.RevenueToday.ToString("N0");
-                _avgRating = s.AverageRating.ToString("F1");
-                _lastRefresh = DateTime.UtcNow;
-            }
-            _hourly = await ApiClient.GetOrdersByHour(DateTime.UtcNow.Date);
-            _statusData = await ApiClient.GetOrdersByStatus();
-        }
-        catch { /* API offline */ }
+        if (_overview is not null) await DrawChartsAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        _overview = await Api.GetOverviewAsync();
+        if (_overview is null) _error = "Tidak bisa memuat data. Pastikan FastRide.Api sedang berjalan.";
+
         _loading = false;
     }
 
-    private async Task RefreshNow() { _loading = true; await LoadData(); _loading = false; }
-
-    private string BadgeColor(string s) => s switch
+    private async Task DrawChartsAsync()
     {
-        "Requested" => "info", "Accepted" => "purple", "Started" or "DriverArrived" => "warning",
-        "Completed" => "success", "Cancelled" => "danger", _ => "secondary"
-    };
+        if (_overview is null) return;
 
-    public void Dispose() => _timer?.Dispose();
+        try
+        {
+            await JS.InvokeVoidAsync("fastride.revenueSeries", "chart-revenue",
+                _overview.RevenueSeries.Select(p => p.Date.ToString("dd/MM")).ToArray(),
+                _overview.RevenueSeries.Select(p => p.Revenue).ToArray(),
+                _overview.RevenueSeries.Select(p => p.Orders).ToArray());
+
+            // Statuses with no orders would only add noise to the legend.
+            var statuses = _overview.ByStatus.Where(s => s.Count > 0).ToList();
+            await JS.InvokeVoidAsync("fastride.statusDoughnut", "chart-status",
+                statuses.Select(s => Display.Label(s.Status)).ToArray(),
+                statuses.Select(s => s.Count).ToArray(),
+                statuses.Select(s => Display.ChartColour(s.Status)).ToArray());
+
+            await JS.InvokeVoidAsync("fastride.categoryBars", "chart-category",
+                _overview.Categories.Select(c => c.VehicleCategory.ToString()).ToArray(),
+                _overview.Categories.Select(c => c.Orders).ToArray());
+
+            if (_overview.PaymentMethods.Count > 0)
+            {
+                await JS.InvokeVoidAsync("fastride.paymentBars", "chart-payment",
+                    _overview.PaymentMethods.Select(p => Display.Label(p.Method)).ToArray(),
+                    _overview.PaymentMethods.Select(p => p.Amount).ToArray());
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit went away mid-render; nothing left to draw on.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _timer?.Dispose();
+
+        try
+        {
+            foreach (var id in new[] { "chart-revenue", "chart-status", "chart-category", "chart-payment" })
+                await JS.InvokeVoidAsync("fastride.dispose", id);
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit already closed.
+        }
+    }
 }

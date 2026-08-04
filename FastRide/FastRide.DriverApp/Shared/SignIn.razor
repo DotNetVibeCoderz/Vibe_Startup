@@ -1,0 +1,80 @@
+@inject ApiClient Api
+
+<div class="gate">
+    <form class="gate__card" @onsubmit="Submit" @onsubmit:preventDefault>
+        <div>
+            <div class="gate__mark">Fast<b>Ride</b></div>
+            <p class="dim small" style="margin:2px 0 0;letter-spacing:.16em;text-transform:uppercase;">
+                Masuk driver
+            </p>
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert--error" role="alert">@_error</div>
+        }
+
+        <div class="field">
+            <label for="email">Email</label>
+            <input id="email" type="email" inputmode="email" autocomplete="username"
+                   @bind="_email" @bind:event="oninput" placeholder="nama@drive.com" />
+        </div>
+
+        <div class="field">
+            <label for="password">Kata sandi</label>
+            <input id="password" type="password" autocomplete="current-password"
+                   @bind="_password" @bind:event="oninput" placeholder="••••••••" />
+        </div>
+
+        <button class="btn btn--primary" type="submit" disabled="@_busy">
+            @if (_busy)
+            {
+                <span class="spinner"></span>
+                <span>Memeriksa</span>
+            }
+            else
+            {
+                <i class="bi bi-arrow-right-circle"></i>
+                <span>Masuk</span>
+            }
+        </button>
+
+        <div class="gate__hint">
+            Akun demo: <code>andi.santoso@drive.com</code> · <code>Password123</code><br />
+            Pendaftaran driver baru dilakukan lewat tim operasional.
+        </div>
+    </form>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnSignedIn { get; set; }
+
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private string? _error;
+    private bool _busy;
+
+    private async Task Submit()
+    {
+        if (_busy) return;
+        _error = null;
+
+        if (string.IsNullOrWhiteSpace(_email) || string.IsNullOrWhiteSpace(_password))
+        {
+            _error = "Isi email dan kata sandi dulu.";
+            return;
+        }
+
+        _busy = true;
+        var (success, error) = await Api.LoginAsync(_email.Trim(), _password);
+        _busy = false;
+
+        if (!success)
+        {
+            _error = error;
+            return;
+        }
+
+        await OnSignedIn.InvokeAsync();
+    }
+}

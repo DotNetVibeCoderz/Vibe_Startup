@@ -1,131 +1,243 @@
-@page "/book-ride"
-@using FastRide.RiderApp.Services
+@page "/book"
 @inject ApiClient Api
+@inject NavigationManager Nav
 
-<div class="p-3">
-    @if (!Api.IsLoggedIn)
+<div class="topbar">
+    <div class="topbar__mark">Pesan</div>
+    <div class="topbar__spacer"></div>
+    @if (_quote is not null)
     {
-        <p class="text-center py-5 text-muted">Please login first</p>
-    }
-    else if (_bookedOrderId != null)
-    {
-        <div class="text-center py-5">
-            <i class="bi bi-check-circle-fill display-1 text-success"></i>
-            <h4 class="mt-3">Order Created! 🎉</h4>
-            <div class="card bg-light"><div class="card-body">
-                <h5>Rp @_bookedFinalFare.ToString("N0")</h5>
-                <small class="text-muted">@_bookedDistanceKm.ToString("F1") km · ~@_bookedDurationMin min</small>
-                @if (!string.IsNullOrWhiteSpace(_bookedPromo)) { <br/><span class="badge bg-success">Promo: @_bookedPromo</span> }
-            </div></div>
-            <a href="/" class="btn btn-warning mt-3">Back to Home</a>
-            <button class="btn btn-outline-warning mt-3 ms-2" @onclick="() => _bookedOrderId = null">Book Again</button>
-        </div>
-    }
-    else
-    {
-        <h5 class="fw-bold mb-3"><i class="bi bi-car-front-fill text-warning me-2"></i>Book a Ride</h5>
-
-        <div class="mb-2"><label class="form-label fw-semibold small"><i class="bi bi-geo-alt-fill text-success"></i> Pickup</label><input type="text" class="form-control form-control-sm" placeholder="Pickup address" @bind="_pickup" /></div>
-        <div class="mb-3"><label class="form-label fw-semibold small"><i class="bi bi-geo-fill text-danger"></i> Drop-off</label><input type="text" class="form-control form-control-sm" placeholder="Where to?" @bind="_dropoff" /></div>
-
-        <h6 class="fw-bold mb-2">Vehicle</h6>
-        <div class="row g-2 mb-3">
-            @foreach (var v in _vehicles)
-            {
-                <div class="col-4">
-                    <button class="btn @(_selectedIdx == v.idx ? "btn-warning" : "btn-outline-secondary") btn-sm w-100 p-2" @onclick="() => SelectVehicle(v.idx)">
-                        <i class="@v.icon fs-5 d-block"></i><small>@v.name</small><br/><small class="fw-bold">Rp @v.fare.ToString("N0")</small>
-                    </button>
-                </div>
-            }
-        </div>
-
-        <h6 class="fw-bold mb-2">Payment</h6>
-        <select class="form-select form-select-sm mb-2" @bind="_paymentMethod">
-            <option value="Cash">💵 Cash</option><option value="EWallet">📱 E-Wallet</option><option value="CreditCard">💳 Credit Card</option>
-        </select>
-
-        <div class="input-group input-group-sm mb-3">
-            <input type="text" class="form-control" placeholder="Promo code" @bind="_promoInput" />
-            <button class="btn btn-outline-warning" @onclick="ValidatePromo">Apply</button>
-        </div>
-        @if (_promoValid) { <div class="alert alert-success py-1 small">✅ @_promoMessage</div> }
-        @if (_promoErr != null) { <div class="alert alert-danger py-1 small">❌ @_promoErr</div> }
-
-        <div class="card bg-light mb-3"><div class="card-body text-center"><small class="text-muted">Estimated</small><h3 class="fw-bold text-warning mb-0">Rp @_estFare.ToString("N0")</h3></div></div>
-
-        <button class="btn btn-warning btn-lg w-100 fw-bold" @onclick="BookNow" disabled="@_booking">
-            @if (_booking) { <span class="spinner-border spinner-border-sm me-2"></span> } <i class="bi bi-car-front-fill me-2"></i> Book Now
-        </button>
+        <span class="money">@Display.Rupiah(_quote.FinalFare)</span>
     }
 </div>
 
-@code {
-    private string _pickup = "", _dropoff = "", _promoInput = "";
-    private string _paymentMethod = "Cash";
-    private decimal _estFare = 25000;
-    private int _selectedIdx;
-    private bool _booking, _promoValid;
-    private string? _promoErr, _promoMessage;
-    private Guid? _bookedOrderId;
-    private decimal _bookedFinalFare;
-    private double _bookedDistanceKm;
-    private int _bookedDurationMin;
-    private string? _bookedPromo;
-
-    private readonly List<(int idx, string name, string icon, decimal fare, VehicleCategory cat)> _vehicles = new()
+<div class="screen">
+    @if (_error is not null)
     {
-        (0, "Economy",  "bi bi-car-front",        25000m, VehicleCategory.Economy),
-        (1, "Comfort",  "bi bi-car-front-fill",   40000m, VehicleCategory.Comfort),
-        (2, "Premium",  "bi bi-suv",              60000m, VehicleCategory.Premium),
-        (3, "Bike",     "bi bi-bicycle",          12000m, VehicleCategory.Bike),
-        (4, "Electric", "bi bi-ev-front",         25000m, VehicleCategory.Electric),
-    };
+        <div class="alert alert--error" role="alert">@_error</div>
+    }
 
-    private void SelectVehicle(int idx) { _selectedIdx = idx; _estFare = _vehicles[idx].fare; }
+    <div class="card stack">
+        <div class="field">
+            <label for="pickup">Titik jemput</label>
+            <input id="pickup" @bind="_pickup" @bind:event="oninput" placeholder="Jl. Sudirman No. 1" />
+        </div>
+        <div class="field">
+            <label for="dropoff">Tujuan</label>
+            <input id="dropoff" @bind="_dropoff" @bind:event="oninput" placeholder="Jl. Thamrin No. 9" />
+        </div>
 
-    private async Task ValidatePromo()
-    {
-        if (string.IsNullOrWhiteSpace(_promoInput)) return;
-        _promoValid = false; _promoErr = null;
-        try
+        @if (_stopAddress is not null)
         {
-            var http = new HttpClient { BaseAddress = new Uri("https://localhost:5001") };
-            var resp = await http.PostAsJsonAsync("/api/promos/validate", new { code = _promoInput, amount = _estFare });
-            if (resp.IsSuccessStatusCode)
+            <div class="field">
+                <label for="stop">Singgah</label>
+                <div class="row">
+                    <input id="stop" @bind="_stopAddress" @bind:event="oninput" placeholder="Alamat singgah" />
+                    <button class="btn btn--sm btn--ghost" @onclick="RemoveStop" title="Hapus singgah">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <button class="btn btn--ghost btn--sm" @onclick="AddStop">
+                <i class="bi bi-plus"></i><span>Tambah titik singgah</span>
+            </button>
+        }
+    </div>
+
+    <div class="stack stack--tight">
+        <span class="dim small" style="text-transform:uppercase;letter-spacing:.14em;">Kendaraan</span>
+        <div class="choices">
+            @foreach (var category in Categories)
             {
-                var r = await resp.Content.ReadFromJsonAsync<PromoValidateResult>();
-                if (r?.valid == true) { _promoValid = true; _estFare = r.finalAmount; _promoMessage = $"Diskon: Rp {r.discount:N0}"; }
-                else _promoErr = "Invalid or expired";
+                <div class="choice @(_category == category ? "selected" : "")"
+                     role="button" tabindex="0" @onclick="() => SelectAsync(category)">
+                    <i class="@Display.Icon(category)"></i>
+                    <small>@Display.Label(category)</small>
+                    <b>@PriceFor(category)</b>
+                </div>
             }
-            else _promoErr = "Invalid code";
-        }
-        catch { _promoErr = "Cannot validate"; }
-    }
+        </div>
+    </div>
 
-    private async Task BookNow()
+    <div class="card stack">
+        <div class="field">
+            <label for="payment">Pembayaran</label>
+            <select id="payment" @bind="SelectedPayment">
+                @foreach (var method in Enum.GetValues<PaymentMethod>())
+                {
+                    <option value="@method">@Display.Label(method)</option>
+                }
+            </select>
+        </div>
+
+        <div class="field">
+            <label for="promo">Kode promo</label>
+            <div class="row">
+                <input id="promo" @bind="_promo" @bind:event="oninput" placeholder="WELCOME50" />
+                <button class="btn btn--sm" @onclick="RefreshQuoteAsync" disabled="@_quoting">Pakai</button>
+            </div>
+        </div>
+
+        @if (_quote?.PromoMessage is { Length: > 0 } message)
+        {
+            <div class="alert @(_quote.Discount > 0 ? "alert--ok" : "alert--warn")">@message</div>
+        }
+    </div>
+
+    @* The estimate comes from the API's own fare table, so it matches what will be charged. *@
+    <div class="hero">
+        <span class="hero__label">Perkiraan biaya</span>
+        @if (_quoting)
+        {
+            <div class="row"><span class="spinner"></span><span class="muted">Menghitung…</span></div>
+        }
+        else if (_quote is null)
+        {
+            <div class="hero__value">—</div>
+            <span class="small muted">Isi titik jemput dan tujuan untuk melihat harga.</span>
+        }
+        else
+        {
+            <div class="hero__value">@Display.Rupiah(_quote.FinalFare)</div>
+            <span class="small muted">
+                @Display.Distance(_quote.DistanceKm) · ± @_quote.EstimatedDurationMinutes menit
+                @if (_quote.Discount > 0)
+                {
+                    <text> · hemat @Display.Rupiah(_quote.Discount)</text>
+                }
+            </span>
+            @if (_quote.SurgeMultiplier > 1)
+            {
+                <span class="pill pill--wait">Tarif sibuk ×@_quote.SurgeMultiplier.ToString("0.0")</span>
+            }
+        }
+    </div>
+
+    <button class="btn btn--primary" @onclick="BookAsync" disabled="@(_booking || _quote is null)">
+        @if (_booking)
+        {
+            <span class="spinner"></span>
+            <span>Memesan</span>
+        }
+        else
+        {
+            <i class="bi bi-car-front-fill"></i>
+            <span>Pesan sekarang</span>
+        }
+    </button>
+</div>
+
+@code {
+    // Jakarta reference points; a production build would read these from the device's GPS.
+    private const double PickupLat = -6.2088, PickupLon = 106.8456;
+    private const double DropoffLat = -6.1751, DropoffLon = 106.8650;
+    private const double StopLat = -6.1900, StopLon = 106.8500;
+
+    private static readonly VehicleCategory[] Categories = Enum.GetValues<VehicleCategory>();
+
+    private string _pickup = "Jl. Sudirman No. 1";
+    private string _dropoff = "Jl. Thamrin No. 9";
+    private string? _stopAddress;
+    private string _promo = string.Empty;
+    private VehicleCategory _category = VehicleCategory.Economy;
+    private PaymentMethod _payment = PaymentMethod.Cash;
+
+    private FareQuoteResponse? _quote;
+    private readonly Dictionary<VehicleCategory, decimal> _prices = new();
+    private bool _quoting, _booking;
+    private string? _error;
+
+    private string SelectedPayment
     {
-        if (string.IsNullOrWhiteSpace(_pickup) || string.IsNullOrWhiteSpace(_dropoff)) return;
-        _booking = true;
-        var v = _vehicles[_selectedIdx];
-        var result = await Api.BookRide(new BookRequest
-        {
-            PickupLatitude = -6.2088, PickupLongitude = 106.8456, PickupAddress = _pickup,
-            DropoffLatitude = -6.1275, DropoffLongitude = 106.6535, DropoffAddress = _dropoff,
-            VehicleCategory = v.cat,
-            PaymentMethod = _paymentMethod switch { "EWallet" => PaymentMethod.EWallet, "CreditCard" => PaymentMethod.CreditCard, _ => PaymentMethod.Cash },
-            PromoCode = _promoValid ? _promoInput : null
-        });
-        _booking = false;
-        if (result != null)
-        {
-            _bookedOrderId = result.Id;
-            _bookedFinalFare = result.FinalFare;
-            _bookedDistanceKm = result.DistanceKm;
-            _bookedDurationMin = result.EstimatedDurationMinutes;
-            _bookedPromo = result.PromoApplied;
-        }
+        get => _payment.ToString();
+        set => _payment = Enum.Parse<PaymentMethod>(value);
     }
 
-    public class PromoValidateResult { public bool valid { get; set; } public decimal discount { get; set; } public decimal finalAmount { get; set; } }
+    protected override Task OnInitializedAsync() => RefreshAllPricesAsync();
+
+    private string PriceFor(VehicleCategory category) =>
+        _prices.TryGetValue(category, out var price) ? Display.RupiahShort(price) : "—";
+
+    private async Task SelectAsync(VehicleCategory category)
+    {
+        _category = category;
+        await RefreshQuoteAsync();
+    }
+
+    private void AddStop() => _stopAddress = string.Empty;
+
+    private async Task RemoveStop()
+    {
+        _stopAddress = null;
+        await RefreshAllPricesAsync();
+    }
+
+    private List<TripStopRequest>? Stops() =>
+        string.IsNullOrWhiteSpace(_stopAddress)
+            ? null
+            : [new TripStopRequest(StopLat, StopLon, _stopAddress)];
+
+    /// <summary>Price every category once so the chooser shows real numbers, not guesses.</summary>
+    private async Task RefreshAllPricesAsync()
+    {
+        _quoting = true;
+
+        foreach (var category in Categories)
+        {
+            var quote = await Api.QuoteAsync(new FareQuoteRequest(
+                PickupLat, PickupLon, DropoffLat, DropoffLon, category, null, Stops()));
+
+            if (quote is not null) _prices[category] = quote.FinalFare;
+        }
+
+        _quoting = false;
+        await RefreshQuoteAsync();
+    }
+
+    private async Task RefreshQuoteAsync()
+    {
+        _quoting = true;
+        _error = null;
+
+        _quote = await Api.QuoteAsync(new FareQuoteRequest(
+            PickupLat, PickupLon, DropoffLat, DropoffLon, _category,
+            string.IsNullOrWhiteSpace(_promo) ? null : _promo.Trim(), Stops()));
+
+        if (_quote is null) _error = "Tidak bisa menghitung tarif. Periksa koneksi ke server.";
+
+        _quoting = false;
+    }
+
+    private async Task BookAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_pickup) || string.IsNullOrWhiteSpace(_dropoff))
+        {
+            _error = "Isi titik jemput dan tujuan dulu.";
+            return;
+        }
+
+        _booking = true;
+        _error = null;
+
+        var (order, error) = await Api.BookAsync(new CreateOrderRequest(
+            Api.CurrentUserId,
+            PickupLat, PickupLon, _pickup,
+            DropoffLat, DropoffLon, _dropoff,
+            _category, _payment,
+            string.IsNullOrWhiteSpace(_promo) ? null : _promo.Trim(),
+            Stops()));
+
+        _booking = false;
+
+        if (order is null)
+        {
+            _error = error;
+            return;
+        }
+
+        Nav.NavigateTo($"/track/{order.Id}");
+    }
 }

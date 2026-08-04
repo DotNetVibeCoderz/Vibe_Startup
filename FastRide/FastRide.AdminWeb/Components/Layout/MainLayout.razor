@@ -1,55 +1,201 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject AdminSession Session
+@inject ApiClient Api
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
-<div class="d-flex" style="min-height: 100vh;">
-    <aside class="sidebar bg-dark text-white d-flex flex-column p-3" style="width: 260px; min-height: 100vh;">
-        <div class="sidebar-brand mb-4 text-center">
-            <i class="bi bi-lightning-charge-fill text-warning fs-3"></i>
-            <h4 class="fw-bold mt-2">🚖 FastRide</h4>
-            <small class="text-muted">Admin Dashboard</small>
+@if (!_ready)
+{
+    <div class="gate">
+        <div class="gate__card">
+            <div class="row"><span class="spinner"></span><span class="muted">Menyiapkan konsol…</span></div>
         </div>
-        <hr class="border-secondary">
-        <nav class="flex-grow-1">
-            <ul class="nav flex-column gap-1">
-                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/" Match="NavLinkMatch.All"><i class="bi bi-speedometer2 me-2"></i> Dashboard</NavLink></li>
-                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/orders"><i class="bi bi-car-front-fill me-2"></i> Orders</NavLink></li>
-                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/drivers"><i class="bi bi-people-fill me-2"></i> Drivers</NavLink></li>
-                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/riders"><i class="bi bi-person-badge me-2"></i> Riders</NavLink></li>
-                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/payments"><i class="bi bi-credit-card me-2"></i> Payments</NavLink></li>
-                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/promos"><i class="bi bi-tags-fill me-2"></i> Promos</NavLink></li>
-                <li class="nav-item"><NavLink class="nav-link sidebar-link text-white rounded-2" href="/analytics"><i class="bi bi-graph-up me-2"></i> Analytics</NavLink></li>
-            </ul>
-        </nav>
-        <hr class="border-secondary">
-        <div class="sidebar-footer">
-            <button class="btn btn-outline-light btn-sm w-100" @onclick="ToggleTheme">
-                <i class="bi @(_isDark ? "bi-sun-fill" : "bi-moon-fill") me-1"></i> 
-                @(_isDark ? "Light Mode" : "Dark Mode")
-            </button>
-            <div class="text-muted small mt-2 text-center">v1.0.0 | Gravicode Studios</div>
+    </div>
+}
+else if (!Session.IsAuthenticated)
+{
+    <SignIn OnSignedIn="HandleSignedIn" />
+}
+else
+{
+    <div class="console">
+        <aside class="rail">
+            <div class="rail__brand">
+                <div class="rail__wordmark"><i class="bi bi-broadcast-pin"></i> Fast<b>Ride</b></div>
+                <div class="rail__tagline">Konsol Operasi</div>
+            </div>
+
+            <nav class="rail__nav">
+                <div class="rail__section">Operasi</div>
+                <NavLink class="rail__link" href="/" Match="NavLinkMatch.All">
+                    <i class="bi bi-speedometer2"></i><span>Ringkasan</span>
+                </NavLink>
+                <NavLink class="rail__link" href="/orders">
+                    <i class="bi bi-signpost-split"></i><span>Order</span>
+                </NavLink>
+                <NavLink class="rail__link" href="/drivers">
+                    <i class="bi bi-car-front"></i><span>Driver</span>
+                </NavLink>
+                <NavLink class="rail__link" href="/riders">
+                    <i class="bi bi-person-walking"></i><span>Penumpang</span>
+                </NavLink>
+
+                <div class="rail__section">Keuangan</div>
+                <NavLink class="rail__link" href="/payments">
+                    <i class="bi bi-receipt"></i><span>Pembayaran</span>
+                </NavLink>
+                <NavLink class="rail__link" href="/reports">
+                    <i class="bi bi-graph-up-arrow"></i><span>Laporan</span>
+                </NavLink>
+
+                <div class="rail__section">Pengaturan</div>
+                <NavLink class="rail__link" href="/fares">
+                    <i class="bi bi-cash-coin"></i><span>Tarif</span>
+                </NavLink>
+                <NavLink class="rail__link" href="/promos">
+                    <i class="bi bi-ticket-perforated"></i><span>Promo</span>
+                </NavLink>
+                <NavLink class="rail__link" href="/payment-providers">
+                    <i class="bi bi-credit-card-2-front"></i><span>Pembayaran</span>
+                </NavLink>
+                <NavLink class="rail__link" href="/verification">
+                    <i class="bi bi-patch-check"></i><span>Verifikasi</span>
+                    @if (_pendingVerification > 0)
+                    {
+                        <span class="rail__badge">@_pendingVerification</span>
+                    }
+                </NavLink>
+                <NavLink class="rail__link" href="/users">
+                    <i class="bi bi-people"></i><span>Pengguna</span>
+                </NavLink>
+            </nav>
+
+            <div class="rail__foot">
+                <div class="rail__user">
+                    <img src="@Display.Avatar(Session.PhotoUrl, Session.FullName)" alt="" />
+                    <div>
+                        <strong>@Session.FullName</strong>
+                        <small>@Session.Email</small>
+                    </div>
+                </div>
+                <div class="row row--tight">
+                    <button class="btn btn--sm btn--ghost" @onclick="ToggleTheme" title="Ganti tema">
+                        <i class="bi @(_theme == "dark" ? "bi-sun" : "bi-moon-stars")"></i>
+                    </button>
+                    <button class="btn btn--sm btn--ghost" @onclick="SignOut">
+                        <i class="bi bi-box-arrow-right"></i><span>Keluar</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <div class="work">
+            <FleetPulse Stats="_stats" Drivers="_driverPips" />
+            <main class="work__body">
+                @Body
+            </main>
         </div>
-    </aside>
-    <main class="flex-grow-1 bg-body p-4 overflow-auto">
-        @Body
-    </main>
-</div>
+    </div>
+}
 
 @code {
-    private bool _isDark = true;
+    private bool _ready;
+    private string _theme = "dark";
+    private int _pendingVerification;
+    private DashboardStatsResponse? _stats;
+    private List<DriverStatus> _driverPips = new();
+    private Timer? _timer;
+
+    protected override void OnInitialized() => Session.Changed += OnSessionChanged;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (!firstRender) return;
+
+        // Protected storage needs JavaScript, so the session can only be restored once the
+        // circuit is interactive — never during prerender.
+        _theme = await JS.InvokeAsync<string>("fastride.currentTheme");
+        var restored = await Session.RestoreAsync();
+
+        _ready = true;
+        StateHasChanged();
+
+        if (restored) await StartPollingAsync();
+    }
+
+    private async Task HandleSignedIn()
+    {
+        await Session.PersistAsync();
+        await StartPollingAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>The pulse strip refreshes on its own so the operator never has to hit reload.</summary>
+    private async Task StartPollingAsync()
+    {
+        await RefreshPulseAsync();
+
+        // The first load has to redraw explicitly. OnAfterRenderAsync already rendered before
+        // this ran, so without it the rail sits blank — zeros and a dash — until the timer
+        // first fires twelve seconds later, on every single page load.
+        StateHasChanged();
+
+        _timer?.Dispose();
+        _timer = new Timer(async _ => await InvokeAsync(async () =>
         {
-            // Apply saved theme on first load
-            await JS.InvokeVoidAsync("eval", "document.documentElement.setAttribute('data-bs-theme','dark')");
+            await RefreshPulseAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(12), TimeSpan.FromSeconds(12));
+    }
+
+    private async Task RefreshPulseAsync()
+    {
+        try
+        {
+            _stats = await Api.GetStatsAsync();
+
+            var drivers = await Api.GetDriversAsync(limit: 60);
+            _driverPips = drivers.Data.Select(d => d.Status).ToList();
+
+            var pending = await Api.GetPendingVerificationAsync();
+            _pendingVerification = pending.Count;
         }
+        catch (SessionExpiredException)
+        {
+            await ExpireSessionAsync();
+        }
+    }
+
+    private async Task ExpireSessionAsync()
+    {
+        _timer?.Dispose();
+        _timer = null;
+        await Session.ForgetAsync();
+        StateHasChanged();
     }
 
     private async Task ToggleTheme()
     {
-        _isDark = !_isDark;
-        var theme = _isDark ? "dark" : "light";
-        await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-bs-theme','{theme}')");
+        _theme = _theme == "dark" ? "light" : "dark";
+        await JS.InvokeVoidAsync("fastride.setTheme", _theme);
+
+        // Charts capture their colours when they are constructed, so the canvases have to be
+        // rebuilt against the new palette.
+        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+    }
+
+    private async Task SignOut()
+    {
+        await Api.LogoutAsync();
+        await ExpireSessionAsync();
+    }
+
+    private void OnSessionChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Session.Changed -= OnSessionChanged;
+        _timer?.Dispose();
     }
 }

@@ -1,95 +1,652 @@
-/* FastRide Admin - Custom Styles */
+/* ══════════════════════════════════════════════════════════════════
+   FastRide Dispatch Console — design system
+
+   The visual language is borrowed from the world the product operates in:
+   transit signage and traffic signalling. Colour is functional, not
+   decorative — amber means waiting, jade means moving, vermilion means
+   stopped. Type is condensed signage for headings and a technical sans
+   for anything read at length, with tabular mono for money and codes so
+   figures line up like a meter readout.
+   ══════════════════════════════════════════════════════════════════ */
+
 :root {
-    --fastride-primary: #FFD700;
-    --fastride-accent: #FF6B35;
-    --fastride-dark: #1a1a2e;
-    --fastride-card: #16213e;
-    --fastride-success: #00C853;
-    --fastride-warning: #FFD600;
-    --fastride-danger: #FF1744;
+    /* ground */
+    --malam:      #0E1524;   /* page */
+    --aspal:      #161F33;   /* panel */
+    --aspal-2:    #1D2942;   /* raised panel / hover */
+    --garis:      #26324D;   /* rule, border */
+
+    /* signal palette */
+    --lampu:      #FFB020;   /* amber — brand, waiting, primary action */
+    --lampu-soft: rgba(255, 176, 32, .14);
+    --jalan:      #23C48E;   /* jade — online, completed */
+    --jalan-soft: rgba(35, 196, 142, .14);
+    --sirene:     #FF5A45;   /* vermilion — cancelled, danger */
+    --sirene-soft:rgba(255, 90, 69, .14);
+    --lintas:     #5B9DFF;   /* blue — informational, in transit */
+    --lintas-soft:rgba(91, 157, 255, .14);
+
+    /* ink */
+    --kapur:      #EEF3FB;
+    --kabut:      #8FA0C0;
+    --kabut-dim:  #64748F;
+
+    /* form */
+    --radius:     10px;
+    --radius-sm:  6px;
+    --rail-width: 232px;
+    --shadow:     0 18px 40px rgba(0, 0, 0, .38);
+
+    --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --font-body:    "IBM Plex Sans", system-ui, sans-serif;
+    --font-mono:    "IBM Plex Mono", ui-monospace, monospace;
+
+    color-scheme: dark;
 }
 
-/* Sidebar Styles */
-.sidebar {
-    box-shadow: 2px 0 10px rgba(0,0,0,0.3);
+:root[data-theme="light"] {
+    --malam:      #EEF2F8;
+    --aspal:      #FFFFFF;
+    --aspal-2:    #F4F7FC;
+    --garis:      #D8E0EE;
+
+    --lampu:      #B57500;
+    --lampu-soft: rgba(181, 117, 0, .11);
+    --jalan:      #0F8F63;
+    --jalan-soft: rgba(15, 143, 99, .11);
+    --sirene:     #D2372A;
+    --sirene-soft:rgba(210, 55, 42, .11);
+    --lintas:     #2563C9;
+    --lintas-soft:rgba(37, 99, 201, .11);
+
+    --kapur:      #131C30;
+    --kabut:      #56668A;
+    --kabut-dim:  #7E8DAB;
+
+    --shadow:     0 14px 32px rgba(20, 34, 61, .12);
+    color-scheme: light;
 }
 
-.sidebar-link {
-    transition: all 0.2s ease;
-    border-left: 3px solid transparent;
+/* ─────────────────────────── base ─────────────────────────── */
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; min-height: 100%; }
+
+body {
+    background: var(--malam);
+    color: var(--kapur);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
 }
 
-.sidebar-link:hover {
-    background: rgba(255, 215, 0, 0.15) !important;
-    border-left-color: var(--fastride-primary);
-}
-
-.sidebar-link.active {
-    background: rgba(255, 215, 0, 0.2) !important;
-    border-left-color: var(--fastride-primary);
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
     font-weight: 600;
+    letter-spacing: .01em;
+    margin: 0;
+    line-height: 1.15;
 }
 
-/* Dashboard Cards */
-.stat-card {
-    border: none;
-    border-radius: 12px;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-    background: var(--fastride-card);
-    color: #fff;
+a { color: var(--lampu); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+:focus-visible {
+    outline: 2px solid var(--lampu);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
 }
 
-.stat-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+::selection { background: var(--lampu); color: #10161f; }
+
+/* Numbers and identifiers read as instrument output, never as prose. */
+.num, .money, .code {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
 }
 
-.stat-icon {
-    font-size: 2.5rem;
-    opacity: 0.8;
+.code { font-size: .82rem; color: var(--kabut); }
+
+/* ─────────────────────── application shell ─────────────────────── */
+
+.console {
+    display: grid;
+    grid-template-columns: var(--rail-width) 1fr;
+    min-height: 100vh;
 }
 
-.stat-value {
-    font-size: 2rem;
+.rail {
+    background: var(--aspal);
+    border-right: 1px solid var(--garis);
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+}
+
+.rail__brand { padding: 20px 18px 16px; border-bottom: 1px solid var(--garis); }
+
+.rail__wordmark {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
     font-weight: 700;
-    color: var(--fastride-primary);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-/* Table Styles */
-.table-fastride {
-    border-radius: 8px;
+.rail__wordmark b { color: var(--lampu); font-weight: 700; }
+
+.rail__tagline {
+    font-size: .68rem;
+    text-transform: uppercase;
+    letter-spacing: .18em;
+    color: var(--kabut-dim);
+    margin-top: 4px;
+}
+
+.rail__nav { padding: 10px; flex: 1; overflow-y: auto; }
+
+.rail__section {
+    font-size: .64rem;
+    text-transform: uppercase;
+    letter-spacing: .16em;
+    color: var(--kabut-dim);
+    padding: 14px 10px 6px;
+}
+
+.rail__link {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 9px 11px;
+    border-radius: var(--radius-sm);
+    color: var(--kabut);
+    font-family: var(--font-display);
+    font-size: 1.02rem;
+    font-weight: 500;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    /* The 2px edge is the lane marking that lights up on the active route. */
+    border-left: 2px solid transparent;
+    transition: background-color .14s ease, color .14s ease, border-color .14s ease;
+}
+
+.rail__link:hover { background: var(--aspal-2); color: var(--kapur); text-decoration: none; }
+
+.rail__link.active {
+    background: var(--lampu-soft);
+    border-left-color: var(--lampu);
+    color: var(--kapur);
+}
+
+.rail__link i { font-size: 1rem; width: 18px; text-align: center; }
+
+.rail__badge {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: .68rem;
+    background: var(--sirene);
+    color: #fff;
+    border-radius: 20px;
+    padding: 1px 7px;
+}
+
+.rail__foot { padding: 12px; border-top: 1px solid var(--garis); display: grid; gap: 8px; }
+
+.rail__user { display: flex; align-items: center; gap: 9px; font-size: .8rem; }
+.rail__user img { width: 30px; height: 30px; border-radius: 50%; }
+.rail__user small { color: var(--kabut-dim); display: block; font-size: .68rem; }
+
+.work { display: flex; flex-direction: column; min-width: 0; }
+.work__body { padding: 22px 26px 40px; flex: 1; }
+
+/* ─────────────── signature: the fleet pulse strip ───────────────
+   One pip per driver, coloured by signal semantics. This is the single
+   loud element in the console; everything else stays quiet on purpose. */
+
+.pulse {
+    background: var(--aspal);
+    border-bottom: 1px solid var(--garis);
+    padding: 11px 26px;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    flex-wrap: wrap;
+    position: relative;
     overflow: hidden;
 }
 
-.table-fastride thead {
-    background: var(--fastride-card);
-    color: var(--fastride-primary);
+.pulse::after {
+    /* slow sweep, like a dispatch board refreshing */
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, var(--lampu-soft), transparent);
+    transform: translateX(-100%);
+    animation: sweep 9s linear infinite;
+    pointer-events: none;
 }
 
-/* Status Badges */
-.badge-requested { background: #17a2b8; }
-.badge-accepted { background: #6f42c1; }
-.badge-started { background: #fd7e14; }
-.badge-completed { background: #28a745; }
-.badge-cancelled { background: #dc3545; }
+@keyframes sweep { to { transform: translateX(100%); } }
 
-/* Charts Container */
-.chart-container {
-    background: var(--fastride-card);
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 1.5rem;
+.pulse__label {
+    font-family: var(--font-display);
+    font-size: .78rem;
+    text-transform: uppercase;
+    letter-spacing: .17em;
+    color: var(--kabut-dim);
 }
 
-/* Responsive */
-@media (max-width: 768px) {
-    .sidebar {
-        width: 80px !important;
+.pulse__pips { display: flex; gap: 3px; flex-wrap: wrap; max-width: 340px; }
+
+.pip { width: 9px; height: 15px; border-radius: 2px; background: var(--garis); }
+.pip--online  { background: var(--jalan); }
+.pip--ontrip  { background: var(--lampu); }
+.pip--break   { background: var(--lintas); }
+.pip--offline { background: var(--garis); }
+
+.pulse__metric { display: flex; flex-direction: column; }
+
+.pulse__metric b {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 1.02rem;
+    font-weight: 500;
+}
+
+.pulse__metric span {
+    font-size: .64rem;
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    color: var(--kabut-dim);
+}
+
+.pulse__spacer { margin-left: auto; }
+
+/* ─────────────────────────── page head ─────────────────────────── */
+
+.page-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.page-head h1 { font-size: 2rem; text-transform: uppercase; letter-spacing: .03em; }
+.page-head p { margin: 3px 0 0; color: var(--kabut); font-size: .84rem; }
+
+/* ─────────────────────────── surfaces ─────────────────────────── */
+
+.panel { background: var(--aspal); border: 1px solid var(--garis); border-radius: var(--radius); }
+
+.panel__head {
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--garis);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.panel__head h2 { font-size: 1.08rem; text-transform: uppercase; letter-spacing: .09em; }
+.panel__body { padding: 16px; }
+
+.grid { display: grid; gap: 14px; }
+.grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid--main { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+
+.tile {
+    background: var(--aspal);
+    border: 1px solid var(--garis);
+    border-radius: var(--radius);
+    padding: 15px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    position: relative;
+}
+
+/* A hairline in the tile's own signal colour — the only ornament it gets. */
+.tile::before {
+    content: "";
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    top: 0;
+    height: 2px;
+    background: var(--accent, var(--lampu));
+    border-radius: 0 0 2px 2px;
+}
+
+.tile--jalan  { --accent: var(--jalan); }
+.tile--sirene { --accent: var(--sirene); }
+.tile--lintas { --accent: var(--lintas); }
+
+.tile__label {
+    font-size: .66rem;
+    text-transform: uppercase;
+    letter-spacing: .15em;
+    color: var(--kabut-dim);
+}
+
+.tile__value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 1.75rem;
+    font-weight: 500;
+    letter-spacing: -.02em;
+}
+
+.tile__note { font-size: .76rem; color: var(--kabut); }
+
+/* ─────────────────────────── tables ─────────────────────────── */
+
+.table-wrap { overflow-x: auto; }
+
+table.grid-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+
+.grid-table thead th {
+    text-align: left;
+    font-family: var(--font-display);
+    font-size: .76rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .13em;
+    color: var(--kabut-dim);
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--garis);
+    white-space: nowrap;
+}
+
+.grid-table tbody td { padding: 10px 12px; border-bottom: 1px solid var(--garis); vertical-align: middle; }
+.grid-table tbody tr:last-child td { border-bottom: 0; }
+.grid-table tbody tr:hover { background: var(--aspal-2); }
+.grid-table .right { text-align: right; }
+
+.person { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.person img { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; }
+.person div { min-width: 0; }
+.person strong { display: block; font-weight: 500; }
+.person small { color: var(--kabut-dim); display: block; }
+
+.truncate { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ─────────────────────── status semantics ───────────────────────
+   Every status in the product maps onto one of four signal colours, so
+   the meaning is learnable once and applies everywhere. */
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-display);
+    font-size: .76rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    padding: 2px 9px;
+    border-radius: 20px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.pill--wait { color: var(--lampu);  background: var(--lampu-soft);  border-color: var(--lampu-soft); }
+.pill--go   { color: var(--jalan);  background: var(--jalan-soft);  border-color: var(--jalan-soft); }
+.pill--stop { color: var(--sirene); background: var(--sirene-soft); border-color: var(--sirene-soft); }
+.pill--move { color: var(--lintas); background: var(--lintas-soft); border-color: var(--lintas-soft); }
+.pill--idle { color: var(--kabut-dim); background: var(--aspal-2); border-color: var(--garis); }
+
+/* ─────────────────────────── controls ─────────────────────────── */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-family: var(--font-display);
+    font-size: .92rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    padding: 8px 15px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--garis);
+    background: var(--aspal-2);
+    color: var(--kapur);
+    cursor: pointer;
+    transition: background-color .14s ease, border-color .14s ease, opacity .14s ease;
+}
+
+.btn:hover { background: var(--garis); text-decoration: none; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn--primary { background: var(--lampu); border-color: var(--lampu); color: #10161f; }
+.btn--primary:hover { background: #ffc24d; border-color: #ffc24d; }
+
+.btn--danger { background: var(--sirene-soft); border-color: var(--sirene); color: var(--sirene); }
+.btn--danger:hover { background: var(--sirene); color: #fff; }
+
+.btn--ghost { background: transparent; }
+.btn--sm { padding: 4px 10px; font-size: .8rem; }
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+
+.field label {
+    font-size: .66rem;
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    color: var(--kabut-dim);
+}
+
+input, select, textarea {
+    font-family: var(--font-body);
+    font-size: .86rem;
+    background: var(--malam);
+    color: var(--kapur);
+    border: 1px solid var(--garis);
+    border-radius: var(--radius-sm);
+    padding: 8px 11px;
+    width: 100%;
+}
+
+input:focus, select:focus, textarea:focus { border-color: var(--lampu); outline: none; }
+input::placeholder { color: var(--kabut-dim); }
+
+.filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.filters .field { min-width: 150px; }
+.filters .field--grow { flex: 1; min-width: 200px; }
+
+/* ─────────────────────────── charts ─────────────────────────── */
+
+.chart-box { position: relative; height: 240px; }
+.chart-box--tall { height: 300px; }
+.chart-box--short { height: 170px; }
+
+/* Hour histogram drawn as a road: bars sit on a lane line, "now" is marked. */
+.trafficband { display: flex; align-items: flex-end; gap: 2px; height: 110px; }
+
+.trafficband__bar {
+    flex: 1;
+    background: var(--garis);
+    border-radius: 2px 2px 0 0;
+    min-height: 2px;
+    transition: background-color .14s ease;
+}
+
+.trafficband__bar[data-peak="true"] { background: var(--lampu); }
+.trafficband__bar[data-now="true"]  { background: var(--jalan); }
+.trafficband__bar:hover { background: var(--kapur); }
+
+.trafficband__axis {
+    display: flex;
+    gap: 2px;
+    border-top: 1px solid var(--garis);
+    padding-top: 4px;
+    margin-top: 2px;
+}
+
+.trafficband__axis span {
+    flex: 1;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: .58rem;
+    color: var(--kabut-dim);
+}
+
+/* ─────────────────────── feedback & states ─────────────────────── */
+
+.empty { padding: 40px 20px; text-align: center; color: var(--kabut-dim); }
+.empty i { font-size: 2rem; display: block; margin-bottom: 8px; opacity: .6; }
+.empty strong { display: block; color: var(--kabut); font-weight: 500; margin-bottom: 3px; }
+
+.alert { padding: 10px 13px; border-radius: var(--radius-sm); font-size: .84rem; border: 1px solid; }
+.alert--error { background: var(--sirene-soft); border-color: var(--sirene); color: var(--sirene); }
+.alert--ok    { background: var(--jalan-soft);  border-color: var(--jalan);  color: var(--jalan); }
+.alert--warn  { background: var(--lampu-soft);  border-color: var(--lampu);  color: var(--lampu); }
+
+.spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--garis);
+    border-top-color: var(--lampu);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.skeleton {
+    background: linear-gradient(90deg, var(--aspal-2) 25%, var(--garis) 50%, var(--aspal-2) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.3s linear infinite;
+    border-radius: var(--radius-sm);
+    height: 14px;
+}
+
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 16px;
+    border-top: 1px solid var(--garis);
+    font-size: .8rem;
+    color: var(--kabut);
+    flex-wrap: wrap;
+}
+
+.pager__controls { display: flex; gap: 6px; align-items: center; }
+
+/* ─────────────────────────── login ─────────────────────────── */
+
+.gate {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    /* A faint street grid under the sign. */
+    background:
+        repeating-linear-gradient(0deg, transparent 0 39px, var(--garis) 39px 40px),
+        repeating-linear-gradient(90deg, transparent 0 39px, var(--garis) 39px 40px),
+        var(--malam);
+}
+
+.gate__card {
+    width: min(400px, 100%);
+    background: var(--aspal);
+    border: 1px solid var(--garis);
+    border-radius: var(--radius);
+    padding: 28px;
+    box-shadow: var(--shadow);
+    display: grid;
+    gap: 14px;
+}
+
+.gate__mark {
+    font-family: var(--font-display);
+    font-size: 2.1rem;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+}
+
+.gate__mark b { color: var(--lampu); }
+
+.gate__hint {
+    font-size: .76rem;
+    color: var(--kabut-dim);
+    border-top: 1px solid var(--garis);
+    padding-top: 12px;
+}
+
+.gate__hint code { font-family: var(--font-mono); color: var(--kabut); }
+
+/* ─────────────────────────── utilities ─────────────────────────── */
+
+.muted { color: var(--kabut); }
+.dim { color: var(--kabut-dim); }
+.go { color: var(--jalan); }
+.stop { color: var(--sirene); }
+.wait { color: var(--lampu); }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.row--tight { gap: 6px; }
+.stack { display: grid; gap: 14px; }
+.stack--tight { gap: 8px; }
+.mt { margin-top: 14px; }
+.nowrap { white-space: nowrap; }
+.right { text-align: right; }
+.full { width: 100%; }
+
+/* ─────────────────────────── responsive ─────────────────────────── */
+
+@media (max-width: 1100px) {
+    .grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid--main { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 860px) {
+    :root { --rail-width: 66px; }
+
+    .rail__wordmark { font-size: 1.1rem; justify-content: center; }
+    .rail__wordmark em, .rail__tagline, .rail__section,
+    .rail__link span, .rail__user div { display: none; }
+    .rail__link { justify-content: center; padding: 11px 0; }
+    .work__body { padding: 16px 14px 32px; }
+    .pulse { padding: 10px 14px; gap: 14px; }
+    .grid--3, .grid--2 { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+    .grid--4 { grid-template-columns: minmax(0, 1fr); }
+    .page-head h1 { font-size: 1.5rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important;
     }
-    .sidebar .nav-link span,
-    .sidebar h4,
-    .sidebar small,
-    .sidebar .sidebar-footer .btn span {
-        display: none;
-    }
+}
+
+@media print {
+    .rail, .pulse, .btn { display: none !important; }
+    body { background: #fff; color: #000; }
 }

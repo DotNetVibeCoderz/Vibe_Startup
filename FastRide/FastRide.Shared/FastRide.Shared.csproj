@@ -6,4 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Lets the tests reach internals such as the QRIS checksum, so the format can be
+         pinned against its published check vector rather than only end to end. -->
+    <InternalsVisibleTo Include="FastRide.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -1,6 +1,15 @@
 <Router AppAssembly="typeof(App).Assembly">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" />
+        <RouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(MainLayout)">
+            <div class="empty">
+                <i class="bi bi-signpost-2"></i>
+                <strong>Halaman tidak ditemukan</strong>
+                <span>Kembali ke beranda untuk memesan perjalanan.</span>
+            </div>
+        </LayoutView>
+    </NotFound>
 </Router>

@@ -1,68 +1,152 @@
 @page "/"
-@using FastRide.RiderApp.Services
+@implements IDisposable
 @inject ApiClient Api
+@inject NavigationManager Nav
 
-<div class="rider-app">
-    @if (!Api.IsLoggedIn)
+<div class="topbar">
+    <div>
+        <div class="topbar__mark">Fast<b>Ride</b></div>
+        <div class="topbar__greet">Halo, @FirstName</div>
+    </div>
+    <div class="topbar__spacer"></div>
+    @if (_home?.UnreadNotifications > 0)
     {
-        <div class="p-4 text-center">
-            <i class="bi bi-lightning-charge-fill display-1 text-warning"></i>
-            <h3 class="fw-bold">FastRide</h3>
-            <div class="mb-2 mt-3"><input class="form-control form-control-sm" type="email" placeholder="Email" @bind="_emailInp" /></div>
-            <div class="mb-3"><input class="form-control form-control-sm" type="password" placeholder="Password" @bind="_passInp" /></div>
-            @if (_loginErr is not null) { <div class="alert alert-danger py-1 small">@_loginErr</div> }
-            <button class="btn btn-warning w-100 fw-bold" @onclick="HandleLogin" disabled="@_loginBusy">
-                @if (_loginBusy) { <span class="spinner-border spinner-border-sm me-2"></span> } Login
-            </button>
-            <small class="text-muted mt-2 d-block">Demo: budi.santoso@email.com / Password123</small>
+        <span class="pill pill--wait">@_home.UnreadNotifications baru</span>
+    }
+</div>
+
+<div class="screen">
+    @if (_loading)
+    {
+        <div class="hero stack">
+            <div class="skeleton" style="width:40%"></div>
+            <div class="skeleton" style="height:32px"></div>
+        </div>
+        <div class="metrics">
+            <div class="metric"><div class="skeleton"></div></div>
+            <div class="metric"><div class="skeleton"></div></div>
         </div>
     }
-    else if (_homeLoading)
+    else if (_home is null)
     {
-        <div class="text-center py-5"><div class="spinner-border text-warning"></div></div>
+        <div class="alert alert--error">
+            Tidak bisa terhubung ke server FastRide. Pastikan API berjalan, lalu tarik untuk memuat ulang.
+        </div>
+        <button class="btn" @onclick="LoadAsync"><i class="bi bi-arrow-clockwise"></i><span>Coba lagi</span></button>
+    }
+    else if (_home.ActiveOrder is { } active)
+    {
+        @* When a trip is running, it *is* the screen — nothing else competes with it. *@
+        <div class="hero">
+            <span class="hero__label">Perjalanan berjalan · @active.Code</span>
+            <div class="row">
+                <span class="@Display.PillClass(active.Status)">@Display.Label(active.Status)</span>
+                <span class="spacer money">@Display.Rupiah(active.FinalFare)</span>
+            </div>
+
+            <TripProgress Status="active.Status" />
+
+            <div class="route">
+                <div class="route__stop">
+                    <i class="bi bi-circle go"></i>
+                    <div><strong class="truncate">@active.PickupAddress</strong><small>Titik jemput</small></div>
+                </div>
+                <div class="route__stop">
+                    <i class="bi bi-geo-alt stop"></i>
+                    <div><strong class="truncate">@active.DropoffAddress</strong><small>Tujuan</small></div>
+                </div>
+            </div>
+
+            <button class="btn btn--primary" @onclick="() => OpenTrip(active.Id)">
+                <i class="bi bi-broadcast"></i><span>Lacak perjalanan</span>
+            </button>
+        </div>
     }
     else
     {
-        <div class="bg-warning text-dark p-3 text-center">
-            <h4 class="fw-bold mb-0"><i class="bi bi-lightning-charge-fill"></i> FastRide</h4>
-            <small>Halo, @_prof?.FullName</small>
+        <div class="hero">
+            <span class="hero__label">Mau ke mana hari ini?</span>
+            <div class="hero__value">@Display.Rupiah(_home.TotalSpent)</div>
+            <span class="small muted">Total belanja dari @_home.TotalTrips perjalanan</span>
+            <button class="btn btn--primary" @onclick="OpenBooking">
+                <i class="bi bi-car-front-fill"></i><span>Pesan perjalanan</span>
+            </button>
         </div>
-        <div class="p-3">
-            <div class="row g-2 mb-3">
-                <div class="col-6"><div class="card bg-light text-center p-2"><small class="text-muted">Total Trips</small><h5 class="mb-0 text-warning">@_homeData?.TotalTrips</h5></div></div>
-                <div class="col-6"><div class="card bg-light text-center p-2"><small class="text-muted">Total Spent</small><h5 class="mb-0 text-success">Rp @((_homeData?.TotalSpent ?? 0).ToString("N0"))</h5></div></div>
+
+        <div class="metrics">
+            <div class="metric"><span>Perjalanan</span><b>@_home.TotalTrips</b></div>
+            <div class="metric"><span>Total belanja</span><b>@Display.RupiahShort(_home.TotalSpent)</b></div>
+        </div>
+    }
+
+    @if (_home is not null)
+    {
+        <div class="card card--flush">
+            <div class="card__head">
+                <h2>Perjalanan terakhir</h2>
+                <a href="/trips" class="small">Semua →</a>
             </div>
-            <div class="row g-3 mb-3">
-                <div class="col-6"><a href="/book-ride" class="btn btn-warning btn-lg w-100 py-3 rounded-3 shadow"><i class="bi bi-car-front-fill fs-4 d-block"></i><small>Book Ride</small></a></div>
-                <div class="col-6"><a href="/my-trips" class="btn btn-dark btn-lg w-100 py-3 rounded-3 shadow"><i class="bi bi-clock-history fs-4 d-block"></i><small>My Trips</small></a></div>
-            </div>
-            <h6 class="fw-bold mb-2">Recent Trips</h6>
-            @if (_homeData?.RecentTrips.Any() == true)
+
+            @if (_home.RecentTrips.Count == 0)
             {
-                @foreach (var t in _homeData.RecentTrips.Take(5))
-                {
-                    <div class="list-group-item d-flex justify-content-between mb-1 rounded-2 shadow-sm">
-                        <div><small class="text-muted">@t.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm")</small><p class="mb-0 fw-bold small">@Trunc(t.PickupAddress,18) → @Trunc(t.DropoffAddress,18)</p><small class="@(t.Status=="Completed"?"text-success":"text-warning")">Rp @t.Fare.ToString("N0") · @(t.DriverName ?? "N/A")</small></div>
-                    </div>
-                }
+                <div class="empty">
+                    <i class="bi bi-signpost"></i>
+                    <strong>Belum ada perjalanan</strong>
+                    <span>Pesanan pertama kamu akan muncul di sini.</span>
+                </div>
             }
-            else { <p class="text-muted small">Belum ada perjalanan.</p> }
-            <a href="/profile" class="btn btn-outline-secondary btn-sm w-100 mt-3"><i class="bi bi-person-circle"></i> My Profile</a>
-            <button class="btn btn-outline-danger btn-sm w-100 mt-2" @onclick="HandleLogout"><i class="bi bi-box-arrow-right"></i> Logout</button>
+            else
+            {
+                <div class="rows">
+                    @foreach (var trip in _home.RecentTrips.Take(6))
+                    {
+                        <div class="row-item" role="button" @onclick="() => OpenTrip(trip.OrderId)">
+                            <div class="row-item__body">
+                                <strong class="truncate">@trip.DropoffAddress</strong>
+                                <small>@Display.DateTimeShort(trip.CreatedAt) · @(trip.DriverName ?? "Tanpa driver")</small>
+                            </div>
+                            <div class="row-item__end">
+                                <div class="money small">@Display.Rupiah(trip.Fare)</div>
+                                <span class="@Display.PillClass(trip.Status)">@Display.Label(trip.Status)</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
         </div>
     }
 </div>
 
 @code {
-    private string _emailInp = "", _passInp = "";
-    private string? _loginErr;
-    private bool _loginBusy, _homeLoading = true;
-    private RiderHomeResult? _homeData;
-    private ProfileResult? _prof;
+    private RiderHomeResponse? _home;
+    private bool _loading = true;
+    private Timer? _timer;
 
-    protected override async Task OnInitializedAsync() { if (Api.IsLoggedIn) { await LoadHome(); } _homeLoading = false; }
-    private async Task HandleLogin() { _loginErr = null; _loginBusy = true; var r = await Api.Login(_emailInp, _passInp); _loginBusy = false; if (r is null) _loginErr = "Login failed"; else { _homeLoading = true; await LoadHome(); _homeLoading = false; } }
-    private async Task LoadHome() { _homeData = await Api.GetHome(); _prof = await Api.GetProfile(); }
-    private void HandleLogout() { Api.Logout(); _homeData = null; _prof = null; }
-    private static string Trunc(string t, int l) => t.Length <= l ? t : t[..l] + "...";
+    private string FirstName =>
+        Api.CurrentUserName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "Penumpang";
+
+    // Navigation goes through methods: an interpolated string inside a Razor attribute
+    // would nest double quotes and fail to parse.
+    private void OpenTrip(Guid orderId) => Nav.NavigateTo($"/track/{orderId}");
+    private void OpenBooking() => Nav.NavigateTo("/book");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+
+        // While a trip is live the status changes underneath the rider; poll so the card keeps up.
+        _timer = new Timer(async _ => await InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task LoadAsync()
+    {
+        _home = await Api.GetHomeAsync();
+        _loading = false;
+    }
+
+    public void Dispose() => _timer?.Dispose();
 }

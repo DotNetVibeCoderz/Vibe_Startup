@@ -1,232 +1,406 @@
+using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using FastRide.Shared.Common;
+using FastRide.Shared.DTOs;
+using FastRide.Shared.Models;
 
 namespace FastRide.AdminWeb.Services;
 
 /// <summary>
-/// Typed HttpClient for FastRide API communication.
-/// Handles serialization, error handling, and paginated responses.
+/// Typed client for the FastRide API.
+///
+/// Response shapes come from FastRide.Shared.DTOs — the dashboard no longer keeps its own
+/// parallel copy of every model, which is how the old client ended up with fields the API
+/// never returned.
 /// </summary>
-public class ApiClient
+public sealed class ApiClient(HttpClient http, AdminSession session, ILogger<ApiClient> logger)
 {
-    private readonly HttpClient _http;
-    private readonly ILogger<ApiClient> _logger;
+    private static readonly JsonSerializerOptions Json = CreateOptions();
 
-    public ApiClient(HttpClient http, ILogger<ApiClient> logger)
+    private static JsonSerializerOptions CreateOptions()
     {
-        _http = http;
-        _logger = logger;
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new JsonStringEnumConverter());
+        return options;
     }
 
-    // ─── Generic helpers ───
+    // ─────────────────────────── auth ───────────────────────────
 
-    public async Task<T?> GetAsync<T>(string path) where T : class
+    public async Task<ApiCallResult<AuthResponse>> LoginAsync(string email, string password, CancellationToken ct = default)
     {
         try
         {
-            var response = await _http.GetAsync(path);
-            response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<T>();
+            var response = await http.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, password), Json, ct);
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized)
+                return ApiCallResult<AuthResponse>.Fail("Email atau kata sandi salah.");
+
+            if (response.StatusCode is HttpStatusCode.TooManyRequests)
+                return ApiCallResult<AuthResponse>.Fail("Terlalu banyak percobaan masuk. Tunggu satu menit.");
+
+            if (!response.IsSuccessStatusCode)
+                return ApiCallResult<AuthResponse>.Fail(await ReadErrorAsync(response, ct));
+
+            var auth = await response.Content.ReadFromJsonAsync<AuthResponse>(Json, ct);
+            if (auth is null) return ApiCallResult<AuthResponse>.Fail("Balasan server tidak bisa dibaca.");
+
+            if (auth.Role != UserRole.Admin)
+                return ApiCallResult<AuthResponse>.Fail("Konsol ini hanya untuk akun admin.");
+
+            return ApiCallResult<AuthResponse>.Ok(auth);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "GET {Path} failed", path);
+            logger.LogError(ex, "Login request failed.");
+            return ApiCallResult<AuthResponse>.Fail("Tidak bisa menghubungi API. Pastikan FastRide.Api sedang berjalan.");
+        }
+    }
+
+    public async Task LogoutAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var request = Authorized(HttpMethod.Post, "/api/auth/logout");
+            await http.SendAsync(request, ct);
+        }
+        catch (Exception ex)
+        {
+            // The local session is cleared either way; the server-side stamp bump is best effort.
+            logger.LogWarning(ex, "Logout call failed.");
+        }
+    }
+
+    // ───────────────────────── dashboard ─────────────────────────
+
+    public Task<DashboardOverviewResponse?> GetOverviewAsync(CancellationToken ct = default) =>
+        GetAsync<DashboardOverviewResponse>("/api/dashboard/overview", ct);
+
+    public Task<DashboardStatsResponse?> GetStatsAsync(CancellationToken ct = default) =>
+        GetAsync<DashboardStatsResponse>("/api/dashboard/stats", ct);
+
+    public Task<List<HourlyStats>> GetHourlyAsync(DateTime? date = null, CancellationToken ct = default) =>
+        GetListAsync<HourlyStats>($"/api/dashboard/orders-by-hour{(date is null ? "" : $"?date={date:yyyy-MM-dd}")}", ct);
+
+    public Task<List<RevenuePoint>> GetRevenueSeriesAsync(int days = 30, CancellationToken ct = default) =>
+        GetListAsync<RevenuePoint>($"/api/dashboard/revenue-series?days={days}", ct);
+
+    public Task<List<TopDriverItem>> GetTopDriversAsync(int limit = 10, CancellationToken ct = default) =>
+        GetListAsync<TopDriverItem>($"/api/dashboard/top-drivers?limit={limit}", ct);
+
+    public Task<FinancialSummaryResponse?> GetFinancialSummaryAsync(DateTime? from, DateTime? to, CancellationToken ct = default) =>
+        GetAsync<FinancialSummaryResponse>($"/api/dashboard/financial-summary{DateRange(from, to)}", ct);
+
+    // ─────────────────────────── orders ───────────────────────────
+
+    public Task<PagedResult<OrderListItem>> GetOrdersAsync(OrderFilter filter, CancellationToken ct = default) =>
+        GetPagedAsync<OrderListItem>($"/api/orders{filter.ToQueryString()}", ct);
+
+    public Task<OrderDetailResponse?> GetOrderAsync(Guid id, CancellationToken ct = default) =>
+        GetAsync<OrderDetailResponse>($"/api/orders/{id}", ct);
+
+    public Task<byte[]?> ExportOrdersCsvAsync(OrderFilter filter, CancellationToken ct = default) =>
+        DownloadAsync($"/api/orders/export.csv{filter.ToQueryString()}", ct);
+
+    public Task<byte[]?> ExportFinancialCsvAsync(DateTime? from, DateTime? to, CancellationToken ct = default) =>
+        DownloadAsync($"/api/dashboard/financial-summary/export.csv{DateRange(from, to)}", ct);
+
+    public async Task<string?> CancelOrderAsync(Guid id, string reason, CancellationToken ct = default)
+    {
+        using var request = Authorized(HttpMethod.Post, $"/api/orders/{id}/cancel");
+        request.Content = JsonContent.Create(new CancelOrderRequest(reason), options: Json);
+
+        using var response = await http.SendAsync(request, ct);
+        return response.IsSuccessStatusCode ? null : await ReadErrorAsync(response, ct);
+    }
+
+    // ──────────────────────── people ────────────────────────
+
+    public Task<PagedResult<DriverListItem>> GetDriversAsync(
+        int page = 1, int limit = 20, string? search = null, DriverStatus? status = null, bool? verified = null,
+        CancellationToken ct = default)
+    {
+        var query = $"/api/drivers?page={page}&limit={limit}";
+        if (!string.IsNullOrWhiteSpace(search)) query += $"&search={Uri.EscapeDataString(search)}";
+        if (status is not null) query += $"&status={status}";
+        if (verified is not null) query += $"&verified={verified.Value.ToString().ToLowerInvariant()}";
+
+        return GetPagedAsync<DriverListItem>(query, ct);
+    }
+
+    public Task<PagedResult<RiderListItem>> GetRidersAsync(
+        int page = 1, int limit = 20, string? search = null, CancellationToken ct = default)
+    {
+        var query = $"/api/riders?page={page}&limit={limit}";
+        if (!string.IsNullOrWhiteSpace(search)) query += $"&search={Uri.EscapeDataString(search)}";
+
+        return GetPagedAsync<RiderListItem>(query, ct);
+    }
+
+    public Task<PagedResult<UserProfileResponse>> GetUsersAsync(
+        int page = 1, int limit = 25, string? search = null, UserRole? role = null, bool? active = null,
+        CancellationToken ct = default)
+    {
+        var query = $"/api/admin/users?page={page}&limit={limit}";
+        if (!string.IsNullOrWhiteSpace(search)) query += $"&search={Uri.EscapeDataString(search)}";
+        if (role is not null) query += $"&role={role}";
+        if (active is not null) query += $"&active={active.Value.ToString().ToLowerInvariant()}";
+
+        return GetPagedAsync<UserProfileResponse>(query, ct);
+    }
+
+    public async Task<string?> SetUserActiveAsync(Guid userId, bool active, string? reason, CancellationToken ct = default)
+    {
+        using var request = Authorized(HttpMethod.Put, $"/api/admin/users/{userId}/active");
+        request.Content = JsonContent.Create(new SetUserActiveRequest(active, reason), options: Json);
+
+        using var response = await http.SendAsync(request, ct);
+        return response.IsSuccessStatusCode ? null : await ReadErrorAsync(response, ct);
+    }
+
+    public Task<List<PendingDriverItem>> GetPendingVerificationAsync(CancellationToken ct = default) =>
+        GetListAsync<PendingDriverItem>("/api/admin/drivers/pending-verification", ct);
+
+    public async Task<string?> ReviewDocumentAsync(
+        Guid driverId, Guid documentId, DocumentStatus status, string? notes, CancellationToken ct = default)
+    {
+        using var request = Authorized(HttpMethod.Put, $"/api/drivers/{driverId}/documents/{documentId}/review");
+        request.Content = JsonContent.Create(new ReviewDocumentRequest(status, notes), options: Json);
+
+        using var response = await http.SendAsync(request, ct);
+        return response.IsSuccessStatusCode ? null : await ReadErrorAsync(response, ct);
+    }
+
+    // ──────────────────────── payments ────────────────────────
+
+    public Task<PagedResult<PaymentResponse>> GetPaymentsAsync(
+        int page = 1, int limit = 25, PaymentMethod? method = null, DateTime? from = null, DateTime? to = null,
+        CancellationToken ct = default)
+    {
+        var query = $"/api/payments?page={page}&limit={limit}";
+        if (method is not null) query += $"&method={method}";
+        if (from is not null) query += $"&from={from:yyyy-MM-dd}";
+        if (to is not null) query += $"&to={to:yyyy-MM-dd}";
+
+        return GetPagedAsync<PaymentResponse>(query, ct);
+    }
+
+    // ───────────────────── promos & fares ─────────────────────
+
+    public Task<List<PromoResponse>> GetPromosAsync(CancellationToken ct = default) =>
+        GetListAsync<PromoResponse>("/api/promos", ct);
+
+    public async Task<string?> SavePromoAsync(Guid? id, SavePromoRequest promo, CancellationToken ct = default)
+    {
+        using var request = id is null
+            ? Authorized(HttpMethod.Post, "/api/promos")
+            : Authorized(HttpMethod.Put, $"/api/promos/{id}");
+
+        request.Content = JsonContent.Create(promo, options: Json);
+
+        using var response = await http.SendAsync(request, ct);
+        return response.IsSuccessStatusCode ? null : await ReadErrorAsync(response, ct);
+    }
+
+    public async Task<string?> DeletePromoAsync(Guid id, CancellationToken ct = default)
+    {
+        using var request = Authorized(HttpMethod.Delete, $"/api/promos/{id}");
+        using var response = await http.SendAsync(request, ct);
+        return response.IsSuccessStatusCode ? null : await ReadErrorAsync(response, ct);
+    }
+
+    public Task<List<FareConfigResponse>> GetFaresAsync(CancellationToken ct = default) =>
+        GetListAsync<FareConfigResponse>("/api/fares", ct);
+
+    // ───────────────────── payment providers ─────────────────────
+
+    public Task<List<PaymentProviderResponse>> GetPaymentProvidersAsync(CancellationToken ct = default) =>
+        GetListAsync<PaymentProviderResponse>("/api/admin/payment-providers", ct);
+
+    public async Task<List<PaymentMethod>> GetAvailablePaymentMethodsAsync(CancellationToken ct = default)
+    {
+        var response = await GetAsync<AvailablePaymentMethodsResponse>("/api/payments/methods", ct);
+
+        return response?.Methods.Select(option => option.Method).ToList() ?? [];
+    }
+
+    public async Task<string?> SavePaymentProviderAsync(
+        string name, SavePaymentProviderRequest request, CancellationToken ct = default)
+    {
+        using var message = Authorized(HttpMethod.Put, $"/api/admin/payment-providers/{name}");
+        message.Content = JsonContent.Create(request, options: Json);
+
+        using var response = await http.SendAsync(message, ct);
+        return response.IsSuccessStatusCode ? null : await ReadErrorAsync(response, ct);
+    }
+
+    public async Task<(string? Message, string? Error)> TestPaymentProviderAsync(
+        string name, CancellationToken ct = default)
+    {
+        using var request = Authorized(HttpMethod.Post, $"/api/admin/payment-providers/{name}/test");
+        using var response = await http.SendAsync(request, ct);
+
+        if (!response.IsSuccessStatusCode) return (null, await ReadErrorAsync(response, ct));
+
+        var body = await response.Content.ReadFromJsonAsync<MessageResponse>(Json, ct);
+        return (body?.Message ?? "Provider merespons.", null);
+    }
+
+    public async Task<string?> UpdateFareAsync(VehicleCategory category, UpdateFareConfigRequest fare, CancellationToken ct = default)
+    {
+        using var request = Authorized(HttpMethod.Put, $"/api/fares/{category}");
+        request.Content = JsonContent.Create(fare, options: Json);
+
+        using var response = await http.SendAsync(request, ct);
+        return response.IsSuccessStatusCode ? null : await ReadErrorAsync(response, ct);
+    }
+
+    // ─────────────────────────── plumbing ───────────────────────────
+
+    private HttpRequestMessage Authorized(HttpMethod method, string path)
+    {
+        var request = new HttpRequestMessage(method, path);
+
+        if (!string.IsNullOrWhiteSpace(session.Token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.Token);
+
+        return request;
+    }
+
+    private async Task<T?> GetAsync<T>(string path, CancellationToken ct) where T : class
+    {
+        try
+        {
+            using var request = Authorized(HttpMethod.Get, path);
+            using var response = await http.SendAsync(request, ct);
+
+            ThrowIfSessionEnded(response);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("GET {Path} returned {Status}.", path, (int)response.StatusCode);
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<T>(Json, ct);
+        }
+        catch (SessionExpiredException) { throw; }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "GET {Path} failed.", path);
             return null;
         }
     }
 
-    public async Task<List<T>> GetListAsync<T>(string path)
+    private async Task<List<T>> GetListAsync<T>(string path, CancellationToken ct)
     {
         try
         {
-            return await _http.GetFromJsonAsync<List<T>>(path) ?? new();
+            using var request = Authorized(HttpMethod.Get, path);
+            using var response = await http.SendAsync(request, ct);
+
+            ThrowIfSessionEnded(response);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("GET {Path} returned {Status}.", path, (int)response.StatusCode);
+                return [];
+            }
+
+            return await response.Content.ReadFromJsonAsync<List<T>>(Json, ct) ?? [];
         }
+        catch (SessionExpiredException) { throw; }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "GET list {Path} failed", path);
-            return new();
+            logger.LogError(ex, "GET {Path} failed.", path);
+            return [];
         }
     }
 
-    public async Task<PaginatedResult<T>> GetPaginatedAsync<T>(string path) where T : class
+    private async Task<PagedResult<T>> GetPagedAsync<T>(string path, CancellationToken ct) where T : class =>
+        await GetAsync<PagedResult<T>>(path, ct) ?? PagedResult<T>.Empty();
+
+    private async Task<byte[]?> DownloadAsync(string path, CancellationToken ct)
     {
         try
         {
-            return await _http.GetFromJsonAsync<PaginatedResult<T>>(path) ?? new();
+            using var request = Authorized(HttpMethod.Get, path);
+            using var response = await http.SendAsync(request, ct);
+
+            ThrowIfSessionEnded(response);
+            return response.IsSuccessStatusCode ? await response.Content.ReadAsByteArrayAsync(ct) : null;
         }
+        catch (SessionExpiredException) { throw; }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "GET paginated {Path} failed", path);
-            return new();
+            logger.LogError(ex, "Download of {Path} failed.", path);
+            return null;
         }
     }
 
-    // ─── Dashboard ───
-    public Task<DashboardStats?> GetDashboardStats() =>
-        GetAsync<DashboardStats>("/api/dashboard/stats");
-
-    public Task<List<OrderStatusCount>> GetOrdersByStatus() =>
-        GetListAsync<OrderStatusCount>("/api/dashboard/orders-by-status");
-
-    public Task<List<HourlyData>> GetOrdersByHour(DateTime? date = null) =>
-        GetListAsync<HourlyData>(
-            $"/api/dashboard/orders-by-hour{(date.HasValue ? $"?date={date.Value:yyyy-MM-dd}" : "")}");
-
-    // ─── Orders ───
-    public Task<PaginatedResult<OrderItem>> GetOrders(int page = 1, int limit = 25, string? status = null)
+    /// <summary>A 401 means the token was revoked or expired; the shell turns this into a sign-in prompt.</summary>
+    private static void ThrowIfSessionEnded(HttpResponseMessage response)
     {
-        var query = $"/api/orders?page={page}&limit={limit}";
-        if (!string.IsNullOrWhiteSpace(status)) query += $"&status={status}";
-        return GetPaginatedAsync<OrderItem>(query);
+        if (response.StatusCode == HttpStatusCode.Unauthorized) throw new SessionExpiredException();
     }
 
-    public Task<OrderDetail?> GetOrderDetail(Guid id) =>
-        GetAsync<OrderDetail>($"/api/orders/{id}");
-
-    // ─── Riders ───
-    public Task<PaginatedResult<RiderItem>> GetRiders(int page = 1, int limit = 20, string? search = null)
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage response, CancellationToken ct)
     {
-        var query = $"/api/riders?page={page}&limit={limit}";
-        if (!string.IsNullOrWhiteSpace(search)) query += $"&search={Uri.EscapeDataString(search)}";
-        return GetPaginatedAsync<RiderItem>(query);
+        try
+        {
+            var error = await response.Content.ReadFromJsonAsync<ApiError>(Json, ct);
+            if (!string.IsNullOrWhiteSpace(error?.Detail)) return error.Detail;
+            if (!string.IsNullOrWhiteSpace(error?.Error)) return error.Error;
+        }
+        catch
+        {
+            // Fall through to the status code.
+        }
+
+        return $"Permintaan gagal ({(int)response.StatusCode}).";
     }
 
-    // ─── Drivers ───
-    public Task<PaginatedResult<DriverItem>> GetDrivers(int page = 1, int limit = 20, string? search = null)
+    private static string DateRange(DateTime? from, DateTime? to)
     {
-        var query = $"/api/drivers?page={page}&limit={limit}";
-        if (!string.IsNullOrWhiteSpace(search)) query += $"&search={Uri.EscapeDataString(search)}";
-        return GetPaginatedAsync<DriverItem>(query);
+        var parts = new List<string>();
+        if (from is not null) parts.Add($"from={from:yyyy-MM-dd}");
+        if (to is not null) parts.Add($"to={to:yyyy-MM-dd}");
+
+        return parts.Count == 0 ? string.Empty : "?" + string.Join('&', parts);
+    }
+}
+
+/// <summary>Order list filter, kept in one place because the table and the CSV export share it.</summary>
+public sealed class OrderFilter
+{
+    public int Page { get; set; } = 1;
+    public int Limit { get; set; } = 25;
+    public OrderStatus? Status { get; set; }
+    public VehicleCategory? VehicleCategory { get; set; }
+    public PaymentMethod? PaymentMethod { get; set; }
+    public DateTime? From { get; set; }
+    public DateTime? To { get; set; }
+    public string? Search { get; set; }
+
+    public string ToQueryString()
+    {
+        var parts = new List<string> { $"page={Page}", $"limit={Limit}" };
+
+        if (Status is not null) parts.Add($"status={Status}");
+        if (VehicleCategory is not null) parts.Add($"vehicleCategory={VehicleCategory}");
+        if (PaymentMethod is not null) parts.Add($"paymentMethod={PaymentMethod}");
+        if (From is not null) parts.Add($"from={From:yyyy-MM-dd}");
+        if (To is not null) parts.Add($"to={To:yyyy-MM-ddTHH:mm:ss}");
+        if (!string.IsNullOrWhiteSpace(Search)) parts.Add($"search={Uri.EscapeDataString(Search)}");
+
+        return "?" + string.Join('&', parts);
     }
 
-    // ─── Payments ───
-    public Task<PaginatedResult<PaymentItem>> GetPayments(int page = 1, int limit = 25) =>
-        GetPaginatedAsync<PaymentItem>($"/api/payments?page={page}&limit={limit}");
-
-    // ─── Promos ───
-    public Task<List<PromoItem>> GetPromos() =>
-        GetListAsync<PromoItem>("/api/promos");
+    public OrderFilter Clone() => (OrderFilter)MemberwiseClone();
 }
 
-// ─── API Response Models ───
-
-public class PaginatedResult<T> where T : class
-{
-    public int Total { get; set; }
-    public int Page { get; set; }
-    public int Limit { get; set; }
-    public List<T> Data { get; set; } = new();
-    public int TotalPages => (int)Math.Ceiling((double)Total / Limit);
-}
-
-public class DashboardStats
-{
-    public int TotalOrdersToday { get; set; }
-    public int ActiveDrivers { get; set; }
-    public int ActiveRiders { get; set; }
-    public decimal RevenueToday { get; set; }
-    public double AverageRating { get; set; }
-    public int PendingOrders { get; set; }
-    public int TotalTripsToday { get; set; }
-    public DateTime Timestamp { get; set; }
-}
-
-public class OrderStatusCount
-{
-    public string Status { get; set; } = "";
-    public int Count { get; set; }
-}
-
-public class HourlyData
-{
-    public int Hour { get; set; }
-    public int Count { get; set; }
-    public decimal Revenue { get; set; }
-}
-
-public class OrderItem
-{
-    public Guid Id { get; set; }
-    public Guid RiderId { get; set; }
-    public string RiderName { get; set; } = "";
-    public Guid? DriverId { get; set; }
-    public string? DriverName { get; set; }
-    public string PickupAddress { get; set; } = "";
-    public string DropoffAddress { get; set; } = "";
-    public double DistanceKm { get; set; }
-    public int EstimatedDurationMinutes { get; set; }
-    public decimal EstimatedFare { get; set; }
-    public decimal FinalFare { get; set; }
-    public string VehicleCategory { get; set; } = "";
-    public string PaymentMethod { get; set; } = "";
-    public string Status { get; set; } = "";
-    public DateTime CreatedAt { get; set; }
-    public DateTime? CompletedAt { get; set; }
-}
-
-public class OrderDetail
-{
-    public Guid Id { get; set; }
-    public object? Rider { get; set; }
-    public object? Driver { get; set; }
-    public string PickupAddress { get; set; } = "";
-    public string DropoffAddress { get; set; } = "";
-    public double DistanceKm { get; set; }
-    public decimal FinalFare { get; set; }
-    public string VehicleCategory { get; set; } = "";
-    public string PaymentMethod { get; set; } = "";
-    public string Status { get; set; } = "";
-    public DateTime CreatedAt { get; set; }
-    public DateTime? CompletedAt { get; set; }
-}
-
-public class RiderItem
-{
-    public Guid Id { get; set; }
-    public string FullName { get; set; } = "";
-    public string Email { get; set; } = "";
-    public string PhoneNumber { get; set; } = "";
-    public bool IsVerified { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public int TotalTrips { get; set; }
-}
-
-public class DriverItem
-{
-    public Guid Id { get; set; }
-    public string FullName { get; set; } = "";
-    public string Email { get; set; } = "";
-    public string Status { get; set; } = "";
-    public double Rating { get; set; }
-    public int TotalTrips { get; set; }
-    public decimal TotalEarnings { get; set; }
-    public string VehicleType { get; set; } = "";
-    public string VehiclePlate { get; set; } = "";
-}
-
-public class PaymentItem
-{
-    public Guid Id { get; set; }
-    public Guid OrderId { get; set; }
-    public decimal Amount { get; set; }
-    public string Method { get; set; } = "";
-    public string Status { get; set; } = "";
-    public DateTime CreatedAt { get; set; }
-    public DateTime? CompletedAt { get; set; }
-    public string? TransactionReference { get; set; }
-}
-
-public class PromoItem
-{
-    public Guid Id { get; set; }
-    public string Code { get; set; } = "";
-    public string Description { get; set; } = "";
-    public string Type { get; set; } = "";
-    public decimal Value { get; set; }
-    public decimal MaxDiscount { get; set; }
-    public DateTime ValidFrom { get; set; }
-    public DateTime ValidUntil { get; set; }
-    public bool IsActive { get; set; }
-    public int UsageLimit { get; set; }
-    public int UsageCount { get; set; }
-}
+/// <summary>Row of the driver verification queue.</summary>
+public sealed record PendingDriverItem(
+    Guid DriverId, string FullName, string Email, string? PhotoUrl,
+    string VehicleType, string VehiclePlate, DateTime JoinedAt,
+    List<DriverDocumentResponse> Documents);

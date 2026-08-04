@@ -1,40 +1,297 @@
 @page "/promos"
-@inject ApiClient ApiClient
+@inject ApiClient Api
 
-<PageTitle>FastRide Admin - Promos</PageTitle>
+<PageTitle>Promo · FastRide</PageTitle>
 
-<h2 class="fw-bold mb-4"><i class="bi bi-tags-fill text-warning me-2"></i>Promos</h2>
+<div class="page-head">
+    <div>
+        <h1>Promo</h1>
+        <p>Kode diskon beserta kuota pemakaiannya.</p>
+    </div>
+    <button class="btn btn--primary" @onclick="StartNew"><i class="bi bi-plus-lg"></i><span>Promo baru</span></button>
+</div>
 
-@if (_loading)
-{ <div class="text-center py-5"><div class="spinner-border text-warning"></div></div> }
-else if (_promos.Any())
+@if (_message is not null)
 {
-    <div class="card stat-card"><div class="card-body p-0">
-    <table class="table table-dark table-striped table-fastride mb-0">
-    <thead><tr><th>Code</th><th>Description</th><th>Type</th><th>Value</th><th>Usage</th><th>Valid Until</th><th>Status</th></tr></thead>
-    <tbody>
-    @foreach (var p in _promos)
-    {
-        <tr>
-            <td><span class="badge bg-warning text-dark">@p.Code</span></td>
-            <td>@p.Description</td>
-            <td>@p.Type</td>
-            <td>@(p.Type == "Percentage" ? $"{p.Value}%" : $"Rp {p.Value:N0}")</td>
-            <td>@p.UsageCount/@p.UsageLimit</td>
-            <td><small>@p.ValidUntil.ToLocalTime().ToString("dd MMM yyyy")</small></td>
-            <td><span class="badge @(p.IsActive ? "bg-success" : "bg-secondary")">@(p.IsActive ? "Active" : "Inactive")</span></td>
-        </tr>
-    }
-    </tbody></table></div></div>
+    <div class="alert @(_messageIsError ? "alert--error" : "alert--ok")" role="alert">@_message</div>
 }
 
-@code {
-    private List<PromoItem> _promos = new();
-    private bool _loading = true;
+@if (_editing is not null)
+{
+    <section class="panel">
+        <div class="panel__head">
+            <h2>@(_editingId is null ? "Promo baru" : $"Ubah {_editing.Code}")</h2>
+            <button class="btn btn--sm btn--ghost" @onclick="CancelEdit">Batal</button>
+        </div>
+        <div class="panel__body">
+            <div class="filters">
+                <div class="field">
+                    <label>Kode</label>
+                    <input @bind="_editing.Code" placeholder="HEMAT20" />
+                </div>
+                <div class="field field--grow">
+                    <label>Keterangan</label>
+                    <input @bind="_editing.Description" placeholder="Diskon 20% untuk jam sibuk" />
+                </div>
+                <div class="field">
+                    <label>Jenis</label>
+                    <select @bind="_editing.Type">
+                        <option value="Percentage">Persentase</option>
+                        <option value="FixedAmount">Potongan tetap</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>@(_editing.Type == "Percentage" ? "Persen" : "Nilai (Rp)")</label>
+                    <input type="number" @bind="_editing.Value" />
+                </div>
+                <div class="field">
+                    <label>Diskon maksimum</label>
+                    <input type="number" step="1000" @bind="_editing.MaxDiscount" />
+                </div>
+                <div class="field">
+                    <label>Minimum transaksi</label>
+                    <input type="number" step="1000" @bind="_editing.MinOrderAmount" />
+                </div>
+                <div class="field">
+                    <label>Kategori</label>
+                    <select @bind="_editing.Category">
+                        <option value="">Semua kategori</option>
+                        @foreach (var category in Enum.GetValues<VehicleCategory>())
+                        {
+                            <option value="@category">@category</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Berlaku sampai</label>
+                    <input type="date" @bind="_editing.ValidUntil" />
+                </div>
+                <div class="field">
+                    <label>Kuota</label>
+                    <input type="number" @bind="_editing.UsageLimit" />
+                </div>
+                <div class="field">
+                    <label>Status</label>
+                    <select @bind="_editing.Active">
+                        <option value="true">Aktif</option>
+                        <option value="false">Nonaktif</option>
+                    </select>
+                </div>
+                <button class="btn btn--primary" @onclick="SaveAsync" disabled="@_saving">
+                    <i class="bi bi-check2"></i><span>Simpan promo</span>
+                </button>
+            </div>
+        </div>
+    </section>
+}
 
-    protected override async Task OnInitializedAsync()
+<section class="panel mt">
+    @if (_loading)
     {
-        _promos = await ApiClient.GetPromos();
+        <div class="panel__body stack stack--tight">
+            @for (var i = 0; i < 6; i++)
+            {
+                <div class="skeleton"></div>
+            }
+        </div>
+    }
+    else if (_promos.Count == 0)
+    {
+        <EmptyState Icon="bi-ticket-perforated" Title="Belum ada promo"
+                    Hint="Buat kode pertama lewat tombol Promo baru." />
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="grid-table">
+                <thead>
+                    <tr>
+                        <th>Kode</th>
+                        <th>Keterangan</th>
+                        <th>Nilai</th>
+                        <th>Berlaku</th>
+                        <th>Pemakaian</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var promo in _promos)
+                    {
+                        <tr>
+                            <td class="code">@promo.Code</td>
+                            <td>
+                                @promo.Description
+                                @if (promo.VehicleCategory is not null)
+                                {
+                                    <div class="dim" style="font-size:.72rem;">Khusus @promo.VehicleCategory</div>
+                                }
+                            </td>
+                            <td class="num">
+                                @(promo.Type == PromoType.Percentage
+                                    ? $"{promo.Value:0.#}%"
+                                    : Display.Rupiah(promo.Value))
+                                @if (promo.Type == PromoType.Percentage && promo.MaxDiscount > 0)
+                                {
+                                    <div class="dim" style="font-size:.72rem;">maks @Display.Rupiah(promo.MaxDiscount)</div>
+                                }
+                            </td>
+                            <td class="dim nowrap">s/d @Display.Date(promo.ValidUntil)</td>
+                            <td>
+                                <div class="num">@promo.UsageCount / @promo.UsageLimit</div>
+                                <div style="height:3px;background:var(--garis);border-radius:2px;margin-top:3px;">
+                                    <div style="height:100%;border-radius:2px;background:var(--lampu);width:@(UsagePercent(promo))%"></div>
+                                </div>
+                            </td>
+                            <td>
+                                @if (IsLive(promo))
+                                {
+                                    <span class="pill pill--go">Aktif</span>
+                                }
+                                else if (!promo.IsActive)
+                                {
+                                    <span class="pill pill--idle">Nonaktif</span>
+                                }
+                                else if (promo.UsageCount >= promo.UsageLimit)
+                                {
+                                    <span class="pill pill--stop">Kuota habis</span>
+                                }
+                                else
+                                {
+                                    <span class="pill pill--stop">Kedaluwarsa</span>
+                                }
+                            </td>
+                            <td class="right nowrap">
+                                <button class="btn btn--sm btn--ghost" @onclick="() => StartEdit(promo)" title="Ubah">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn--sm btn--ghost" @onclick="() => DeleteAsync(promo)" title="Hapus atau nonaktifkan">
+                                    <i class="bi bi-trash3"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private List<PromoResponse> _promos = new();
+    private PromoForm? _editing;
+    private Guid? _editingId;
+    private bool _loading = true, _saving;
+    private string? _message;
+    private bool _messageIsError;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _promos = await Api.GetPromosAsync();
         _loading = false;
+    }
+
+    private static int UsagePercent(PromoResponse promo) =>
+        promo.UsageLimit == 0 ? 0 : Math.Clamp((int)(promo.UsageCount * 100.0 / promo.UsageLimit), 0, 100);
+
+    private static bool IsLive(PromoResponse promo) =>
+        promo.IsActive &&
+        promo.ValidFrom <= DateTime.UtcNow &&
+        promo.ValidUntil >= DateTime.UtcNow &&
+        promo.UsageCount < promo.UsageLimit;
+
+    private void StartNew()
+    {
+        _editingId = null;
+        _editing = new PromoForm { ValidUntil = DateTime.Today.AddMonths(1) };
+    }
+
+    private void StartEdit(PromoResponse promo)
+    {
+        _editingId = promo.Id;
+        _editing = new PromoForm
+        {
+            Code = promo.Code,
+            Description = promo.Description,
+            Type = promo.Type.ToString(),
+            Value = promo.Value,
+            MaxDiscount = promo.MaxDiscount,
+            MinOrderAmount = promo.MinOrderAmount,
+            Category = promo.VehicleCategory?.ToString() ?? string.Empty,
+            ValidUntil = promo.ValidUntil.Date,
+            UsageLimit = promo.UsageLimit,
+            Active = promo.IsActive ? "true" : "false"
+        };
+    }
+
+    private void CancelEdit()
+    {
+        _editing = null;
+        _editingId = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_editing is null) return;
+
+        if (string.IsNullOrWhiteSpace(_editing.Code))
+        {
+            _messageIsError = true;
+            _message = "Kode promo tidak boleh kosong.";
+            return;
+        }
+
+        _saving = true;
+
+        var error = await Api.SavePromoAsync(_editingId, new SavePromoRequest(
+            _editing.Code.Trim(),
+            _editing.Description ?? string.Empty,
+            Enum.Parse<PromoType>(_editing.Type),
+            _editing.Value,
+            _editing.MaxDiscount,
+            _editing.MinOrderAmount,
+            Enum.TryParse<VehicleCategory>(_editing.Category, out var category) ? category : null,
+            DateTime.UtcNow,
+            _editing.ValidUntil,
+            bool.Parse(_editing.Active),
+            _editing.UsageLimit));
+
+        _saving = false;
+        _messageIsError = error is not null;
+        _message = error ?? "Promo disimpan.";
+
+        if (error is null)
+        {
+            CancelEdit();
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(PromoResponse promo)
+    {
+        var error = await Api.DeletePromoAsync(promo.Id);
+
+        _messageIsError = error is not null;
+        // Promos that have been redeemed are deactivated instead of deleted, so history holds.
+        _message = error ?? $"Promo {promo.Code} diproses.";
+
+        await LoadAsync();
+    }
+
+    private sealed class PromoForm
+    {
+        public string Code { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public string Type { get; set; } = "Percentage";
+        public decimal Value { get; set; } = 10;
+        public decimal MaxDiscount { get; set; }
+        public decimal MinOrderAmount { get; set; }
+        public string Category { get; set; } = string.Empty;
+        public DateTime ValidUntil { get; set; } = DateTime.Today.AddMonths(1);
+        public int UsageLimit { get; set; } = 100;
+        public string Active { get; set; } = "true";
     }
 }

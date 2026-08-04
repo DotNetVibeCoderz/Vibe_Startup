@@ -1,155 +1,387 @@
+using System.ComponentModel.DataAnnotations;
 using FastRide.Shared.Models;
 
 namespace FastRide.Shared.DTOs;
 
-// ══════════════════ AUTH DTOs ══════════════════
+// ══════════════════════════════════════════════════════════════════════
+// Single source of truth for every request and response on the wire.
+// The API, AdminWeb, both MAUI apps and the simulator all bind to these
+// types — nothing re-declares its own copy.
+//
+// Enums travel as strings (JsonStringEnumConverter is registered on both
+// ends) but numeric values are still accepted on input.
+// ══════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────── AUTH ───────────────────────────
 
 public record RegisterRequest(
-    string FullName,
-    string Email,
-    string PhoneNumber,
-    string Password,
-    UserRole Role = UserRole.Rider
-);
+    [Required, StringLength(200, MinimumLength = 2)] string FullName,
+    [Required, EmailAddress] string Email,
+    [Required, Phone] string PhoneNumber,
+    [Required, MinLength(8)] string Password,
+    UserRole Role = UserRole.Rider,
+    string? LicenseNumber = null,
+    string? VehicleType = null,
+    string? VehiclePlate = null,
+    VehicleCategory VehicleCategory = VehicleCategory.Economy);
 
-public record LoginRequest(string Email, string Password);
+public record LoginRequest([Required, EmailAddress] string Email, [Required] string Password);
 
 public record AuthResponse(
     Guid UserId, string FullName, string Email, string Token,
     UserRole Role, DateTime ExpiresAt,
-    string? ProfilePhotoBase64 = null, string? ProfilePhotoMimeType = null
-);
+    string? PhotoUrl = null, string? ProfilePhotoMimeType = null,
+    bool IsVerified = false);
 
-public record ResetPasswordRequest(string Email, string ResetCode, string NewPassword);
+public record ForgotPasswordRequest([Required, EmailAddress] string Email);
 
-// ══════════════════ USER / PROFILE DTOs ══════════════════
+/// <summary>
+/// In development the reset code is returned by /auth/forgot-password so the flow can be
+/// exercised without an SMTP server. Wire up a real mailer before going live.
+/// </summary>
+public record ForgotPasswordResponse(string Message, string? ResetCode, DateTime ExpiresAt);
+
+public record ResetPasswordRequest(
+    [Required, EmailAddress] string Email,
+    [Required] string ResetCode,
+    [Required, MinLength(8)] string NewPassword);
+
+public record ChangePasswordRequest(
+    [Required] string CurrentPassword,
+    [Required, MinLength(8)] string NewPassword);
+
+public record MessageResponse(string Message);
+
+// ────────────────────── USER / PROFILE ──────────────────────
 
 public record UserProfileResponse(
     Guid Id, string FullName, string Email, string PhoneNumber,
-    UserRole Role, bool IsVerified, DateTime CreatedAt,
-    DriverProfileResponse? DriverProfile,
-    string? ProfilePhotoBase64 = null, string? ProfilePhotoMimeType = null
-);
+    UserRole Role, bool IsVerified, bool IsActive, DateTime CreatedAt,
+    string? PhotoUrl, string? ProfilePhotoMimeType,
+    DriverProfileResponse? Driver = null,
+    RiderStatsResponse? RiderStats = null);
 
 public record DriverProfileResponse(
     string LicenseNumber, string VehicleType, string VehiclePlate,
-    DriverStatus Status, double Rating, int TotalTrips,
-    decimal TotalEarnings, double CurrentLatitude, double CurrentLongitude
-);
+    VehicleCategory VehicleCategory, DriverStatus Status,
+    double Rating, int RatingCount, int TotalTrips, decimal TotalEarnings,
+    double CurrentLatitude, double CurrentLongitude,
+    bool IsDocumentVerified, DateTime? VerifiedAt);
 
-/// <summary>
-/// Payload for updating user profile (name, phone, photo).
-/// </summary>
+public record RiderStatsResponse(int TotalTrips, decimal TotalSpent, double AverageRatingGiven);
+
 public record UpdateProfileRequest(
     string? FullName = null,
     string? PhoneNumber = null,
     string? ProfilePhotoBase64 = null,
-    string? ProfilePhotoMimeType = null
-);
+    string? ProfilePhotoMimeType = null);
 
-/// <summary>
-/// Payload for driver profile update.
-/// </summary>
 public record UpdateDriverProfileRequest(
     string? LicenseNumber = null,
     string? VehicleType = null,
     string? VehiclePlate = null,
-    DriverStatus? Status = null
-);
+    VehicleCategory? VehicleCategory = null);
 
-// ══════════════════ ORDER DTOs ══════════════════
+public record ProfilePhotoResponse(Guid Id, string FullName, string? PhoneNumber, string? PhotoUrl, string? ProfilePhotoMimeType, DateTime? UpdatedAt);
+
+// ────────────────────── DRIVER DOCUMENTS ─────────────────────
+
+public record DriverDocumentResponse(
+    Guid Id, DocumentType Type, DocumentStatus Status, string FileUrl,
+    string? Notes, DateTime? ExpiresAt, DateTime UploadedAt, DateTime? ReviewedAt);
+
+public record UploadDocumentRequest(
+    DocumentType Type,
+    [Required] string FileBase64,
+    string? MimeType = null,
+    DateTime? ExpiresAt = null);
+
+public record ReviewDocumentRequest(DocumentStatus Status, string? Notes = null);
+
+// ─────────────────────────── ORDERS ──────────────────────────
+
+public record TripStopRequest(double Latitude, double Longitude, string Address);
 
 public record CreateOrderRequest(
-    double PickupLatitude, double PickupLongitude, string PickupAddress,
-    double DropoffLatitude, double DropoffLongitude, string DropoffAddress,
+    Guid RiderId,
+    double PickupLatitude, double PickupLongitude, [Required] string PickupAddress,
+    double DropoffLatitude, double DropoffLongitude, [Required] string DropoffAddress,
     VehicleCategory VehicleCategory = VehicleCategory.Economy,
     PaymentMethod PaymentMethod = PaymentMethod.Cash,
-    string? PromoCode = null
-);
+    string? PromoCode = null,
+    List<TripStopRequest>? Stops = null);
 
-public record OrderResponse(
-    Guid Id, Guid RiderId, string RiderName, Guid? DriverId, string? DriverName,
-    string PickupAddress, string DropoffAddress, double DistanceKm,
-    int EstimatedDurationMinutes, decimal EstimatedFare, decimal FinalFare,
-    VehicleCategory VehicleCategory, OrderStatus Status,
-    DateTime CreatedAt, DateTime? CompletedAt, List<TripStopResponse> Stops
-);
+/// <summary>Fare preview shown before the rider commits to the booking.</summary>
+public record FareQuoteRequest(
+    double PickupLatitude, double PickupLongitude,
+    double DropoffLatitude, double DropoffLongitude,
+    VehicleCategory VehicleCategory = VehicleCategory.Economy,
+    string? PromoCode = null,
+    List<TripStopRequest>? Stops = null);
 
-public record TripStopResponse(int SequenceNumber, double Latitude, double Longitude, string Address, TripStopType StopType);
+public record FareQuoteResponse(
+    VehicleCategory VehicleCategory, double DistanceKm, int EstimatedDurationMinutes,
+    decimal BaseFare, decimal SurgeMultiplier, decimal EstimatedFare,
+    decimal Discount, decimal FinalFare, string? PromoApplied, string? PromoMessage);
 
-// ══════════════════ PAYMENT DTOs ══════════════════
+public record OrderListItem(
+    Guid Id, string Code, Guid RiderId, string RiderName, Guid? DriverId, string? DriverName,
+    string PickupAddress, string DropoffAddress, double DistanceKm, int EstimatedDurationMinutes,
+    decimal EstimatedFare, decimal FinalFare, decimal DiscountAmount,
+    VehicleCategory VehicleCategory, PaymentMethod PaymentMethod, OrderStatus Status,
+    DateTime CreatedAt, DateTime? CompletedAt);
 
-public record PaymentRequest(Guid OrderId, PaymentMethod Method, decimal Amount);
-public record PaymentResponse(Guid Id, Guid OrderId, decimal Amount, PaymentMethod Method, PaymentStatus Status, DateTime CreatedAt, string? TransactionReference);
+public record OrderDetailResponse(
+    Guid Id, string Code, OrderStatus Status,
+    OrderPartyResponse Rider, OrderPartyResponse? Driver,
+    double PickupLatitude, double PickupLongitude, string PickupAddress,
+    double DropoffLatitude, double DropoffLongitude, string DropoffAddress,
+    double DistanceKm, int EstimatedDurationMinutes,
+    decimal EstimatedFare, decimal DiscountAmount, decimal FinalFare,
+    decimal SurgeMultiplier, string? PromoCode,
+    VehicleCategory VehicleCategory, PaymentMethod PaymentMethod,
+    DateTime CreatedAt, DateTime? AcceptedAt, DateTime? ArrivedAt, DateTime? StartedAt,
+    DateTime? CompletedAt, DateTime? CancelledAt, string? CancellationReason, CancelledByParty? CancelledBy,
+    int? RiderRating, int? DriverRating, string? ReviewComment,
+    List<TripStopResponse> Stops,
+    PaymentResponse? Payment);
 
-// ══════════════════ DRIVER MOBILE DTOs ══════════════════
+public record OrderPartyResponse(Guid Id, string FullName, string? PhoneNumber, string? PhotoUrl, double? Rating, string? VehicleType, string? VehiclePlate);
 
-/// <summary>
-/// Driver home screen data — earnings, stats, incoming orders.
-/// </summary>
-public record DriverHomeResponse(
-    Guid DriverId, string FullName, bool IsOnline,
-    decimal TodayEarnings, int TodayTrips, double Rating,
-    List<IncomingOrderItem> IncomingOrders,
-    List<RecentTripItem> RecentTrips
-);
+public record TripStopResponse(Guid Id, int SequenceNumber, double Latitude, double Longitude, string Address, TripStopType StopType, DateTime? ReachedAt);
 
-public record IncomingOrderItem(
-    Guid OrderId, string RiderName, string PickupAddress, string DropoffAddress,
-    double DistanceKm, decimal EstimatedFare, int WaitSeconds
-);
+public record CreateOrderResponse(
+    Guid Id, string Code, OrderStatus Status,
+    decimal EstimatedFare, decimal DiscountAmount, decimal FinalFare,
+    double DistanceKm, int EstimatedDurationMinutes,
+    string? PromoApplied, DateTime CreatedAt);
+
+public record CancelOrderRequest(string? Reason = null);
+
+/// <summary>Live position + status for the rider's tracking screen.</summary>
+public record OrderTrackingResponse(
+    Guid OrderId, string Code, OrderStatus Status,
+    string? DriverName, string? VehicleType, string? VehiclePlate, string? DriverPhotoUrl, double? DriverRating,
+    double? DriverLatitude, double? DriverLongitude,
+    double PickupLatitude, double PickupLongitude,
+    double DropoffLatitude, double DropoffLongitude,
+    double? DriverDistanceKm, int? EtaMinutes, DateTime UpdatedAt);
+
+// ────────────────────────── PAYMENTS ─────────────────────────
+
+public record PaymentRequest(
+    Guid OrderId,
+    PaymentMethod Method,
+    decimal Amount = 0,
+    EWalletChannel WalletChannel = EWalletChannel.Unspecified);
+
+public record PaymentResponse(
+    Guid Id, Guid OrderId, string? OrderCode, decimal Amount, decimal DiscountAmount,
+    PaymentMethod Method, PaymentStatus Status,
+    DateTime CreatedAt, DateTime? CompletedAt, string? TransactionReference,
+    EWalletChannel WalletChannel = EWalletChannel.Unspecified,
+    string? ProviderName = null,
+
+    /// <summary>QRIS payload, virtual account number, or redirect URL — whatever the payer needs.</summary>
+    string? PaymentPayload = null,
+
+    DateTime? ExpiresAt = null,
+    string? FailureReason = null,
+
+    /// <summary>
+    /// The QRIS payload rendered as a scannable SVG data URI. Present only for QRIS charges,
+    /// so the apps can show a code without carrying a QR encoder.
+    /// </summary>
+    string? QrImage = null)
+{
+    public bool IsSettled => Status == PaymentStatus.Completed;
+    public bool IsInFlight => Status is PaymentStatus.Pending or PaymentStatus.AwaitingPayment;
+    public bool CanRetry => Status is PaymentStatus.Failed or PaymentStatus.Expired;
+}
+
+/// <summary>Payment methods a rider can pick right now, given what is switched on.</summary>
+public record AvailablePaymentMethodsResponse(List<PaymentMethodOption> Methods);
+
+public record PaymentMethodOption(PaymentMethod Method, string Label, string Icon, bool RequiresApp);
+
+// ───────────────────── payment provider admin ─────────────────────
+
+public record PaymentProviderResponse(
+    Guid Id, string Name, string DisplayName, bool IsEnabled, bool IsSandbox,
+    List<PaymentMethod> Methods, int Priority,
+    string? MerchantId, string? MerchantName, string? MerchantCity,
+    int ChargeExpiryMinutes,
+
+    /// <summary>Whether a credential is set — never the credential itself.</summary>
+    bool HasServerKey, bool HasClientKey, bool HasWebhookSecret,
+    string? BaseUrl, DateTime? UpdatedAt);
+
+public record SavePaymentProviderRequest(
+    bool IsEnabled,
+    bool IsSandbox,
+    List<PaymentMethod> Methods,
+    int Priority,
+    string? MerchantId = null,
+    string? MerchantName = null,
+    string? MerchantCity = null,
+    int ChargeExpiryMinutes = 15,
+    string? BaseUrl = null,
+
+    /// <summary>Leave null to keep the stored credential; send a value to replace it.</summary>
+    string? ServerKey = null,
+    string? ClientKey = null,
+    string? WebhookSecret = null);
+
+// ─────────────────────────── PROMOS ──────────────────────────
+
+public record PromoResponse(
+    Guid Id, string Code, string Description, PromoType Type,
+    decimal Value, decimal MaxDiscount, decimal MinOrderAmount,
+    VehicleCategory? VehicleCategory,
+    DateTime ValidFrom, DateTime ValidUntil, bool IsActive,
+    int UsageLimit, int UsageCount);
+
+public record SavePromoRequest(
+    [Required] string Code, string Description, PromoType Type,
+    decimal Value, decimal MaxDiscount = 0, decimal MinOrderAmount = 0,
+    VehicleCategory? VehicleCategory = null,
+    DateTime? ValidFrom = null, DateTime? ValidUntil = null,
+    bool IsActive = true, int UsageLimit = 100);
+
+public record ValidatePromoRequest([Required] string Code, decimal Amount, VehicleCategory? VehicleCategory = null);
+
+public record ValidatePromoResponse(bool Valid, string? Code, string? Description, PromoType? Type, decimal Discount, decimal FinalAmount, string Message);
+
+// ───────────────────────── FARE CONFIG ───────────────────────
+
+public record FareConfigResponse(
+    Guid Id, VehicleCategory VehicleCategory,
+    decimal BaseFare, decimal CostPerKm, decimal CostPerMinute,
+    decimal MinimumFare, decimal SurgeMultiplier, decimal CancellationFee,
+    bool IsActive, DateTime? UpdatedAt);
+
+public record UpdateFareConfigRequest(
+    decimal BaseFare, decimal CostPerKm, decimal CostPerMinute,
+    decimal MinimumFare, decimal SurgeMultiplier, decimal CancellationFee, bool IsActive);
+
+// ─────────────────────────── DRIVERS ─────────────────────────
+
+public record DriverListItem(
+    Guid Id, string FullName, string Email, string PhoneNumber, string? PhotoUrl,
+    DriverStatus Status, double Rating, int TotalTrips, decimal TotalEarnings,
+    string VehicleType, string VehiclePlate, VehicleCategory VehicleCategory,
+    double CurrentLatitude, double CurrentLongitude, DateTime? LocationUpdatedAt,
+    bool IsDocumentVerified, bool IsActive);
+
+public record NearbyDriverItem(Guid DriverId, string FullName, string VehicleType, string VehiclePlate, double Rating, double Latitude, double Longitude, double Heading, double DistanceKm);
+
+public record UpdateLocationRequest(double Latitude, double Longitude, double Heading = 0);
+
+public record SetDriverStatusRequest(DriverStatus Status);
+
+public record DriverStatusResponse(DriverStatus Status, bool IsOnline);
+
+// ───────────────────────── RIDERS ────────────────────────────
+
+public record RiderListItem(
+    Guid Id, string FullName, string Email, string PhoneNumber, string? PhotoUrl,
+    bool IsVerified, bool IsActive, DateTime CreatedAt, int TotalTrips, decimal TotalSpent);
+
+// ─────────────────────── MOBILE: RIDER ───────────────────────
+
+public record RiderHomeResponse(
+    Guid UserId, string FullName, string? PhotoUrl,
+    int TotalTrips, decimal TotalSpent, int UnreadNotifications,
+    OrderListItem? ActiveOrder,
+    List<RecentTripItem> RecentTrips);
 
 public record RecentTripItem(
-    Guid OrderId, string RiderName, string DropoffAddress,
-    decimal Fare, string Status, DateTime CreatedAt
-);
+    Guid OrderId, string Code, string? DriverName, string PickupAddress, string DropoffAddress,
+    decimal Fare, OrderStatus Status, DateTime CreatedAt, int? DriverRating);
 
-/// <summary>
-/// Driver earnings summary.
-/// </summary>
+// ─────────────────────── MOBILE: DRIVER ──────────────────────
+
+public record DriverHomeResponse(
+    Guid DriverId, string FullName, string? PhotoUrl, bool IsOnline, bool IsDocumentVerified,
+    decimal TodayEarnings, int TodayTrips, double Rating, int UnreadNotifications,
+    OrderDetailResponse? ActiveTrip,
+    List<IncomingOrderItem> IncomingOrders,
+    List<RecentTripItem> RecentTrips);
+
+public record IncomingOrderItem(
+    Guid OrderId, string Code, string RiderName, string PickupAddress, string DropoffAddress,
+    double DistanceKm, double PickupDistanceKm, decimal EstimatedFare,
+    VehicleCategory VehicleCategory, PaymentMethod PaymentMethod, int WaitSeconds);
+
 public record DriverEarningsResponse(
     decimal TodayEarnings, decimal WeekEarnings, decimal MonthEarnings,
     int TodayTrips, int WeekTrips, int MonthTrips,
-    decimal BaseFareEarnings, decimal BonusEarnings, decimal TipEarnings,
-    List<DailyEarningItem> DailyBreakdown
-);
+    decimal AveragePerTrip, decimal TotalEarnings,
+    List<DailyEarningItem> DailyBreakdown);
 
 public record DailyEarningItem(DateTime Date, decimal Earnings, int Trips);
 
-// ══════════════════ RIDER MOBILE DTOs ══════════════════
+public record AcceptOrderRequest(Guid OrderId);
 
-public record RiderHomeResponse(
-    Guid RiderId, string FullName,
-    int TotalTrips, decimal TotalSpent, double AverageRating,
-    List<RecentRiderTripItem> RecentTrips
-);
-
-public record RecentRiderTripItem(
-    Guid OrderId, string DriverName, string PickupAddress, string DropoffAddress,
-    decimal Fare, string Status, DateTime CreatedAt
-);
-
-public record BookRideResponse(
-    Guid OrderId, string Status, decimal EstimatedFare, decimal FinalFare,
-    double DistanceKm, int EstimatedDurationMinutes, string? PromoApplied
-);
-
-// ══════════════════ DASHBOARD DTOs ══════════════════
+// ───────────────────────── DASHBOARD ─────────────────────────
 
 public record DashboardStatsResponse(
-    int TotalOrdersToday, int ActiveDrivers, int ActiveRiders,
-    decimal TotalRevenueToday, double AverageRating,
-    List<OrderStatusCount> OrdersByStatus, List<HourlyStats> HourlyBreakdown
-);
+    int TotalOrdersToday, int TotalTripsToday, int PendingOrders,
+    int ActiveDrivers, int OnlineDrivers, int ActiveRiders, int TotalRiders, int TotalDrivers,
+    decimal RevenueToday, decimal RevenueMonth, decimal AverageFare,
+    double AverageRating, double CompletionRatePercent, double CancellationRatePercent,
+    DateTime Timestamp);
 
 public record OrderStatusCount(OrderStatus Status, int Count);
-public record HourlyStats(int Hour, int OrderCount, decimal Revenue);
-public record DashboardFilter(DateTime? StartDate = null, DateTime? EndDate = null, string? Location = null, VehicleCategory? VehicleCategory = null, OrderStatus? Status = null);
 
-// ══════════════════ NOTIFICATION DTOs ══════════════════
+public record HourlyStats(int Hour, int Count, decimal Revenue);
 
-public record NotificationResponse(Guid Id, string Title, string Message, NotificationType Type, bool IsRead, DateTime CreatedAt);
+public record RevenuePoint(DateTime Date, decimal Revenue, int Orders, int CompletedOrders);
 
-// ══════════════════ REVIEW DTO ══════════════════
+public record TopDriverItem(Guid DriverId, string FullName, string? PhotoUrl, int Trips, decimal Earnings, double Rating, string VehicleType);
 
-public record SubmitReviewRequest(Guid OrderId, Guid ReviewerId, Guid TargetUserId, int Rating, string? Comment);
+public record CategoryBreakdownItem(VehicleCategory VehicleCategory, int Orders, decimal Revenue, double SharePercent);
+
+public record PaymentMethodBreakdownItem(PaymentMethod Method, int Count, decimal Amount);
+
+/// <summary>Everything the admin dashboard needs in one round-trip.</summary>
+public record DashboardOverviewResponse(
+    DashboardStatsResponse Stats,
+    List<OrderStatusCount> ByStatus,
+    List<HourlyStats> Hourly,
+    List<RevenuePoint> RevenueSeries,
+    List<TopDriverItem> TopDrivers,
+    List<CategoryBreakdownItem> Categories,
+    List<PaymentMethodBreakdownItem> PaymentMethods);
+
+/// <summary>Server-side filter for the order/report screens.</summary>
+public record ReportFilter(
+    DateTime? From = null, DateTime? To = null,
+    OrderStatus? Status = null, VehicleCategory? VehicleCategory = null,
+    PaymentMethod? PaymentMethod = null, string? Search = null);
+
+public record FinancialSummaryResponse(
+    DateTime From, DateTime To,
+    decimal GrossRevenue, decimal Discounts, decimal NetRevenue,
+    decimal DriverEarnings, decimal PlatformCommission,
+    int CompletedOrders, int CancelledOrders, decimal AverageOrderValue,
+    List<RevenuePoint> Series,
+    List<PaymentMethodBreakdownItem> ByPaymentMethod);
+
+// ──────────────────────── NOTIFICATIONS ──────────────────────
+
+public record NotificationResponse(Guid Id, string Title, string Message, NotificationType Type, bool IsRead, DateTime CreatedAt, Guid? OrderId);
+
+public record UnreadCountResponse(int Unread);
+
+// ─────────────────────────── REVIEWS ─────────────────────────
+
+public record SubmitReviewRequest(Guid OrderId, Guid ReviewerId, Guid TargetUserId, [Range(1, 5)] int Rating, string? Comment = null);
+
+public record ReviewResponse(Guid Id, Guid OrderId, string ReviewerName, string? ReviewerPhotoUrl, int Rating, string? Comment, DateTime CreatedAt);
+
+// ──────────────────────── ADMIN / USERS ──────────────────────
+
+public record SetUserActiveRequest(bool IsActive, string? Reason = null);
+
+public record HealthResponse(string Status, DateTime Timestamp, string Version, string Database, string StorageProvider, string Cache);

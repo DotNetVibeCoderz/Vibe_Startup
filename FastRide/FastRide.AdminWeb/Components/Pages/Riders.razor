@@ -1,41 +1,128 @@
 @page "/riders"
-@inject ApiClient ApiClient
+@inject ApiClient Api
 
-<PageTitle>FastRide Admin - Riders</PageTitle>
+<PageTitle>Penumpang · FastRide</PageTitle>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div><h2 class="fw-bold mb-0"><i class="bi bi-person-badge text-warning me-2"></i>Riders</h2><small class="text-muted">@_riders?.Total registered</small></div>
+<div class="page-head">
+    <div>
+        <h1>Penumpang</h1>
+        <p>Daftar penumpang beserta riwayat pemakaian.</p>
+    </div>
+    <button class="btn btn--ghost" @onclick="LoadAsync"><i class="bi bi-arrow-clockwise"></i><span>Segarkan</span></button>
 </div>
 
-@if (_loading)
-{ <div class="text-center py-5"><div class="spinner-border text-warning"></div></div> }
-else if (_riders?.Data.Any() == true)
-{
-    <div class="card stat-card"><div class="card-body p-0">
-    <table class="table table-dark table-striped table-fastride mb-0">
-    <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Trips</th><th>Status</th><th>Joined</th></tr></thead>
-    <tbody>
-    @foreach (var r in _riders.Data)
+<section class="panel">
+    <div class="panel__body">
+        <div class="filters">
+            <div class="field field--grow">
+                <label for="search">Cari</label>
+                <input id="search" placeholder="Nama, email, atau nomor telepon"
+                       @bind="_search" @bind:event="oninput" @onkeyup="OnSearchKey" />
+            </div>
+            <button class="btn btn--primary" @onclick="ApplyFilters"><i class="bi bi-search"></i><span>Cari</span></button>
+        </div>
+    </div>
+</section>
+
+<section class="panel mt">
+    @if (_loading)
     {
-        <tr>
-            <td><strong>@r.FullName</strong></td>
-            <td>@r.Email</td>
-            <td>@r.PhoneNumber</td>
-            <td>@r.TotalTrips</td>
-            <td><span class="badge @(r.IsVerified ? "bg-success" : "bg-warning text-dark")">@(r.IsVerified ? "Verified" : "Pending")</span></td>
-            <td><small>@r.CreatedAt.ToLocalTime().ToString("MMM yyyy")</small></td>
-        </tr>
+        <div class="panel__body stack stack--tight">
+            @for (var i = 0; i < 8; i++)
+            {
+                <div class="skeleton"></div>
+            }
+        </div>
     }
-    </tbody></table></div></div>
-}
+    else if (_result.Total == 0)
+    {
+        <EmptyState Icon="bi-person-walking" Title="Tidak ada penumpang yang cocok"
+                    Hint="Coba kata kunci lain." />
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="grid-table">
+                <thead>
+                    <tr>
+                        <th>Penumpang</th>
+                        <th>Telepon</th>
+                        <th>Status</th>
+                        <th class="right">Trip selesai</th>
+                        <th class="right">Total belanja</th>
+                        <th>Bergabung</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var rider in _result.Data)
+                    {
+                        <tr>
+                            <td>
+                                <div class="person">
+                                    <img src="@Display.Avatar(rider.PhotoUrl, rider.FullName)" alt="" />
+                                    <div>
+                                        <strong>@rider.FullName</strong>
+                                        <small>@rider.Email</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="num">@rider.PhoneNumber</td>
+                            <td>
+                                @if (!rider.IsActive)
+                                {
+                                    <span class="pill pill--stop">Nonaktif</span>
+                                }
+                                else if (rider.IsVerified)
+                                {
+                                    <span class="pill pill--go">Terverifikasi</span>
+                                }
+                                else
+                                {
+                                    <span class="pill pill--wait">Belum verifikasi</span>
+                                }
+                            </td>
+                            <td class="right num">@Display.Number(rider.TotalTrips)</td>
+                            <td class="right money">@Display.Rupiah(rider.TotalSpent)</td>
+                            <td class="dim nowrap">@Display.Date(rider.CreatedAt)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <Pager TItem="RiderListItem" Result="_result" OnPageChanged="GoToPageAsync" />
+    }
+</section>
 
 @code {
-    private PaginatedResult<RiderItem>? _riders;
+    private PagedResult<RiderListItem> _result = new();
+    private string _search = string.Empty;
+    private int _page = 1;
     private bool _loading = true;
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
     {
-        _riders = await ApiClient.GetRiders();
+        _loading = true;
+        _result = await Api.GetRidersAsync(_page, 20, _search);
         _loading = false;
+    }
+
+    private async Task ApplyFilters()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") await ApplyFilters();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
     }
 }

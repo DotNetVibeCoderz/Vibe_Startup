@@ -1,83 +1,39 @@
-# 🚖 FastRide — Ride-Hailing Platform Solution
+# 🇬🇧 FastRide — English Summary
 
-> **Production-grade multi-project .NET ride-hailing platform** with Rider App, Driver App, Admin Dashboard, and Parallel Order Simulator.
+A ride-hailing platform on .NET 10: API, operations console, rider app, driver app, and a
+traffic simulator.
 
-*(This is the English version. For Bahasa Indonesia, see [README-ID.md](README-ID.md))*
-
----
-
-## 🎯 Overview
-
-FastRide is a modern, full-featured ride-hailing platform built with the .NET ecosystem.
-
-| Feature | Description |
-|---------|-------------|
-| 🚗 **Multi-Vehicle** | Economy, Comfort, Premium, Bike, Electric |
-| 💰 **Dynamic Fare** | Base + distance pricing with surge |
-| 🛑 **Multi-Stop** | Waypoints & multiple stops |
-| 💳 **Payments** | Cash, E-Wallet, Credit Card, Transfer |
-| ⭐ **Ratings** | Two-way rider ↔ driver |
-| 🎫 **Promos** | Percentage or fixed discount codes |
-| 📊 **Analytics** | Realtime charts & export |
-| 🎮 **Simulator** | Parallel load testing |
+> The full documentation set is written in Indonesian, matching the product's domain
+> language. This page is a summary for English readers; see [`../README.md`](../README.md)
+> and the `docs/` folder for the complete text.
 
 ---
 
-## 🏛️ Architecture
+## Projects
 
-```
-FastRide/
-├── FastRide.Shared/        # Shared Models, DTOs, Enums
-├── FastRide.Data/          # EF Core DbContext + Seeder
-├── FastRide.Api/           # Minimal API (.NET 10)
-├── FastRide.AdminWeb/      # Blazor Server Dashboard
-├── FastRide.RiderApp/      # MAUI Blazor (iOS/Android/Win)
-├── FastRide.DriverApp/     # MAUI Blazor (iOS/Android/Win)
-├── FastRide.Simulator/     # Spectre.Console Simulation
-└── docs/                   # Full documentation
-```
+| Project | What it is |
+|---------|------------|
+| `FastRide.Api` | Minimal API — all business rules, and the only thing that touches the database |
+| `FastRide.AdminWeb` | Operations console (Blazor Server) |
+| `FastRide.RiderApp` | Rider app (MAUI Blazor Hybrid) |
+| `FastRide.DriverApp` | Driver app (MAUI Blazor Hybrid) |
+| `FastRide.Simulator` | Rider/driver load simulator (Spectre.Console) |
+| `FastRide.Shared` | Models, DTOs, and shared helpers |
+| `FastRide.Data` | EF Core DbContext + sample data |
 
 ---
 
-## 🚀 Quick Start
+## Quick start
 
 ```bash
 dotnet restore
-dotnet run --project FastRide.Api      # API (auto-seeds data!)
-dotnet run --project FastRide.AdminWeb  # Dashboard
-dotnet run --project FastRide.Simulator # 30s parallel sim
+
+dotnet run --project FastRide.Api          # https://localhost:5001
+dotnet run --project FastRide.AdminWeb     # https://localhost:5002
+dotnet run --project FastRide.Simulator -- --duration 60
 ```
 
----
-
-## 📊 Sample Data
-
-| Entity | Count |
-|--------|-------|
-| Riders | 50 |
-| Drivers | 30 |
-| Orders | 200+ |
-| Payments | 110+ |
-| Reviews | 140+ |
-| Promos | 8 |
-
----
-
-## 📘 Docs
-
-| Doc | Topic |
-|-----|-------|
-| [API.md](API.md) | REST endpoints |
-| [AUTH.md](AUTH.md) | Auth & authorization |
-| [DATABASE.md](DATABASE.md) | DB schema & seeding |
-| [SIMULATOR.md](SIMULATOR.md) | Simulator guide |
-| [DASHBOARD.md](DASHBOARD.md) | Admin dashboard |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Deployment guide |
-
----
-
-## 👥 Demo Accounts
+Sample data is seeded on first run.
 
 | Role | Email | Password |
 |------|-------|----------|
@@ -87,6 +43,66 @@ dotnet run --project FastRide.Simulator # 30s parallel sim
 
 ---
 
-Built with ❤️ by **Jacky the Code Bender** at [Gravicode Studios](https://studios.gravicode.com)
+## Features
 
-> 💡 *Buy me a coffee!* → https://studios.gravicode.com/products/budax
+- **Booking** — fare quote before booking, 5 vehicle categories, multi-stop trips, promo
+  codes, 4 payment methods
+- **Trip lifecycle** — `Requested → Accepted → DriverArrived → Started → Completed`, with
+  validated transitions
+- **Live tracking** — driver position, distance, and ETA
+- **Driver** — online status, nearby order offers, daily earnings, document verification
+- **Pricing** — base + distance + time, surge multiplier, minimum fare, cancellation fee
+- **Payments** — cash, QRIS, e-wallet, card, virtual account, through Midtrans, Xendit or a
+  sandbox provider; the gateway is switched from the admin console without a redeploy
+- **Admin console** — live overview, orders, drivers, riders, payments, financial reports,
+  fare table, promos, verification queue, user management, CSV export
+- **Security** — JWT enforced on every route, ownership checks, logout invalidates tokens,
+  rate limiting
+
+---
+
+## Configuration
+
+| Setting | Options | Default |
+|---------|---------|---------|
+| `Database:Provider` | `SQLite`, `SqlServer`, `PostgreSQL`, `MySQL` | `SQLite` |
+| `Storage:Provider` | `FileSystem`, `S3`/`minio`, `Azure` | `FileSystem` |
+| `Cache:Provider` | `Memory`, `Redis` | `Memory` |
+
+Override with environment variables (`Database__Provider=PostgreSQL`).
+
+| Service | HTTPS | HTTP |
+|---------|-------|------|
+| API | 5001 | 5000 |
+| Admin console | 5002 | 5003 |
+
+---
+
+## Development notes
+
+- **Tests:** `dotnet test FastRide.Tests` — 248 tests, ~65s, no running API or database
+  needed. See [`TESTING.md`](TESTING.md).
+- **No EF migrations** — the schema is created with `EnsureCreated`, so changing an entity
+  means deleting `FastRide.Api/FastRide.db`. The API stops at startup with a clear message
+  if it finds a stale schema.
+- **Don't `dotnet build FastRide.sln` without the MAUI workload** — the solution includes
+  both mobile apps. Build projects individually for backend work.
+
+---
+
+## Documentation index
+
+| Document | Contents |
+|----------|----------|
+| [`API.md`](API.md) | Full endpoint reference |
+| [`AUTH.md`](AUTH.md) | Authentication, authorization, token revocation |
+| [`DATABASE.md`](DATABASE.md) | Schema, indexes, sample data, portability traps |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Structure and design decisions |
+| [`DASHBOARD.md`](DASHBOARD.md) | Operations console and its design direction |
+| [`SIMULATOR.md`](SIMULATOR.md) | Simulator usage |
+| [`PAYMENTS.md`](PAYMENTS.md) | QRIS, gateways, callbacks, and configuration |
+| [`TESTING.md`](TESTING.md) | Test suite and how to extend it |
+| [`CI.md`](CI.md) | CI pipeline |
+| [`DEPLOYMENT.md`](DEPLOYMENT.md) | Running outside a developer machine |
+| [`../PLAN.md`](../PLAN.md) | Roadmap |
+| [`../Progress.md`](../Progress.md) | What has been done, and why |

@@ -1,0 +1,164 @@
+@page "/fares"
+@inject ApiClient Api
+
+<PageTitle>Tarif · FastRide</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Tarif</h1>
+        <p>Harga dasar per kategori. Perubahan langsung berlaku untuk pemesanan berikutnya.</p>
+    </div>
+    <button class="btn btn--ghost" @onclick="LoadAsync"><i class="bi bi-arrow-clockwise"></i><span>Segarkan</span></button>
+</div>
+
+@if (_message is not null)
+{
+    <div class="alert @(_messageIsError ? "alert--error" : "alert--ok")" role="alert">@_message</div>
+}
+
+@if (_loading)
+{
+    <section class="panel"><div class="panel__body stack stack--tight">
+        @for (var i = 0; i < 5; i++)
+        {
+            <div class="skeleton" style="height:22px"></div>
+        }
+    </div></section>
+}
+else
+{
+    <div class="stack">
+        @foreach (var fare in _fares)
+        {
+            <section class="panel">
+                <div class="panel__head">
+                    <h2>@fare.VehicleCategory</h2>
+                    <div class="row row--tight">
+                        @if (fare.SurgeMultiplier > 1)
+                        {
+                            <span class="pill pill--wait">Surge ×@fare.SurgeMultiplier.ToString("0.0")</span>
+                        }
+                        @if (!fare.IsActive)
+                        {
+                            <span class="pill pill--stop">Nonaktif</span>
+                        }
+                        <span class="dim">
+                            Contoh 8 km: <b class="money">@Display.Rupiah(Preview(fare))</b>
+                        </span>
+                    </div>
+                </div>
+                <div class="panel__body">
+                    <div class="filters">
+                        <div class="field">
+                            <label>Tarif dasar</label>
+                            <input type="number" step="500" @bind="fare.BaseFareInput" />
+                        </div>
+                        <div class="field">
+                            <label>Per km</label>
+                            <input type="number" step="500" @bind="fare.CostPerKmInput" />
+                        </div>
+                        <div class="field">
+                            <label>Per menit</label>
+                            <input type="number" step="100" @bind="fare.CostPerMinuteInput" />
+                        </div>
+                        <div class="field">
+                            <label>Tarif minimum</label>
+                            <input type="number" step="500" @bind="fare.MinimumFareInput" />
+                        </div>
+                        <div class="field">
+                            <label>Surge (1.0–5.0)</label>
+                            <input type="number" step="0.1" min="1" max="5" @bind="fare.SurgeInput" />
+                        </div>
+                        <div class="field">
+                            <label>Biaya batal</label>
+                            <input type="number" step="500" @bind="fare.CancellationFeeInput" />
+                        </div>
+                        <div class="field">
+                            <label>Status</label>
+                            <select @bind="fare.ActiveInput">
+                                <option value="true">Aktif</option>
+                                <option value="false">Nonaktif</option>
+                            </select>
+                        </div>
+                        <button class="btn btn--primary" @onclick="() => SaveAsync(fare)" disabled="@_saving">
+                            <i class="bi bi-check2"></i><span>Simpan</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        }
+    </div>
+}
+
+@code {
+    private List<FareRow> _fares = new();
+    private bool _loading = true, _saving;
+    private string? _message;
+    private bool _messageIsError;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var fares = await Api.GetFaresAsync();
+        _fares = fares.Select(FareRow.From).ToList();
+        _loading = false;
+    }
+
+    /// <summary>Same formula the API uses, so the preview never disagrees with the real quote.</summary>
+    private static decimal Preview(FareRow fare)
+    {
+        const int sampleKm = 8;
+        var minutes = (int)Math.Ceiling((sampleKm / 24.0 * 60.0) + 4);
+        var metered = fare.BaseFareInput + (fare.CostPerKmInput * sampleKm) + (fare.CostPerMinuteInput * minutes);
+        var surged = metered * (fare.SurgeInput <= 0 ? 1m : fare.SurgeInput);
+
+        return Math.Round(Math.Max(surged, fare.MinimumFareInput), 0);
+    }
+
+    private async Task SaveAsync(FareRow fare)
+    {
+        _saving = true;
+        _message = null;
+
+        var error = await Api.UpdateFareAsync(fare.VehicleCategory, new UpdateFareConfigRequest(
+            fare.BaseFareInput, fare.CostPerKmInput, fare.CostPerMinuteInput,
+            fare.MinimumFareInput, fare.SurgeInput, fare.CancellationFeeInput,
+            bool.Parse(fare.ActiveInput)));
+
+        _saving = false;
+        _messageIsError = error is not null;
+        _message = error ?? $"Tarif {fare.VehicleCategory} disimpan.";
+
+        if (error is null) await LoadAsync();
+    }
+
+    /// <summary>Editable copy of a fare row — the response record itself is immutable.</summary>
+    private sealed class FareRow
+    {
+        public VehicleCategory VehicleCategory { get; init; }
+        public decimal BaseFareInput { get; set; }
+        public decimal CostPerKmInput { get; set; }
+        public decimal CostPerMinuteInput { get; set; }
+        public decimal MinimumFareInput { get; set; }
+        public decimal SurgeInput { get; set; }
+        public decimal CancellationFeeInput { get; set; }
+        public string ActiveInput { get; set; } = "true";
+
+        public decimal SurgeMultiplier => SurgeInput;
+        public bool IsActive => ActiveInput == "true";
+
+        public static FareRow From(FareConfigResponse fare) => new()
+        {
+            VehicleCategory = fare.VehicleCategory,
+            BaseFareInput = fare.BaseFare,
+            CostPerKmInput = fare.CostPerKm,
+            CostPerMinuteInput = fare.CostPerMinute,
+            MinimumFareInput = fare.MinimumFare,
+            SurgeInput = fare.SurgeMultiplier,
+            CancellationFeeInput = fare.CancellationFee,
+            ActiveInput = fare.IsActive ? "true" : "false"
+        };
+    }
+}

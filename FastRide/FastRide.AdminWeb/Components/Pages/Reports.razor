@@ -1,0 +1,223 @@
+@page "/reports"
+@implements IAsyncDisposable
+@inject ApiClient Api
+@inject IJSRuntime JS
+
+<PageTitle>Laporan Keuangan · FastRide</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Laporan Keuangan</h1>
+        <p>Pendapatan kotor, diskon, bagi hasil driver, dan komisi platform.</p>
+    </div>
+    <div class="row row--tight">
+        <button class="btn btn--ghost" @onclick="ExportAsync" disabled="@_exporting">
+            @if (_exporting)
+            {
+                <span class="spinner"></span>
+            }
+            else
+            {
+                <i class="bi bi-download"></i>
+            }
+            <span>Unduh CSV</span>
+        </button>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="panel__body">
+        <div class="filters">
+            <div class="field">
+                <label for="from">Dari</label>
+                <input id="from" type="date" @bind="_from" />
+            </div>
+            <div class="field">
+                <label for="to">Sampai</label>
+                <input id="to" type="date" @bind="_to" />
+            </div>
+            <button class="btn btn--primary" @onclick="LoadAsync"><i class="bi bi-funnel"></i><span>Terapkan</span></button>
+            <button class="btn btn--ghost" @onclick="() => PresetAsync(7)">7 hari</button>
+            <button class="btn btn--ghost" @onclick="() => PresetAsync(30)">30 hari</button>
+            <button class="btn btn--ghost" @onclick="() => PresetAsync(90)">90 hari</button>
+        </div>
+    </div>
+</section>
+
+@if (_loading)
+{
+    <div class="grid grid--4 mt">
+        @for (var i = 0; i < 4; i++)
+        {
+            <div class="tile">
+                <div class="skeleton" style="width:60%"></div>
+                <div class="skeleton" style="height:28px"></div>
+            </div>
+        }
+    </div>
+}
+else if (_summary is null)
+{
+    <section class="panel mt">
+        <EmptyState Icon="bi-graph-up" Title="Data laporan tidak bisa dimuat"
+                    Hint="Pastikan FastRide.Api berjalan, lalu coba lagi." />
+    </section>
+}
+else
+{
+    <div class="grid grid--4 mt">
+        <StatTile Label="Pendapatan bersih" Value="@Display.RupiahShort(_summary.NetRevenue)" Tone="go"
+                  Note="@($"Kotor {Display.RupiahShort(_summary.GrossRevenue)}")" />
+        <StatTile Label="Diskon diberikan" Value="@Display.RupiahShort(_summary.Discounts)"
+                  Note="@($"{DiscountShare:0.#}% dari pendapatan kotor")" />
+        <StatTile Label="Komisi platform" Value="@Display.RupiahShort(_summary.PlatformCommission)" Tone="move"
+                  Note="20% dari pendapatan bersih" />
+        <StatTile Label="Bagi hasil driver" Value="@Display.RupiahShort(_summary.DriverEarnings)" Tone="go"
+                  Note="@($"{_summary.CompletedOrders} trip selesai")" />
+    </div>
+
+    <div class="grid grid--main mt">
+        <section class="panel">
+            <div class="panel__head">
+                <h2>Tren harian</h2>
+                <span class="dim">@Display.Date(_summary.From) – @Display.Date(_summary.To)</span>
+            </div>
+            <div class="panel__body">
+                <div class="chart-box chart-box--tall"><canvas id="report-revenue"></canvas></div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel__head"><h2>Per metode bayar</h2></div>
+            <div class="panel__body">
+                @if (_summary.ByPaymentMethod.Count == 0)
+                {
+                    <EmptyState Icon="bi-wallet2" Title="Belum ada transaksi"
+                                Hint="Pilih rentang tanggal yang punya perjalanan selesai." />
+                }
+                else
+                {
+                    <div class="chart-box"><canvas id="report-payment"></canvas></div>
+                }
+            </div>
+        </section>
+    </div>
+
+    <section class="panel mt">
+        <div class="panel__head">
+            <h2>Rincian harian</h2>
+            <span class="dim">
+                Rata-rata nilai order @Display.Rupiah(_summary.AverageOrderValue) ·
+                @_summary.CancelledOrders order batal
+            </span>
+        </div>
+        <div class="table-wrap">
+            <table class="grid-table">
+                <thead>
+                    <tr>
+                        <th>Tanggal</th>
+                        <th class="right">Order</th>
+                        <th class="right">Selesai</th>
+                        <th class="right">Rasio selesai</th>
+                        <th class="right">Pendapatan</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var point in _summary.Series.OrderByDescending(p => p.Date))
+                    {
+                        <tr>
+                            <td class="nowrap">@Display.Date(point.Date)</td>
+                            <td class="right num">@point.Orders</td>
+                            <td class="right num">@point.CompletedOrders</td>
+                            <td class="right num">
+                                @(point.Orders == 0 ? "—" : $"{point.CompletedOrders * 100.0 / point.Orders:0.#}%")
+                            </td>
+                            <td class="right money">@Display.Rupiah(point.Revenue)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    private FinancialSummaryResponse? _summary;
+    private DateTime? _from = DateTime.Today.AddDays(-29);
+    private DateTime? _to = DateTime.Today;
+    private bool _loading = true, _exporting;
+
+    private double DiscountShare => _summary is null || _summary.GrossRevenue == 0
+        ? 0
+        : (double)(_summary.Discounts / _summary.GrossRevenue * 100);
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_summary is not null) await DrawChartsAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _summary = await Api.GetFinancialSummaryAsync(_from, _to);
+        _loading = false;
+    }
+
+    private async Task PresetAsync(int days)
+    {
+        _to = DateTime.Today;
+        _from = DateTime.Today.AddDays(-(days - 1));
+        await LoadAsync();
+    }
+
+    private async Task DrawChartsAsync()
+    {
+        if (_summary is null) return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("fastride.revenueSeries", "report-revenue",
+                _summary.Series.Select(p => p.Date.ToString("dd/MM")).ToArray(),
+                _summary.Series.Select(p => p.Revenue).ToArray(),
+                _summary.Series.Select(p => p.Orders).ToArray());
+
+            if (_summary.ByPaymentMethod.Count > 0)
+            {
+                await JS.InvokeVoidAsync("fastride.paymentBars", "report-payment",
+                    _summary.ByPaymentMethod.Select(p => Display.Label(p.Method)).ToArray(),
+                    _summary.ByPaymentMethod.Select(p => p.Amount).ToArray());
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit closed mid-render.
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        _exporting = true;
+        var csv = await Api.ExportFinancialCsvAsync(_from, _to);
+        _exporting = false;
+
+        if (csv is null) return;
+
+        await JS.InvokeVoidAsync("fastride.download",
+            $"fastride-keuangan-{DateTime.Now:yyyyMMdd}.csv", "text/csv", Convert.ToBase64String(csv));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("fastride.dispose", "report-revenue");
+            await JS.InvokeVoidAsync("fastride.dispose", "report-payment");
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit already closed.
+        }
+    }
+}

@@ -1,0 +1,226 @@
+@page "/track/{OrderId:guid}"
+@implements IDisposable
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<div class="topbar">
+    <button class="btn btn--sm btn--ghost" @onclick="GoHome" aria-label="Kembali">
+        <i class="bi bi-chevron-left"></i>
+    </button>
+    <div class="topbar__mark">@(_tracking?.Code ?? "Perjalanan")</div>
+</div>
+
+<div class="screen">
+    @if (_loading)
+    {
+        <div class="hero stack">
+            <div class="skeleton" style="width:45%"></div>
+            <div class="skeleton" style="height:30px"></div>
+        </div>
+    }
+    else if (_tracking is null)
+    {
+        <div class="alert alert--error">Perjalanan tidak ditemukan atau bukan milik akun ini.</div>
+    }
+    else
+    {
+        <div class="hero">
+            <span class="hero__label">Status perjalanan</span>
+            <div class="row">
+                <span class="@Display.PillClass(_tracking.Status)">@Display.Label(_tracking.Status)</span>
+                @if (_tracking.EtaMinutes is { } eta && !IsFinished)
+                {
+                    <span class="spacer num">± @eta menit</span>
+                }
+            </div>
+
+            <TripProgress Status="_tracking.Status" />
+
+            @if (_tracking.DriverDistanceKm is { } distance && !IsFinished)
+            {
+                <span class="small muted">
+                    Driver @Display.Distance(distance) dari @(_tracking.Status == OrderStatus.Started ? "tujuan" : "titik jemput")
+                </span>
+            }
+        </div>
+
+        @if (_tracking.DriverName is not null)
+        {
+            <div class="card">
+                <div class="row">
+                    <img class="avatar" src="@Display.Avatar(_tracking.DriverPhotoUrl, _tracking.DriverName)" alt="" />
+                    <div style="min-width:0;">
+                        <strong>@_tracking.DriverName</strong>
+                        <div class="small muted truncate">@_tracking.VehicleType · @_tracking.VehiclePlate</div>
+                    </div>
+                    <div class="spacer num">
+                        <i class="bi bi-star-fill wait"></i> @_tracking.DriverRating?.ToString("0.0")
+                    </div>
+                </div>
+            </div>
+        }
+        else if (!IsFinished)
+        {
+            <div class="card row">
+                <span class="spinner"></span>
+                <span class="muted">Mencari driver terdekat…</span>
+            </div>
+        }
+
+        @if (_detail is not null)
+        {
+            <div class="card stack">
+                <div class="route">
+                    <div class="route__stop">
+                        <i class="bi bi-circle go"></i>
+                        <div><strong>@_detail.PickupAddress</strong><small>Titik jemput</small></div>
+                    </div>
+                    @foreach (var stop in _detail.Stops)
+                    {
+                        <div class="route__stop">
+                            <i class="bi bi-dot dim"></i>
+                            <div><strong>@stop.Address</strong><small>Singgah @stop.SequenceNumber</small></div>
+                        </div>
+                    }
+                    <div class="route__stop">
+                        <i class="bi bi-geo-alt stop"></i>
+                        <div><strong>@_detail.DropoffAddress</strong><small>Tujuan</small></div>
+                    </div>
+                </div>
+
+                <div class="metrics metrics--3">
+                    <div class="metric"><span>Jarak</span><b>@_detail.DistanceKm.ToString("0.0")</b></div>
+                    <div class="metric"><span>Estimasi</span><b>@_detail.EstimatedDurationMinutes m</b></div>
+                    <div class="metric"><span>Total</span><b>@Display.RupiahShort(_detail.FinalFare)</b></div>
+                </div>
+            </div>
+        }
+
+        @if (_message is not null)
+        {
+            <div class="alert @(_messageIsError ? "alert--error" : "alert--ok")">@_message</div>
+        }
+
+        @* An unpaid trip is the most urgent thing on this screen once it is over. *@
+        @if (_payment is { IsSettled: false } && _tracking.Status == OrderStatus.Completed)
+        {
+            <button class="btn btn--primary" @onclick="OpenPayment">
+                <i class="bi bi-qr-code"></i>
+                <span>@(_payment.IsInFlight ? "Lanjutkan pembayaran" : "Bayar sekarang")</span>
+            </button>
+        }
+        else if (_payment is { IsSettled: true })
+        {
+            <div class="card row">
+                <i class="bi bi-check2-circle go"></i>
+                <div style="min-width:0;">
+                    <strong>Pembayaran lunas</strong>
+                    <div class="small muted truncate">
+                        @Display.Label(_payment.Method) · @Display.Rupiah(_payment.Amount)
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (CanCancel)
+        {
+            <button class="btn btn--danger" @onclick="CancelAsync" disabled="@_busy">
+                <i class="bi bi-x-octagon"></i><span>Batalkan perjalanan</span>
+            </button>
+        }
+
+        @if (_tracking.Status == OrderStatus.Completed && _detail?.DriverRating is null && _detail?.Driver is not null)
+        {
+            <div class="card stack">
+                <strong>Beri rating untuk @_detail.Driver.FullName</strong>
+                <div class="row">
+                    @for (var star = 1; star <= 5; star++)
+                    {
+                        var value = star;
+                        <button class="btn btn--sm btn--ghost" @onclick="() => _rating = value" aria-label="@value bintang">
+                            <i class="bi @(_rating >= value ? "bi-star-fill wait" : "bi-star")"></i>
+                        </button>
+                    }
+                </div>
+                <input @bind="_comment" placeholder="Ceritakan pengalamanmu (opsional)" />
+                <button class="btn btn--primary" @onclick="SubmitReviewAsync" disabled="@(_busy || _rating == 0)">
+                    <i class="bi bi-send"></i><span>Kirim ulasan</span>
+                </button>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public Guid OrderId { get; set; }
+
+    private OrderTrackingResponse? _tracking;
+    private OrderDetailResponse? _detail;
+    private PaymentResponse? _payment;
+    private bool _loading = true, _busy;
+    private int _rating;
+    private string _comment = string.Empty;
+    private string? _message;
+    private bool _messageIsError;
+    private Timer? _timer;
+
+    private void GoHome() => Nav.NavigateTo("/");
+
+    private void OpenPayment() => Nav.NavigateTo($"/pay/{OrderId}");
+
+    private bool IsFinished => _tracking?.Status is OrderStatus.Completed or OrderStatus.Cancelled or OrderStatus.Expired;
+
+    private bool CanCancel => _tracking?.Status is OrderStatus.Requested or OrderStatus.Accepted or OrderStatus.DriverArrived;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+
+        // Polling stands in for push notifications, which are on the roadmap.
+        _timer = new Timer(async _ => await InvokeAsync(async () =>
+        {
+            if (!IsFinished) await LoadAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(6), TimeSpan.FromSeconds(6));
+    }
+
+    private async Task LoadAsync()
+    {
+        _tracking = await Api.TrackOrderAsync(OrderId);
+        _detail = await Api.GetOrderAsync(OrderId);
+
+        // Null until the first charge exists, which is the normal state mid-trip.
+        _payment = await Api.GetPaymentAsync(OrderId);
+
+        _loading = false;
+    }
+
+    private async Task CancelAsync()
+    {
+        _busy = true;
+        var error = await Api.CancelOrderAsync(OrderId, "Dibatalkan penumpang");
+        _busy = false;
+
+        _messageIsError = error is not null;
+        _message = error ?? "Perjalanan dibatalkan.";
+
+        await LoadAsync();
+    }
+
+    private async Task SubmitReviewAsync()
+    {
+        if (_detail?.Driver is null || _rating == 0) return;
+
+        _busy = true;
+        var error = await Api.SubmitReviewAsync(OrderId, _detail.Driver.Id, _rating,
+            string.IsNullOrWhiteSpace(_comment) ? null : _comment.Trim());
+        _busy = false;
+
+        _messageIsError = error is not null;
+        _message = error ?? "Terima kasih atas ulasannya.";
+
+        await LoadAsync();
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

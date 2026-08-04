@@ -1,208 +1,231 @@
-# 🗄️ Database Schema — FastRide
+# 🗄️ Database — FastRide
 
-> Complete database design, Entity Framework Core configuration, and migration guide.
+EF Core 10 dengan empat provider. Pilih lewat `Database:Provider` di
+`FastRide.Api/appsettings.json`.
 
----
-
-## 📊 Entity Relationship Diagram
-
-```
-┌──────────────────┐       ┌──────────────────┐
-│      User        │       │  DriverProfile   │
-├──────────────────┤       ├──────────────────┤
-│ Id (PK)          │──1:1──│ Id (PK)          │
-│ FullName         │       │ UserId (FK)      │
-│ Email (UNIQUE)   │       │ LicenseNumber    │
-│ PhoneNumber      │       │ VehicleType      │
-│ PasswordHash     │       │ VehiclePlate     │
-│ Role (Enum)      │       │ Status (Enum)    │
-│ IsVerified       │       │ Rating           │
-│ CreatedAt        │       │ TotalTrips       │
-│ UpdatedAt        │       │ TotalEarnings    │
-└──────┬───────────┘       │ CurrentLatitude  │
-       │                   │ CurrentLongitude │
-       │                   └──────────────────┘
-       │ 1:N (Rider)
-       ▼
-┌──────────────────┐       ┌──────────────────┐
-│      Order       │       │    TripStop      │
-├──────────────────┤       ├──────────────────┤
-│ Id (PK)          │──1:N──│ Id (PK)          │
-│ RiderId (FK)     │       │ OrderId (FK)     │
-│ DriverId (FK)    │       │ SequenceNumber   │
-│ PickupLatitude   │       │ Latitude         │
-│ PickupLongitude  │       │ Longitude        │
-│ PickupAddress    │       │ Address          │
-│ DropoffLatitude  │       │ StopType (Enum)  │
-│ DropoffLongitude │       └──────────────────┘
-│ DropoffAddress   │
-│ DistanceKm       │       ┌──────────────────┐
-│ EstDurationMins  │       │     Payment      │
-│ EstimatedFare    │       ├──────────────────┤
-│ FinalFare        │──1:1──│ Id (PK)          │
-│ VehicleCategory  │       │ OrderId (FK)     │
-│ PaymentMethod    │       │ Amount           │
-│ Status (Enum)    │       │ Method (Enum)    │
-│ CreatedAt        │       │ Status (Enum)    │
-│ AcceptedAt       │       │ CreatedAt        │
-│ StartedAt        │       │ CompletedAt      │
-│ CompletedAt      │       │ TransactionRef   │
-│ CancelledAt      │       └──────────────────┘
-│ RiderRating      │
-│ DriverRating     │       ┌──────────────────┐
-│ ReviewComment    │       │     Review       │
-└──────────────────┘       ├──────────────────┤
-                           │ Id (PK)          │
-┌──────────────────┐       │ OrderId (FK)     │
-│      Promo       │       │ ReviewerId (FK)  │
-├──────────────────┤       │ TargetUserId     │
-│ Id (PK)          │       │ Rating           │
-│ Code (UNIQUE)    │       │ Comment          │
-│ Description      │       │ CreatedAt        │
-│ Type (Enum)      │       └──────────────────┘
-│ Value            │
-│ MaxDiscount      │       ┌──────────────────┐
-│ ValidFrom        │       │  Notification    │
-│ ValidUntil       │       ├──────────────────┤
-│ IsActive         │       │ Id (PK)          │
-│ UsageLimit       │       │ UserId           │
-│ UsageCount       │       │ Title            │
-└──────────────────┘       │ Message          │
-                           │ Type (Enum)      │
-┌──────────────────┐       │ IsRead           │
-│   FareConfig     │       │ CreatedAt        │
-├──────────────────┤       │ ReadAt           │
-│ Id (PK)          │       └──────────────────┘
-│ VehicleCategory  │
-│ BaseFare         │
-│ CostPerKm        │
-│ CostPerMinute    │
-│ MinimumFare      │
-│ SurgeMultiplier  │
-│ IsActive         │
-└──────────────────┘
-```
-
----
-
-## 📋 Database Providers
-
-FastRide supports multiple database providers through EF Core:
-
-| Provider | Status | Connection String Example |
-|----------|--------|--------------------------|
-| **SQLite** | ✅ Default | `Data Source=FastRide.db` |
-| **SQL Server** | ✅ Supported | `Server=.;Database=FastRide;...` |
-| **MySQL** | ✅ Supported | `Server=localhost;Database=FastRide;...` |
-| **PostgreSQL** | ✅ Supported | `Host=localhost;Database=FastRide;...` |
-
----
-
-## 🔧 Configuration
-
-### `appsettings.json`
+| Provider | Nilai konfigurasi | Paket |
+|----------|-------------------|-------|
+| SQLite (bawaan) | `SQLite` | `Microsoft.EntityFrameworkCore.Sqlite` |
+| SQL Server | `SqlServer` / `mssql` | `Microsoft.EntityFrameworkCore.SqlServer` |
+| PostgreSQL | `PostgreSQL` / `postgres` / `npgsql` | `Npgsql.EntityFrameworkCore.PostgreSQL` |
+| MySQL | `MySQL` | `MySql.EntityFrameworkCore` |
 
 ```json
-{
+"Database": {
+  "Provider": "SQLite",
+  "AutoSeed": true,
   "ConnectionStrings": {
-    "DefaultConnection": "Data Source=FastRide.db"
+    "SQLite": "Data Source=FastRide.db",
+    "SqlServer": "Server=.;Database=FastRide;Trusted_Connection=true;TrustServerCertificate=true",
+    "PostgreSQL": "Host=localhost;Database=FastRide;Username=postgres;Password=postgres",
+    "MySQL": "Server=localhost;Database=FastRide;User Id=root;Password=root"
   }
 }
 ```
 
-### Switching Provider
+> MySQL memakai provider resmi Oracle karena Pomelo belum merilis build untuk EF Core 10.
+> Metode ekstensinya `UseMySQL` (huruf besar), bukan `UseMySql`.
 
-In `Program.cs`, change the `UseSqlite()` call:
+---
+
+## ⚠️ Belum ada migrasi
+
+Skema dibuat dengan `Database.EnsureCreatedAsync()`. Konsekuensinya:
+
+- **Mengubah entity berarti menghapus database.** Untuk SQLite: hapus
+  `FastRide.Api/FastRide.db`, lalu jalankan API lagi — data contoh akan dibuat ulang.
+- `dotnet ef migrations add` bukan bagian dari alur kerja saat ini.
+
+Supaya kegagalannya tidak membingungkan, API melakukan **uji kolom** saat start. Kalau ada
+database lama dengan skema usang, aplikasi berhenti dengan pesan yang menyebutkan persis
+apa yang harus dilakukan, bukan gagal belakangan dengan `SQLite Error 1: no such column`.
+
+Berpindah ke EF Migrations ada di [`../PLAN.md`](../PLAN.md) v2.1.
+
+Set `Database:AutoSeed` ke `false` bila tidak ingin data contoh dibuat.
+
+---
+
+## Entity
+
+### `User`
+
+| Kolom | Catatan |
+|-------|---------|
+| `Id` | GUID |
+| `Email` | Unik |
+| `PasswordHash` | BCrypt work factor 12 |
+| `Role` | `Rider` = 1, `Driver` = 2, `Admin` = 3 |
+| `IsVerified` | Email/telepon terverifikasi |
+| `IsActive` | Akun nonaktif tidak bisa masuk |
+| `SecurityStamp` | Naik saat logout / ganti sandi — inilah yang membatalkan token lama |
+| `PhotoUrl` | URL storage, atau `data:` URI untuk avatar inisial |
+| `LastLoginAt` | |
+
+### `DriverProfile`
+
+Satu per driver, kunci asing unik ke `User`.
+
+| Kolom | Catatan |
+|-------|---------|
+| `VehicleCategory` | Menentukan tarif yang berlaku dan order yang cocok |
+| `Status` | `Offline` = 0, `Online` = 1, `OnTrip` = 2, `Break` = 3 |
+| `Rating`, `RatingCount` | Dihitung ulang dari tabel `Reviews` |
+| `CurrentLatitude`, `CurrentLongitude`, `Heading` | Posisi terakhir |
+| `LocationUpdatedAt` | Lebih tua dari 10 menit ⇒ tidak ikut pencocokan |
+| `IsDocumentVerified`, `VerifiedAt` | Wajib `true` untuk online |
+
+### `DriverDocument`
+
+SIM/STNK/KTP dan sebagainya. Unik per `(DriverProfileId, Type)` — unggah ulang mengganti
+baris yang ada, bukan menumpuk.
+
+### `Order`
+
+| Kolom | Catatan |
+|-------|---------|
+| `Code` | Kode pendek unik, mis. `FR-9LTPXJ` |
+| `DistanceKm`, `EstimatedDurationMinutes` | Haversine + estimasi lalu lintas |
+| `EstimatedFare`, `DiscountAmount`, `FinalFare` | Diskon dicatat terpisah agar laporan bisa memisahkannya |
+| `SurgeMultiplier` | Dibekukan saat pemesanan — tarif tidak boleh berubah surut |
+| `PromoCode` | Kode yang benar-benar terpakai |
+| `Status` | Lihat siklus di [`API.md`](API.md) |
+| `AcceptedAt` … `CancelledAt` | Jejak waktu setiap tahap |
+| `CancelledBy` | `Rider`, `Driver`, atau `System` |
+| `DriverLatitude/Longitude` | Posisi driver untuk perjalanan ini |
+
+### `TripStop`
+
+Titik singgah multi-stop, berurut lewat `SequenceNumber`, dengan `ReachedAt`.
+
+### `Payment`
+
+| Kolom | Catatan |
+|-------|---------|
+| `OrderId` | **Unique index** — satu pembayaran per order |
+| `Amount`, `DiscountAmount` | |
+| `TransactionReference` | `TRX-20260804-A1B2C3D4` |
+
+Unique index inilah yang menutup bug double-charge: dulu `POST /api/payments` dan
+`complete-order` sama-sama membuat baris pembayaran untuk order yang sama.
+
+### `Promo`
+
+`MinOrderAmount` dan `VehicleCategory` opsional mempersempit keberlakuan. Kuota diambil
+lewat `UPDATE` bersyarat sehingga aman terhadap perebutan.
+
+### `Review`
+
+Unik per `(OrderId, ReviewerId)` — satu ulasan per orang per perjalanan.
+
+### `FareConfig`
+
+Satu baris per kategori kendaraan, di-*seed* lewat `HasData`. `Quote()` menerapkan surge
+pada bagian terukur lalu memakai `MinimumFare` sebagai lantai — urutan yang sama dengan
+rincian tarif yang ditampilkan ke penumpang.
+
+### `Notification`
+
+Punya `OrderId` opsional agar aplikasi bisa membuka perjalanan terkait langsung.
+
+---
+
+## Indeks
+
+Dipilih mengikuti pola query nyata, bukan ditebak:
+
+| Tabel | Indeks | Dipakai oleh |
+|-------|--------|--------------|
+| `Orders` | `(Status, CreatedAt)` | Papan order terbuka |
+| `Orders` | `(DriverId, Status, CompletedAt)` | Pendapatan & riwayat driver |
+| `Orders` | `(RiderId, CreatedAt)` | Riwayat penumpang |
+| `Orders` | `Code` unik | Pencarian kode |
+| `DriverProfiles` | `Status`, `(CurrentLatitude, CurrentLongitude)` | Pencocokan driver terdekat |
+| `Payments` | `OrderId` unik, `(Status, CreatedAt)` | Pembayaran & laporan |
+| `Notifications` | `(UserId, IsRead, CreatedAt)` | Kotak masuk & jumlah belum dibaca |
+| `Reviews` | `TargetUserId`, `(OrderId, ReviewerId)` unik | Rating driver |
+| `DriverDocuments` | `(DriverProfileId, Type)` unik | Antrean verifikasi |
+
+---
+
+## ⚠️ Portabilitas query
+
+Dua jebakan yang sudah ditemukan lewat pengujian nyata, keduanya penting bila Anda menambah
+query baru:
+
+**1. SQLite tidak mendukung `APPLY`.** Proyeksi yang menggabungkan koleksi *dan* subquery
+berkorelasi dalam satu `Select` diterjemahkan menjadi `CROSS APPLY` dan gagal saat runtime:
 
 ```csharp
-// SQLite (default)
-options.UseSqlite(connectionString);
+// ❌ gagal di SQLite
+.Select(o => new {
+    Stops = o.Stops.Select(...).ToList(),
+    Payment = db.Payments.Where(p => p.OrderId == o.Id).Select(...).FirstOrDefault()
+})
 
-// SQL Server
-options.UseSqlServer(connectionString);
+// ✅ query datar terpisah
+var order = await db.Orders.Where(...).Select(...).FirstOrDefaultAsync(ct);
+var stops = await db.TripStops.Where(s => s.OrderId == id).Select(...).ToListAsync(ct);
+```
 
-// PostgreSQL
-options.UseNpgsql(connectionString);
+**2. `GroupBy` tidak bisa langsung memproyeksi ke konstruktor record.** Pakai tipe anonim
+dulu, lalu petakan di memori:
 
-// MySQL
-options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+```csharp
+// ❌ tidak bisa diterjemahkan
+.GroupBy(p => p.Method).Select(g => new PaymentMethodBreakdownItem(g.Key, g.Count(), g.Sum(p => p.Amount)))
+
+// ✅
+.GroupBy(p => p.Method).Select(g => new { Method = g.Key, Count = g.Count(), Amount = g.Sum(p => p.Amount) })
 ```
 
 ---
 
-## 🌱 Seed Data
+## Data contoh
 
-The `SampleDataSeeder` class provides rich sample data for development:
+`SampleDataSeeder` berjalan saat start bila tabel `Users` kosong.
 
-```csharp
-// Called automatically on first API run:
-await SampleDataSeeder.SeedAsync(db);
-```
+| Isi | Jumlah |
+|-----|--------|
+| Penumpang | 50 |
+| Driver | 30 (dengan dokumen; sebagian sengaja belum terverifikasi) |
+| Admin | 1 |
+| Order | ±420, tersebar 90 hari |
+| Pembayaran | Satu per order selesai |
+| Ulasan | ±70% dari order selesai |
+| Promo | 8 |
+| Notifikasi | ±65 |
 
-### Seed Data Summary
+Beberapa keputusan yang membuat data ini berguna:
 
-| Entity | Count | Notes |
-|--------|-------|-------|
-| Users (Riders) | 50 | Indonesian names, realistic data |
-| Users (Drivers) | 30 | With driver profiles |
-| Users (Admin) | 1 | `admin@fastride.com` |
-| Orders | 200 | Mixed statuses over 90-day history |
-| Payments | ~110 | For completed orders |
-| Reviews | ~140 | Indonesian language reviews |
-| Promos | 8 | Various types and validity periods |
-| Notifications | 40+ | Welcome and order updates |
-| FareConfigs | 5 | One per vehicle category |
+- **Kurva permintaan nyata.** Order mengikuti pola jam sibuk pagi dan sore Jakarta, bukan
+  sebaran seragam — grafik dashboard jadi masuk akal.
+- **Hari ini padat.** ±30 order dibuat untuk hari berjalan sehingga panel "hari ini" tidak
+  kosong saat pertama kali dibuka.
+- **Rating konsisten.** `DriverProfile.Rating` dihitung dari ulasan yang benar-benar ditulis.
+- **Akun demo pasti ada.** Rider #0 dan driver #0 dibuat eksplisit sebagai
+  `budi.santoso@email.com` dan `andi.santoso@drive.com` — sebelumnya nama diacak sehingga
+  kredensial di README tidak pernah benar.
 
-### Seeded Fare Configurations
-
-| Category | Base Fare | Per Km | Per Min | Minimum |
-|----------|-----------|--------|---------|---------|
-| Economy | Rp 5.000 | Rp 3.000 | Rp 500 | Rp 10.000 |
-| Comfort | Rp 7.000 | Rp 4.000 | Rp 700 | Rp 15.000 |
-| Premium | Rp 10.000 | Rp 6.000 | Rp 1.000 | Rp 25.000 |
-| Bike | Rp 3.000 | Rp 2.000 | Rp 300 | Rp 7.000 |
-| Electric | Rp 5.000 | Rp 3.000 | Rp 500 | Rp 10.000 |
+Semua akun contoh memakai kata sandi `Password123`.
 
 ---
 
-## 🏗️ Database Initialization
-
-### Development (Auto)
-
-On first API run, the database is automatically created and seeded:
-
-1. `EnsureCreatedAsync()` — Creates database if not exists
-2. `SeedAsync()` — Seeds data if no users exist
-
-### Production (Migrations)
+## Mengganti provider
 
 ```bash
-# Create initial migration
-dotnet ef migrations add InitialCreate --project FastRide.Data
+# PostgreSQL
+docker run -d --name fastride-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
 
-# Apply migration
-dotnet ef database update --project FastRide.Data
+# lalu ubah appsettings.json
+"Database": { "Provider": "PostgreSQL" }
 ```
 
----
+Bisa juga lewat variabel lingkungan tanpa mengubah berkas:
 
-## 📊 Query Performance
+```bash
+export Database__Provider=PostgreSQL
+dotnet run --project FastRide.Api
+```
 
-### Indexes
-
-| Table | Index | Type |
-|-------|-------|------|
-| `Users` | `Email` | Unique |
-| `Orders` | `Status` | Non-clustered |
-| `Orders` | `CreatedAt` | Non-clustered |
-| `Orders` | `RiderId` | Foreign Key |
-| `Orders` | `DriverId` | Foreign Key |
-| `Payments` | `Status` | Non-clustered |
-| `Promos` | `Code` | Unique |
-
-### Optimization Tips
-
-1. Use `.AsNoTracking()` for read-only queries
-2. Include navigation properties only when needed (`.Include()`)
-3. Use pagination (`.Skip()`, `.Take()`) for large datasets
-4. Consider adding composite indexes for frequent filter combinations
+Skema dan data contoh dibuat otomatis pada database baru.

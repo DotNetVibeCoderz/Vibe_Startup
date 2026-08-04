@@ -1,0 +1,497 @@
+﻿/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+   FastRide Rider â€” mobile design system
+
+   Same signal language as the admin console (amber waits, jade goes,
+   vermilion stops) tuned for a phone held one-handed: a single column,
+   large touch targets, and one accent that carries the driver's identity.
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+
+:root {
+    --malam:      #0E1524;
+    --aspal:      #161F33;
+    --aspal-2:    #1D2942;
+    --garis:      #26324D;
+
+    --lampu:      #FFB020;
+    --lampu-soft: rgba(255, 176, 32, .14);
+    --jalan:      #23C48E;
+    --jalan-soft: rgba(35, 196, 142, .14);
+    --sirene:     #FF5A45;
+    --sirene-soft:rgba(255, 90, 69, .14);
+    --lintas:     #5B9DFF;
+    --lintas-soft:rgba(91, 157, 255, .14);
+
+    --kapur:      #EEF3FB;
+    --kabut:      #8FA0C0;
+    --kabut-dim:  #64748F;
+
+    /* The driver app leads with jade — this app is about being clear to go. */
+    --peran:      var(--jalan);
+    --peran-soft: var(--jalan-soft);
+    --peran-ink:  #08130e;
+
+    --radius:     14px;
+    --radius-sm:  9px;
+
+    --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --font-body:    "IBM Plex Sans", system-ui, sans-serif;
+    --font-mono:    "IBM Plex Mono", ui-monospace, monospace;
+
+    color-scheme: dark;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--malam);
+    color: var(--kapur);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+    overscroll-behavior: none;
+}
+
+h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.15;
+    letter-spacing: .02em;
+}
+
+a { color: var(--peran); text-decoration: none; }
+
+.num, .money, .code {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+.code { font-size: .8rem; color: var(--kabut); }
+
+:focus-visible { outline: 2px solid var(--peran); outline-offset: 2px; }
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ shell â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 76px;   /* clearance for the tab bar */
+}
+
+.topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--aspal);
+    border-bottom: 1px solid var(--garis);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.topbar__mark {
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.topbar__mark b { color: var(--peran); }
+.topbar__spacer { margin-left: auto; }
+
+.topbar__greet { font-size: .78rem; color: var(--kabut); }
+
+.screen { padding: 16px; display: grid; gap: 14px; }
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ bottom navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.tabbar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    background: var(--aspal);
+    border-top: 1px solid var(--garis);
+    display: flex;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+}
+
+.tabbar__item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 7px 2px;
+    color: var(--kabut-dim);
+    font-size: .64rem;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    font-family: var(--font-display);
+    border-radius: var(--radius-sm);
+}
+
+.tabbar__item i { font-size: 1.2rem; }
+.tabbar__item.active { color: var(--peran); background: var(--peran-soft); }
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ surfaces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.card {
+    background: var(--aspal);
+    border: 1px solid var(--garis);
+    border-radius: var(--radius);
+    padding: 15px;
+}
+
+.card--flush { padding: 0; overflow: hidden; }
+
+.card__head {
+    padding: 13px 15px;
+    border-bottom: 1px solid var(--garis);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.card__head h2 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: .08em; }
+
+/* The hero states what matters most right now: the trip in progress, or the invitation
+   to start one. It is the only element allowed to fill the screen. */
+.hero {
+    background: linear-gradient(160deg, var(--aspal-2), var(--aspal));
+    border: 1px solid var(--garis);
+    border-radius: var(--radius);
+    padding: 18px;
+    display: grid;
+    gap: 10px;
+    position: relative;
+    overflow: hidden;
+}
+
+.hero::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 18px;
+    right: 18px;
+    height: 3px;
+    background: var(--peran);
+    border-radius: 0 0 3px 3px;
+}
+
+.hero__label {
+    font-size: .66rem;
+    text-transform: uppercase;
+    letter-spacing: .16em;
+    color: var(--kabut-dim);
+}
+
+.hero__value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 2rem;
+    font-weight: 500;
+    letter-spacing: -.02em;
+}
+
+.metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.metrics--3 { grid-template-columns: repeat(3, 1fr); }
+
+.metric {
+    background: var(--aspal);
+    border: 1px solid var(--garis);
+    border-radius: var(--radius-sm);
+    padding: 11px 13px;
+    display: grid;
+    gap: 3px;
+}
+
+.metric span {
+    font-size: .62rem;
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    color: var(--kabut-dim);
+}
+
+.metric b {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 1.15rem;
+    font-weight: 500;
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ trip progress rail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   Four fixed stops, so the rider can see where the trip is without
+   reading a word. */
+
+.progress { display: flex; align-items: center; gap: 0; margin: 4px 0; }
+
+.progress__node {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--garis);
+    flex-shrink: 0;
+}
+
+.progress__node.done { background: var(--jalan); }
+.progress__node.current { background: var(--peran); box-shadow: 0 0 0 4px var(--peran-soft); }
+
+.progress__link { flex: 1; height: 2px; background: var(--garis); }
+.progress__link.done { background: var(--jalan); }
+
+.progress__labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: .6rem;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--kabut-dim);
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ route list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.route { display: grid; gap: 8px; }
+
+.route__stop { display: flex; gap: 10px; align-items: flex-start; }
+.route__stop i { margin-top: 3px; }
+.route__stop div { min-width: 0; }
+.route__stop strong { display: block; font-weight: 500; font-size: .9rem; }
+.route__stop small { color: var(--kabut-dim); }
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ list rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.rows { display: grid; }
+
+.row-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 15px;
+    border-bottom: 1px solid var(--garis);
+}
+
+.row-item:last-child { border-bottom: 0; }
+.row-item__body { flex: 1; min-width: 0; }
+.row-item__body strong { display: block; font-weight: 500; font-size: .9rem; }
+.row-item__body small { color: var(--kabut-dim); display: block; }
+.row-item__end { text-align: right; }
+
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ status semantics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-display);
+    font-size: .74rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    padding: 2px 9px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.pill--wait { color: var(--lampu);  background: var(--lampu-soft); }
+.pill--go   { color: var(--jalan);  background: var(--jalan-soft); }
+.pill--stop { color: var(--sirene); background: var(--sirene-soft); }
+.pill--move { color: var(--lintas); background: var(--lintas-soft); }
+.pill--idle { color: var(--kabut-dim); background: var(--aspal-2); }
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    /* 46px tall: comfortable for a thumb. */
+    padding: 12px 18px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--garis);
+    background: var(--aspal-2);
+    color: var(--kapur);
+    cursor: pointer;
+    width: 100%;
+}
+
+.btn:active { transform: scale(.99); }
+.btn:disabled { opacity: .5; }
+
+.btn--primary { background: var(--peran); border-color: var(--peran); color: var(--peran-ink); }
+.btn--go { background: var(--jalan); border-color: var(--jalan); color: #08130e; }
+.btn--danger { background: transparent; border-color: var(--sirene); color: var(--sirene); }
+.btn--ghost { background: transparent; }
+.btn--sm { padding: 7px 12px; font-size: .85rem; width: auto; }
+
+.btn-row { display: flex; gap: 9px; }
+.btn-row .btn { flex: 1; }
+
+.field { display: grid; gap: 5px; }
+
+.field label {
+    font-size: .64rem;
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    color: var(--kabut-dim);
+}
+
+input, select, textarea {
+    font-family: var(--font-body);
+    font-size: 16px;   /* 16px stops iOS zooming on focus */
+    background: var(--malam);
+    color: var(--kapur);
+    border: 1px solid var(--garis);
+    border-radius: var(--radius-sm);
+    padding: 11px 13px;
+    width: 100%;
+}
+
+input:focus, select:focus { border-color: var(--peran); outline: none; }
+input::placeholder { color: var(--kabut-dim); }
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ vehicle chooser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+.choice {
+    background: var(--aspal);
+    border: 1px solid var(--garis);
+    border-radius: var(--radius-sm);
+    padding: 11px 6px;
+    display: grid;
+    gap: 3px;
+    justify-items: center;
+    cursor: pointer;
+    color: var(--kabut);
+}
+
+.choice i { font-size: 1.3rem; }
+.choice small { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; }
+.choice b { font-family: var(--font-mono); font-size: .78rem; color: var(--kapur); }
+
+.choice.selected {
+    border-color: var(--peran);
+    background: var(--peran-soft);
+    color: var(--kapur);
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ feedback & states â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.alert { padding: 11px 13px; border-radius: var(--radius-sm); font-size: .85rem; border: 1px solid; }
+.alert--error { background: var(--sirene-soft); border-color: var(--sirene); color: var(--sirene); }
+.alert--ok    { background: var(--jalan-soft);  border-color: var(--jalan);  color: var(--jalan); }
+.alert--warn  { background: var(--lampu-soft);  border-color: var(--lampu);  color: var(--lampu); }
+
+.empty { padding: 34px 18px; text-align: center; color: var(--kabut-dim); }
+.empty i { font-size: 1.9rem; display: block; margin-bottom: 8px; opacity: .6; }
+.empty strong { display: block; color: var(--kabut); font-weight: 500; margin-bottom: 3px; }
+
+.spinner {
+    width: 17px;
+    height: 17px;
+    border: 2px solid var(--garis);
+    border-top-color: var(--peran);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.skeleton {
+    background: linear-gradient(90deg, var(--aspal-2) 25%, var(--garis) 50%, var(--aspal-2) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.3s linear infinite;
+    border-radius: var(--radius-sm);
+    height: 15px;
+}
+
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ sign-in â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.gate {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 22px;
+    background:
+        repeating-linear-gradient(0deg, transparent 0 39px, var(--garis) 39px 40px),
+        repeating-linear-gradient(90deg, transparent 0 39px, var(--garis) 39px 40px),
+        var(--malam);
+}
+
+.gate__card {
+    width: min(380px, 100%);
+    background: var(--aspal);
+    border: 1px solid var(--garis);
+    border-radius: var(--radius);
+    padding: 24px;
+    display: grid;
+    gap: 13px;
+}
+
+.gate__mark {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+}
+
+.gate__mark b { color: var(--peran); }
+
+.gate__hint {
+    font-size: .74rem;
+    color: var(--kabut-dim);
+    border-top: 1px solid var(--garis);
+    padding-top: 11px;
+}
+
+.gate__hint code { font-family: var(--font-mono); color: var(--kabut); }
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ utilities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+.muted { color: var(--kabut); }
+.dim { color: var(--kabut-dim); }
+.go { color: var(--jalan); }
+.stop { color: var(--sirene); }
+.wait { color: var(--lampu); }
+.peran { color: var(--peran); }
+.row { display: flex; gap: 10px; align-items: center; }
+.spacer { margin-left: auto; }
+.stack { display: grid; gap: 12px; }
+.stack--tight { gap: 7px; }
+.center { text-align: center; }
+.small { font-size: .8rem; }
+
+.avatar { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; }
+.avatar--lg { width: 66px; height: 66px; }
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important;
+    }
+}
+

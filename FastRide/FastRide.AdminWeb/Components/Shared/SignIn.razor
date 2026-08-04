@@ -1,0 +1,88 @@
+@inject ApiClient Api
+@inject AdminSession Session
+
+<div class="gate">
+    <form class="gate__card" @onsubmit="Submit" @onsubmit:preventDefault>
+        <div>
+            <div class="gate__mark">Fast<b>Ride</b></div>
+            <p class="dim" style="margin:2px 0 0;font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;">
+                Konsol Operasi
+            </p>
+        </div>
+
+        <p class="muted" style="margin:0;">Masuk dengan akun admin untuk memantau armada dan order.</p>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert--error" role="alert">@_error</div>
+        }
+
+        <div class="field">
+            <label for="email">Email</label>
+            <input id="email" type="email" autocomplete="username" @bind="_email" @bind:event="oninput"
+                   placeholder="admin@fastride.com" />
+        </div>
+
+        <div class="field">
+            <label for="password">Kata sandi</label>
+            <input id="password" type="password" autocomplete="current-password" @bind="_password" @bind:event="oninput"
+                   placeholder="••••••••" />
+        </div>
+
+        <button class="btn btn--primary full" type="submit" disabled="@_busy">
+            @if (_busy)
+            {
+                <span class="spinner"></span>
+                <span>Memeriksa</span>
+            }
+            else
+            {
+                <i class="bi bi-box-arrow-in-right"></i>
+                <span>Masuk</span>
+            }
+        </button>
+
+        <div class="gate__hint">
+            Akun demo: <code>admin@fastride.com</code> · <code>Password123</code><br />
+            API harus berjalan di <code>@ApiBaseUrl</code>.
+        </div>
+    </form>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnSignedIn { get; set; }
+    [Inject] private IConfiguration Config { get; set; } = default!;
+
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private string? _error;
+    private bool _busy;
+
+    private string ApiBaseUrl => Config["ApiSettings:BaseUrl"] ?? "https://localhost:5001";
+
+    private async Task Submit()
+    {
+        if (_busy) return;
+
+        _error = null;
+
+        if (string.IsNullOrWhiteSpace(_email) || string.IsNullOrWhiteSpace(_password))
+        {
+            _error = "Isi email dan kata sandi dulu.";
+            return;
+        }
+
+        _busy = true;
+        var result = await Api.LoginAsync(_email.Trim(), _password);
+        _busy = false;
+
+        if (!result.Success || result.Value is null)
+        {
+            _error = result.Error;
+            return;
+        }
+
+        Session.Apply(result.Value);
+        await OnSignedIn.InvokeAsync();
+    }
+}

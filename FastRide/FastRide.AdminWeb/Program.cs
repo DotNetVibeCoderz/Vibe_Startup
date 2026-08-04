@@ -2,24 +2,34 @@ using FastRide.AdminWeb.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Blazor Server services
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// HttpClient for API
+// One session per Blazor circuit — two browser tabs must not share an admin token.
+builder.Services.AddScoped<AdminSession>();
+
 builder.Services.AddHttpClient<ApiClient>(client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["ApiSettings:BaseUrl"]
-        ?? "https://localhost:5001");
-    client.Timeout = TimeSpan.FromSeconds(
-        builder.Configuration.GetValue<int>("ApiSettings:TimeoutSeconds", 30));
+    client.BaseAddress = new Uri(builder.Configuration["ApiSettings:BaseUrl"] ?? "https://localhost:5001");
+    client.Timeout = TimeSpan.FromSeconds(builder.Configuration.GetValue("ApiSettings:TimeoutSeconds", 30));
+})
+.ConfigurePrimaryHttpMessageHandler(() =>
+{
+    var handler = new HttpClientHandler();
+
+    // The API runs behind a development certificate locally; trusting it here keeps the
+    // console usable without an extra certificate dance. Never enabled outside Development.
+    if (builder.Environment.IsDevelopment())
+        handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+
+    return handler;
 });
 
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Error");
+    app.UseExceptionHandler("/Error", createScopeForErrors: true);
     app.UseHsts();
 }
 

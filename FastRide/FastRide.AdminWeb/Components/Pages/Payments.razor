@@ -1,44 +1,136 @@
 @page "/payments"
-@inject ApiClient ApiClient
+@inject ApiClient Api
 
-<PageTitle>FastRide Admin - Payments</PageTitle>
+<PageTitle>Pembayaran · FastRide</PageTitle>
 
-<h2 class="fw-bold mb-4"><i class="bi bi-credit-card text-warning me-2"></i>Payments</h2>
+<div class="page-head">
+    <div>
+        <h1>Pembayaran</h1>
+        <p>Setiap perjalanan selesai menghasilkan tepat satu transaksi.</p>
+    </div>
+    <button class="btn btn--ghost" @onclick="LoadAsync"><i class="bi bi-arrow-clockwise"></i><span>Segarkan</span></button>
+</div>
 
-@if (_loading)
-{ <div class="text-center py-5"><div class="spinner-border text-warning"></div></div> }
-else if (_payments?.Data.Any() == true)
-{
-    <div class="card stat-card"><div class="card-body p-0">
-    <table class="table table-dark table-striped table-fastride mb-0">
-    <thead><tr><th>Transaction</th><th>Order</th><th>Amount</th><th>Method</th><th>Status</th><th>Date</th></tr></thead>
-    <tbody>
-    @foreach (var p in _payments.Data)
+<section class="panel">
+    <div class="panel__body">
+        <div class="filters">
+            <div class="field">
+                <label for="method">Metode</label>
+                <select id="method" @bind="SelectedMethod">
+                    <option value="">Semua metode</option>
+                    @foreach (var method in Enum.GetValues<PaymentMethod>())
+                    {
+                        <option value="@method">@Display.Label(method)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label for="from">Dari</label>
+                <input id="from" type="date" @bind="_from" />
+            </div>
+            <div class="field">
+                <label for="to">Sampai</label>
+                <input id="to" type="date" @bind="_to" />
+            </div>
+            <button class="btn btn--primary" @onclick="ApplyFilters"><i class="bi bi-funnel"></i><span>Terapkan</span></button>
+            <button class="btn btn--ghost" @onclick="ResetFilters">Reset</button>
+        </div>
+    </div>
+</section>
+
+<section class="panel mt">
+    @if (_loading)
     {
-        <tr>
-            <td><code>@(p.TransactionReference ?? p.Id.ToString()[..8])</code></td>
-            <td><code>#@p.OrderId.ToString()[..8]</code></td>
-            <td>Rp @p.Amount.ToString("N0")</td>
-            <td>@MethodIcon(p.Method) @p.Method</td>
-            <td><span class="badge @(p.Status == "Completed" ? "bg-success" : "bg-warning text-dark")">@p.Status</span></td>
-            <td><small>@p.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</small></td>
-        </tr>
+        <div class="panel__body stack stack--tight">
+            @for (var i = 0; i < 8; i++)
+            {
+                <div class="skeleton"></div>
+            }
+        </div>
     }
-    </tbody></table></div></div>
-}
+    else if (_result.Total == 0)
+    {
+        <EmptyState Icon="bi-receipt" Title="Belum ada pembayaran pada rentang ini"
+                    Hint="Lebarkan rentang tanggal atau hapus filter metode." />
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="grid-table">
+                <thead>
+                    <tr>
+                        <th>Referensi</th>
+                        <th>Order</th>
+                        <th>Metode</th>
+                        <th>Status</th>
+                        <th class="right">Diskon</th>
+                        <th class="right">Nilai</th>
+                        <th>Waktu</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var payment in _result.Data)
+                    {
+                        <tr>
+                            <td class="code">@payment.TransactionReference</td>
+                            <td class="code">@payment.OrderCode</td>
+                            <td>@Display.Label(payment.Method)</td>
+                            <td><span class="@Display.PillClass(payment.Status)">@payment.Status</span></td>
+                            <td class="right money dim">
+                                @(payment.DiscountAmount > 0 ? "−" + Display.Rupiah(payment.DiscountAmount) : "—")
+                            </td>
+                            <td class="right money">@Display.Rupiah(payment.Amount)</td>
+                            <td class="dim nowrap">@Display.DateTimeShort(payment.CompletedAt ?? payment.CreatedAt)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <Pager TItem="PaymentResponse" Result="_result" OnPageChanged="GoToPageAsync" />
+    }
+</section>
 
 @code {
-    private PaginatedResult<PaymentItem>? _payments;
+    private PagedResult<PaymentResponse> _result = new();
+    private PaymentMethod? _method;
+    private DateTime? _from;
+    private DateTime? _to;
+    private int _page = 1;
     private bool _loading = true;
 
-    protected override async Task OnInitializedAsync()
+    private string SelectedMethod
     {
-        _payments = await ApiClient.GetPayments();
+        get => _method?.ToString() ?? string.Empty;
+        set => _method = Enum.TryParse<PaymentMethod>(value, out var method) ? method : null;
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _result = await Api.GetPaymentsAsync(_page, 25, _method, _from, _to);
         _loading = false;
     }
 
-    private string MethodIcon(string m) => m switch
+    private async Task ApplyFilters()
     {
-        "Cash" => "💵", "EWallet" => "📱", "CreditCard" => "💳", "BankTransfer" => "🏦", _ => "💰"
-    };
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private async Task ResetFilters()
+    {
+        _method = null;
+        _from = null;
+        _to = null;
+        await ApplyFilters();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
+    }
 }

@@ -1,0 +1,252 @@
+@page "/pay/{OrderId:guid}"
+@implements IDisposable
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<div class="topbar">
+    <button class="btn btn--sm btn--ghost" @onclick="GoBack" aria-label="Kembali">
+        <i class="bi bi-chevron-left"></i>
+    </button>
+    <div class="topbar__mark">Pembayaran</div>
+</div>
+
+<div class="screen">
+    @if (_loading)
+    {
+        <div class="hero stack">
+            <div class="skeleton" style="width:45%"></div>
+            <div class="skeleton" style="height:30px"></div>
+        </div>
+    }
+    else if (_message is not null && _payment is null)
+    {
+        <div class="alert alert--error">@_message</div>
+        <button class="btn" @onclick="LoadAsync"><i class="bi bi-arrow-clockwise"></i><span>Coba lagi</span></button>
+    }
+    else if (_payment is { IsSettled: true })
+    {
+        @* Nothing left to do — say so plainly and get out of the way. *@
+        <div class="hero">
+            <span class="hero__label">Pembayaran berhasil</span>
+            <div class="hero__value go">@Display.Rupiah(_payment.Amount)</div>
+            <span class="small muted">
+                @Display.Label(_payment.Method) · @_payment.TransactionReference
+            </span>
+            <button class="btn btn--go" @onclick="GoBack">
+                <i class="bi bi-check2-circle"></i><span>Selesai</span>
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="hero">
+            <span class="hero__label">Total tagihan</span>
+            <div class="hero__value">@Display.Rupiah(_amount)</div>
+            @if (_payment is not null)
+            {
+                <span class="@Display.PillClass(_payment.Status)">@Display.Label(_payment.Status)</span>
+            }
+        </div>
+
+        @if (_message is not null)
+        {
+            <div class="alert @(_messageIsError ? "alert--error" : "alert--ok")">@_message</div>
+        }
+
+        @if (_payment is { IsInFlight: true, Method: PaymentMethod.Qris, QrImage: not null })
+        {
+            @* The QR is the whole screen while it is live. *@
+            <div class="card stack center">
+                <strong>Pindai dengan aplikasi bank atau e-wallet</strong>
+                <img src="@_payment.QrImage" alt="Kode QRIS"
+                     style="width:100%;max-width:260px;margin:0 auto;border-radius:var(--radius-sm);background:#fff;padding:8px;" />
+                <span class="small muted">Berlaku sampai @Countdown</span>
+            </div>
+
+            <button class="btn btn--ghost" @onclick="LoadAsync">
+                <i class="bi bi-arrow-clockwise"></i><span>Sudah bayar? Periksa status</span>
+            </button>
+        }
+        else if (_payment is { IsInFlight: true, Method: PaymentMethod.VirtualAccount or PaymentMethod.BankTransfer, PaymentPayload: not null })
+        {
+            <div class="card stack">
+                <strong>Nomor Virtual Account</strong>
+                <div class="hero__value num" style="font-size:1.5rem;">@_payment.PaymentPayload</div>
+                <span class="small muted">Transfer tepat @Display.Rupiah(_amount) sebelum @Countdown</span>
+            </div>
+
+            <button class="btn btn--ghost" @onclick="LoadAsync">
+                <i class="bi bi-arrow-clockwise"></i><span>Periksa status</span>
+            </button>
+        }
+        else if (_payment is { IsInFlight: true, PaymentPayload: not null })
+        {
+            <div class="card stack">
+                <strong>Lanjutkan di aplikasi @Display.Label(_payment.Method)</strong>
+                <span class="small muted">Kamu akan diarahkan untuk menyetujui pembayaran.</span>
+                <a class="btn btn--primary" href="@_payment.PaymentPayload" target="_blank" rel="noopener">
+                    <i class="bi bi-box-arrow-up-right"></i><span>Buka halaman pembayaran</span>
+                </a>
+            </div>
+        }
+        else
+        {
+            @* No charge yet, or the last one failed — let the rider pick how to pay. *@
+            <div class="stack stack--tight">
+                <span class="dim small" style="text-transform:uppercase;letter-spacing:.14em;">Pilih metode</span>
+
+                @if (_methods.Count == 0)
+                {
+                    <div class="alert alert--warn">
+                        Belum ada metode pembayaran yang aktif. Hubungi dukungan FastRide.
+                    </div>
+                }
+                else
+                {
+                    <div class="choices">
+                        @foreach (var option in _methods)
+                        {
+                            <div class="choice @(_selected == option.Method ? "selected" : "")"
+                                 role="button" tabindex="0" @onclick="() => _selected = option.Method">
+                                <i class="@option.Icon"></i>
+                                <small>@option.Label</small>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            @if (_selected == PaymentMethod.EWallet)
+            {
+                <div class="field">
+                    <label for="wallet">Dompet</label>
+                    <select id="wallet" @bind="SelectedWallet">
+                        @foreach (var channel in Wallets)
+                        {
+                            <option value="@channel">@Display.Label(channel)</option>
+                        }
+                    </select>
+                </div>
+            }
+
+            <button class="btn btn--primary" @onclick="ChargeAsync" disabled="@(_busy || _methods.Count == 0)">
+                @if (_busy)
+                {
+                    <span class="spinner"></span>
+                    <span>Menyiapkan</span>
+                }
+                else
+                {
+                    <i class="bi bi-shield-check"></i>
+                    <span>Bayar @Display.Rupiah(_amount)</span>
+                }
+            </button>
+        }
+
+        @* Sandbox only: the API refuses this outside development, so a live build cannot
+           mark its own trip paid. *@
+        @if (_payment is { IsInFlight: true, ProviderName: "simulated" })
+        {
+            <button class="btn btn--ghost small" @onclick="SandboxSettleAsync" disabled="@_busy">
+                <i class="bi bi-magic"></i><span>Simulasikan pembayaran berhasil</span>
+            </button>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public Guid OrderId { get; set; }
+
+    private static readonly EWalletChannel[] Wallets =
+        [EWalletChannel.GoPay, EWalletChannel.Ovo, EWalletChannel.Dana, EWalletChannel.ShopeePay, EWalletChannel.LinkAja];
+
+    private List<PaymentMethodOption> _methods = [];
+    private PaymentResponse? _payment;
+    private OrderDetailResponse? _order;
+    private PaymentMethod _selected = PaymentMethod.Qris;
+    private EWalletChannel _wallet = EWalletChannel.GoPay;
+    private decimal _amount;
+    private bool _loading = true, _busy;
+    private string? _message;
+    private bool _messageIsError;
+    private Timer? _timer;
+
+    private string SelectedWallet
+    {
+        get => _wallet.ToString();
+        set => _wallet = Enum.Parse<EWalletChannel>(value);
+    }
+
+    private string Countdown => _payment?.ExpiresAt is { } expiresAt
+        ? expiresAt.ToLocalTime().ToString("HH:mm")
+        : "—";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _methods = await Api.GetPaymentMethodsAsync();
+
+        // Default to whatever the platform actually offers, preferring QRIS.
+        if (_methods.Count > 0 && _methods.All(option => option.Method != _selected))
+            _selected = _methods[0].Method;
+
+        await LoadAsync();
+
+        // A QR is paid on another device, so the only way to notice is to keep asking.
+        _timer = new Timer(async _ => await InvokeAsync(async () =>
+        {
+            if (_payment is { IsInFlight: true })
+            {
+                await LoadAsync();
+                StateHasChanged();
+            }
+        }), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task LoadAsync()
+    {
+        _order ??= await Api.GetOrderAsync(OrderId);
+        _amount = _order?.FinalFare ?? 0;
+
+        // A missing payment is normal before the first charge, not an error.
+        _payment = await Api.GetPaymentAsync(OrderId);
+        if (_payment is not null) _amount = _payment.Amount;
+
+        if (_order is null && _payment is null)
+        {
+            _messageIsError = true;
+            _message = "Perjalanan tidak ditemukan.";
+        }
+
+        _loading = false;
+    }
+
+    private async Task ChargeAsync()
+    {
+        _busy = true;
+        _message = null;
+
+        var (payment, error) = await Api.ChargeAsync(OrderId, _selected, _wallet);
+
+        _busy = false;
+        _messageIsError = error is not null;
+        _message = error;
+
+        if (payment is not null) _payment = payment;
+    }
+
+    private async Task SandboxSettleAsync()
+    {
+        _busy = true;
+        var (payment, error) = await Api.SandboxSettleAsync(OrderId);
+        _busy = false;
+
+        _messageIsError = error is not null;
+        _message = error;
+
+        if (payment is not null) _payment = payment;
+    }
+
+    private void GoBack() => Nav.NavigateTo($"/track/{OrderId}");
+
+    public void Dispose() => _timer?.Dispose();
+}

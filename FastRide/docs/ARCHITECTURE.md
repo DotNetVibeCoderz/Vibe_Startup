@@ -1,285 +1,220 @@
-# 🏛️ Architecture — FastRide
-
-> Deep dive into the FastRide system architecture, design patterns, and technical decisions.
+# 🏛️ Arsitektur — FastRide
 
 ---
 
-## 🎯 Architectural Goals
-
-1. **Separation of Concerns** — Clear boundaries between layers
-2. **Testability** — Each component testable in isolation
-3. **Scalability** — Horizontal scaling ready
-4. **Maintainability** — Clean code, consistent patterns
-5. **Performance** — Efficient algorithms, minimal overhead
-
----
-
-## 🏗️ Solution Structure
+## Arah ketergantungan
 
 ```
-FastRide.sln
-├── FastRide.Shared/           # 📦 Shared Kernel
-│   ├── Models/                #   Domain entities
-│   │   ├── User.cs
-│   │   ├── Order.cs
-│   │   ├── Payment.cs
-│   │   ├── Common.cs
-│   │   └── Enums.cs
-│   └── DTOs/
-│       └── DTOs.cs            #   Data Transfer Objects
-│
-├── FastRide.Data/             # 🗄️ Data Access Layer
-│   ├── FastRideDbContext.cs   #   EF Core context
-│   └── SampleDataSeeder.cs   #   Development seed data
-│
-├── FastRide.Api/              # 🚀 Application Layer (Minimal API)
-│   ├── Program.cs             #   Endpoints + DI configuration
-│   └── appsettings.json       #   Configuration
-│
-├── FastRide.AdminWeb/         # 🖥️ Presentation (Blazor Server)
-│   ├── Components/
-│   │   ├── App.razor
-│   │   ├── Routes.razor
-│   │   ├── Layout/
-│   │   │   └── MainLayout.razor
-│   │   └── Pages/
-│   │       ├── Dashboard.razor
-│   │       ├── Orders.razor
-│   │       ├── Drivers.razor
-│   │       ├── Riders.razor
-│   │       ├── Payments.razor
-│   │       ├── Promos.razor
-│   │       └── Analytics.razor
-│   └── wwwroot/
-│       └── css/app.css
-│
-├── FastRide.RiderApp/         # 📱 Mobile (MAUI Blazor)
-│   ├── MauiProgram.cs
-│   ├── Pages/
-│   │   ├── Home.razor
-│   │   ├── BookRide.razor
-│   │   ├── MyTrips.razor
-│   │   └── Profile.razor
-│   └── wwwroot/
-│
-├── FastRide.DriverApp/        # 📱 Mobile (MAUI Blazor)
-│   ├── MauiProgram.cs
-│   ├── Pages/
-│   │   ├── Home.razor
-│   │   ├── Earnings.razor
-│   │   └── DriverProfile.razor
-│   └── wwwroot/
-│
-├── FastRide.Simulator/        # 🎮 Simulation (Console)
-│   └── Program.cs
-│
-└── docs/                      # 📘 Documentation
-    ├── API.md
-    ├── AUTH.md
-    ├── DATABASE.md
-    ├── SIMULATOR.md
-    ├── DASHBOARD.md
-    ├── ARCHITECTURE.md
-    └── DEPLOYMENT.md
+FastRide.Shared  ◄── FastRide.Data  ◄── FastRide.Api
+       ▲
+       ├── FastRide.AdminWeb    (HTTP saja)
+       ├── FastRide.RiderApp    (HTTP saja)
+       ├── FastRide.DriverApp   (HTTP saja)
+       └── FastRide.Simulator   (HTTP saja)
 ```
 
+Aturannya satu kalimat: **hanya API yang menyentuh database.** Setiap klien berbicara lewat
+HTTP dan memakai kontrak dari `FastRide.Shared`.
+
+> AdminWeb dulu mereferensikan `FastRide.Data` (walau tidak memakainya). Referensi itu
+> dihapus: proses kedua yang memegang `DbContext` yang sama akan melewati seluruh aturan
+> yang ditegakkan API.
+
 ---
 
-## 🔗 Project Dependencies
+## Proyek
+
+### `FastRide.Shared`
+
+Satu-satunya sumber kebenaran untuk apa pun yang melintasi batas proses.
 
 ```
-FastRide.Shared ◄─── FastRide.Data
-     ▲                    ▲
-     │                    │
-     ├────────────────────┤
-     │                    │
-FastRide.Api        FastRide.AdminWeb
-     │
-     ├──── FastRide.RiderApp
-     ├──── FastRide.DriverApp
-     └──── FastRide.Simulator
+Models/        entity domain + enum
+DTOs/          seluruh request & response
+Common/        PagedResult, GeoUtils, Display, ApiError
+Storage/       antarmuka IStorageProvider
 ```
 
----
+`Display` juga tinggal di sini: pemetaan status ke warna sinyal dan label bahasa Indonesia
+dipakai identik oleh konsol admin dan kedua aplikasi mobile, jadi sebuah status tidak
+mungkin berarti satu hal di dashboard dan hal lain di ponsel.
 
-## 🧱 Layer Details
+> Sebelumnya setiap aplikasi mobile mendeklarasikan **salinan `VehicleCategory` dan
+> `PaymentMethod` sendiri**. Karena enum bernilai 1-based dan klien mengirim angka mentah,
+> menukar urutan di satu tempat akan diam-diam mengubah arti di tempat lain.
 
-### 1. Shared Layer (`FastRide.Shared`)
+### `FastRide.Data`
 
-**Purpose:** Shared kernel containing domain models, DTOs, and enums used by all projects.
+`FastRideDbContext` (konfigurasi fluent, indeks, seed tabel tarif) dan `SampleDataSeeder`.
 
-**Key Decisions:**
-- **C# `record` types for DTOs** — Immutable, value-based equality
-- **No external dependencies** — Pure .NET class library
-- **Domain enums** — Type-safe status and category definitions
-
-**Models:**
-| Model | Type | Purpose |
-|-------|------|---------|
-| `User` | Entity | Core user with Rider/Driver role |
-| `DriverProfile` | Entity | Extended driver information |
-| `Order` | Aggregate Root | Complete ride order lifecycle |
-| `TripStop` | Value Object | Intermediate stop in multi-stop trip |
-| `Payment` | Entity | Payment transaction record |
-| `Promo` | Entity | Discount code configuration |
-| `Notification` | Entity | User notification record |
-| `Review` | Entity | Post-trip rating and review |
-| `FareConfig` | Entity | Pricing configuration per vehicle |
-
-**Enums (10):**
-`UserRole`, `DriverStatus`, `OrderStatus`, `VehicleCategory`, `PaymentMethod`, `PaymentStatus`, `PromoType`, `NotificationType`, `TripStopType`
-
----
-
-### 2. Data Layer (`FastRide.Data`)
-
-**Purpose:** Database access via Entity Framework Core.
-
-**Key Decisions:**
-- **EF Core Fluent API** — Full control over schema
-- **SQLite default** — Zero-config development database
-- **Multi-provider ready** — Switch to SQL Server/MySQL/PostgreSQL via connection string
-- **Seed data** — Rich development data for demos
-
-**DbContext Configuration:**
-- 9 DbSets for all entities
-- Composite indexes on frequently queried columns
-- Relationship configurations with cascade behaviors
-- Decimal precision (18,2) for monetary values
-
----
-
-### 3. API Layer (`FastRide.Api`)
-
-**Purpose:** REST/GRPC API using .NET Minimal API.
-
-**Key Decisions:**
-- **Minimal API** — Less ceremony, better performance
-- **Endpoint grouping** — Organized by domain (Auth, Orders, Drivers, etc.)
-- **CORS-enabled** — Allow Blazor and MAUI clients
-- **Auto-migration** — Database created and seeded on startup
-- **OpenAPI** — Swagger documentation in development
-
-**Endpoints:**
-| Group | Count | Status |
-|-------|-------|--------|
-| Health | 1 | ✅ Complete |
-| Auth | 2 | 🟡 Scaffold |
-| Riders | 1 | ✅ Complete |
-| Drivers | 1 | ✅ Complete |
-| Orders | 2 | 🟡 Partial |
-| Payments | 1 | 🟡 Scaffold |
-| Dashboard | 1 | ✅ Complete |
-
----
-
-### 4. Admin Web (`FastRide.AdminWeb`)
-
-**Purpose:** Blazor Server admin dashboard.
-
-**Key Decisions:**
-- **Blazor Server** — Real-time UI without JavaScript SPA complexity
-- **Bootstrap 5.3** — Responsive, familiar component library
-- **Custom dark theme** — Brand-consistent styling
-- **Chart.js** — Client-side charts via CDN
-
-**Design Patterns:**
-- `MainLayout` — Shared layout with sidebar navigation
-- `@page` routing — Blazor-native page navigation
-- Component composition — Reusable card, table patterns
-
----
-
-### 5. Mobile Apps (`FastRide.RiderApp`, `FastRide.DriverApp`)
-
-**Purpose:** MAUI Blazor Hybrid apps for iOS, Android, and Windows.
-
-**Key Decisions:**
-- **MAUI Blazor Hybrid** — Shared Blazor components across platforms
-- **Single Project** — One project per app for all platforms
-- **Bootstrap CDN** — Consistent styling with admin dashboard
-- **Mobile-optimized UI** — Touch-friendly, responsive design
-
-**Target Frameworks:**
-- `net10.0-android`
-- `net10.0-ios`
-- `net10.0-maccatalyst`
-- `net10.0-windows10.0.19041.0`
-
----
-
-### 6. Simulator (`FastRide.Simulator`)
-
-**Purpose:** Console-based parallel simulation for load testing.
-
-**Key Decisions:**
-- **Spectre.Console** — Rich console UI with live tables
-- **Task-based parallelism** — `Task.Run` for concurrent simulation
-- **Thread-safe collections** — `lock` for shared order list
-- **Configurable parameters** — Rider count, driver count, duration
-
----
-
-## 🔄 Data Flow
-
-### Order Lifecycle
+### `FastRide.Api`
 
 ```
-Rider creates order
-       │
-       ▼
-  [Requested] ──► Driver searches for orders
-       │                │
-       │                ▼
-       │           [Accepted] ──► Driver heads to pickup
-       │                │
-       │                ▼
-       │           [DriverArrived] ──► Rider enters vehicle
-       │                │
-       │                ▼
-       │           [Started] ──► Trip in progress
-       │                │
-       │                ▼
-       │           [Completed] ──► Payment processed
-       │                │
-       ▼                ▼
-  [Cancelled]      [Review submitted]
-  [Expired]
+Program.cs              perakitan host saja
+Extensions/             AddFastRideDatabase / Cache / Storage / Auth / Cors / RateLimiting / Json
+Security/               TokenService, CurrentUser, SecurityStampMiddleware, Policies
+Services/               PricingService, OrderService, DispatchService, NotificationService,
+                        CacheService, CsvExporter, Result
+Endpoints/              satu berkas per area
+Infrastructure/         penyedia storage (FileSystem, S3, Azure Blob)
+```
+
+> Sampai v1.x seluruh permukaan HTTP berupa lambda satu baris di dalam satu `Program.cs`
+> sepanjang ±240 baris, dengan record request menumpuk di bagian bawah berkas. Pemecahan
+> ini bukan soal estetika: aturan seperti "satu perjalanan aktif per rider" atau "satu
+> pembayaran per order" tidak punya tempat untuk hidup di dalam lambda.
+
+### `FastRide.AdminWeb`
+
+Blazor Server, render mode `InteractiveServer` global. Halaman meng-*inject* `ApiClient` dan
+memanggil API lewat HTTP; tidak ada yang menyentuh `DbContext`.
+
+### `FastRide.RiderApp` / `FastRide.DriverApp`
+
+MAUI Blazor Hybrid. Masing-masing punya `ApiClient` sendiri (endpoint-nya memang berbeda)
+tetapi keduanya memakai DTO bersama. Sesi disimpan di `SecureStorage`.
+
+### `FastRide.Simulator`
+
+Konsol Spectre.Console yang menjalankan API sungguhan: setiap penumpang dan driver simulasi
+punya klien HTTP dan tokennya sendiri.
+
+---
+
+## Alur permintaan
+
+```
+Klien
+  │  Authorization: Bearer <jwt>
+  ▼
+UseRateLimiter        batas per klien
+UseAuthentication     validasi tanda tangan JWT
+SecurityStampMiddleware   token masih milik sesi yang hidup?
+UseAuthorization      kebijakan peran
+  ▼
+Endpoint              cek kepemilikan (CanAccess)
+  ▼
+Service               aturan domain (PricingService, OrderService, DispatchService)
+  ▼
+DbContext (pooled)    query berproyeksi, AsNoTracking
 ```
 
 ---
 
-## 🎨 Design Patterns Used
+## Keputusan penting
 
-| Pattern | Usage |
-|---------|-------|
-| **Repository** (via EF Core) | Data access abstraction |
-| **DTO** | API request/response contracts |
-| **Dependency Injection** | Built-in .NET DI container |
-| **Options Pattern** | Configuration binding |
-| **Minimal API** | Lightweight HTTP endpoints |
-| **Aggregate Root** | Order as consistency boundary |
-| **Seeder Pattern** | Development data initialization |
+### Siklus order tinggal di satu tempat
+
+`OrderService` memiliki tabel transisi yang sah:
+
+```csharp
+Requested     → Accepted, Cancelled, Expired
+Accepted      → DriverArrived, Started, Cancelled
+DriverArrived → Started, Cancelled
+Started       → Completed, Cancelled
+Completed / Cancelled / Expired → (akhir)
+```
+
+Transisi lain ditolak `409`. Aturannya sama entah pemanggilnya aplikasi driver, konsol
+admin, atau simulator.
+
+### Perebutan diselesaikan di database, bukan di memori
+
+Dua tempat di mana dua pihak bisa berebut hal yang sama:
+
+```csharp
+// Menerima order — hanya satu driver yang bisa menang
+await db.Orders
+    .Where(o => o.Id == orderId && o.Status == OrderStatus.Requested && o.DriverId == null)
+    .ExecuteUpdateAsync(...);
+
+// Mengambil kuota promo — slot terakhir tidak bisa direbut dua kali
+await db.Promos
+    .Where(p => p.Id == promoId && p.UsageCount < p.UsageLimit && p.IsActive)
+    .ExecuteUpdateAsync(...);
+```
+
+Pola baca-lalu-tulis tidak bisa memberi jaminan ini. Simulator memicu perebutan ini terus
+menerus, jadi kesalahannya akan langsung terlihat.
+
+### Pembayaran idempoten
+
+Sebuah perjalanan bisa diselesaikan dari dua arah: driver menekan "selesai", atau
+pembayaran diposkan. Keduanya bermuara pada satu baris pembayaran, dijaga unique index pada
+`Payment.OrderId`. `POST /api/payments` mengembalikan pembayaran yang sudah ada alih-alih
+membuat yang kedua, dan menangkap `DbUpdateException` bila kalah dalam perlombaan.
+
+### Pencocokan dua tahap
+
+Menghitung haversine untuk setiap driver berarti memindai seluruh tabel setiap kali aplikasi
+melakukan polling. `DispatchService` menyaring dengan *bounding box* di SQL — yang bisa
+memakai indeks — lalu menghitung jarak tepat hanya untuk kandidat yang tersisa.
+
+### Cache di balik antarmuka
+
+`ICacheService` punya dua implementasi: `IMemoryCache` (bawaan) dan Redis. Kode pemanggil
+tidak tahu bedanya. Implementasi Redis memperlakukan setiap kegagalan sebagai *cache miss*
+— gangguan cache tidak boleh menjatuhkan API.
+
+Yang di-cache: ringkasan dashboard (10 detik), tabel tarif (10 menit, dibatalkan saat admin
+menyimpan), security stamp (5 menit), kode reset kata sandi (15 menit).
+
+### Enum sebagai string di kabel
+
+`JsonStringEnumConverter` dipasang di API dan seluruh klien. Respons memakai
+`"status": "Completed"`, bukan `5`. Angka masih diterima pada request demi kompatibilitas.
+Ini menghapus seluruh kelas bug di mana penambahan nilai enum menggeser arti nilai lain.
+
+### Portabilitas empat provider
+
+Query harus bisa diterjemahkan di keempat provider. Dua batasan yang sudah menggigit dan
+terdokumentasi di [`DATABASE.md`](DATABASE.md): SQLite tidak mendukung `APPLY`, dan `GroupBy`
+tidak bisa memproyeksi langsung ke konstruktor record.
 
 ---
 
-## 📊 Performance Considerations
+## Storage
 
-1. **AsNoTracking()** — Read-only queries for dashboard
-2. **Pagination** — Limit result sets (Take 50 for orders)
-3. **Indexed queries** — Status and date columns indexed
-4. **Connection pooling** — EF Core default pooling
-5. **Lazy loading disabled** — Explicit Include() for relationships
-6. **CORS optimization** — Restrict origins in production
+`IStorageProvider` punya tiga implementasi, dipilih lewat `Storage:Provider`:
+
+| Provider | Catatan |
+|----------|---------|
+| `FileSystem` | Bawaan. Disajikan sebagai berkas statis dari direktori yang benar-benar dipakai, bukan asumsi folder di `wwwroot` |
+| `S3` / `minio` | AWS Signature V4 sungguhan, gaya path |
+| `Azure` / `azureblob` | Tanda tangan Shared Key sungguhan |
+
+> Kedua penyedia awan sebelumnya mengirim header `Authorization` berisi placeholder
+> (`AWS4-HMAC-SHA256 Credential={key}/...`), jadi setiap unggahan pasti ditolak 403.
+
+`ResolveFileName(url)` memetakan URL publik kembali ke kunci storage, dan mengembalikan
+`null` untuk `data:` URI — yang membuat penghapusan avatar hasil generate tidak lagi mencoba
+menghapus berkas yang tidak pernah ada.
 
 ---
 
-## 🔮 Future Architecture
+## Performa
 
-- [ ] **Message Queue** — RabbitMQ/Kafka for order events
-- [ ] **CQRS** — Separate read/write models for analytics
-- [ ] **Event Sourcing** — Full audit trail of order state changes
-- [ ] **Microservices** — Split by bounded context
-- [ ] **API Gateway** — YARP or Ocelot for routing
-- [ ] **gRPC** — High-performance service-to-service communication
-- [ ] **Docker Compose** — Containerized development environment
+| Praktik | Di mana |
+|---------|---------|
+| `AddDbContextPool` | Semua permintaan |
+| `AsNoTracking()` + proyeksi `Select` | Semua jalur baca |
+| Satu `GroupBy` menggantikan hitungan berulang | Statistik dashboard, pendapatan driver |
+| Satu endpoint `/dashboard/overview` | Menggantikan enam panggilan polling |
+| Pra-filter bounding box | Pencocokan driver dan order |
+| Kompresi respons | Semua permintaan |
+| Indeks komposit sesuai pola query | Lihat [`DATABASE.md`](DATABASE.md) |
+
+Contoh yang paling mencolok: `orders-by-hour` dulu menjalankan **24 query `Count()` sinkron
+di dalam sebuah loop**. Sekarang satu `GroupBy`.
+
+---
+
+## Yang belum ada
+
+| Item | Dampak |
+|------|--------|
+| Tidak ada realtime (SignalR) | Semua layar melakukan polling |
+| Tidak ada migrasi EF | Ubah entity ⇒ hapus database |
+| Tidak ada gRPC | Spesifikasi menyebut REST/gRPC; sekarang REST saja |
+
+Urutan pengerjaannya ada di [`../PLAN.md`](../PLAN.md).

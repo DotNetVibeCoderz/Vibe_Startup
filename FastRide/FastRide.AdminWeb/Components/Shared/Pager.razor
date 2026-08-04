@@ -1,0 +1,35 @@
+@typeparam TItem
+
+@if (Result.Total > 0)
+{
+    <div class="pager">
+        <span>
+            Menampilkan <b class="num">@From–@To</b> dari <b class="num">@Display.Number(Result.Total)</b>
+        </span>
+        <div class="pager__controls">
+            <button class="btn btn--sm btn--ghost" disabled="@(!Result.HasPrevious)" @onclick="() => Go(1)" title="Halaman pertama">
+                <i class="bi bi-chevron-double-left"></i>
+            </button>
+            <button class="btn btn--sm btn--ghost" disabled="@(!Result.HasPrevious)" @onclick="() => Go(Result.Page - 1)">
+                <i class="bi bi-chevron-left"></i>
+            </button>
+            <span class="num" style="padding:0 6px;">@Result.Page / @Math.Max(1, Result.TotalPages)</span>
+            <button class="btn btn--sm btn--ghost" disabled="@(!Result.HasNext)" @onclick="() => Go(Result.Page + 1)">
+                <i class="bi bi-chevron-right"></i>
+            </button>
+            <button class="btn btn--sm btn--ghost" disabled="@(!Result.HasNext)" @onclick="() => Go(Result.TotalPages)" title="Halaman terakhir">
+                <i class="bi bi-chevron-double-right"></i>
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public PagedResult<TItem> Result { get; set; } = new();
+    [Parameter, EditorRequired] public EventCallback<int> OnPageChanged { get; set; }
+
+    private int From => ((Result.Page - 1) * Result.Limit) + 1;
+    private int To => Math.Min(Result.Page * Result.Limit, Result.Total);
+
+    private Task Go(int page) => OnPageChanged.InvokeAsync(Math.Clamp(page, 1, Math.Max(1, Result.TotalPages)));
+}

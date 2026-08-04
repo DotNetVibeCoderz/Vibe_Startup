@@ -1,0 +1,38 @@
+@* Four fixed stops on the way to "selesai", so the rider can read the state of the trip
+   without parsing a sentence. *@
+
+<div>
+    <div class="progress">
+        @for (var index = 0; index < Labels.Length; index++)
+        {
+            var step = index;
+
+            @if (step > 0)
+            {
+                <span class="progress__link @(Current >= step ? "done" : "")"></span>
+            }
+
+            <span class="progress__node @NodeClass(step)"></span>
+        }
+    </div>
+    <div class="progress__labels">
+        @foreach (var label in Labels)
+        {
+            <span>@label</span>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public OrderStatus Status { get; set; }
+
+    private static readonly string[] Labels = ["Cari", "Jemput", "Tiba", "Jalan"];
+
+    private int Current => Math.Min(Display.TripStep(Status), Labels.Length);
+
+    private string NodeClass(int step)
+    {
+        if (Current > step) return "done";
+        return Current == step ? "current" : string.Empty;
+    }
+}

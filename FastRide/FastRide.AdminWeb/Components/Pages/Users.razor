@@ -1,0 +1,200 @@
+@page "/users"
+@inject ApiClient Api
+
+<PageTitle>Pengguna · FastRide</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Pengguna</h1>
+        <p>Seluruh akun pada platform. Menonaktifkan akun langsung mengakhiri sesinya.</p>
+    </div>
+    <button class="btn btn--ghost" @onclick="LoadAsync"><i class="bi bi-arrow-clockwise"></i><span>Segarkan</span></button>
+</div>
+
+@if (_message is not null)
+{
+    <div class="alert @(_messageIsError ? "alert--error" : "alert--ok")" role="alert">@_message</div>
+}
+
+<section class="panel">
+    <div class="panel__body">
+        <div class="filters">
+            <div class="field field--grow">
+                <label for="search">Cari</label>
+                <input id="search" placeholder="Nama, email, atau nomor telepon"
+                       @bind="_search" @bind:event="oninput" @onkeyup="OnSearchKey" />
+            </div>
+            <div class="field">
+                <label for="role">Peran</label>
+                <select id="role" @bind="SelectedRole">
+                    <option value="">Semua peran</option>
+                    @foreach (var role in Enum.GetValues<UserRole>())
+                    {
+                        <option value="@role">@role</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label for="active">Status</label>
+                <select id="active" @bind="SelectedActive">
+                    <option value="">Semua</option>
+                    <option value="true">Aktif</option>
+                    <option value="false">Nonaktif</option>
+                </select>
+            </div>
+            <button class="btn btn--primary" @onclick="ApplyFilters"><i class="bi bi-funnel"></i><span>Terapkan</span></button>
+        </div>
+    </div>
+</section>
+
+<section class="panel mt">
+    @if (_loading)
+    {
+        <div class="panel__body stack stack--tight">
+            @for (var i = 0; i < 8; i++)
+            {
+                <div class="skeleton"></div>
+            }
+        </div>
+    }
+    else if (_result.Total == 0)
+    {
+        <EmptyState Icon="bi-people" Title="Tidak ada pengguna yang cocok" Hint="Coba ubah filter." />
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="grid-table">
+                <thead>
+                    <tr>
+                        <th>Pengguna</th>
+                        <th>Peran</th>
+                        <th>Kontak</th>
+                        <th>Status</th>
+                        <th>Bergabung</th>
+                        <th class="right">Tindakan</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var user in _result.Data)
+                    {
+                        <tr>
+                            <td>
+                                <div class="person">
+                                    <img src="@Display.Avatar(user.PhotoUrl, user.FullName)" alt="" />
+                                    <div>
+                                        <strong>@user.FullName</strong>
+                                        <small>@user.Email</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                @user.Role
+                                @if (user.Driver is not null)
+                                {
+                                    <div class="dim" style="font-size:.72rem;">
+                                        @user.Driver.VehicleType · @user.Driver.VehiclePlate
+                                    </div>
+                                }
+                            </td>
+                            <td class="num">@user.PhoneNumber</td>
+                            <td>
+                                @if (user.IsActive)
+                                {
+                                    <span class="pill pill--go">Aktif</span>
+                                }
+                                else
+                                {
+                                    <span class="pill pill--stop">Nonaktif</span>
+                                }
+                            </td>
+                            <td class="dim nowrap">@Display.Date(user.CreatedAt)</td>
+                            <td class="right nowrap">
+                                @if (user.IsActive)
+                                {
+                                    <button class="btn btn--sm btn--danger" @onclick="() => SetActiveAsync(user, false)" disabled="@_busy">
+                                        <i class="bi bi-slash-circle"></i><span>Nonaktifkan</span>
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn--sm" @onclick="() => SetActiveAsync(user, true)" disabled="@_busy">
+                                        <i class="bi bi-arrow-counterclockwise"></i><span>Aktifkan</span>
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <Pager TItem="UserProfileResponse" Result="_result" OnPageChanged="GoToPageAsync" />
+    }
+</section>
+
+@code {
+    private PagedResult<UserProfileResponse> _result = new();
+    private string _search = string.Empty;
+    private UserRole? _role;
+    private bool? _active;
+    private int _page = 1;
+    private bool _loading = true, _busy;
+    private string? _message;
+    private bool _messageIsError;
+
+    private string SelectedRole
+    {
+        get => _role?.ToString() ?? string.Empty;
+        set => _role = Enum.TryParse<UserRole>(value, out var role) ? role : null;
+    }
+
+    private string SelectedActive
+    {
+        get => _active?.ToString().ToLowerInvariant() ?? string.Empty;
+        set => _active = bool.TryParse(value, out var flag) ? flag : null;
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _result = await Api.GetUsersAsync(_page, 25, _search, _role, _active);
+        _loading = false;
+    }
+
+    private async Task ApplyFilters()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") await ApplyFilters();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
+    }
+
+    private async Task SetActiveAsync(UserProfileResponse user, bool active)
+    {
+        _busy = true;
+
+        var reason = active
+            ? "Akun diaktifkan kembali oleh admin."
+            : "Akun dinonaktifkan oleh admin.";
+
+        var error = await Api.SetUserActiveAsync(user.Id, active, reason);
+
+        _busy = false;
+        _messageIsError = error is not null;
+        _message = error ?? $"{user.FullName} {(active ? "diaktifkan" : "dinonaktifkan")}.";
+
+        await LoadAsync();
+    }
+}

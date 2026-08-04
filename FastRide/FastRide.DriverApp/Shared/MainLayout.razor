@@ -1,0 +1,65 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+@if (!_ready)
+{
+    <div class="gate">
+        <div class="gate__card">
+            <div class="gate__mark">Fast<b>Ride</b></div>
+            <div class="row"><span class="spinner"></span><span class="muted">Menyiapkan aplikasi…</span></div>
+        </div>
+    </div>
+}
+else if (!Api.IsLoggedIn)
+{
+    <SignIn OnSignedIn="OnSignedIn" />
+}
+else
+{
+    <div class="app">
+        @Body
+    </div>
+
+    <nav class="tabbar">
+        <NavLink class="tabbar__item" href="/" Match="NavLinkMatch.All">
+            <i class="bi bi-broadcast"></i><span>Order</span>
+        </NavLink>
+        <NavLink class="tabbar__item" href="/earnings">
+            <i class="bi bi-cash-stack"></i><span>Pendapatan</span>
+        </NavLink>
+        <NavLink class="tabbar__item" href="/documents">
+            <i class="bi bi-file-earmark-check"></i><span>Dokumen</span>
+        </NavLink>
+        <NavLink class="tabbar__item" href="/profile">
+            <i class="bi bi-person-badge"></i><span>Profil</span>
+        </NavLink>
+    </nav>
+}
+
+@code {
+    private bool _ready;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Api.SignedOut += HandleSignedOut;
+
+        await Api.RestoreSessionAsync();
+        _ready = true;
+    }
+
+    private void OnSignedIn()
+    {
+        Nav.NavigateTo("/");
+        StateHasChanged();
+    }
+
+    private void HandleSignedOut() => InvokeAsync(() =>
+    {
+        Nav.NavigateTo("/");
+        StateHasChanged();
+    });
+
+    public void Dispose() => Api.SignedOut -= HandleSignedOut;
+}

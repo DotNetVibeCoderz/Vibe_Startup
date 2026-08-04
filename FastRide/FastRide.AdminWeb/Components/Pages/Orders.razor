@@ -1,78 +1,317 @@
 @page "/orders"
-@inject ApiClient ApiClient
+@inject ApiClient Api
+@inject IJSRuntime JS
 
-<PageTitle>FastRide Admin - Orders</PageTitle>
+<PageTitle>Order · FastRide</PageTitle>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div><h2 class="fw-bold mb-0"><i class="bi bi-car-front-fill text-warning me-2"></i>Orders</h2><small class="text-muted">@_total orders total</small></div>
-    <select class="form-select form-select-sm bg-dark text-white border-secondary w-auto" @bind="_statusFilter" @bind:after="LoadOrders">
-        <option value="">All Status</option>
-        <option value="Requested">Requested</option>
-        <option value="Accepted">Accepted</option>
-        <option value="Started">On Trip</option>
-        <option value="Completed">Completed</option>
-        <option value="Cancelled">Cancelled</option>
-    </select>
+<div class="page-head">
+    <div>
+        <h1>Order</h1>
+        <p>Cari, saring, dan tindak lanjuti perjalanan.</p>
+    </div>
+    <div class="row row--tight">
+        <button class="btn btn--ghost" @onclick="ExportAsync" disabled="@_exporting">
+            @if (_exporting)
+            {
+                <span class="spinner"></span>
+            }
+            else
+            {
+                <i class="bi bi-download"></i>
+            }
+            <span>Unduh CSV</span>
+        </button>
+        <button class="btn btn--ghost" @onclick="LoadAsync">
+            <i class="bi bi-arrow-clockwise"></i><span>Segarkan</span>
+        </button>
+    </div>
 </div>
 
-@if (_loading) { <div class="text-center py-5"><div class="spinner-border text-warning"></div></div> }
-else if (_orders.Any())
-{
-    <div class="card stat-card"><div class="card-body p-0">
-    <table class="table table-dark table-striped table-fastride mb-0">
-    <thead><tr><th>Order</th><th>Rider</th><th>Driver</th><th>Route</th><th>Fare</th><th>Status</th><th>Time</th></tr></thead>
-    <tbody>
-    @foreach (var o in _orders)
-    {
-        <tr>
-            <td><code>#@o.Id.ToString()[..8]</code></td>
-            <td>@o.RiderName</td>
-            <td>@(o.DriverName ?? "-")</td>
-            <td><small>@Trunc(o.PickupAddress,18) → @Trunc(o.DropoffAddress,18)</small></td>
-            <td>Rp @o.FinalFare.ToString("N0")</td>
-            <td><span class="badge @Badge(o.Status)">@o.Status</span></td>
-            <td><small>@o.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</small></td>
-        </tr>
-    }
-    </tbody></table></div></div>
+<section class="panel">
+    <div class="panel__body">
+        <div class="filters">
+            <div class="field field--grow">
+                <label for="search">Cari</label>
+                <input id="search" placeholder="Kode order, nama penumpang, atau alamat"
+                       @bind="_filter.Search" @bind:event="oninput" @onkeyup="OnSearchKey" />
+            </div>
+            <div class="field">
+                <label for="status">Status</label>
+                <select id="status" @bind="SelectedStatus">
+                    <option value="">Semua status</option>
+                    @foreach (var status in Enum.GetValues<OrderStatus>())
+                    {
+                        <option value="@status">@Display.Label(status)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label for="category">Kategori</label>
+                <select id="category" @bind="SelectedCategory">
+                    <option value="">Semua kategori</option>
+                    @foreach (var category in Enum.GetValues<VehicleCategory>())
+                    {
+                        <option value="@category">@category</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label for="from">Dari</label>
+                <input id="from" type="date" @bind="_filter.From" />
+            </div>
+            <div class="field">
+                <label for="to">Sampai</label>
+                <input id="to" type="date" @bind="_filter.To" />
+            </div>
+            <button class="btn btn--primary" @onclick="ApplyFilters"><i class="bi bi-funnel"></i><span>Terapkan</span></button>
+            <button class="btn btn--ghost" @onclick="ResetFilters">Reset</button>
+        </div>
+    </div>
+</section>
 
-    <!-- PAGINATION -->
-    @if (_totalPages > 1)
-    {
-        <nav class="mt-3"><ul class="pagination pagination-sm justify-content-center">
-            <li class="page-item @(_page <= 1 ? "disabled" : "")"><button class="page-link bg-dark text-white" @onclick="PrevPage">«</button></li>
-            @for (int i = 1; i <= _totalPages && i <= 10; i++)
-            {
-                <li class="page-item @(i == _page ? "active" : "")">
-                    <button class="page-link @(i == _page ? "bg-warning text-dark" : "bg-dark text-white")" @onclick="() => GoPage(i)">@i</button>
-                </li>
-            }
-            <li class="page-item @(_page >= _totalPages ? "disabled" : "")"><button class="page-link bg-dark text-white" @onclick="NextPage">»</button></li>
-        </ul></nav>
-    }
+@if (_message is not null)
+{
+    <div class="alert @(_messageIsError ? "alert--error" : "alert--ok") mt" role="alert">@_message</div>
 }
-else { <div class="text-center py-5 text-muted"><i class="bi bi-inbox display-3"></i><p>No orders found</p></div> }
+
+<section class="panel mt">
+    @if (_loading)
+    {
+        <div class="panel__body stack stack--tight">
+            @for (var i = 0; i < 8; i++)
+            {
+                <div class="skeleton"></div>
+            }
+        </div>
+    }
+    else if (_result.Total == 0)
+    {
+        <EmptyState Icon="bi-signpost" Title="Tidak ada order yang cocok"
+                    Hint="Longgarkan filter, atau jalankan simulator untuk membuat order baru." />
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="grid-table">
+                <thead>
+                    <tr>
+                        <th>Kode</th>
+                        <th>Penumpang</th>
+                        <th>Driver</th>
+                        <th>Rute</th>
+                        <th class="right">Jarak</th>
+                        <th class="right">Tarif</th>
+                        <th>Status</th>
+                        <th>Dibuat</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var order in _result.Data)
+                    {
+                        <tr>
+                            <td class="code">@order.Code</td>
+                            <td>@order.RiderName</td>
+                            <td class="@(order.DriverName is null ? "dim" : "")">@(order.DriverName ?? "Belum ada")</td>
+                            <td>
+                                <div class="truncate" title="@order.PickupAddress">@order.PickupAddress</div>
+                                <div class="truncate dim" title="@order.DropoffAddress">→ @order.DropoffAddress</div>
+                            </td>
+                            <td class="right num">@order.DistanceKm.ToString("0.0") km</td>
+                            <td class="right money">
+                                @Display.Rupiah(order.FinalFare)
+                                @if (order.DiscountAmount > 0)
+                                {
+                                    <div class="dim" style="font-size:.72rem;">−@Display.Rupiah(order.DiscountAmount)</div>
+                                }
+                            </td>
+                            <td><span class="@Display.PillClass(order.Status)">@Display.Label(order.Status)</span></td>
+                            <td class="nowrap dim">@Display.DateTimeShort(order.CreatedAt)</td>
+                            <td class="right">
+                                <button class="btn btn--sm btn--ghost" @onclick="() => OpenAsync(order.Id)" title="Lihat detail">
+                                    <i class="bi bi-arrow-right-short"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <Pager TItem="OrderListItem" Result="_result" OnPageChanged="GoToPageAsync" />
+    }
+</section>
+
+@if (_selected is not null)
+{
+    <section class="panel mt">
+        <div class="panel__head">
+            <h2>Detail @_selected.Code</h2>
+            <div class="row row--tight">
+                @if (CanCancel)
+                {
+                    <button class="btn btn--sm btn--danger" @onclick="CancelSelectedAsync" disabled="@_cancelling">
+                        <i class="bi bi-x-octagon"></i><span>Batalkan perjalanan</span>
+                    </button>
+                }
+                <button class="btn btn--sm btn--ghost" @onclick="Close">Tutup</button>
+            </div>
+        </div>
+        <div class="panel__body grid grid--3">
+            <div class="stack stack--tight">
+                <span class="tile__label">Penumpang</span>
+                <div class="person">
+                    <img src="@Display.Avatar(_selected.Rider.PhotoUrl, _selected.Rider.FullName)" alt="" />
+                    <div>
+                        <strong>@_selected.Rider.FullName</strong>
+                        <small>@_selected.Rider.PhoneNumber</small>
+                    </div>
+                </div>
+
+                <span class="tile__label mt">Driver</span>
+                @if (_selected.Driver is null)
+                {
+                    <span class="dim">Belum ada driver</span>
+                }
+                else
+                {
+                    <div class="person">
+                        <img src="@Display.Avatar(_selected.Driver.PhotoUrl, _selected.Driver.FullName)" alt="" />
+                        <div>
+                            <strong>@_selected.Driver.FullName</strong>
+                            <small>@_selected.Driver.VehicleType · @_selected.Driver.VehiclePlate</small>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="stack stack--tight">
+                <span class="tile__label">Rute</span>
+                <div><i class="bi bi-circle go"></i> @_selected.PickupAddress</div>
+                @foreach (var stop in _selected.Stops)
+                {
+                    <div class="dim"><i class="bi bi-dot"></i> Singgah @stop.SequenceNumber: @stop.Address</div>
+                }
+                <div><i class="bi bi-geo-alt stop"></i> @_selected.DropoffAddress</div>
+                <div class="dim num">@_selected.DistanceKm.ToString("0.0") km · ± @_selected.EstimatedDurationMinutes menit</div>
+            </div>
+
+            <div class="stack stack--tight">
+                <span class="tile__label">Rincian biaya</span>
+                <div class="row"><span class="muted">Estimasi</span><span class="money pulse__spacer">@Display.Rupiah(_selected.EstimatedFare)</span></div>
+                <div class="row">
+                    <span class="muted">Diskon @(_selected.PromoCode is null ? "" : $"({_selected.PromoCode})")</span>
+                    <span class="money pulse__spacer">−@Display.Rupiah(_selected.DiscountAmount)</span>
+                </div>
+                <div class="row"><span class="muted">Total</span><b class="money pulse__spacer">@Display.Rupiah(_selected.FinalFare)</b></div>
+                <div class="row"><span class="muted">Pembayaran</span><span class="pulse__spacer">@Display.Label(_selected.PaymentMethod)</span></div>
+
+                @if (_selected.Payment is not null)
+                {
+                    <div class="row">
+                        <span class="muted">Transaksi</span>
+                        <span class="code pulse__spacer">@_selected.Payment.TransactionReference</span>
+                    </div>
+                }
+
+                @if (_selected.CancellationReason is not null)
+                {
+                    <div class="alert alert--warn">Dibatalkan oleh @_selected.CancelledBy: @_selected.CancellationReason</div>
+                }
+            </div>
+        </div>
+    </section>
+}
 
 @code {
-    private List<OrderItem> _orders = new();
-    private bool _loading = true;
-    private int _page = 1, _total, _totalPages;
-    private string? _statusFilter;
+    private OrderFilter _filter = new();
+    private PagedResult<OrderListItem> _result = new();
+    private OrderDetailResponse? _selected;
+    private bool _loading = true, _exporting, _cancelling;
+    private string? _message;
+    private bool _messageIsError;
 
-    protected override async Task OnInitializedAsync() => await LoadOrders();
+    private bool CanCancel => _selected is not null &&
+        _selected.Status is OrderStatus.Requested or OrderStatus.Accepted
+                         or OrderStatus.DriverArrived or OrderStatus.Started;
 
-    private async Task LoadOrders()
+    private string SelectedStatus
     {
-        _loading = true; StateHasChanged();
-        var result = await ApiClient.GetOrders(_page, 25, _statusFilter);
-        if (result != null) { _orders = result.Data; _total = result.Total; _totalPages = result.TotalPages; }
+        get => _filter.Status?.ToString() ?? string.Empty;
+        set => _filter.Status = Enum.TryParse<OrderStatus>(value, out var status) ? status : null;
+    }
+
+    private string SelectedCategory
+    {
+        get => _filter.VehicleCategory?.ToString() ?? string.Empty;
+        set => _filter.VehicleCategory = Enum.TryParse<VehicleCategory>(value, out var category) ? category : null;
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _result = await Api.GetOrdersAsync(_filter);
         _loading = false;
     }
 
-    private async Task PrevPage() { if (_page > 1) { _page--; await LoadOrders(); } }
-    private async Task NextPage() { if (_page < _totalPages) { _page++; await LoadOrders(); } }
-    private async Task GoPage(int p) { _page = p; await LoadOrders(); }
+    private async Task ApplyFilters()
+    {
+        _filter.Page = 1;
+        await LoadAsync();
+    }
 
-    private static string Trunc(string t, int l) => t.Length <= l ? t : t[..l] + "...";
-    private static string Badge(string s) => s switch { "Requested" => "bg-info", "Accepted" => "bg-purple text-white", "Started" or "DriverArrived" => "bg-warning text-dark", "Completed" => "bg-success", "Cancelled" => "bg-danger", _ => "bg-secondary" };
+    private async Task ResetFilters()
+    {
+        _filter = new OrderFilter();
+        await LoadAsync();
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") await ApplyFilters();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        _filter.Page = page;
+        await LoadAsync();
+    }
+
+    private async Task OpenAsync(Guid id) => _selected = await Api.GetOrderAsync(id);
+
+    private void Close() => _selected = null;
+
+    private async Task CancelSelectedAsync()
+    {
+        if (_selected is null) return;
+
+        _cancelling = true;
+        var error = await Api.CancelOrderAsync(_selected.Id, "Dibatalkan operator dari konsol admin");
+        _cancelling = false;
+
+        _messageIsError = error is not null;
+        _message = error ?? $"Perjalanan {_selected.Code} dibatalkan.";
+
+        await OpenAsync(_selected.Id);
+        await LoadAsync();
+    }
+
+    private async Task ExportAsync()
+    {
+        _exporting = true;
+        var csv = await Api.ExportOrdersCsvAsync(_filter);
+        _exporting = false;
+
+        if (csv is null)
+        {
+            _messageIsError = true;
+            _message = "Ekspor gagal. Coba lagi sebentar lagi.";
+            return;
+        }
+
+        await JS.InvokeVoidAsync("fastride.download",
+            $"fastride-order-{DateTime.Now:yyyyMMdd-HHmm}.csv", "text/csv", Convert.ToBase64String(csv));
+    }
 }

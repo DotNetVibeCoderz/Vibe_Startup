@@ -1,0 +1,16 @@
+<div class="empty">
+    <i class="bi @Icon"></i>
+    <strong>@Title</strong>
+    @if (!string.IsNullOrWhiteSpace(Hint))
+    {
+        <span>@Hint</span>
+    }
+</div>
+
+@code {
+    [Parameter] public string Icon { get; set; } = "bi-inbox";
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+
+    /// <summary>An empty screen is an invitation to act — say what to do next, not just that nothing is here.</summary>
+    [Parameter] public string? Hint { get; set; }
+}

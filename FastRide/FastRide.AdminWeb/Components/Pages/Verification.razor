@@ -1,0 +1,139 @@
+@page "/verification"
+@inject ApiClient Api
+
+<PageTitle>Verifikasi Driver · FastRide</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Verifikasi Driver</h1>
+        <p>Driver tidak bisa menerima order sebelum SIM, STNK, dan KTP disetujui.</p>
+    </div>
+    <button class="btn btn--ghost" @onclick="LoadAsync"><i class="bi bi-arrow-clockwise"></i><span>Segarkan</span></button>
+</div>
+
+@if (_message is not null)
+{
+    <div class="alert @(_messageIsError ? "alert--error" : "alert--ok")" role="alert">@_message</div>
+}
+
+@if (_loading)
+{
+    <section class="panel"><div class="panel__body stack stack--tight">
+        @for (var i = 0; i < 5; i++)
+        {
+            <div class="skeleton" style="height:20px"></div>
+        }
+    </div></section>
+}
+else if (_pending.Count == 0)
+{
+    <section class="panel">
+        <EmptyState Icon="bi-patch-check" Title="Antrean verifikasi kosong"
+                    Hint="Semua driver terdaftar sudah punya dokumen yang disetujui." />
+    </section>
+}
+else
+{
+    <div class="stack">
+        @foreach (var driver in _pending)
+        {
+            <section class="panel">
+                <div class="panel__head">
+                    <div class="person">
+                        <img src="@Display.Avatar(driver.PhotoUrl, driver.FullName)" alt="" />
+                        <div>
+                            <strong>@driver.FullName</strong>
+                            <small>@driver.Email · @driver.VehicleType @driver.VehiclePlate</small>
+                        </div>
+                    </div>
+                    <span class="dim">Mendaftar @Display.Since(driver.JoinedAt)</span>
+                </div>
+
+                @if (driver.Documents.Count == 0)
+                {
+                    <EmptyState Icon="bi-file-earmark-x" Title="Driver ini belum mengunggah dokumen apa pun"
+                                Hint="Tidak ada yang bisa ditinjau sampai berkas masuk." />
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table class="grid-table">
+                            <thead>
+                                <tr>
+                                    <th>Dokumen</th>
+                                    <th>Status</th>
+                                    <th>Diunggah</th>
+                                    <th>Berlaku sampai</th>
+                                    <th>Catatan</th>
+                                    <th class="right">Tindakan</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var document in driver.Documents)
+                                {
+                                    <tr>
+                                        <td>
+                                            <a href="@document.FileUrl" target="_blank" rel="noopener">
+                                                <i class="bi bi-file-earmark-image"></i> @Display.Label(document.Type)
+                                            </a>
+                                        </td>
+                                        <td><span class="@Display.PillClass(document.Status)">@document.Status</span></td>
+                                        <td class="dim nowrap">@Display.DateTimeShort(document.UploadedAt)</td>
+                                        <td class="dim nowrap">
+                                            @(document.ExpiresAt is null ? "—" : Display.Date(document.ExpiresAt.Value))
+                                        </td>
+                                        <td class="dim">@(document.Notes ?? "—")</td>
+                                        <td class="right nowrap">
+                                            <button class="btn btn--sm" @onclick="() => ReviewAsync(driver, document, DocumentStatus.Approved)"
+                                                    disabled="@_busy">
+                                                <i class="bi bi-check2"></i><span>Setujui</span>
+                                            </button>
+                                            <button class="btn btn--sm btn--danger" @onclick="() => ReviewAsync(driver, document, DocumentStatus.Rejected)"
+                                                    disabled="@_busy">
+                                                <i class="bi bi-x"></i><span>Tolak</span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+        }
+    </div>
+}
+
+@code {
+    private List<PendingDriverItem> _pending = new();
+    private bool _loading = true, _busy;
+    private string? _message;
+    private bool _messageIsError;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _pending = await Api.GetPendingVerificationAsync();
+        _loading = false;
+    }
+
+    private async Task ReviewAsync(PendingDriverItem driver, DriverDocumentResponse document, DocumentStatus status)
+    {
+        _busy = true;
+
+        var notes = status == DocumentStatus.Rejected
+            ? "Berkas tidak terbaca. Unggah ulang dengan foto yang jelas."
+            : null;
+
+        var error = await Api.ReviewDocumentAsync(driver.DriverId, document.Id, status, notes);
+
+        _busy = false;
+        _messageIsError = error is not null;
+        _message = error ?? $"{Display.Label(document.Type)} milik {driver.FullName} " +
+                            (status == DocumentStatus.Approved ? "disetujui." : "ditolak.");
+
+        await LoadAsync();
+    }
+}

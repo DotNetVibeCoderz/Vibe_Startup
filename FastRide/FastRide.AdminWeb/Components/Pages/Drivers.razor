@@ -1,47 +1,174 @@
 @page "/drivers"
-@inject ApiClient ApiClient
+@inject ApiClient Api
 
-<PageTitle>FastRide Admin - Drivers</PageTitle>
+<PageTitle>Driver · FastRide</PageTitle>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div><h2 class="fw-bold mb-0"><i class="bi bi-people-fill text-warning me-2"></i>Drivers</h2><small class="text-muted">@_drivers?.Total total drivers</small></div>
+<div class="page-head">
+    <div>
+        <h1>Driver</h1>
+        <p>Armada, status terkini, dan performa.</p>
+    </div>
+    <button class="btn btn--ghost" @onclick="LoadAsync"><i class="bi bi-arrow-clockwise"></i><span>Segarkan</span></button>
 </div>
 
-@if (_loading)
-{ <div class="text-center py-5"><div class="spinner-border text-warning"></div></div> }
-else if (_drivers?.Data.Any() == true)
-{
-    <div class="card stat-card"><div class="card-body p-0">
-    <table class="table table-dark table-striped table-fastride mb-0">
-    <thead><tr><th>Driver</th><th>Vehicle</th><th>Plate</th><th>Status</th><th>Rating</th><th>Trips</th><th>Earnings</th></tr></thead>
-    <tbody>
-    @foreach (var d in _drivers.Data)
+<section class="panel">
+    <div class="panel__body">
+        <div class="filters">
+            <div class="field field--grow">
+                <label for="search">Cari</label>
+                <input id="search" placeholder="Nama, email, atau nomor polisi"
+                       @bind="_search" @bind:event="oninput" @onkeyup="OnSearchKey" />
+            </div>
+            <div class="field">
+                <label for="status">Status</label>
+                <select id="status" @bind="SelectedStatus">
+                    <option value="">Semua status</option>
+                    @foreach (var status in Enum.GetValues<DriverStatus>())
+                    {
+                        <option value="@status">@Display.Label(status)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label for="verified">Verifikasi</label>
+                <select id="verified" @bind="SelectedVerified">
+                    <option value="">Semua</option>
+                    <option value="true">Terverifikasi</option>
+                    <option value="false">Belum terverifikasi</option>
+                </select>
+            </div>
+            <button class="btn btn--primary" @onclick="ApplyFilters"><i class="bi bi-funnel"></i><span>Terapkan</span></button>
+        </div>
+    </div>
+</section>
+
+<section class="panel mt">
+    @if (_loading)
     {
-        <tr>
-            <td><strong>@d.FullName</strong><br><small class="text-muted">@d.Email</small></td>
-            <td>@d.VehicleType</td>
-            <td><code>@d.VehiclePlate</code></td>
-            <td>@StatusDot(d.Status) @d.Status</td>
-            <td>⭐ @d.Rating.ToString("F1")</td>
-            <td>@d.TotalTrips.ToString("N0")</td>
-            <td>Rp @d.TotalEarnings.ToString("N0")</td>
-        </tr>
+        <div class="panel__body stack stack--tight">
+            @for (var i = 0; i < 8; i++)
+            {
+                <div class="skeleton"></div>
+            }
+        </div>
     }
-    </tbody></table></div></div>
-}
+    else if (_result.Total == 0)
+    {
+        <EmptyState Icon="bi-car-front" Title="Tidak ada driver yang cocok"
+                    Hint="Coba ubah kata kunci atau filter status." />
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="grid-table">
+                <thead>
+                    <tr>
+                        <th>Driver</th>
+                        <th>Kendaraan</th>
+                        <th>Status</th>
+                        <th class="right">Rating</th>
+                        <th class="right">Trip</th>
+                        <th class="right">Pendapatan</th>
+                        <th>Sinyal GPS</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var driver in _result.Data)
+                    {
+                        <tr>
+                            <td>
+                                <div class="person">
+                                    <img src="@Display.Avatar(driver.PhotoUrl, driver.FullName)" alt="" />
+                                    <div>
+                                        <strong>@driver.FullName</strong>
+                                        <small>@driver.Email</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                @driver.VehicleType
+                                <div class="code">@driver.VehiclePlate · @driver.VehicleCategory</div>
+                            </td>
+                            <td>
+                                <span class="@Display.PillClass(driver.Status)">@Display.Label(driver.Status)</span>
+                                @if (!driver.IsDocumentVerified)
+                                {
+                                    <div class="dim" style="font-size:.72rem;margin-top:3px;">
+                                        <i class="bi bi-exclamation-triangle"></i> Dokumen belum lengkap
+                                    </div>
+                                }
+                            </td>
+                            <td class="right num">@driver.Rating.ToString("0.0")</td>
+                            <td class="right num">@Display.Number(driver.TotalTrips)</td>
+                            <td class="right money">@Display.Rupiah(driver.TotalEarnings)</td>
+                            <td class="dim nowrap">
+                                @if (driver.LocationUpdatedAt is null)
+                                {
+                                    <span>Belum pernah</span>
+                                }
+                                else
+                                {
+                                    <span class="@(IsStale(driver.LocationUpdatedAt.Value) ? "stop" : "")">
+                                        @Display.Since(driver.LocationUpdatedAt.Value)
+                                    </span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <Pager TItem="DriverListItem" Result="_result" OnPageChanged="GoToPageAsync" />
+    }
+</section>
 
 @code {
-    private PaginatedResult<DriverItem>? _drivers;
+    private PagedResult<DriverListItem> _result = new();
+    private string _search = string.Empty;
+    private DriverStatus? _status;
+    private bool? _verified;
+    private int _page = 1;
     private bool _loading = true;
 
-    protected override async Task OnInitializedAsync()
+    private string SelectedStatus
     {
-        _drivers = await ApiClient.GetDrivers();
+        get => _status?.ToString() ?? string.Empty;
+        set => _status = Enum.TryParse<DriverStatus>(value, out var status) ? status : null;
+    }
+
+    private string SelectedVerified
+    {
+        get => _verified?.ToString().ToLowerInvariant() ?? string.Empty;
+        set => _verified = bool.TryParse(value, out var flag) ? flag : null;
+    }
+
+    /// <summary>Matches the dispatcher's freshness window — a stale ping means the driver is not matchable.</summary>
+    private static bool IsStale(DateTime lastPing) => DateTime.UtcNow - lastPing > TimeSpan.FromMinutes(10);
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _result = await Api.GetDriversAsync(_page, 20, _search, _status, _verified);
         _loading = false;
     }
 
-    private string StatusDot(string s) => s switch
+    private async Task ApplyFilters()
     {
-        "Online" => "🟢", "OnTrip" => "🟠", "Offline" => "🔴", "Break" => "🟡", _ => "⚪"
-    };
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") await ApplyFilters();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
+    }
 }

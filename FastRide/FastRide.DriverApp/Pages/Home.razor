@@ -1,81 +1,272 @@
 @page "/"
-@using FastRide.DriverApp.Services
+@implements IDisposable
 @inject ApiClient Api
 
-<div class="driver-app">
-    @if (!Api.IsLoggedIn)
+<div class="topbar">
+    <div>
+        <div class="topbar__mark">Fast<b>Ride</b> Driver</div>
+        <div class="topbar__greet">@FirstName</div>
+    </div>
+    <div class="topbar__spacer"></div>
+    @if (_home is not null)
     {
-        <div class="p-4 text-center">
-            <i class="bi bi-lightning-charge-fill display-1 text-success"></i>
-            <h3 class="fw-bold">FastRide Driver</h3>
-            <div class="mb-2 mt-3"><input class="form-control form-control-sm" type="email" placeholder="Email" @bind="_emailInp" /></div>
-            <div class="mb-3"><input class="form-control form-control-sm" type="password" placeholder="Password" @bind="_passInp" /></div>
-            @if (_loginErr is not null) { <div class="alert alert-danger py-1 small">@_loginErr</div> }
-            <button class="btn btn-success w-100 fw-bold" @onclick="HandleLogin" disabled="@_loginBusy">
-                @if (_loginBusy) { <span class="spinner-border spinner-border-sm me-2"></span> } Login
-            </button>
-            <small class="text-muted mt-2 d-block">Demo: andi.santoso@drive.com / Password123</small>
+        <span class="@(_home.IsOnline ? "pill pill--go" : "pill pill--idle")">
+            @(_home.IsOnline ? "Aktif" : "Nonaktif")
+        </span>
+    }
+</div>
+
+<div class="screen">
+    @if (_message is not null)
+    {
+        <div class="alert @(_messageIsError ? "alert--error" : "alert--ok")" role="alert">@_message</div>
+    }
+
+    @if (_loading)
+    {
+        <div class="hero stack">
+            <div class="skeleton" style="width:40%"></div>
+            <div class="skeleton" style="height:32px"></div>
         </div>
     }
-    else if (_loading) { <div class="text-center py-5"><div class="spinner-border text-success"></div></div> }
-    else
+    else if (_home is null)
     {
-        <div class="bg-success text-white p-3 text-center">
-            <h5 class="fw-bold mb-0"><i class="bi bi-lightning-charge-fill"></i> Driver</h5>
-            <small>@(_isOnline ? "🟢 Online" : "🔴 Offline")</small>
-            <div class="mt-2"><button class="btn @(_isOnline ? "btn-danger" : "btn-light") btn-sm" @onclick="ToggleOnline">@(_isOnline ? "Go Offline" : "Go Online")</button></div>
+        <div class="alert alert--error">Tidak bisa terhubung ke server FastRide.</div>
+        <button class="btn" @onclick="LoadAsync"><i class="bi bi-arrow-clockwise"></i><span>Coba lagi</span></button>
+    }
+    else if (!_home.IsDocumentVerified)
+    {
+        @* A driver whose papers are not approved cannot go online at all, so say that first. *@
+        <div class="hero">
+            <span class="hero__label">Akun belum aktif</span>
+            <div class="hero__value">Menunggu verifikasi</div>
+            <span class="small muted">
+                Unggah SIM, STNK, dan KTP lalu tunggu persetujuan admin sebelum bisa menerima order.
+            </span>
+            <a class="btn btn--primary" href="/documents">
+                <i class="bi bi-file-earmark-arrow-up"></i><span>Kelola dokumen</span>
+            </a>
         </div>
-        <div class="row g-0 text-center bg-dark text-white">
-            <div class="col-4 p-2 border-end"><small class="text-muted">Today</small><h6 class="mb-0 text-success">Rp @((_home?.TodayEarnings ?? 0).ToString("N0"))</h6></div>
-            <div class="col-4 p-2 border-end"><small class="text-muted">Trips</small><h6 class="mb-0">@(_home?.TodayTrips ?? 0)</h6></div>
-            <div class="col-4 p-2"><small class="text-muted">Rating</small><h6 class="mb-0 text-warning">⭐ @((_home?.Rating ?? 0).ToString("F1"))</h6></div>
-        </div>
-        <div class="p-3">
-            @if (_home?.IncomingOrders.Any() == true && _isOnline)
-            {
-                <h6 class="fw-bold text-success">🔔 Incoming Orders</h6>
-                @foreach (var o in _home.IncomingOrders)
+    }
+    else if (_home.ActiveTrip is { } trip)
+    {
+        <div class="hero">
+            <span class="hero__label">Perjalanan berjalan · @trip.Code</span>
+            <div class="row">
+                <span class="@Display.PillClass(trip.Status)">@Display.Label(trip.Status)</span>
+                <span class="spacer money">@Display.Rupiah(trip.FinalFare)</span>
+            </div>
+
+            <div class="route">
+                <div class="route__stop">
+                    <i class="bi bi-circle go"></i>
+                    <div><strong class="truncate">@trip.PickupAddress</strong><small>Jemput @trip.Rider.FullName</small></div>
+                </div>
+                @foreach (var stop in trip.Stops)
                 {
-                    <div class="card border-success border-2 rounded-3 shadow mb-2"><div class="card-body p-2">
-                        <div class="d-flex justify-content-between"><h6 class="fw-bold">@o.RiderName</h6><small class="text-muted">@o.WaitSeconds s ago</small></div>
-                        <p class="mb-1 small"><strong>Pickup:</strong> @Trunc(o.PickupAddress,20)</p>
-                        <p class="mb-1 small"><strong>Dropoff:</strong> @Trunc(o.DropoffAddress,20)</p>
-                        <p class="mb-2 small"><strong>Rp @o.EstimatedFare.ToString("N0")</strong> · @o.DistanceKm.ToString("F1") km</p>
-                        <button class="btn btn-success btn-sm" @onclick="() => AcceptOrder(o.OrderId)">Accept</button>
-                    </div></div>
-                }
-            }
-            <h6 class="fw-bold mt-3 mb-2">Recent Trips</h6>
-            @if (_home?.RecentTrips.Any() == true)
-            {
-                @foreach (var t in _home.RecentTrips)
-                {
-                    <div class="list-group-item d-flex justify-content-between mb-1 rounded-2 shadow-sm">
-                        <div><strong class="small">@t.RiderName</strong> → <small>@Trunc(t.DropoffAddress,14)</small><br/><small class="text-muted">@t.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</small></div>
-                        <span class="text-success fw-bold small">Rp @t.Fare.ToString("N0")</span>
+                    <div class="route__stop">
+                        <i class="bi bi-dot dim"></i>
+                        <div><strong class="truncate">@stop.Address</strong><small>Singgah @stop.SequenceNumber</small></div>
                     </div>
                 }
-            }
-            <div class="d-flex gap-2 mt-3">
-                <a href="/earnings" class="btn btn-outline-success btn-sm flex-grow-1"><i class="bi bi-cash-stack"></i> Earnings</a>
-                <a href="/driver-profile" class="btn btn-outline-success btn-sm flex-grow-1"><i class="bi bi-person-badge"></i> Profile</a>
+                <div class="route__stop">
+                    <i class="bi bi-geo-alt stop"></i>
+                    <div><strong class="truncate">@trip.DropoffAddress</strong><small>Tujuan</small></div>
+                </div>
             </div>
-            <button class="btn btn-outline-danger btn-sm w-100 mt-2" @onclick="HandleLogout"><i class="bi bi-box-arrow-right"></i> Logout</button>
+
+            @* One button, one next step — no guessing which action applies right now. *@
+            <button class="btn btn--go" @onclick="() => AdvanceAsync(trip)" disabled="@_busy">
+                <i class="bi bi-arrow-right-circle"></i><span>@NextActionLabel(trip.Status)</span>
+            </button>
+
+            <button class="btn btn--danger" @onclick="() => CancelAsync(trip.Id)" disabled="@_busy">
+                <i class="bi bi-x-octagon"></i><span>Batalkan</span>
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="hero">
+            <span class="hero__label">Pendapatan hari ini</span>
+            <div class="hero__value">@Display.Rupiah(_home.TodayEarnings)</div>
+            <span class="small muted">@_home.TodayTrips trip selesai · rating @_home.Rating.ToString("0.0")</span>
+
+            <button class="btn @(_home.IsOnline ? "btn--danger" : "btn--go")" @onclick="ToggleAsync" disabled="@_busy">
+                <i class="bi @(_home.IsOnline ? "bi-pause-circle" : "bi-play-circle")"></i>
+                <span>@(_home.IsOnline ? "Berhenti terima order" : "Mulai terima order")</span>
+            </button>
+        </div>
+
+        <div class="metrics metrics--3">
+            <div class="metric"><span>Trip hari ini</span><b>@_home.TodayTrips</b></div>
+            <div class="metric"><span>Rating</span><b>@_home.Rating.ToString("0.0")</b></div>
+            <div class="metric"><span>Order masuk</span><b>@_home.IncomingOrders.Count</b></div>
+        </div>
+
+        <div class="card card--flush">
+            <div class="card__head">
+                <h2>Order tersedia</h2>
+                <button class="btn btn--sm btn--ghost" @onclick="LoadAsync"><i class="bi bi-arrow-clockwise"></i></button>
+            </div>
+
+            @if (!_home.IsOnline)
+            {
+                <div class="empty">
+                    <i class="bi bi-pause-circle"></i>
+                    <strong>Kamu sedang nonaktif</strong>
+                    <span>Aktifkan status untuk melihat order di sekitarmu.</span>
+                </div>
+            }
+            else if (_home.IncomingOrders.Count == 0)
+            {
+                <div class="empty">
+                    <i class="bi bi-hourglass-split"></i>
+                    <strong>Belum ada order di sekitarmu</strong>
+                    <span>Order baru akan muncul otomatis di sini.</span>
+                </div>
+            }
+            else
+            {
+                <div class="rows">
+                    @foreach (var offer in _home.IncomingOrders)
+                    {
+                        <div class="row-item">
+                            <div class="row-item__body">
+                                <strong class="truncate">@offer.PickupAddress</strong>
+                                <small class="truncate">→ @offer.DropoffAddress</small>
+                                <small>
+                                    @Display.Distance(offer.PickupDistanceKm) dari kamu ·
+                                    trip @Display.Distance(offer.DistanceKm) ·
+                                    @Display.Label(offer.PaymentMethod)
+                                </small>
+                            </div>
+                            <div class="row-item__end stack stack--tight">
+                                <div class="money">@Display.RupiahShort(offer.EstimatedFare)</div>
+                                <button class="btn btn--sm btn--go" @onclick="() => AcceptAsync(offer.OrderId)" disabled="@_busy">
+                                    Ambil
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    @if (_home?.RecentTrips.Count > 0)
+    {
+        <div class="card card--flush">
+            <div class="card__head"><h2>Trip terakhir</h2></div>
+            <div class="rows">
+                @foreach (var trip in _home.RecentTrips.Take(5))
+                {
+                    <div class="row-item">
+                        <div class="row-item__body">
+                            <strong class="truncate">@trip.DropoffAddress</strong>
+                            <small>@Display.DateTimeShort(trip.CreatedAt) · @trip.DriverName</small>
+                        </div>
+                        <div class="row-item__end money small">@Display.Rupiah(trip.Fare)</div>
+                    </div>
+                }
+            </div>
         </div>
     }
 </div>
 
 @code {
-    private string _emailInp = "", _passInp = "";
-    private string? _loginErr;
-    private bool _loginBusy, _loading = true, _isOnline;
-    private DriverHomeResult? _home;
+    private DriverHomeResponse? _home;
+    private bool _loading = true, _busy;
+    private string? _message;
+    private bool _messageIsError;
+    private Timer? _timer;
 
-    protected override async Task OnInitializedAsync() { if (Api.IsLoggedIn) { await Refresh(); } _loading = false; }
-    private async Task HandleLogin() { _loginErr = null; _loginBusy = true; var r = await Api.Login(_emailInp, _passInp); _loginBusy = false; if (r is null) _loginErr = "Login failed"; else { _loading = true; await Refresh(); _loading = false; } }
-    private async Task Refresh() { _home = await Api.GetHome(); _isOnline = _home?.IsOnline ?? false; }
-    private async Task ToggleOnline() { var ok = await Api.ToggleOnline(); if (ok.HasValue) _isOnline = ok.Value; }
-    private async Task AcceptOrder(Guid oid) { await Api.AcceptOrder(oid); await Refresh(); }
-    private void HandleLogout() { Api.Logout(); _home = null; }
-    private static string Trunc(string t, int l) => t.Length <= l ? t : t[..l] + "...";
+    private string FirstName =>
+        Api.CurrentUserName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "Driver";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+
+        _timer = new Timer(async _ => await InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(8));
+    }
+
+    private async Task LoadAsync()
+    {
+        _home = await Api.GetHomeAsync();
+        _loading = false;
+    }
+
+    private static string NextActionLabel(OrderStatus status) => status switch
+    {
+        OrderStatus.Accepted => "Sudah tiba di titik jemput",
+        OrderStatus.DriverArrived => "Mulai perjalanan",
+        OrderStatus.Started => "Selesaikan perjalanan",
+        _ => "Lanjutkan"
+    };
+
+    private async Task AdvanceAsync(OrderDetailResponse trip)
+    {
+        _busy = true;
+
+        var error = trip.Status switch
+        {
+            OrderStatus.Accepted => await Api.ArriveOrderAsync(trip.Id),
+            OrderStatus.DriverArrived => await Api.StartOrderAsync(trip.Id),
+            OrderStatus.Started => await Api.CompleteOrderAsync(trip.Id),
+            _ => "Status perjalanan tidak bisa dilanjutkan."
+        };
+
+        _busy = false;
+        _messageIsError = error is not null;
+        _message = error ?? "Status perjalanan diperbarui.";
+
+        await LoadAsync();
+    }
+
+    private async Task AcceptAsync(Guid orderId)
+    {
+        _busy = true;
+        var error = await Api.AcceptOrderAsync(orderId);
+        _busy = false;
+
+        _messageIsError = error is not null;
+        _message = error ?? "Order diambil. Menuju titik jemput.";
+
+        await LoadAsync();
+    }
+
+    private async Task CancelAsync(Guid orderId)
+    {
+        _busy = true;
+        var error = await Api.CancelOrderAsync(orderId, "Dibatalkan driver");
+        _busy = false;
+
+        _messageIsError = error is not null;
+        _message = error ?? "Perjalanan dibatalkan.";
+
+        await LoadAsync();
+    }
+
+    private async Task ToggleAsync()
+    {
+        if (_home is null) return;
+
+        _busy = true;
+        var (status, error) = await Api.SetStatusAsync(_home.IsOnline ? DriverStatus.Offline : DriverStatus.Online);
+        _busy = false;
+
+        _messageIsError = error is not null;
+        _message = error ?? (status == DriverStatus.Online
+            ? "Kamu aktif. Order akan mulai masuk."
+            : "Kamu nonaktif. Tidak ada order baru yang masuk.");
+
+        await LoadAsync();
+    }
+
+    public void Dispose() => _timer?.Dispose();
 }
