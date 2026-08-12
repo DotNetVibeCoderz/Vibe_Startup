@@ -1,0 +1,324 @@
+@using Microsoft.AspNetCore.Authorization
+@using System.Security.Claims
+@using PadelHub.Services.Payments
+@attribute [Authorize]
+@page "/finance/checkout/{PaymentId:int}"
+@inject AppDbContext Db
+@inject PaymentGatewayRegistry Gateways
+@inject PaymentCheckoutService CheckoutService
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<PageTitle>Pembayaran - PadelHub</PageTitle>
+
+@if (_payment is null)
+{
+    <PageHeader Title="Tagihan tidak ditemukan" Eyebrow="Pembayaran" />
+    <EmptyState Title="Tagihan ini tidak ada"
+                Body="Tautan mungkin kedaluwarsa atau tagihan sudah dihapus."
+                Icon="@Icons.Material.Rounded.SearchOff">
+        <Action>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/finance/payments">Ke daftar pembayaran</MudButton>
+        </Action>
+    </EmptyState>
+}
+else if (!_canView)
+{
+    <PageHeader Title="Tidak bisa dibuka" Eyebrow="Pembayaran" />
+    <EmptyState Title="Tagihan ini bukan milik Anda"
+                Body="Hubungi operator klub bila Anda merasa seharusnya bisa membuka tagihan ini."
+                Icon="@Icons.Material.Rounded.Lock" />
+}
+else
+{
+    <PageHeader Title="Bayar tagihan" Eyebrow="@($"Tagihan #{_payment.Id}")"
+                Subtitle="Pilih metode pembayaran, lalu selesaikan di halaman provider." />
+
+    @if (_returnState == "success")
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-4" Variant="Variant.Outlined">
+            Pembayaran sedang diproses provider. Status akan berubah otomatis begitu notifikasi diterima —
+            klik <strong>Perbarui status</strong> bila belum berubah.
+        </MudAlert>
+    }
+    else if (_returnState == "failed")
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Outlined">
+            Pembayaran belum selesai. Anda bisa mencoba lagi dengan metode yang sama atau memilih metode lain.
+        </MudAlert>
+    }
+
+    <MudGrid Spacing="3">
+        @* ---------------- Rincian tagihan ---------------- *@
+        <MudItem xs="12" md="5">
+            <div class="pd-card pa-6 pd-enter" style="position:sticky; top:88px;">
+                <div class="pd-eyebrow">Jumlah tagihan</div>
+                <div class="pd-amount">Rp @_payment.Amount.ToString("N0")</div>
+
+                <div class="pd-steps mt-4 mb-5">
+                    <span class="@StepClass(1)">Dibuat</span>
+                    <span class="pd-step-sep"></span>
+                    <span class="@StepClass(2)">Dibayar</span>
+                    <span class="pd-step-sep"></span>
+                    <span class="@StepClass(3)">Terverifikasi</span>
+                </div>
+
+                <div class="pd-receipt">
+                    <dl>
+                        <dt>Status</dt>
+                        <dd><span class="@StatusBadge(_payment.Status)">@StatusLabel(_payment.Status)</span></dd>
+
+                        <dt>Keterangan</dt>
+                        <dd>@(_payment.Notes ?? "Pembayaran PadelHub")</dd>
+
+                        <dt>Dibuat</dt>
+                        <dd>@_payment.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</dd>
+
+                        @if (!string.IsNullOrWhiteSpace(_payment.ExternalId))
+                        {
+                            <dt>Nomor transaksi</dt>
+                            <dd>@_payment.ExternalId</dd>
+                        }
+
+                        @if (_payment.ExpiresAt is { } expires)
+                        {
+                            <dt>Berlaku sampai</dt>
+                            <dd>@expires.ToLocalTime().ToString("dd MMM yyyy HH:mm")</dd>
+                        }
+
+                        @if (_payment.PaidAt is { } paidAt && PaymentStatuses.IsPaid(_payment.Status))
+                        {
+                            <dt>Lunas pada</dt>
+                            <dd>@paidAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</dd>
+                        }
+                    </dl>
+                </div>
+
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Class="mt-4"
+                           StartIcon="@Icons.Material.Rounded.Refresh" OnClick="RefreshStatus">Perbarui status</MudButton>
+            </div>
+        </MudItem>
+
+        @* ---------------- Pilihan metode ---------------- *@
+        <MudItem xs="12" md="7">
+            @if (PaymentStatuses.IsPaid(_payment.Status))
+            {
+                <div class="pd-card pa-8 text-center pd-enter">
+                    <MudIcon Icon="@Icons.Material.Rounded.CheckCircle" Size="Size.Large" Style="color:var(--mud-palette-success);" />
+                    <h2 class="pd-empty__title" style="margin-top:1rem;">Tagihan sudah lunas</h2>
+                    <p class="pd-empty__body">
+                        Pembayaran diterima lewat @ProviderLabel(_payment.Provider)@(string.IsNullOrWhiteSpace(_payment.PaymentMethod) ? "" : $" ({_payment.PaymentMethod})").
+                    </p>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/finance/payments">Kembali ke pembayaran</MudButton>
+                </div>
+            }
+            else
+            {
+                <div class="pd-eyebrow">Metode pembayaran</div>
+                <div class="pd-stack mb-5">
+                    @foreach (var (gateway, index) in Gateways.All.Select((g, i) => (g, i)))
+                    {
+                        <button type="button" class="pd-provider pd-enter" style="@($"--i:{index};")"
+                                aria-pressed="@((_selectedProvider == gateway.Key).ToString().ToLowerInvariant())"
+                                disabled="@(!gateway.IsEnabled)"
+                                @onclick="() => Select(gateway.Key)">
+                            <span class="pd-provider__mark">@gateway.Mark</span>
+                            <span>
+                                <span class="pd-provider__name">
+                                    @gateway.DisplayName
+                                    @if (gateway.IsEnabled && gateway.IsSandbox)
+                                    {
+                                        <span class="badge-chip badge-warning ml-2">Sandbox</span>
+                                    }
+                                </span>
+                                <span class="pd-provider__desc">
+                                    @(gateway.IsEnabled ? gateway.Description : "Belum aktif — isi kredensialnya di appsettings.json.")
+                                </span>
+                            </span>
+                            <span class="pd-provider__state">
+                                @if (_selectedProvider == gateway.Key)
+                                {
+                                    <MudIcon Icon="@Icons.Material.Rounded.CheckCircle" Size="Size.Small" Style="color:var(--mud-palette-primary);" />
+                                }
+                            </span>
+                        </button>
+                    }
+                </div>
+
+                @if (_selectedGateway is ManualTransferGateway manual)
+                {
+                    <div class="pd-card pa-5 mb-5 pd-enter">
+                        <div class="pd-eyebrow">Instruksi transfer</div>
+                        <div class="pd-receipt mt-2">
+                            <dl>
+                                <dt>Bank</dt>
+                                <dd>@manual.BankName</dd>
+                                <dt>Nomor rekening</dt>
+                                <dd>@manual.AccountNumber</dd>
+                                <dt>Atas nama</dt>
+                                <dd>@manual.AccountHolder</dd>
+                                <dt>Jumlah</dt>
+                                <dd>Rp @_payment.Amount.ToString("N0")</dd>
+                            </dl>
+                        </div>
+                        <p style="font-size:.8125rem; color:var(--mud-palette-text-secondary); margin:1rem 0 0;">
+                            Setelah transfer, operator klub akan memverifikasi dan status berubah menjadi lunas.
+                        </p>
+                    </div>
+                }
+
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" FullWidth="true"
+                           Disabled="@(_isProcessing || _selectedGateway is null || !_selectedGateway.IsEnabled)"
+                           StartIcon="@Icons.Material.Rounded.Lock"
+                           OnClick="StartPayment">
+                    @if (_isProcessing)
+                    {
+                        <span>Menyiapkan pembayaran…</span>
+                    }
+                    else if (_selectedGateway?.RedirectsToProvider == true)
+                    {
+                        <span>Bayar dengan @_selectedGateway.DisplayName</span>
+                    }
+                    else
+                    {
+                        <span>Buat instruksi pembayaran</span>
+                    }
+                </MudButton>
+
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <MudAlert Severity="Severity.Error" Class="mt-4" Variant="Variant.Outlined">@_error</MudAlert>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_payment.CheckoutUrl))
+                {
+                    <p style="font-size:.8125rem; margin-top:1rem; text-align:center;">
+                        Halaman bayar sudah dibuat.
+                        <a href="@_payment.CheckoutUrl" target="_blank" rel="noopener"
+                           style="color:var(--mud-palette-primary); font-weight:600;">Buka lagi</a>
+                    </p>
+                }
+            }
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public int PaymentId { get; set; }
+    [SupplyParameterFromQuery(Name = "state")] private string? _returnState { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private Payment? _payment;
+    private bool _canView;
+    private bool _isProcessing;
+    private string? _error;
+    private string _selectedProvider = "";
+
+    private IPaymentGateway? _selectedGateway => Gateways.Find(_selectedProvider);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _selectedProvider = _payment?.Provider is { Length: > 0 } p && Gateways.Find(p)?.IsEnabled == true
+            ? p
+            : Gateways.Default.Key;
+    }
+
+    private async Task LoadAsync()
+    {
+        _payment = await Db.Payments.Include(p => p.User).FirstOrDefaultAsync(p => p.Id == PaymentId);
+        if (_payment is null) return;
+
+        // Anggota hanya boleh membuka tagihannya sendiri; operator & admin semuanya.
+        if (AuthStateTask is not null)
+        {
+            var user = (await AuthStateTask).User;
+            var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            _canView = user.IsInRole("Admin") || user.IsInRole("Operator")
+                       || (!string.IsNullOrEmpty(userId) && userId == _payment.UserId);
+        }
+    }
+
+    private void Select(string key)
+    {
+        _selectedProvider = key;
+        _error = null;
+    }
+
+    private async Task StartPayment()
+    {
+        if (_payment is null || _selectedGateway is null) return;
+
+        _isProcessing = true;
+        _error = null;
+
+        try
+        {
+            var baseUrl = Gateways.ResolveBaseUrl(Nav.BaseUri);
+            var session = await CheckoutService.StartAsync(_payment.Id, _selectedProvider, baseUrl);
+
+            if (!session.Success)
+            {
+                _error = session.Error ?? "Pembayaran tidak bisa dimulai.";
+                return;
+            }
+
+            await LoadAsync();
+
+            if (!string.IsNullOrWhiteSpace(session.CheckoutUrl))
+            {
+                await JS.InvokeVoidAsync("padelHub.openExternal", session.CheckoutUrl);
+                return;
+            }
+
+            Snackbar.Add("Instruksi pembayaran dibuat. Selesaikan transfer, lalu tunggu verifikasi operator.", Severity.Success);
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+
+    private async Task RefreshStatus()
+    {
+        await LoadAsync();
+        Snackbar.Add(PaymentStatuses.IsPaid(_payment?.Status)
+            ? "Pembayaran sudah lunas."
+            : "Status belum berubah.", Severity.Info);
+    }
+
+    private int CurrentStep => _payment switch
+    {
+        null => 1,
+        { } p when PaymentStatuses.IsPaid(p.Status) => 3,
+        { CheckoutUrl: { Length: > 0 } } or { ExternalId: { Length: > 0 } } => 2,
+        _ => 1
+    };
+
+    private string StepClass(int step) =>
+        step < CurrentStep ? "pd-step pd-step--done"
+        : step == CurrentStep ? "pd-step pd-step--active"
+        : "pd-step";
+
+    private string ProviderLabel(string? key) => Gateways.Find(key)?.DisplayName ?? key ?? "-";
+
+    private static string StatusLabel(string? status) => status switch
+    {
+        PaymentStatuses.Pending => "Menunggu pembayaran",
+        PaymentStatuses.Paid or PaymentStatuses.LegacyPaid => "Lunas",
+        PaymentStatuses.Expired => "Kedaluwarsa",
+        PaymentStatuses.Cancelled => "Dibatalkan",
+        PaymentStatuses.Failed => "Gagal",
+        PaymentStatuses.Refunded => "Dikembalikan",
+        _ => status ?? "-"
+    };
+
+    private static string StatusBadge(string? status) => status switch
+    {
+        PaymentStatuses.Pending => "badge-chip badge-warning",
+        PaymentStatuses.Paid or PaymentStatuses.LegacyPaid => "badge-chip badge-success",
+        PaymentStatuses.Expired or PaymentStatuses.Cancelled or PaymentStatuses.Failed => "badge-chip badge-error",
+        _ => "badge-chip"
+    };
+}

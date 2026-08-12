@@ -86,12 +86,13 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             .HasForeignKey(r => r.UserId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Payment → Reservation
+        // Payment → Reservation (opsional: tagihan membership tidak punya reservasi).
+        // SetNull agar catatan keuangan tetap ada meski reservasinya dihapus.
         builder.Entity<Payment>()
             .HasOne(p => p.Reservation)
             .WithOne(r => r.Payment)
             .HasForeignKey<Payment>(p => p.ReservationId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.SetNull);
 
         // PlayerProfile → User
         builder.Entity<PlayerProfile>()
@@ -189,6 +190,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<AuditLog>().HasIndex(a => a.Action);
         builder.Entity<ChatMessage>().HasIndex(m => new { m.SenderId, m.ReceiverId });
         builder.Entity<SensorData>().HasIndex(s => new { s.CourtId, s.RecordedAt });
+        // Webhook provider mencari pembayaran lewat ExternalId.
+        builder.Entity<Payment>().HasIndex(p => p.ExternalId);
+        builder.Entity<Payment>().HasIndex(p => p.Status);
 
         // Unique indexes
         builder.Entity<ApplicationUser>().HasIndex(u => u.MemberNumber).IsUnique();

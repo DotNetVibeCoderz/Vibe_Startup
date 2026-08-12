@@ -7,103 +7,251 @@
 
 @if (_isAuthenticated)
 {
-    <MudText Typo="Typo.h3" GutterBottom="true" Style="font-weight:700;">🎾 Selamat Datang di PadelHub</MudText>
-    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-6">Sistem Manajemen Padel Terintegrasi</MudText>
+    @* ============================================================ *@
+    @* DASHBOARD                                                     *@
+    @* ============================================================ *@
+    <PageHeader Title="@($"Selamat datang, {_firstName}")"
+                Eyebrow="@DateTime.Now.ToString("dddd, dd MMMM yyyy")"
+                Subtitle="Ringkasan klub hari ini.">
+        <Actions>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/reservations"
+                       StartIcon="@Icons.Material.Rounded.Add">Reservasi baru</MudButton>
+        </Actions>
+    </PageHeader>
 
-    @if (_stats != null)
+    @if (_stats is null)
     {
-        <MudGrid>
-            <MudItem xs="12" sm="6" md="3"><MudPaper Class="pa-4" Elevation="1"><MudText Typo="Typo.caption" Color="Color.Secondary">Total Klub</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_stats.TotalClubs</MudText></MudPaper></MudItem>
-            <MudItem xs="12" sm="6" md="3"><MudPaper Class="pa-4" Elevation="1"><MudText Typo="Typo.caption" Color="Color.Secondary">Total Lapangan</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_stats.TotalCourts</MudText></MudPaper></MudItem>
-            <MudItem xs="12" sm="6" md="3"><MudPaper Class="pa-4" Elevation="1"><MudText Typo="Typo.caption" Color="Color.Secondary">Total Pemain</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_stats.TotalPlayers</MudText></MudPaper></MudItem>
-            <MudItem xs="12" sm="6" md="3"><MudPaper Class="pa-4" Elevation="1"><MudText Typo="Typo.caption" Color="Color.Secondary">Turnamen Aktif</MudText><MudText Typo="Typo.h4" Style="font-weight:700;">@_stats.ActiveTournaments</MudText></MudPaper></MudItem>
+        <div class="d-flex justify-center py-8"><div class="pd-loader"><span></span><span></span><span></span></div></div>
+    }
+    else
+    {
+        <MudGrid Spacing="3">
+            <MudItem xs="12" sm="6" md="3">
+                <StatPlate Label="Pendapatan terkonfirmasi" Value="@FormatRupiah(_stats.TotalRevenue)"
+                           Foot="@($"{_stats.PendingPayments} tagihan menunggu")" Accent="ball" Index="0" Href="/finance/payments" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <StatPlate Label="Reservasi hari ini" Value="@_stats.ReservationsToday.ToString()"
+                           Foot="@($"{_stats.TotalReservations} total tercatat")" Accent="teal" Index="1" Href="/reservations" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <StatPlate Label="Lapangan aktif" Value="@_stats.TotalCourts.ToString()"
+                           Foot="@($"di {_stats.TotalClubs} klub")" Accent="amber" Index="2" Href="/courts" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <StatPlate Label="Pemain terdaftar" Value="@_stats.TotalPlayers.ToString()"
+                           Foot="@($"{_stats.ActiveTournaments} turnamen berjalan")" Accent="clay" Index="3" Href="/players" />
+            </MudItem>
         </MudGrid>
-        <MudText Typo="Typo.h5" GutterBottom="true" Class="mt-8">⚡ Quick Actions</MudText>
-        <MudGrid>
-            <MudItem xs="6" sm="4" md="2"><MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.CalendarMonth" OnClick="GoReservations">Booking</MudButton></MudItem>
-            <MudItem xs="6" sm="4" md="2"><MudButton Variant="Variant.Filled" Color="Color.Secondary" FullWidth="true" StartIcon="@Icons.Material.Filled.EmojiEvents" OnClick="GoTournaments">Turnamen</MudButton></MudItem>
-            <MudItem xs="6" sm="4" md="2"><MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.People" OnClick="GoPlayers">Pemain</MudButton></MudItem>
-            <MudItem xs="6" sm="4" md="2"><MudButton Variant="Variant.Outlined" Color="Color.Secondary" FullWidth="true" StartIcon="@Icons.Material.Filled.SmartToy" OnClick="GoChatbot">Coach Sherly</MudButton></MudItem>
+
+        <hr class="pd-rule" />
+
+        <div class="pd-eyebrow">Aksi cepat</div>
+        <MudGrid Spacing="3" Class="mb-2">
+            @foreach (var (item, i) in _quickActions.Select((a, i) => (a, i)))
+            {
+                <MudItem xs="6" sm="4" md="3">
+                    <a href="@item.Href" class="pd-card pd-card--hover pd-enter d-flex align-center gap-3 pa-4"
+                       style="@($"--i:{i}; text-decoration:none; color:inherit;")">
+                        <MudIcon Icon="@item.Icon" Style="color:var(--mud-palette-primary);" />
+                        <span style="font-weight:600; font-size:.9375rem;">@item.Label</span>
+                    </a>
+                </MudItem>
+            }
         </MudGrid>
-        <MudText Typo="Typo.h5" GutterBottom="true" Class="mt-8">📋 Aktivitas Terbaru</MudText>
-        <MudPaper Class="pa-0" Elevation="1">
-            <MudTable Items="_recentReservations" Hover="true" Striped="true" Dense="true">
-                <HeaderContent><MudTh>Lapangan</MudTh><MudTh>Tanggal</MudTh><MudTh>Jam</MudTh><MudTh>Status</MudTh></HeaderContent>
+
+        <hr class="pd-rule" />
+
+        <div class="d-flex justify-space-between align-center mb-3 flex-wrap gap-2">
+            <h2 class="pd-section-title" style="margin:0;">Reservasi terbaru</h2>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" Href="/reservations"
+                       EndIcon="@Icons.Material.Rounded.ArrowForward" Size="Size.Small">Lihat semua</MudButton>
+        </div>
+
+        <MudPaper Elevation="0" Class="pd-card" Style="overflow:hidden;">
+            <MudTable Items="_recentReservations" Hover="true" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Lapangan</MudTh>
+                    <MudTh>Pemain</MudTh>
+                    <MudTh>Tanggal</MudTh>
+                    <MudTh>Jam</MudTh>
+                    <MudTh Style="text-align:right;">Harga</MudTh>
+                    <MudTh>Status</MudTh>
+                </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@context.Court?.Name</MudTd><MudTd>@context.ReservationDate.ToShortDateString()</MudTd>
-                    <MudTd>@FormatTime(context.StartTime) - @FormatTime(context.EndTime)</MudTd>
-                    <MudTd><span class="@GetStatusClass(context.Status)">@context.Status</span></MudTd>
+                    <MudTd DataLabel="Lapangan"><strong>@context.Court?.Name</strong></MudTd>
+                    <MudTd DataLabel="Pemain">@(context.User?.FullName ?? "—")</MudTd>
+                    <MudTd DataLabel="Tanggal">@context.ReservationDate.ToString("dd MMM yyyy")</MudTd>
+                    <MudTd DataLabel="Jam" Class="pd-mono">@FormatTime(context.StartTime)–@FormatTime(context.EndTime)</MudTd>
+                    <MudTd DataLabel="Harga" Style="text-align:right;">@FormatRupiah(context.TotalPrice)</MudTd>
+                    <MudTd DataLabel="Status"><span class="@GetStatusBadge(context.Status)">@context.Status</span></MudTd>
                 </RowTemplate>
+                <NoRecordsContent>
+                    <EmptyState Title="Belum ada reservasi"
+                                Body="Reservasi yang dibuat staf atau anggota akan muncul di sini."
+                                Icon="@Icons.Material.Rounded.CalendarMonth">
+                        <Action>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/reservations">Buat reservasi</MudButton>
+                        </Action>
+                    </EmptyState>
+                </NoRecordsContent>
             </MudTable>
         </MudPaper>
     }
-    else { <MudProgressCircular Color="Color.Primary" Indeterminate="true" Class="my-8" /> }
 }
 else
 {
-    @* --- PUBLIC LANDING PAGE --- *@
-    <div class="text-center py-8">
-        <MudText Typo="Typo.h2" Style="font-weight:800; color:var(--mud-palette-primary);">🎾 PadelHub</MudText>
-        <MudText Typo="Typo.h5" Color="Color.Secondary" Class="mt-2 mb-6">
-            Sistem Manajemen Padel Terintegrasi untuk Klub, Turnamen & Pemain
-        </MudText>
-        <MudGrid Class="justify-center mb-8">
-            <MudItem xs="12" md="8">
-                <MudGrid>
-                    <MudItem xs="6" md="3"><MudPaper Class="pa-3" Elevation="1" Style="text-align:center;"><MudText Typo="Typo.h6">🏢</MudText><MudText Typo="Typo.body2">Manajemen Klub</MudText></MudPaper></MudItem>
-                    <MudItem xs="6" md="3"><MudPaper Class="pa-3" Elevation="1" Style="text-align:center;"><MudText Typo="Typo.h6">📅</MudText><MudText Typo="Typo.body2">Reservasi</MudText></MudPaper></MudItem>
-                    <MudItem xs="6" md="3"><MudPaper Class="pa-3" Elevation="1" Style="text-align:center;"><MudText Typo="Typo.h6">🏆</MudText><MudText Typo="Typo.body2">Turnamen</MudText></MudPaper></MudItem>
-                    <MudItem xs="6" md="3"><MudPaper Class="pa-3" Elevation="1" Style="text-align:center;"><MudText Typo="Typo.h6">🤖</MudText><MudText Typo="Typo.body2">AI Coach</MudText></MudPaper></MudItem>
-                </MudGrid>
-            </MudItem>
-        </MudGrid>
-        <div class="d-flex justify-center gap-3">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" StartIcon="@Icons.Material.Filled.Login" OnClick="GoLogin">Masuk</MudButton>
-            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Large" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="GoRegister">Daftar Gratis</MudButton>
+    @* ============================================================ *@
+    @* LANDING PUBLIK                                                *@
+    @* ============================================================ *@
+    <section class="pd-hero pd-enter">
+        <div class="pd-hero__grid">
+            <div>
+                <div class="pd-hero__eyebrow">Sistem manajemen klub padel</div>
+                <h1 class="pd-hero__title">Jalankan klub padel Anda dari <em>satu layar</em>.</h1>
+                <p class="pd-hero__lead">
+                    Reservasi lapangan, jadwal turnamen, tagihan membership, dan laporan keuangan —
+                    dipakai staf di meja depan maupun anggota dari ponsel.
+                </p>
+
+                <div class="pd-hero__actions">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
+                               Href="/auth/login" StartIcon="@Icons.Material.Rounded.Login">Masuk</MudButton>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Large" Href="/auth/register"
+                               Style="color:#fff; border-color:rgba(255,255,255,.35);">Daftar gratis</MudButton>
+                </div>
+
+                <div class="pd-hero__stats">
+                    <div class="pd-hero__stat"><b>@_publicStats.Clubs</b><span>Klub</span></div>
+                    <div class="pd-hero__stat"><b>@_publicStats.Courts</b><span>Lapangan</span></div>
+                    <div class="pd-hero__stat"><b>@_publicStats.Players</b><span>Pemain</span></div>
+                    <div class="pd-hero__stat"><b>@_publicStats.Tournaments</b><span>Turnamen</span></div>
+                </div>
+            </div>
+
+            <div>
+                <CourtGraphic />
+            </div>
         </div>
-        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-6">
-            © @DateTime.Now.Year PadelHub by GraviCode Studios
-        </MudText>
-    </div>
+    </section>
+
+    <hr class="pd-rule" />
+
+    <div class="pd-eyebrow">Yang bisa Anda kerjakan</div>
+    <MudGrid Spacing="3">
+        @foreach (var (f, i) in _features.Select((f, i) => (f, i)))
+        {
+            <MudItem xs="12" sm="6" md="3">
+                <div class="pd-card pd-card--hover pd-enter pa-5" style="@($"--i:{i}; height:100%;")">
+                    <MudIcon Icon="@f.Icon" Style="color:var(--mud-palette-primary);" />
+                    <div style="font-weight:600; margin-top:.75rem;">@f.Title</div>
+                    <p style="font-size:.875rem; color:var(--mud-palette-text-secondary); margin:.35rem 0 0; line-height:1.55;">@f.Body</p>
+                </div>
+            </MudItem>
+        }
+    </MudGrid>
 }
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthStateTask { get; set; }
+
     private bool _isAuthenticated;
+    private string _firstName = "";
     private DashboardStats? _stats;
+    private PublicStats _publicStats = new();
     private List<Reservation> _recentReservations = new();
+
+    private readonly (string Label, string Icon, string Href)[] _quickActions =
+    [
+        ("Reservasi", Icons.Material.Rounded.CalendarMonth, "/reservations"),
+        ("Turnamen", Icons.Material.Rounded.EmojiEvents, "/tournaments"),
+        ("Pembayaran", Icons.Material.Rounded.Payments, "/finance/payments"),
+        ("Coach Sherly", Icons.Material.Rounded.SmartToy, "/chatbot"),
+    ];
+
+    private readonly (string Title, string Body, string Icon)[] _features =
+    [
+        ("Reservasi lapangan", "Booking per jam dengan harga normal dan peak, lengkap dengan status pembayaran.", Icons.Material.Rounded.CalendarMonth),
+        ("Turnamen & ranking", "Kelola pendaftaran, jadwal pertandingan, dan papan peringkat pemain.", Icons.Material.Rounded.EmojiEvents),
+        ("Pembayaran online", "Terima pembayaran lewat Xendit, Midtrans, atau transfer manual.", Icons.Material.Rounded.Payments),
+        ("Asisten Coach Sherly", "Tanya jadwal, tarif, atau data klub lewat percakapan biasa.", Icons.Material.Rounded.SmartToy),
+    ];
 
     protected override async Task OnInitializedAsync()
     {
         if (AuthStateTask != null)
         {
             var authState = await AuthStateTask;
-            _isAuthenticated = authState.User.Identity?.IsAuthenticated == true;
+            var user = authState.User;
+            _isAuthenticated = user.Identity?.IsAuthenticated == true;
+            var fullName = user.FindFirst("FullName")?.Value ?? user.Identity?.Name ?? "";
+            _firstName = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "rekan";
         }
 
         if (_isAuthenticated)
         {
+            var today = DateTime.Today;
+
             _stats = new DashboardStats
             {
                 TotalClubs = await Db.Clubs.CountAsync(),
-                TotalCourts = await Db.Courts.CountAsync(),
+                TotalCourts = await Db.Courts.CountAsync(c => c.IsActive),
                 TotalPlayers = await Db.PlayerProfiles.CountAsync(),
                 ActiveTournaments = await Db.Tournaments.CountAsync(t => t.Status == "InProgress" || t.Status == "Registration"),
                 TotalReservations = await Db.Reservations.CountAsync(),
-                TotalRevenue = await Db.Payments.Where(p => p.Status == "Success").SumAsync(p => p.Amount)
+                ReservationsToday = await Db.Reservations.CountAsync(r => r.ReservationDate.Date == today),
+                // Status lunas historis memakai dua nilai: "Confirmed" (alur kasir)
+                // dan "Success" (alur lama). Keduanya dihitung supaya angka
+                // dashboard cocok dengan halaman Keuangan.
+                TotalRevenue = await Db.Payments.Where(p => p.Status == "Confirmed" || p.Status == "Success").SumAsync(p => p.Amount),
+                PendingPayments = await Db.Payments.CountAsync(p => p.Status == "Pending"),
             };
-            _recentReservations = await Db.Reservations.Include(r => r.Court).OrderByDescending(r => r.CreatedAt).Take(10).ToListAsync();
+
+            _recentReservations = await Db.Reservations
+                .Include(r => r.Court).Include(r => r.User)
+                .OrderByDescending(r => r.CreatedAt).Take(8).ToListAsync();
+        }
+        else
+        {
+            _publicStats = new PublicStats
+            {
+                Clubs = await Db.Clubs.CountAsync(),
+                Courts = await Db.Courts.CountAsync(),
+                Players = await Db.PlayerProfiles.CountAsync(),
+                Tournaments = await Db.Tournaments.CountAsync(),
+            };
         }
     }
 
-    private void GoLogin() => Nav.NavigateTo("/auth/login");
-    private void GoRegister() => Nav.NavigateTo("/auth/register");
-    private void GoReservations() => Nav.NavigateTo("/reservations");
-    private void GoTournaments() => Nav.NavigateTo("/tournaments");
-    private void GoPlayers() => Nav.NavigateTo("/players");
-    private void GoChatbot() => Nav.NavigateTo("/chatbot");
-    private string FormatTime(TimeSpan ts) => ts.ToString(@"hh\:mm");
-    private string GetStatusClass(string s) => s switch { "Confirmed" => "status-confirmed", "Pending" => "status-pending", "Cancelled" => "status-cancelled", _ => "" };
+    private static string FormatRupiah(decimal value) => "Rp " + value.ToString("N0");
+    private static string FormatTime(TimeSpan ts) => ts.ToString(@"hh\:mm");
 
-    private class DashboardStats { public int TotalClubs { get; set; } public int TotalCourts { get; set; } public int TotalPlayers { get; set; } public int ActiveTournaments { get; set; } public int TotalReservations { get; set; } public decimal TotalRevenue { get; set; } }
+    private static string GetStatusBadge(string s) => s switch
+    {
+        "Confirmed" => "badge-chip badge-success",
+        "Pending" => "badge-chip badge-warning",
+        "Cancelled" => "badge-chip badge-error",
+        "Completed" => "badge-chip badge-info",
+        _ => "badge-chip"
+    };
+
+    private class DashboardStats
+    {
+        public int TotalClubs { get; set; }
+        public int TotalCourts { get; set; }
+        public int TotalPlayers { get; set; }
+        public int ActiveTournaments { get; set; }
+        public int TotalReservations { get; set; }
+        public int ReservationsToday { get; set; }
+        public int PendingPayments { get; set; }
+        public decimal TotalRevenue { get; set; }
+    }
+
+    private class PublicStats
+    {
+        public int Clubs { get; set; }
+        public int Courts { get; set; }
+        public int Players { get; set; }
+        public int Tournaments { get; set; }
+    }
 }

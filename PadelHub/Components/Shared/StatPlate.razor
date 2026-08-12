@@ -1,0 +1,64 @@
+@*
+    Plat papan skor: angka besar di atas permukaan gelap, seperti papan skor
+    di pinggir lapangan. Sengaja tidak memakai gradien warna-warni — kontras
+    dan tipografi yang membedakan, bukan dekorasi.
+*@
+
+@if (!string.IsNullOrWhiteSpace(Href))
+{
+    <a class="@CssClass" href="@Href" style="@Style" aria-label="@($"{Label}: {Value}")">
+        @Content()
+    </a>
+}
+else
+{
+    <div class="@CssClass" style="@Style">
+        @Content()
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public string Value { get; set; } = "";
+
+    /// <summary>Satuan kecil di samping angka, misal "reservasi" atau "%".</summary>
+    [Parameter] public string? Unit { get; set; }
+
+    /// <summary>Baris keterangan di bawah angka.</summary>
+    [Parameter] public string? Foot { get; set; }
+
+    /// <summary>Perubahan relatif, misal "+12%". Positif = lime, negatif = koral.</summary>
+    [Parameter] public string? Delta { get; set; }
+
+    [Parameter] public bool DeltaIsPositive { get; set; } = true;
+
+    /// <summary>Warna garis atas: ball, teal, amber, clay.</summary>
+    [Parameter] public string Accent { get; set; } = "ball";
+
+    [Parameter] public string? Href { get; set; }
+    [Parameter] public int Index { get; set; }
+
+    private string CssClass => $"pd-plate pd-plate--{Accent} pd-plate--hover pd-enter";
+    private string Style => $"--i:{Index}; text-decoration:none;";
+
+    private RenderFragment Content() =>@<text>
+        <span class="pd-plate__label">@Label</span>
+        <span class="pd-plate__value">
+            @Value
+            @if (!string.IsNullOrWhiteSpace(Unit))
+            {
+                <span class="pd-plate__unit">@Unit</span>
+            }
+        </span>
+        @if (!string.IsNullOrWhiteSpace(Foot) || !string.IsNullOrWhiteSpace(Delta))
+        {
+            <span class="pd-plate__foot">
+                @if (!string.IsNullOrWhiteSpace(Delta))
+                {
+                    <span class="@(DeltaIsPositive ? "pd-plate__delta--up" : "pd-plate__delta--down")">@Delta</span>
+                }
+                @Foot
+            </span>
+        }
+    </text>;
+}

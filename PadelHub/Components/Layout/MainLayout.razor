@@ -1,64 +1,85 @@
 @inherits LayoutComponentBase
 @using Microsoft.AspNetCore.Components.Authorization
 @using MudBlazor
+@using PadelHub.Theme
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
 
 <MudPopoverProvider />
-<MudThemeProvider @bind-IsDarkMode="_isDarkMode" />
-<MudDialogProvider />
+<MudThemeProvider Theme="PadelHubTheme.Instance" @bind-IsDarkMode="_isDarkMode" />
+<MudDialogProvider CloseButton="true" MaxWidth="MaxWidth.Small" CloseOnEscapeKey="true" />
 <MudSnackbarProvider />
 
 <MudLayout>
-    <MudAppBar Elevation="1">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
-        <MudText Typo="Typo.h6" Style="font-weight:700;">🎾 PadelHub</MudText>
+    <MudAppBar Elevation="0" Class="pd-appbar">
+        <MudIconButton Icon="@Icons.Material.Rounded.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="DrawerToggle" aria-label="Buka menu" />
+
+        <a href="/" class="pd-wordmark" style="color:inherit; text-decoration:none;">PadelHub</a>
+
         <MudSpacer />
-        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" Color="Color.Inherit" OnClick="ToggleTheme" />
+
+        <MudTooltip Text="@(_isDarkMode ? "Mode terang" : "Mode gelap")">
+            <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Rounded.LightMode : Icons.Material.Rounded.DarkMode)"
+                           Color="Color.Inherit" OnClick="ToggleTheme"
+                           aria-label="@(_isDarkMode ? "Beralih ke mode terang" : "Beralih ke mode gelap")" />
+        </MudTooltip>
 
         @if (_isAuthenticated)
         {
-            <MudText Typo="Typo.body2" Class="hide-on-mobile mr-2" Style="color:rgba(255,255,255,0.9);">@_userName</MudText>
+            <div class="hide-on-mobile mr-1" style="text-align:right; line-height:1.25;">
+                <div style="font-weight:600; font-size:.875rem;">@_userName</div>
+                <div class="pd-mono" style="font-size:.6875rem; opacity:.6;">@_roleLabel</div>
+            </div>
 
             @* MUDBLAZOR 9.x: JANGAN pakai ActivatorContent/MudIconButton di dalam MudMenu.
                Gunakan Icon + EndIcon langsung di MudMenu, dan item langsung sebagai child. *@
-            <MudMenu Icon="@Icons.Material.Filled.AccountCircle"
+            <MudMenu Icon="@Icons.Material.Rounded.AccountCircle"
                      Color="Color.Inherit"
-                     EndIcon="@Icons.Material.Filled.ArrowDropDown"
-                     Size="Size.Large">
-                <MudText Typo="Typo.body2" Class="px-4 pt-3 pb-1" Style="font-weight:600;">@_userName</MudText>
-                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="px-4 pb-2">@_userEmail</MudText>
+                     EndIcon="@Icons.Material.Rounded.ArrowDropDown"
+                     Size="Size.Large"
+                     AnchorOrigin="Origin.BottomRight"
+                     TransformOrigin="Origin.TopRight">
+                <div class="px-4 pt-3 pb-2">
+                    <div style="font-weight:600;">@_userName</div>
+                    <div class="pd-mono" style="font-size:.75rem; color:var(--mud-palette-text-secondary);">@_userEmail</div>
+                </div>
                 <MudDivider />
-                <MudMenuItem OnClick="GoProfile" Icon="@Icons.Material.Filled.Person">Profil Saya</MudMenuItem>
-                <MudMenuItem OnClick="GoLogout" Icon="@Icons.Material.Filled.Logout">Keluar</MudMenuItem>
+                <MudMenuItem OnClick="GoProfile" Icon="@Icons.Material.Rounded.Person">Profil saya</MudMenuItem>
+                <MudMenuItem OnClick="GoLogout" Icon="@Icons.Material.Rounded.Logout">Keluar</MudMenuItem>
             </MudMenu>
         }
         else
         {
-            <MudButton Variant="Variant.Outlined" Size="Size.Small" Style="color:white; border-color:rgba(255,255,255,0.5);"
-                       OnClick="GoLogin" StartIcon="@Icons.Material.Filled.Login" Class="mr-2">Masuk</MudButton>
-            <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Secondary"
-                       OnClick="GoRegister" StartIcon="@Icons.Material.Filled.PersonAdd">Daftar</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Inherit" OnClick="GoLogin" Class="mr-1">Masuk</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+                       OnClick="GoRegister" StartIcon="@Icons.Material.Rounded.PersonAdd">Daftar</MudButton>
         }
     </MudAppBar>
 
-    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
-        <div class="d-flex align-center justify-center py-4" style="background:var(--mud-palette-primary);">
-            <MudText Typo="Typo.h5" Style="font-weight:800; color:white;">🎾 PadelHub</MudText>
-        </div>
-        <MudDivider />
+    @* Wordmark cukup sekali di app bar; drawer langsung ke navigasi. *@
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="0" Class="pd-drawer">
         <NavMenu />
     </MudDrawer>
 
-    <MudMainContent>
-        <MudContainer MaxWidth="MaxWidth.Large" Class="py-6">
+    <MudMainContent Class="pd-main">
+        <MudContainer MaxWidth="MaxWidth.Large" Class="py-8">
             @Body
         </MudContainer>
-    </MudMainContent>
 
-    <MudPaper Class="px-4 py-3" Style="text-align:center; border-top:1px solid var(--mud-palette-divider);" Square="true">
-        <MudText Typo="Typo.caption" Color="Color.Secondary">&copy; @DateTime.Now.Year PadelHub by GraviCode Studios</MudText>
-    </MudPaper>
+        <footer style="border-top:1px solid var(--mud-palette-lines-default); margin-top:3rem; padding:1.5rem 0;">
+            <MudContainer MaxWidth="MaxWidth.Large">
+                <div class="d-flex flex-wrap justify-space-between align-center gap-2">
+                    <span class="pd-mono" style="font-size:.6875rem; letter-spacing:.12em; text-transform:uppercase; color:var(--mud-palette-text-secondary);">
+                        PadelHub &middot; GraviCode Studios
+                    </span>
+                    <span class="pd-mono" style="font-size:.6875rem; color:var(--mud-palette-text-secondary);">
+                        &copy; @DateTime.Now.Year
+                    </span>
+                </div>
+            </MudContainer>
+        </footer>
+    </MudMainContent>
 </MudLayout>
 
 @code {
@@ -67,10 +88,41 @@
     private bool _isAuthenticated;
     private string _userName = "";
     private string _userEmail = "";
+    private string _roleLabel = "";
 
     protected override async Task OnInitializedAsync()
     {
         await RefreshAuthStateAsync();
+    }
+
+    /// <summary>
+    /// Tema dibaca dari localStorage setelah render pertama; kalau belum pernah
+    /// dipilih, ikuti preferensi sistem.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("padelHub.getTheme");
+            var dark = stored switch
+            {
+                "dark" => true,
+                "light" => false,
+                _ => await JS.InvokeAsync<bool>("padelHub.prefersDark")
+            };
+
+            if (dark != _isDarkMode)
+            {
+                _isDarkMode = dark;
+                StateHasChanged();
+            }
+        }
+        catch (JSException)
+        {
+            // Halaman masih prerender / JS belum siap: pakai mode terang.
+        }
     }
 
     private async Task RefreshAuthStateAsync()
@@ -80,11 +132,22 @@
         _isAuthenticated = user.Identity?.IsAuthenticated == true;
         _userName = user.FindFirst("FullName")?.Value ?? user.Identity?.Name ?? "";
         _userEmail = user.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "";
+        _roleLabel = user.IsInRole("Admin") ? "Admin"
+            : user.IsInRole("Operator") ? "Operator"
+            : user.IsInRole("Coach") ? "Pelatih"
+            : _isAuthenticated ? "Member" : "";
         StateHasChanged();
     }
 
     private void DrawerToggle() => _drawerOpen = !_drawerOpen;
-    private void ToggleTheme() => _isDarkMode = !_isDarkMode;
+
+    private async Task ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+        try { await JS.InvokeVoidAsync("padelHub.setTheme", _isDarkMode ? "dark" : "light"); }
+        catch (JSException) { }
+    }
+
     private void GoProfile() => Nav.NavigateTo("/auth/profile");
     private void GoLogin() => Nav.NavigateTo("/auth/login");
     private void GoRegister() => Nav.NavigateTo("/auth/register");

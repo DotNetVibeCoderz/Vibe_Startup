@@ -217,7 +217,11 @@ public class Payment
 {
     public int Id { get; set; }
 
-    public int ReservationId { get; set; }
+    /// <summary>
+    /// Reservasi yang dibayar. Null untuk tagihan yang berdiri sendiri
+    /// (membership, denda, top-up) — pembayaran tidak selalu berasal dari booking.
+    /// </summary>
+    public int? ReservationId { get; set; }
     public Reservation? Reservation { get; set; }
 
     [MaxLength(450)]
@@ -231,7 +235,7 @@ public class Payment
     public string PaymentMethod { get; set; } = string.Empty; // EWallet, CreditCard, BankTransfer
 
     [MaxLength(50)]
-    public string Status { get; set; } = "Pending"; // Pending, Success, Failed, Refunded
+    public string Status { get; set; } = "Pending"; // lihat PaymentStatuses
 
     [MaxLength(200)]
     public string? TransactionId { get; set; }
@@ -241,6 +245,32 @@ public class Payment
 
     [MaxLength(1000)]
     public string? Notes { get; set; }
+
+    // ------------------------------------------------------------
+    // Payment gateway (Xendit, Midtrans, transfer manual)
+    // ------------------------------------------------------------
+
+    /// <summary>Kunci provider yang dipakai. Lihat <see cref="PaymentProviders"/>.</summary>
+    [MaxLength(50)]
+    public string Provider { get; set; } = PaymentProviders.Manual;
+
+    /// <summary>ID transaksi versi PadelHub yang dikirim ke provider (external_id / order_id).</summary>
+    [MaxLength(200)]
+    public string? ExternalId { get; set; }
+
+    /// <summary>ID invoice/transaksi milik provider, dikembalikan saat checkout dibuat.</summary>
+    [MaxLength(200)]
+    public string? ProviderReference { get; set; }
+
+    /// <summary>Halaman bayar milik provider tempat pengguna diarahkan.</summary>
+    [MaxLength(1000)]
+    public string? CheckoutUrl { get; set; }
+
+    public DateTime? ExpiresAt { get; set; }
+
+    /// <summary>Isi notifikasi terakhir dari provider, disimpan untuk penelusuran.</summary>
+    [MaxLength(4000)]
+    public string? CallbackPayload { get; set; }
 }
 
 /// <summary>

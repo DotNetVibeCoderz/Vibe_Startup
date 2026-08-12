@@ -1,5 +1,6 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Identity
+@using PadelHub.Services.Payments
 @attribute [Authorize(Roles = "Admin,Operator")]
 @page "/finance/payments"
 @page "/finance/membership"
@@ -11,9 +12,12 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject ExportService ExportService
+@inject PaymentGatewayRegistry Gateways
 
 <PageTitle>Keuangan - PadelHub</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">💰 Manajemen Keuangan</MudText>
+
+<PageHeader Title="Keuangan" Eyebrow="Pembayaran, membership, laporan"
+            Subtitle="Tagihan anggota, paket membership, dan ringkasan pendapatan klub." />
 
 <MudTabs Elevation="1" Class="rounded-lg">
     @* ============================================================ *@
@@ -69,35 +73,50 @@
                     <MudTh>Paket</MudTh>
                     <MudTh Style="text-align:right;">Jumlah</MudTh>
                     <MudTh>Periode</MudTh>
-                    <MudTh>Jatuh Tempo</MudTh>
+                    <MudTh>Metode</MudTh>
                     <MudTh>Status</MudTh>
-                    <MudTh Style="text-align:center;">Verifikasi</MudTh>
+                    <MudTh Style="text-align:center;">Aksi</MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd><strong>@GetMemberName(context)</strong></MudTd>
-                    <MudTd>@GetPackageName(context)</MudTd>
-                    <MudTd Style="text-align:right;">Rp @context.Amount.ToString("N0")</MudTd>
-                    <MudTd>@GetPeriodLabel(context)</MudTd>
-                    <MudTd>@(context.PaidAt?.ToLocalTime().ToString("dd MMM yyyy") ?? "-")</MudTd>
-                    <MudTd><span class="badge-chip @GetPayBadge(context.Status)">@context.Status</span></MudTd>
-                    <MudTd Style="text-align:center; white-space:nowrap;">
+                    <MudTd DataLabel="Member"><strong>@GetMemberName(context)</strong></MudTd>
+                    <MudTd DataLabel="Paket">@GetPackageName(context)</MudTd>
+                    <MudTd DataLabel="Jumlah" Style="text-align:right;">Rp @context.Amount.ToString("N0")</MudTd>
+                    <MudTd DataLabel="Periode">@GetPeriodLabel(context)</MudTd>
+                    <MudTd DataLabel="Metode">
+                        <span class="pd-mono" style="font-size:.75rem;">@GetProviderLabel(context)</span>
+                    </MudTd>
+                    <MudTd DataLabel="Status"><span class="badge-chip @GetPayBadge(context.Status)">@context.Status</span></MudTd>
+                    <MudTd DataLabel="Aksi" Style="text-align:center; white-space:nowrap;">
                         @if (context.Status == "Pending")
                         {
-                            <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Color="Color.Success"
-                                           OnClick="() => VerifyPayment(context.Id, true)" title="Konfirmasi Pembayaran" />
-                            <MudIconButton Icon="@Icons.Material.Filled.Cancel" Size="Size.Small" Color="Color.Error"
-                                           OnClick="() => VerifyPayment(context.Id, false)" title="Tolak" />
+                            <MudTooltip Text="Buka halaman pembayaran">
+                                <MudIconButton Icon="@Icons.Material.Rounded.Payment" Size="Size.Small" Color="Color.Primary"
+                                               Href="@($"/finance/checkout/{context.Id}")" />
+                            </MudTooltip>
+                            <MudTooltip Text="Konfirmasi pembayaran">
+                                <MudIconButton Icon="@Icons.Material.Rounded.CheckCircle" Size="Size.Small" Color="Color.Success"
+                                               OnClick="() => VerifyPayment(context.Id, true)" />
+                            </MudTooltip>
+                            <MudTooltip Text="Tolak">
+                                <MudIconButton Icon="@Icons.Material.Rounded.Cancel" Size="Size.Small" Color="Color.Error"
+                                               OnClick="() => VerifyPayment(context.Id, false)" />
+                            </MudTooltip>
                         }
-                        else if (context.Status == "Confirmed")
+                        else if (PaymentStatuses.IsPaid(context.Status))
                         {
-                            <span class="badge-chip badge-success" style="font-size:0.7rem;">✅ Verified</span>
+                            <span class="badge-chip badge-success">Terverifikasi</span>
                         }
                     </MudTd>
                 </RowTemplate>
                 <NoRecordsContent>
-                    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="pa-4">
-                        Belum ada data pembayaran. Klik <strong>"Generate Tagihan"</strong> untuk membuat tagihan bulanan anggota.
-                    </MudText>
+                    <EmptyState Title="Belum ada tagihan"
+                                Body="Buat tagihan bulanan untuk semua anggota dengan membership aktif."
+                                Icon="@Icons.Material.Rounded.ReceiptLong">
+                        <Action>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GenerateMonthlyPayments"
+                                       Disabled="_isGenerating" StartIcon="@Icons.Material.Rounded.AutoAwesome">Generate tagihan</MudButton>
+                        </Action>
+                    </EmptyState>
                 </NoRecordsContent>
                 <PagerContent><MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" /></PagerContent>
             </MudTable>
@@ -148,10 +167,19 @@
     @* TAB: LAPORAN                                                   *@
     @* ============================================================ *@
     <MudTabPanel Text="📊 Laporan">
-        <MudGrid Class="mb-6">
-            <MudItem xs="12" md="4"><MudPaper Class="pa-4" Elevation="2" Style="text-align:center; border-radius:12px; background:linear-gradient(135deg, #1B5E20, #4CAF50); color:white;"><MudText Typo="Typo.caption">Total Pendapatan</MudText><MudText Typo="Typo.h3" Style="font-weight:700;">Rp @_totalRevenue.ToString("N0")</MudText></MudPaper></MudItem>
-            <MudItem xs="12" md="4"><MudPaper Class="pa-4" Elevation="2" Style="text-align:center; border-radius:12px; background:linear-gradient(135deg, #1565C0, #42A5F5); color:white;"><MudText Typo="Typo.caption">Member Aktif</MudText><MudText Typo="Typo.h3" Style="font-weight:700;">@_activeMembers</MudText></MudPaper></MudItem>
-            <MudItem xs="12" md="4"><MudPaper Class="pa-4" Elevation="2" Style="text-align:center; border-radius:12px; background:linear-gradient(135deg, #E65100, #FF9800); color:white;"><MudText Typo="Typo.caption">Pending</MudText><MudText Typo="Typo.h3" Style="font-weight:700;">Rp @_pendingAmount.ToString("N0")</MudText></MudPaper></MudItem>
+        <MudGrid Class="mb-6" Spacing="3">
+            <MudItem xs="12" md="4">
+                <StatPlate Label="Total pendapatan" Value="@($"Rp {_totalRevenue:N0}")" Accent="ball" Index="0"
+                           Foot="Dari tagihan terverifikasi" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <StatPlate Label="Member aktif" Value="@_activeMembers.ToString()" Accent="teal" Index="1"
+                           Foot="Membership berjalan" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <StatPlate Label="Menunggu pembayaran" Value="@($"Rp {_pendingAmount:N0}")" Accent="amber" Index="2"
+                           Foot="Belum diverifikasi" />
+            </MudItem>
         </MudGrid>
 
         @* --- Monthly Revenue Chart --- *@
@@ -205,6 +233,58 @@
             </MudTable>
         </MudPaper>
     </MudTabPanel>
+
+    @* ============================================================ *@
+    @* TAB: PROVIDER PEMBAYARAN                                       *@
+    @* ============================================================ *@
+    <MudTabPanel Text="🔌 Provider">
+        <p style="color:var(--mud-palette-text-secondary); font-size:.9375rem; max-width:66ch; margin:0 0 1.5rem;">
+            Provider diatur di <code>appsettings.json</code> pada seksi <code>Payments:Providers</code>.
+            Setelah kredensial diisi dan <code>Enabled</code> disetel <code>true</code>, metode langsung
+            muncul di halaman pembayaran anggota.
+        </p>
+
+        <MudGrid Spacing="3">
+            @foreach (var (gateway, index) in Gateways.All.Select((g, i) => (g, i)))
+            {
+                <MudItem xs="12" md="6">
+                    <div class="pd-card pa-5 pd-enter" style="@($"--i:{index}; height:100%;")">
+                        <div class="d-flex align-center gap-3 mb-3">
+                            <span class="pd-provider__mark">@gateway.Mark</span>
+                            <div>
+                                <div style="font-weight:600;">@gateway.DisplayName</div>
+                                <div class="d-flex gap-2 mt-1">
+                                    <span class="badge-chip @(gateway.IsEnabled ? "badge-success" : "")">
+                                        @(gateway.IsEnabled ? "Aktif" : "Nonaktif")
+                                    </span>
+                                    @if (gateway.IsEnabled && gateway.IsSandbox)
+                                    {
+                                        <span class="badge-chip badge-warning">Sandbox</span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <p style="font-size:.875rem; color:var(--mud-palette-text-secondary); line-height:1.55; margin:0 0 1rem;">
+                            @gateway.Description
+                        </p>
+
+                        @if (WebhookPath(gateway.Key) is { } path)
+                        {
+                            <div class="pd-eyebrow" style="margin-bottom:.4rem;">URL notifikasi</div>
+                            <code class="pd-mono" style="font-size:.75rem; word-break:break-all;">@path</code>
+                        }
+
+                        <div class="mt-3">
+                            <span class="pd-mono" style="font-size:.75rem; color:var(--mud-palette-text-secondary);">
+                                @_providerUsage.GetValueOrDefault(gateway.Key) transaksi tercatat
+                            </span>
+                        </div>
+                    </div>
+                </MudItem>
+            }
+        </MudGrid>
+    </MudTabPanel>
 </MudTabs>
 
 @code {
@@ -236,6 +316,7 @@
     private List<RevenueByStatus> _revenueByStatus = new();
     private List<MonthlyRevenue> _monthlyRevenue = new();
     private List<Payment> _recentVerified = new();
+    private Dictionary<string, int> _providerUsage = new(StringComparer.OrdinalIgnoreCase);
 
     private class MonthlyRevenue { public string MonthName { get; set; } = ""; public decimal Revenue { get; set; } }
     private class RevenueByStatus { public string Status { get; set; } = ""; public decimal Revenue { get; set; } public int Count { get; set; } }
@@ -258,8 +339,13 @@
 
         // Reports
         var allPayments = await Db.Payments.ToListAsync();
-        _totalRevenue = allPayments.Where(p => p.Status == "Confirmed").Sum(p => p.Amount);
-        _pendingAmount = allPayments.Where(p => p.Status == "Pending").Sum(p => p.Amount);
+        _totalRevenue = allPayments.Where(p => PaymentStatuses.IsPaid(p.Status)).Sum(p => p.Amount);
+        _pendingAmount = allPayments.Where(p => p.Status == PaymentStatuses.Pending).Sum(p => p.Amount);
+
+        // Pemakaian provider, ditampilkan di tab Provider.
+        _providerUsage = allPayments
+            .GroupBy(p => string.IsNullOrWhiteSpace(p.Provider) ? PaymentProviders.Manual : p.Provider)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         _activeMembers = (await Db.UserMemberships.Where(m => m.Status == "Active").ToListAsync()).Select(m => m.UserId).Distinct().Count();
 
         // Revenue by status
@@ -271,7 +357,7 @@
         // Monthly revenue (current year)
         var thisYear = DateTime.Now.Year;
         _monthlyRevenue = allPayments
-            .Where(p => p.Status == "Confirmed" && p.CreatedAt.Year == thisYear)
+            .Where(p => PaymentStatuses.IsPaid(p.Status) && p.CreatedAt.Year == thisYear)
             .GroupBy(p => p.CreatedAt.Month)
             .Select(g => new MonthlyRevenue
             {
@@ -291,7 +377,7 @@
         _monthlyRevenue = _monthlyRevenue.OrderBy(m => DateTime.ParseExact(m.MonthName, "MMMM", null).Month).ToList();
 
         // Recent verified
-        _recentVerified = allPayments.Where(p => p.Status == "Confirmed").OrderByDescending(p => p.PaidAt).Take(10).ToList();
+        _recentVerified = allPayments.Where(p => PaymentStatuses.IsPaid(p.Status)).OrderByDescending(p => p.PaidAt).Take(10).ToList();
 
         ApplyPayFilter();
         _isPayLoading = false;
@@ -367,7 +453,7 @@
                 var payment = new Payment
                 {
                     UserId = membership.UserId,
-                    ReservationId = 0, // Not linked to a reservation
+                    ReservationId = null, // tagihan membership tidak terkait reservasi
                     Amount = amount,
                     PaymentMethod = "Membership",
                     Status = "Pending",
@@ -410,13 +496,13 @@
 
         if (approve)
         {
-            payment.Status = "Confirmed";
+            payment.Status = PaymentStatuses.Paid;
             payment.PaidAt = DateTime.UtcNow;
-            Snackbar.Add($"Pembayaran {payment.TransactionId} dikonfirmasi! ✅", Severity.Success);
+            Snackbar.Add($"Pembayaran {payment.TransactionId} dikonfirmasi.", Severity.Success);
         }
         else
         {
-            payment.Status = "Cancelled";
+            payment.Status = PaymentStatuses.Cancelled;
             Snackbar.Add($"Pembayaran {payment.TransactionId} ditolak.", Severity.Warning);
         }
 
@@ -438,6 +524,25 @@
     {
         return p.PaymentMethod == "Membership" ? (p.Notes ?? "Membership") : (p.PaymentMethod ?? "Lainnya");
     }
+
+    /// <summary>Nama provider + kanal yang dipakai, misal "Xendit · BCA_VA".</summary>
+    private string GetProviderLabel(Payment p)
+    {
+        var provider = Gateways.Find(p.Provider)?.DisplayName ?? p.Provider;
+        if (string.IsNullOrWhiteSpace(provider)) return "—";
+
+        var channel = p.PaymentMethod;
+        return string.IsNullOrWhiteSpace(channel) || string.Equals(channel, p.Provider, StringComparison.OrdinalIgnoreCase)
+            ? provider
+            : $"{provider} · {channel}";
+    }
+
+    private static string? WebhookPath(string providerKey) => providerKey switch
+    {
+        PaymentProviders.Xendit => "/api/payments/webhook/xendit",
+        PaymentProviders.Midtrans => "/api/payments/webhook/midtrans",
+        _ => null
+    };
 
     private string GetPeriodLabel(Payment p)
     {

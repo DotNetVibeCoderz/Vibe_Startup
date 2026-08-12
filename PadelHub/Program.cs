@@ -4,6 +4,7 @@ using MudBlazor.Services;
 using PadelHub.Data;
 using PadelHub.Models;
 using PadelHub.Services;
+using PadelHub.Services.Payments;
 using PadelHub.Components;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -53,6 +54,7 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
     options.SignIn.RequireConfirmedAccount = false;
 })
 .AddEntityFrameworkStores<AppDbContext>()
+.AddClaimsPrincipalFactory<ApplicationUserClaimsPrincipalFactory>()
 .AddDefaultTokenProviders();
 
 builder.Services.ConfigureApplicationCookie(options =>
@@ -85,6 +87,15 @@ builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<ChatBotService>();
 
 // ============================================================
+// PAYMENT GATEWAY - daftarkan provider baru di sini saja
+// ============================================================
+builder.Services.AddScoped<IPaymentGateway, ManualTransferGateway>();
+builder.Services.AddScoped<IPaymentGateway, XenditGateway>();
+builder.Services.AddScoped<IPaymentGateway, MidtransGateway>();
+builder.Services.AddScoped<PaymentGatewayRegistry>();
+builder.Services.AddScoped<PaymentCheckoutService>();
+
+// ============================================================
 // HTTP CLIENTS
 // ============================================================
 builder.Services.AddHttpClient();
@@ -101,6 +112,15 @@ builder.Services.AddHttpClient("Scraper", client =>
 builder.Services.AddHttpClient("FileReader", client =>
 {
     client.DefaultRequestHeaders.Add("User-Agent", "PadelHub-Bot/1.0");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddHttpClient("Xendit", client =>
+{
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddHttpClient("Midtrans", client =>
+{
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
@@ -200,6 +220,55 @@ app.MapGet("/api/tournaments", async (AppDbContext db) => Results.Ok(await db.To
 app.MapPost("/api/sensors/push", async (SensorData data, AppDbContext db) => { data.RecordedAt = DateTime.UtcNow; db.SensorData.Add(data); await db.SaveChangesAsync(); return Results.Created($"/api/sensors/{data.Id}", data); });
 app.MapGet("/api/sensors/{courtId}", async (int courtId, AppDbContext db) => Results.Ok(await db.SensorData.Where(s => s.CourtId == courtId).OrderByDescending(s => s.RecordedAt).Take(100).ToListAsync()));
 app.MapGet("/api/rankings", async (AppDbContext db) => Results.Ok(await db.PlayerProfiles.Include(p => p.User).OrderBy(p => p.Ranking).Take(50).Select(p => new { p.Id, p.User!.FullName, p.Ranking, p.Rating, p.Wins, p.Losses, p.Level }).ToListAsync()));
+
+// ============================================================
+// WEBHOOK PAYMENT GATEWAY
+// Provider memanggil endpoint ini tanpa cookie/antiforgery. Keasliannya
+// diverifikasi di dalam ParseCallback masing-masing gateway (callback token
+// untuk Xendit, signature SHA-512 untuk Midtrans) — jangan pernah mengubah
+// status pembayaran sebelum verifikasi itu lolos.
+// ============================================================
+async Task<IResult> HandleWebhookAsync(string providerKey, HttpContext httpContext,
+    PaymentGatewayRegistry registry, PaymentCheckoutService checkout, ILoggerFactory loggerFactory)
+{
+    var logger = loggerFactory.CreateLogger("PaymentWebhook");
+    var gateway = registry.Find(providerKey);
+
+    if (gateway is null || !gateway.IsEnabled)
+    {
+        logger.LogWarning("Webhook {Provider} ditolak: provider tidak aktif.", providerKey);
+        return Results.NotFound();
+    }
+
+    using var reader = new StreamReader(httpContext.Request.Body);
+    var body = await reader.ReadToEndAsync();
+
+    var callback = gateway.ParseCallback(body, httpContext.Request.Headers);
+    if (!callback.Valid)
+    {
+        logger.LogWarning("Webhook {Provider} ditolak: {Error}", providerKey, callback.Error);
+        return Results.Unauthorized();
+    }
+
+    var applied = await checkout.ApplyCallbackAsync(callback, body, gateway.Key);
+
+    // 200 = notifikasi diterima dan diproses; 422 memberi tahu provider untuk
+    // mencoba lagi (misal tagihan belum tersimpan saat notifikasi tiba).
+    return applied
+        ? Results.Ok(new { received = true })
+        : Results.UnprocessableEntity(new { received = false, reason = "Tagihan tidak cocok." });
+}
+
+app.MapPost("/api/payments/webhook/xendit", (HttpContext ctx, PaymentGatewayRegistry registry, PaymentCheckoutService checkout, ILoggerFactory lf) =>
+    HandleWebhookAsync(PaymentProviders.Xendit, ctx, registry, checkout, lf)).DisableAntiforgery();
+
+app.MapPost("/api/payments/webhook/midtrans", (HttpContext ctx, PaymentGatewayRegistry registry, PaymentCheckoutService checkout, ILoggerFactory lf) =>
+    HandleWebhookAsync(PaymentProviders.Midtrans, ctx, registry, checkout, lf)).DisableAntiforgery();
+
+// Daftar provider aktif — dipakai halaman checkout dan berguna untuk memeriksa
+// konfigurasi tanpa membuka appsettings.
+app.MapGet("/api/payments/providers", (PaymentGatewayRegistry registry) => Results.Ok(
+    registry.All.Select(g => new { g.Key, g.DisplayName, g.Description, g.IsEnabled, g.IsSandbox })));
 
 if (app.Environment.IsDevelopment())
 {

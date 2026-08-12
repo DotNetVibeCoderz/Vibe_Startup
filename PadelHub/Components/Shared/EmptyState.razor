@@ -1,0 +1,24 @@
+@*
+    Layar kosong adalah ajakan bertindak, bukan pemberitahuan.
+    Judul menyebut apa yang belum ada, badan menjelaskan langkah berikutnya.
+*@
+
+<div class="pd-empty">
+    <MudIcon Icon="@Icon" Size="Size.Large" Style="color:var(--mud-palette-primary); opacity:.65;" />
+    <div class="pd-empty__title">@Title</div>
+    @if (!string.IsNullOrWhiteSpace(Body))
+    {
+        <p class="pd-empty__body">@Body</p>
+    }
+    @if (Action is not null)
+    {
+        <div class="d-flex justify-center gap-2 flex-wrap">@Action</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Body { get; set; }
+    [Parameter] public string Icon { get; set; } = Icons.Material.Rounded.Inbox;
+    [Parameter] public RenderFragment? Action { get; set; }
+}

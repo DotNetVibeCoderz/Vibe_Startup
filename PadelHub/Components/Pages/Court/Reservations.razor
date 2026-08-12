@@ -6,9 +6,23 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <PageTitle>Reservasi Lapangan - PadelHub</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">📅 Reservasi Lapangan</MudText>
+
+<PageHeader Title="Reservasi lapangan" Eyebrow="Operasional"
+            Subtitle="Booking lapangan per jam, konfirmasi, dan penagihannya.">
+    <Actions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Rounded.Add"
+                   OnClick="OpenAddDialog">Tambah reservasi</MudButton>
+        <MudTooltip Text="Export CSV">
+            <MudIconButton Icon="@Icons.Material.Rounded.FileDownload" OnClick="ExportToCsv" />
+        </MudTooltip>
+        <MudTooltip Text="Export Excel">
+            <MudIconButton Icon="@Icons.Material.Rounded.GridOn" OnClick="ExportToExcel" />
+        </MudTooltip>
+    </Actions>
+</PageHeader>
 
 @* Filter Bar *@
 <MudPaper Class="pa-4 mb-4" Elevation="0">
@@ -35,15 +49,10 @@
                 <MudSelectItem Value="@("Completed")">Completed</MudSelectItem>
             </MudSelect>
         </MudItem>
-        <MudItem xs="12" sm="6" md="2" Class="d-flex align-center justify-end gap-2">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
-                        OnClick="OpenAddDialog">Tambah</MudButton>
-            <MudTooltip Text="Export CSV">
-                <MudIconButton Icon="@Icons.Material.Filled.FileDownload" Color="Color.Secondary" OnClick="ExportToCsv" />
-            </MudTooltip>
-            <MudTooltip Text="Export Excel">
-                <MudIconButton Icon="@Icons.Material.Filled.GridOn" Color="Color.Tertiary" OnClick="ExportToExcel" />
-            </MudTooltip>
+        <MudItem xs="12" sm="6" md="2" Class="d-flex align-center justify-end">
+            <span class="pd-mono" style="font-size:.75rem; color:var(--mud-palette-text-secondary);">
+                @_filteredReservations.Count() dari @_reservations.Count
+            </span>
         </MudItem>
     </MudGrid>
 </MudPaper>
@@ -82,21 +91,39 @@
             <MudTd Style="text-align:right;">Rp @context.TotalPrice.ToString("N0")</MudTd>
             <MudTd><span class="@GetStatusBadgeClass(context.Status)">@context.Status</span></MudTd>
             <MudTd Style="text-align:center; white-space:nowrap;">
-                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Color="Color.Primary"
-                                OnClick="() => OpenEditDialog(context.Id)" />
-                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
-                                OnClick="() => DeleteReservation(context.Id)" />
                 @if (context.Status == "Pending")
                 {
-                    <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Color="Color.Success"
-                                    OnClick="() => ConfirmReservation(context.Id)" />
-                    <MudIconButton Icon="@Icons.Material.Filled.Cancel" Size="Size.Small" Color="Color.Warning"
-                                    OnClick="() => CancelReservation(context.Id)" />
+                    <MudTooltip Text="Buat tagihan & bayar">
+                        <MudIconButton Icon="@Icons.Material.Rounded.Payment" Size="Size.Small" Color="Color.Primary"
+                                       OnClick="() => PayReservation(context)" />
+                    </MudTooltip>
+                    <MudTooltip Text="Konfirmasi tanpa pembayaran">
+                        <MudIconButton Icon="@Icons.Material.Rounded.CheckCircle" Size="Size.Small" Color="Color.Success"
+                                       OnClick="() => ConfirmReservation(context.Id)" />
+                    </MudTooltip>
+                    <MudTooltip Text="Batalkan">
+                        <MudIconButton Icon="@Icons.Material.Rounded.Cancel" Size="Size.Small" Color="Color.Warning"
+                                       OnClick="() => CancelReservation(context.Id)" />
+                    </MudTooltip>
                 }
+                <MudTooltip Text="Ubah">
+                    <MudIconButton Icon="@Icons.Material.Rounded.Edit" Size="Size.Small"
+                                   OnClick="() => OpenEditDialog(context.Id)" />
+                </MudTooltip>
+                <MudTooltip Text="Hapus">
+                    <MudIconButton Icon="@Icons.Material.Rounded.Delete" Size="Size.Small" Color="Color.Error"
+                                   OnClick="() => DeleteReservation(context.Id)" />
+                </MudTooltip>
             </MudTd>
         </RowTemplate>
         <NoRecordsContent>
-            <MudText Typo="Typo.body1" Color="Color.Secondary" Class="pa-4">Tidak ada data reservasi.</MudText>
+            <EmptyState Title="Tidak ada reservasi yang cocok"
+                        Body="Ubah filter di atas, atau buat reservasi baru untuk anggota."
+                        Icon="@Icons.Material.Rounded.EventBusy">
+                <Action>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenAddDialog">Tambah reservasi</MudButton>
+                </Action>
+            </EmptyState>
         </NoRecordsContent>
         <PagerContent>
             <MudTablePager PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
@@ -255,6 +282,45 @@
         await Db.SaveChangesAsync();
         Snackbar.Add("Reservasi dikonfirmasi!", Severity.Success);
         await RefreshData();
+    }
+
+    /// <summary>
+    /// Membuka halaman pembayaran untuk sebuah reservasi. Tagihan yang masih
+    /// terbuka dipakai ulang supaya satu reservasi tidak menghasilkan tagihan
+    /// ganda saat tombol ditekan dua kali.
+    /// </summary>
+    private async Task PayReservation(Reservation reservation)
+    {
+        var payment = await Db.Payments
+            .Where(p => p.ReservationId == reservation.Id)
+            .OrderByDescending(p => p.Id)
+            .FirstOrDefaultAsync();
+
+        if (payment is null || !PaymentStatuses.IsOpen(payment.Status))
+        {
+            if (payment is not null && PaymentStatuses.IsPaid(payment.Status))
+            {
+                Snackbar.Add("Reservasi ini sudah dibayar.", Severity.Info);
+                return;
+            }
+
+            payment = new Payment
+            {
+                ReservationId = reservation.Id,
+                UserId = reservation.UserId,
+                Amount = reservation.TotalPrice,
+                Status = PaymentStatuses.Pending,
+                Provider = PaymentProviders.Manual,
+                PaymentMethod = "",
+                Notes = $"Reservasi {reservation.Court?.Name} · {reservation.ReservationDate:dd MMM yyyy} {FormatTime(reservation.StartTime)}",
+                CreatedAt = DateTime.UtcNow,
+            };
+
+            Db.Payments.Add(payment);
+            await Db.SaveChangesAsync();
+        }
+
+        Nav.NavigateTo($"/finance/checkout/{payment.Id}");
     }
 
     private async Task CancelReservation(int id)

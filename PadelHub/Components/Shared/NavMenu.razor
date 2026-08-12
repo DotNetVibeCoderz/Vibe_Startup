@@ -3,67 +3,66 @@
 @using MudBlazor
 
 <CascadingAuthenticationState>
-    <MudNavMenu Style="padding-top:8px;">
+    <MudNavMenu Class="pb-6">
         @if (_isAuthenticated)
         {
-            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
-            <MudDivider Class="my-2" />
-            <MudNavLink Href="/reservations" Icon="@Icons.Material.Filled.CalendarMonth">Reservasi</MudNavLink>
-            <MudNavLink Href="/tournaments" Icon="@Icons.Material.Filled.EmojiEvents">Turnamen</MudNavLink>
-            <MudNavLink Href="/players/rankings" Icon="@Icons.Material.Filled.Leaderboard">Ranking</MudNavLink>
-            <MudNavLink Href="/coaches" Icon="@Icons.Material.Filled.School">Pelatih</MudNavLink>
-            <MudDivider Class="my-2" />
-            <MudNavGroup Title="Komunitas" Icon="@Icons.Material.Filled.Forum" Expanded="false">
-                <MudNavLink Href="/social/timeline" Icon="@Icons.Material.Filled.Timeline">Timeline</MudNavLink>
-                <MudNavLink Href="/social/chat" Icon="@Icons.Material.Filled.Chat">Chat</MudNavLink>
-                <MudNavLink Href="/social/forum" Icon="@Icons.Material.Filled.QuestionAnswer">Forum</MudNavLink>
-                <MudNavLink Href="/social/events" Icon="@Icons.Material.Filled.Event">Event</MudNavLink>
-            </MudNavGroup>
-            <MudNavLink Href="/chatbot" Icon="@Icons.Material.Filled.SmartToy" Style="font-weight:bold; color:var(--mud-palette-secondary);">🤖 Coach Sherly</MudNavLink>
-            <MudDivider Class="my-2" />
+            <span class="pd-nav-label">Harian</span>
+            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Rounded.SpaceDashboard">Dashboard</MudNavLink>
+            <MudNavLink Href="/reservations" Icon="@Icons.Material.Rounded.CalendarMonth">Reservasi</MudNavLink>
+            <MudNavLink Href="/tournaments" Icon="@Icons.Material.Rounded.EmojiEvents">Turnamen</MudNavLink>
+            <MudNavLink Href="/players/rankings" Icon="@Icons.Material.Rounded.Leaderboard">Ranking</MudNavLink>
+            <MudNavLink Href="/coaches" Icon="@Icons.Material.Rounded.School">Pelatih</MudNavLink>
+
+            <span class="pd-nav-label">Komunitas</span>
+            <MudNavLink Href="/social/timeline" Icon="@Icons.Material.Rounded.Timeline">Timeline</MudNavLink>
+            <MudNavLink Href="/social/chat" Icon="@Icons.Material.Rounded.Chat">Chat</MudNavLink>
+            <MudNavLink Href="/social/forum" Icon="@Icons.Material.Rounded.QuestionAnswer">Forum</MudNavLink>
+            <MudNavLink Href="/social/events" Icon="@Icons.Material.Rounded.Event">Event</MudNavLink>
+            <MudNavLink Href="/chatbot" Icon="@Icons.Material.Rounded.SmartToy">Coach Sherly</MudNavLink>
 
             @if (_isOperatorOrAdmin)
             {
-                <MudNavGroup Title="Manajemen" Icon="@Icons.Material.Filled.Business" Expanded="false">
-                    <MudNavLink Href="/clubs" Icon="@Icons.Material.Filled.List">Klub</MudNavLink>
-                    <MudNavLink Href="/courts" Icon="@Icons.Material.Filled.GridView">Lapangan</MudNavLink>
-                    <MudNavLink Href="/players" Icon="@Icons.Material.Filled.People">Pemain</MudNavLink>
-                    <MudNavLink Href="/players/cards" Icon="@Icons.Material.Filled.CreditCard">Kartu Member</MudNavLink>
-                    <MudNavLink Href="/players/checkin" Icon="@Icons.Material.Filled.QrCodeScanner">Check-in</MudNavLink>
-                    <MudNavLink Href="/training" Icon="@Icons.Material.Filled.Schedule">Latihan</MudNavLink>
-                </MudNavGroup>
-                <MudNavGroup Title="Keuangan" Icon="@Icons.Material.Filled.AccountBalanceWallet" Expanded="false">
-                    <MudNavLink Href="/finance/payments" Icon="@Icons.Material.Filled.Payment">Pembayaran</MudNavLink>
-                    <MudNavLink Href="/finance/membership" Icon="@Icons.Material.Filled.CardMembership">Membership</MudNavLink>
-                    <MudNavLink Href="/finance/reports" Icon="@Icons.Material.Filled.Assessment">Laporan</MudNavLink>
-                </MudNavGroup>
-                <MudNavGroup Title="Analitik" Icon="@Icons.Material.Filled.Analytics" Expanded="false">
-                    <MudNavLink Href="/analytics/dashboard" Icon="@Icons.Material.Filled.Insights">Dashboard</MudNavLink>
-                    <MudNavLink Href="/analytics/matches" Icon="@Icons.Material.Filled.SportsTennis">Match</MudNavLink>
-                </MudNavGroup>
-                <MudDivider Class="my-2" />
+                <span class="pd-nav-label">Operasional</span>
+                <MudNavLink Href="/clubs" Icon="@Icons.Material.Rounded.Apartment">Klub</MudNavLink>
+                <MudNavLink Href="/courts" Icon="@Icons.Material.Rounded.GridView">Lapangan</MudNavLink>
+                <MudNavLink Href="/players" Icon="@Icons.Material.Rounded.People">Pemain</MudNavLink>
+                <MudNavLink Href="/players/cards" Icon="@Icons.Material.Rounded.CreditCard">Kartu member</MudNavLink>
+                <MudNavLink Href="/players/checkin" Icon="@Icons.Material.Rounded.QrCodeScanner">Check-in</MudNavLink>
+                <MudNavLink Href="/training" Icon="@Icons.Material.Rounded.Schedule">Latihan</MudNavLink>
+
+                <span class="pd-nav-label">Keuangan</span>
+                <MudNavLink Href="/finance/payments" Icon="@Icons.Material.Rounded.Payments">Pembayaran</MudNavLink>
+                <MudNavLink Href="/finance/membership" Icon="@Icons.Material.Rounded.CardMembership">Membership</MudNavLink>
+                <MudNavLink Href="/finance/reports" Icon="@Icons.Material.Rounded.Assessment">Laporan</MudNavLink>
+
+                <span class="pd-nav-label">Analitik</span>
+                <MudNavLink Href="/analytics/dashboard" Icon="@Icons.Material.Rounded.Insights">Ringkasan</MudNavLink>
+                <MudNavLink Href="/analytics/matches" Icon="@Icons.Material.Rounded.SportsTennis">Match</MudNavLink>
             }
 
             @if (_isAdmin)
             {
-                <MudNavGroup Title="Administrasi" Icon="@Icons.Material.Filled.AdminPanelSettings" Expanded="false">
-                    <MudNavLink Href="/admin/users" Icon="@Icons.Material.Filled.ManageAccounts">User</MudNavLink>
-                    <MudNavLink Href="/admin/master-data" Icon="@Icons.Material.Filled.Storage">Master Data</MudNavLink>
-                    <MudNavLink Href="/admin/audit-log" Icon="@Icons.Material.Filled.History">Audit Log</MudNavLink>
-                    <MudNavLink Href="/admin/system-config" Icon="@Icons.Material.Filled.Settings">Konfigurasi</MudNavLink>
-                    <MudNavLink Href="/admin/iot" Icon="@Icons.Material.Filled.Sensors">IoT Simulator</MudNavLink>
-                </MudNavGroup>
-                <MudNavLink Href="/swagger" Icon="@Icons.Material.Filled.Api" Target="_blank">API (Swagger)</MudNavLink>
+                <span class="pd-nav-label">Administrasi</span>
+                <MudNavLink Href="/admin/users" Icon="@Icons.Material.Rounded.ManageAccounts">User</MudNavLink>
+                <MudNavLink Href="/admin/master-data" Icon="@Icons.Material.Rounded.Storage">Master data</MudNavLink>
+                <MudNavLink Href="/admin/audit-log" Icon="@Icons.Material.Rounded.History">Audit log</MudNavLink>
+                <MudNavLink Href="/admin/system-config" Icon="@Icons.Material.Rounded.Settings">Konfigurasi</MudNavLink>
+                <MudNavLink Href="/admin/iot" Icon="@Icons.Material.Rounded.Sensors">IoT simulator</MudNavLink>
+                <MudNavLink Href="/swagger" Icon="@Icons.Material.Rounded.Api" Target="_blank">API (Swagger)</MudNavLink>
             }
         }
         else
         {
-            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Beranda</MudNavLink>
-            <MudDivider Class="my-2" />
-            <MudNavLink Href="/auth/login" Icon="@Icons.Material.Filled.Login">Masuk</MudNavLink>
-            <MudNavLink Href="/auth/register" Icon="@Icons.Material.Filled.PersonAdd">Daftar</MudNavLink>
-            <MudDivider Class="my-2" />
-            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="pa-4">🔒 Login untuk akses penuh.</MudText>
+            <span class="pd-nav-label">PadelHub</span>
+            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Rounded.Home">Beranda</MudNavLink>
+            <MudNavLink Href="/auth/login" Icon="@Icons.Material.Rounded.Login">Masuk</MudNavLink>
+            <MudNavLink Href="/auth/register" Icon="@Icons.Material.Rounded.PersonAdd">Daftar</MudNavLink>
+
+            <div class="px-6 pt-4">
+                <p style="font-size:.8125rem; line-height:1.6; color:rgba(255,255,255,.5); margin:0;">
+                    Masuk untuk mengelola reservasi, turnamen, dan keuangan klub.
+                </p>
+            </div>
         }
     </MudNavMenu>
 </CascadingAuthenticationState>

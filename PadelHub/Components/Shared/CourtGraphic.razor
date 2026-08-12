@@ -1,0 +1,39 @@
+@*
+    Denah lapangan padel 20×10 m — elemen tanda tangan PadelHub.
+    Dinding kaca digambar sebagai bingkai tembus pandang di luar garis lapangan,
+    net di tengah, dan garis servis 6,95 m dari net (proporsi sebenarnya).
+    Bola melintas satu kali saat halaman dibuka, lalu diam.
+*@
+
+<svg class="@($"pd-court {(Animate ? "pd-court--animate" : "")}")" viewBox="0 0 340 184" role="img"
+     aria-label="Denah lapangan padel dengan dinding kaca, net, dan garis servis">
+
+    @* Dinding kaca *@
+    <rect class="pd-court__glass" x="6" y="6" width="328" height="172" rx="6" />
+
+    @* Permukaan lapangan *@
+    <rect class="pd-court__surface" x="14" y="14" width="312" height="156" rx="2" />
+
+    @* Garis batas lapangan *@
+    <rect class="pd-court__line" x="14" y="14" width="312" height="156" style="--pd-dash:940" />
+
+    @* Garis servis kiri & kanan (6,95 m dari net) *@
+    <line class="pd-court__line" x1="61.6" y1="14" x2="61.6" y2="170" style="--pd-dash:160" />
+    <line class="pd-court__line" x1="278.4" y1="14" x2="278.4" y2="170" style="--pd-dash:160" />
+
+    @* Garis servis tengah *@
+    <line class="pd-court__line" x1="14" y1="92" x2="61.6" y2="92" style="--pd-dash:50" />
+    <line class="pd-court__line" x1="278.4" y1="92" x2="326" y2="92" style="--pd-dash:50" />
+
+    @* Net *@
+    <line class="pd-court__net" x1="170" y1="14" x2="170" y2="170" stroke-dasharray="3 3" />
+    <line class="pd-court__line" x1="170" y1="14" x2="170" y2="170" stroke-width="1" style="--pd-dash:160" opacity=".55" />
+
+    @* Bola *@
+    <circle class="@($"pd-court__ball {(Animate ? "pd-court__ball--served" : "")}")" cx="60" cy="104" r="4.5" />
+</svg>
+
+@code {
+    /// <summary>Menyalakan animasi garis dicat + bola melintas (sekali jalan).</summary>
+    [Parameter] public bool Animate { get; set; } = true;
+}

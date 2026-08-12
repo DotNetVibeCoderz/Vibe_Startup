@@ -205,7 +205,8 @@ public class DatabaseQueryPlugin
     [KernelFunction("get_financial_summary"), Description("Ringkasan keuangan PadelHub.")]
     public async Task<string> GetFinancialSummaryAsync()
     {
-        var rev = await _db.Payments.Where(p => p.Status == "Success").SumAsync(p => p.Amount);
+        // "Confirmed" = alur kasir saat ini, "Success" = data lama.
+        var rev = await _db.Payments.Where(p => p.Status == "Confirmed" || p.Status == "Success").SumAsync(p => p.Amount);
         var tx = await _db.Payments.CountAsync();
         var mem = await _db.UserMemberships.CountAsync(m => m.Status == "Active");
         return $"💰 **Keuangan:**\n- Pendapatan: **Rp {rev:N0}**\n- Transaksi: **{tx}**\n- Member Aktif: **{mem}**";

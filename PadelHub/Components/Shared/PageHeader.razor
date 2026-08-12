@@ -1,0 +1,31 @@
+@*
+    Header halaman standar: eyebrow bergaya papan skor, judul Archivo,
+    dan slot aksi di kanan. Judul memakai <h1> asli supaya FocusOnNavigate
+    di Routes.razor punya target dan pembaca layar dapat struktur yang benar.
+*@
+
+<div class="pd-page-head pd-enter">
+    <div>
+        @if (!string.IsNullOrWhiteSpace(Eyebrow))
+        {
+            <div class="pd-eyebrow">@Eyebrow</div>
+        }
+        <h1 class="pd-page-title" tabindex="-1">@Title</h1>
+        @if (!string.IsNullOrWhiteSpace(Subtitle))
+        {
+            <p class="pd-page-sub">@Subtitle</p>
+        }
+    </div>
+
+    @if (Actions is not null)
+    {
+        <div class="pd-page-actions">@Actions</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Eyebrow { get; set; }
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

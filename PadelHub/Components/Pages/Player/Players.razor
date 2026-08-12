@@ -1,4 +1,5 @@
 @using Microsoft.AspNetCore.Authorization
+@implements IDisposable
 @attribute [Authorize]
 @page "/players"
 @page "/players/rankings"
@@ -14,7 +15,14 @@
 
 @if (_isRankingsView)
 {
-    <MudText Typo="Typo.h4" GutterBottom="true">🏆 Leaderboard Pemain</MudText>
+    <PageHeader Title="Papan peringkat" Eyebrow="Ranking pemain"
+                Subtitle="Urutan pemain berdasarkan rating dan hasil pertandingan.">
+        <Actions>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Rounded.People" OnClick="GoToList">Semua pemain</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Rounded.FileDownload" OnClick="ExportRankCsv">CSV</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Rounded.GridOn" OnClick="ExportRankExcel">Excel</MudButton>
+        </Actions>
+    </PageHeader>
     <MudPaper Class="pa-4 mb-4" Elevation="0">
         <MudGrid>
             <MudItem xs="12" sm="6" md="4">
@@ -28,10 +36,10 @@
                     <MudSelectItem Value="@("Professional")">Professional</MudSelectItem>
                 </MudSelect>
             </MudItem>
-            <MudItem xs="12" sm="6" md="4" Class="d-flex gap-2 justify-end align-center">
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.People" OnClick="GoToList">Lihat Semua</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.FileDownload" OnClick="ExportRankCsv">CSV</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.GridOn" OnClick="ExportRankExcel">Excel</MudButton>
+            <MudItem xs="12" sm="6" md="4" Class="d-flex justify-end align-center">
+                <span class="pd-mono" style="font-size:.75rem; color:var(--mud-palette-text-secondary);">
+                    @_filteredPlayers.Count() pemain
+                </span>
             </MudItem>
         </MudGrid>
     </MudPaper>
@@ -51,7 +59,14 @@
 }
 else
 {
-    <MudText Typo="Typo.h4" GutterBottom="true">👥 Manajemen Pemain</MudText>
+    <PageHeader Title="Pemain" Eyebrow="Master data"
+                Subtitle="Profil anggota klub, level permainan, dan kartu member.">
+        <Actions>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Rounded.Leaderboard" OnClick="GoToRankings">Ranking</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Rounded.FileDownload" OnClick="ExportCsv">CSV</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Rounded.GridOn" OnClick="ExportExcel">Excel</MudButton>
+        </Actions>
+    </PageHeader>
     <MudPaper Class="pa-4 mb-4" Elevation="0">
         <MudGrid>
             <MudItem xs="12" sm="6" md="4">
@@ -71,10 +86,10 @@ else
                     <MudSelectItem Value="@("Left")">Kiri</MudSelectItem>
                 </MudSelect>
             </MudItem>
-            <MudItem xs="12" sm="6" md="2" Class="d-flex gap-2 justify-end align-center">
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Leaderboard" OnClick="GoToRankings">Ranking</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.FileDownload" OnClick="ExportCsv">CSV</MudButton>
-                <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.GridOn" OnClick="ExportExcel">Excel</MudButton>
+            <MudItem xs="12" sm="6" md="2" Class="d-flex justify-end align-center">
+                <span class="pd-mono" style="font-size:.75rem; color:var(--mud-palette-text-secondary);">
+                    @_filteredPlayers.Count() pemain
+                </span>
             </MudItem>
         </MudGrid>
     </MudPaper>
@@ -103,12 +118,33 @@ else
     private bool _isLoading = true; private string _searchText = ""; private string? _filterLevel; private string? _filterHand;
     private bool _isRankingsView;
 
+    /// <summary>
+    /// /players dan /players/rankings ditangani komponen yang sama. Blazor
+    /// mempertahankan instance komponennya saat berpindah antar kedua route,
+    /// sehingga OnInitializedAsync maupun OnParametersSet tidak bisa
+    /// diandalkan untuk mendeteksi perpindahannya. Yang pasti terpicu adalah
+    /// LocationChanged.
+    /// </summary>
     protected override async Task OnInitializedAsync()
     {
-        var uri = Nav.Uri;
-        _isRankingsView = uri.EndsWith("/players/rankings", StringComparison.OrdinalIgnoreCase);
+        Nav.LocationChanged += HandleLocationChanged;
+        UpdateViewFromUrl();
         await LoadData();
     }
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        UpdateViewFromUrl();
+        StateHasChanged();
+    }
+
+    private void UpdateViewFromUrl()
+    {
+        var path = new Uri(Nav.Uri).AbsolutePath.TrimEnd('/');
+        _isRankingsView = path.EndsWith("/players/rankings", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public void Dispose() => Nav.LocationChanged -= HandleLocationChanged;
     private async Task LoadData()
     {
         _isLoading = true; StateHasChanged();

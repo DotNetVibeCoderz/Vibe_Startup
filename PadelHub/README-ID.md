@@ -1,6 +1,16 @@
 # 🎾 PadelHub - Sistem Manajemen Padel
 
-**PadelHub** adalah aplikasi manajemen padel komprehensif untuk klub, turnamen, dan pemain individu. Dibangun dengan **Blazor Server .NET 10** dan **MudBlazor** (Material Design).
+**PadelHub** adalah aplikasi manajemen padel komprehensif untuk klub, turnamen, dan pemain individu. Dibangun dengan **Blazor Server .NET 10** dan **MudBlazor**, dengan design system sendiri bernama *Court Glass & Floodlight*.
+
+---
+
+## 📸 Tampilan Aplikasi
+
+| | |
+|---|---|
+| ![Halaman depan](docs/images/landing.png)<br>**Halaman depan** — denah lapangan dengan proporsi sebenarnya | ![Dashboard](docs/images/dashboard.png)<br>**Dashboard** — plat papan skor dan aktivitas hari ini |
+| ![Checkout](docs/images/checkout.png)<br>**Checkout** — pilih metode pembayaran | ![Keuangan](docs/images/finance.png)<br>**Keuangan** — tagihan, membership, laporan, status provider |
+| ![Masuk](docs/images/login.png)<br>**Masuk** — panel terbelah dengan motif lapangan | ![Mode gelap](docs/images/dark-mode.png)<br>**Mode gelap** — lapangan malam, tersimpan antar sesi |
 
 ---
 
@@ -14,7 +24,7 @@
 - **Pelatih & Kursus**: Jadwal latihan, booking sesi, materi pelatihan
 
 ### 💳 Keuangan
-- **Pembayaran Online**: Integrasi e-wallet, kartu kredit, transfer bank
+- **Pembayaran Online**: Provider bisa dipasang-lepas — Xendit (Invoice API), Midtrans (Snap), dan transfer bank manual, dengan webhook terverifikasi
 - **Paket Membership**: Paket bulanan/tahunan, diskon, loyalty points
 - **Laporan Keuangan**: Pendapatan, pengeluaran, analitik transaksi
 
@@ -118,6 +128,18 @@ Edit `appsettings.json` untuk mengubah:
 - **Storage**: FileSystem (default), Azure Blob, S3, MinIO
 - **AI Model**: OpenAI, Anthropic, Gemini, Ollama
 - **Chat Bot**: System prompt, temperature, max tokens
+- **Pembayaran**: Transfer manual (default), Xendit, Midtrans
+
+### Payment gateway
+
+Setel `Payments:Providers:<Nama>:Enabled` menjadi `true` lalu isi kredensialnya:
+
+| Provider | Kredensial | URL notifikasi yang didaftarkan |
+|----------|------------|---------------------------------|
+| Xendit | `SecretKey`, `CallbackToken` | `POST {BaseUrl}/api/payments/webhook/xendit` |
+| Midtrans | `ServerKey`, `IsProduction` | `POST {BaseUrl}/api/payments/webhook/midtrans` |
+
+Isi `Payments:BaseUrl` dengan alamat publik aplikasi (misalnya URL ngrok saat pengembangan) supaya URL kembali dan webhook bisa dijangkau. Notifikasi ditolak kalau callback token Xendit atau signature SHA-512 Midtrans tidak cocok, dan tagihan tidak pernah ditandai lunas bila nominal yang diberitahukan berbeda dari nominal tagihan.
 
 ---
 

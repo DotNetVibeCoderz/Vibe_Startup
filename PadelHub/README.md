@@ -1,6 +1,16 @@
 # 🎾 PadelHub - Padel Management System
 
-**PadelHub** is a comprehensive padel management application for clubs, tournaments, and individual players. Built with **Blazor Server .NET 10** and **MudBlazor** (Material Design).
+**PadelHub** is a comprehensive padel management application for clubs, tournaments, and individual players. Built with **Blazor Server .NET 10** and **MudBlazor**, with a custom design system called *Court Glass & Floodlight*.
+
+---
+
+## 📸 Screenshots
+
+| | |
+|---|---|
+| ![Landing page](docs/images/landing.png)<br>**Landing** — court diagram drawn to real proportions | ![Dashboard](docs/images/dashboard.png)<br>**Dashboard** — scoreboard tiles and today's activity |
+| ![Checkout](docs/images/checkout.png)<br>**Checkout** — pick a payment provider | ![Finance](docs/images/finance.png)<br>**Finance** — bills, membership, reports, provider status |
+| ![Login](docs/images/login.png)<br>**Login** — split panel with the court motif | ![Dark mode](docs/images/dark-mode.png)<br>**Dark mode** — floodlit night court, toggled and remembered |
 
 ---
 
@@ -14,7 +24,7 @@
 - **Coach & Courses**: Training schedules, session booking, course materials
 
 ### 💳 Financial
-- **Online Payment**: E-wallet, credit card, bank transfer integration
+- **Online Payment**: Pluggable gateways — Xendit (Invoice API), Midtrans (Snap), and manual bank transfer, with verified webhooks
 - **Membership Packages**: Monthly/yearly plans, discounts, loyalty points
 - **Financial Reports**: Revenue, expenses, transaction analytics
 
@@ -128,6 +138,18 @@ Edit `appsettings.json` to change:
 - **Storage**: FileSystem (default), Azure Blob, S3, MinIO
 - **AI Model**: OpenAI, Anthropic, Gemini, Ollama
 - **Chat Bot**: System prompt, temperature, max tokens
+- **Payments**: Manual transfer (default), Xendit, Midtrans
+
+### Payment gateway
+
+Set `Payments:Providers:<Name>:Enabled` to `true` and fill in the credentials:
+
+| Provider | Credentials | Notification URL to register |
+|----------|-------------|------------------------------|
+| Xendit | `SecretKey`, `CallbackToken` | `POST {BaseUrl}/api/payments/webhook/xendit` |
+| Midtrans | `ServerKey`, `IsProduction` | `POST {BaseUrl}/api/payments/webhook/midtrans` |
+
+Set `Payments:BaseUrl` to the public address of the app (e.g. an ngrok URL during development) so redirect and webhook URLs are reachable. Notifications are rejected unless the Xendit callback token or the Midtrans SHA-512 signature matches, and a bill is never marked paid when the notified amount differs from the recorded amount.
 
 ---
 
