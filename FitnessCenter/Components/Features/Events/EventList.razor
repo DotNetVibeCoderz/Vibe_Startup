@@ -4,7 +4,6 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthState
 
-<h3>🎪 Events</h3>
 @if (isAdmin) { <button class="brutal-btn brutal-btn-sm brutal-btn-success mb-2" @onclick="ShowCreate">➕ New Event</button> }
 
 @foreach (var evt in evts)

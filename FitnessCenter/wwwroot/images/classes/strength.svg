@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450" role="img" aria-label="Strength">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#161B25"/><stop offset="1" stop-color="#0C0F16"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.72" cy="0.28" r="0.62">
+      <stop offset="0" stop-color="#F3C218" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#F3C218" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="1.5" fill="#ffffff" fill-opacity="0.05"/>
+    </pattern>
+  </defs>
+
+  <rect width="800" height="450" fill="url(#bg)"/>
+  <rect width="800" height="450" fill="url(#grid)"/>
+  <rect width="800" height="450" fill="url(#glow)"/>
+
+  <!-- rim plate -->
+  <rect x="0" y="0" width="800" height="6" fill="#F3C218"/>
+
+  <g transform="translate(290,140)">
+    <line x1="6" y1="84" x2="214" y2="84" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <rect x="30" y="46" width="17" height="76" rx="4" fill="#E23B32"/>
+    <rect x="52" y="34" width="21" height="100" rx="4" fill="#2563D8"/>
+    <rect x="147" y="34" width="21" height="100" rx="4" fill="#2563D8"/>
+    <rect x="173" y="46" width="17" height="76" rx="4" fill="#E23B32"/>
+    <rect x="96" y="70" width="28" height="28" rx="4" fill="#F3C218"/>
+  </g>
+</svg>

@@ -1,28 +1,43 @@
 @using Microsoft.AspNetCore.Components.Web
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="id" data-theme="light">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#0C0F16" />
+    <meta name="description" content="Sistem manajemen fitness center — member, kelas, absensi, dan pembayaran dalam satu tempat." />
     <base href="/" />
+
+    @* Tema dipulihkan sebelum render pertama supaya tidak ada kedip putih *@
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('fitness-theme');
+                if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', t);
+            } catch (e) { }
+        })();
+    </script>
+
+    @*
+        Barlow Condensed — papan skor, dipakai untuk judul dan angka statistik.
+        Barlow — teks isi, satu superfamili sehingga proporsinya menyatu.
+        JetBrains Mono — nomor invoice, ID transaksi, dan data lain yang dibaca karakter per karakter.
+    *@
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" />
+
     <link rel="stylesheet" href="app.css" />
     <link rel="stylesheet" href="FitnessCenter.styles.css" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏋️</text></svg>" />
     <HeadOutlet @rendermode="RenderMode.InteractiveServer" />
 </head>
 <body>
     <Routes @rendermode="RenderMode.InteractiveServer" />
     <script src="_framework/blazor.web.js"></script>
-    <script>
-        (function() {
-            const theme = localStorage.getItem('fitness-theme') || 'light';
-            document.documentElement.setAttribute('data-theme', theme);
-        })();
-        function toggleTheme() {
-            const current = document.documentElement.getAttribute('data-theme');
-            const next = current === 'dark' ? 'light' : 'dark';
-            document.documentElement.setAttribute('data-theme', next);
-            localStorage.setItem('fitness-theme', next);
-        }
-    </script>
+    <script src="app.js"></script>
 </body>
 </html>

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450" role="img" aria-label="Dance">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#161B25"/><stop offset="1" stop-color="#0C0F16"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.72" cy="0.28" r="0.62">
+      <stop offset="0" stop-color="#7B5BE8" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#7B5BE8" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="1.5" fill="#ffffff" fill-opacity="0.05"/>
+    </pattern>
+  </defs>
+
+  <rect width="800" height="450" fill="url(#bg)"/>
+  <rect width="800" height="450" fill="url(#grid)"/>
+  <rect width="800" height="450" fill="url(#glow)"/>
+
+  <!-- rim plate -->
+  <rect x="0" y="0" width="800" height="6" fill="#7B5BE8"/>
+
+  <g transform="translate(290,140)">
+    <circle cx="72" cy="26" r="19" fill="#7B5BE8"/>
+    <path d="M72 46 L72 100 L40 162 M72 100 L110 154" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M72 62 L28 84 M72 62 L124 40" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <circle cx="186" cy="126" r="17" fill="#7B5BE8"/>
+    <path d="M203 126 L203 40 L236 30" stroke="#7B5BE8" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>

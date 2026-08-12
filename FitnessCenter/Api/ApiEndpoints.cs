@@ -3,6 +3,7 @@ using FitnessCenter.Data;
 using FitnessCenter.Models;
 using FitnessCenter.Services;
 using FitnessCenter.Services.ChatBot;
+using FitnessCenter.Services.Payments;
 
 namespace FitnessCenter.Api;
 
@@ -68,6 +69,86 @@ public static class ApiEndpoints
             var monthly = await svc.GetRevenueByMonthAsync();
             return Results.Ok(new { totalRevenue = total, monthly = monthly });
         }).WithTags("Payments");
+
+        // ---- Payment gateway ----
+
+        // Daftar provider beserta kesiapan dan URL callback yang perlu didaftarkan.
+        api.MapGet("/payments/providers", (PaymentGatewayService gateway) =>
+            Results.Ok(gateway.GetProviders().Select(p => new
+            {
+                provider = p.Key.ToString(),
+                p.DisplayName,
+                p.Description,
+                p.IsConfigured,
+                p.IsDefault,
+                p.IsRedirectBased,
+                p.Channels,
+                setupHint = p.IsConfigured ? null : p.SetupHint,
+                webhookUrl = p.Key == PaymentGatewayProvider.Manual ? null : gateway.WebhookUrlFor(p.Key)
+            })))
+            .WithTags("Payments")
+            .WithSummary("Daftar payment provider dan status konfigurasinya");
+
+        // Membuat tagihan di provider dan mengembalikan tautan bayarnya.
+        api.MapPost("/payments/{id:int}/charge", async (
+            int id,
+            ChargeRequestDto? dto,
+            PaymentGatewayService gateway,
+            CancellationToken ct) =>
+        {
+            var provider = Enum.TryParse<PaymentGatewayProvider>(dto?.Provider, ignoreCase: true, out var parsed)
+                ? parsed
+                : gateway.DefaultProvider;
+
+            var (ok, message, payment) = await gateway.StartPaymentAsync(id, provider, null, dto?.Channel, ct);
+
+            return ok
+                ? Results.Ok(new
+                {
+                    message,
+                    invoiceNumber = payment!.InvoiceNumber,
+                    provider = payment.Gateway.ToString(),
+                    paymentUrl = payment.PaymentUrl,
+                    expiresAt = payment.PaymentUrlExpiresAt,
+                    status = payment.Status.ToString()
+                })
+                : Results.BadRequest(new { message });
+        })
+            .WithTags("Payments")
+            .WithSummary("Membuat tagihan di payment gateway");
+
+        // Menyamakan status sebuah tagihan dengan provider.
+        api.MapPost("/payments/{id:int}/sync", async (int id, PaymentGatewayService gateway, CancellationToken ct) =>
+        {
+            var (ok, message) = await gateway.SyncStatusAsync(id, ct);
+            return ok ? Results.Ok(new { message }) : Results.BadRequest(new { message });
+        })
+            .WithTags("Payments")
+            .WithSummary("Menanyakan status tagihan ke provider");
+
+        // Callback provider. Terbuka tanpa autentikasi karena dipanggil server provider,
+        // keabsahannya dijaga tanda tangan/token yang diverifikasi tiap provider.
+        api.MapPost("/payments/webhook/{provider}", async (
+            string provider,
+            HttpRequest request,
+            PaymentGatewayService gateway,
+            CancellationToken ct) =>
+        {
+            using var reader = new StreamReader(request.Body);
+            var body = await reader.ReadToEndAsync(ct);
+
+            var headers = request.Headers.ToDictionary(
+                h => h.Key,
+                h => h.Value.ToString(),
+                StringComparer.OrdinalIgnoreCase);
+
+            var (statusCode, message) = await gateway.ProcessWebhookAsync(provider, body, headers, ct);
+            return Results.Json(new { message }, statusCode: statusCode);
+        })
+            .WithTags("Payments")
+            .WithSummary("Callback dari payment gateway")
+            .AllowAnonymous()
+            .DisableAntiforgery();
 
         // ---- Feedback ----
         api.MapGet("/feedback", async (FeedbackService svc) => await svc.GetAllAsync()).WithTags("Feedback");
@@ -208,4 +289,14 @@ public class ChatSendRequest
     public string Message { get; set; } = string.Empty;
     public string? ImageUrl { get; set; }
     public string? DocumentUrl { get; set; }
+}
+
+/// <summary>Request model untuk membuat tagihan di payment gateway</summary>
+public class ChargeRequestDto
+{
+    /// <summary>Manual, Midtrans, Xendit, atau Stripe. Kosong berarti provider bawaan.</summary>
+    public string? Provider { get; set; }
+
+    /// <summary>Kanal yang diminta, misal "gopay". Diabaikan bila provider tidak mendukung.</summary>
+    public string? Channel { get; set; }
 }

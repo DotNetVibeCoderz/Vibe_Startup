@@ -24,3 +24,10 @@ public enum AchievementCategory { Attendance, Workout, Class, Social, Streak, Sp
 public enum StorageProvider { FileSystem, AzureBlob, S3, MinIO }
 public enum DatabaseProvider { SQLite, SQLServer, MySQL, PostgreSQL }
 public enum AIModelProvider { OpenAI, Anthropic, Gemini, Ollama }
+
+/// <summary>
+/// Kanal pembayaran yang tersedia.
+/// Manual = transfer/tunai yang diverifikasi admin (alur bawaan aplikasi).
+/// Sisanya adalah payment gateway yang memberi halaman bayar sendiri.
+/// </summary>
+public enum PaymentGatewayProvider { Manual, Midtrans, Xendit, Stripe }

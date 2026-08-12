@@ -301,6 +301,40 @@ public class Payment
 
     public int? DiscountId { get; set; }
     public Discount? Discount { get; set; }
+
+    // ---- Payment gateway ----
+
+    /// <summary>Kanal yang dipakai untuk menagih. Manual = transfer diverifikasi admin.</summary>
+    public PaymentGatewayProvider Gateway { get; set; } = PaymentGatewayProvider.Manual;
+
+    /// <summary>ID transaksi di sisi provider (order_id Midtrans, invoice id Xendit, session id Stripe).</summary>
+    [MaxLength(200)]
+    public string? GatewayReference { get; set; }
+
+    /// <summary>Halaman bayar milik provider. Kosong untuk pembayaran manual.</summary>
+    [MaxLength(1000)]
+    public string? PaymentUrl { get; set; }
+
+    /// <summary>Status mentah dari provider, disimpan apa adanya untuk penelusuran.</summary>
+    [MaxLength(50)]
+    public string? GatewayStatus { get; set; }
+
+    /// <summary>Kanal spesifik yang dipilih pembayar di halaman provider, misal gopay atau BCA VA.</summary>
+    [MaxLength(60)]
+    public string? PaymentChannel { get; set; }
+
+    /// <summary>Batas waktu halaman bayar. Lewat dari ini, tagihan perlu dibuat ulang.</summary>
+    public DateTime? PaymentUrlExpiresAt { get; set; }
+
+    /// <summary>Kapan terakhir status disamakan dengan provider.</summary>
+    public DateTime? LastSyncedAt { get; set; }
+
+    /// <summary>Halaman bayar masih bisa dibuka.</summary>
+    [NotMapped]
+    public bool HasLivePaymentUrl =>
+        !string.IsNullOrEmpty(PaymentUrl)
+        && (PaymentUrlExpiresAt == null || PaymentUrlExpiresAt > DateTime.UtcNow)
+        && Status is PaymentStatus.Pending or PaymentStatus.Confirmed;
 }
 
 // ============================

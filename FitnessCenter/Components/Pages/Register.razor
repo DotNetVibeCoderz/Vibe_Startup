@@ -3,53 +3,102 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject NavigationManager Navigation
 
-<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg-primary);">
-    <div class="brutal-card" style="width:480px;max-width:90vw;">
-        <div class="text-center mb-3">
-            <div style="font-size:3rem;">🏋️</div>
-            <h2>Register</h2>
-            <p style="color:var(--text-muted);">Join FitnessCenter today!</p>
+<div class="auth-split">
+
+    <aside class="auth-brand">
+        <div class="auth-brand-top">
+            <div class="auth-logo">🏋️ Fitness<br />Center</div>
         </div>
 
-        @if (!string.IsNullOrEmpty(errorMessage))
-        {
-            <div class="brutal-badge brutal-badge-danger w-full mb-2" style="display:block;text-align:center;">@errorMessage</div>
-        }
-        @if (!string.IsNullOrEmpty(successMessage))
-        {
-            <div class="brutal-badge brutal-badge-success w-full mb-2" style="display:block;text-align:center;">@successMessage</div>
-        }
+        <div class="auth-brand-mid">
+            <h1 class="auth-statement">Mulai dari<br />satu langkah<br />ke lantai gym.</h1>
+            <p class="auth-sub">Daftar sekali, lalu booking kelas, catat latihan, dan bayar membership dari satu akun.</p>
+        </div>
 
-        <EditForm Model="regModel" OnValidSubmit="HandleRegister" FormName="registerForm">
-            <DataAnnotationsValidator />
-            <div class="grid-2">
-                <div><label>Full Name *</label><InputText @bind-Value="regModel.FullName" class="brutal-input" /></div>
-                <div><label>Email *</label><InputText @bind-Value="regModel.Email" class="brutal-input" type="email" /></div>
-                <div><label>Phone</label><InputText @bind-Value="regModel.Phone" class="brutal-input" /></div>
-                <div>
-                    <label>Gender</label>
-                    <select class="brutal-select" @bind="regModel.Gender">
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                        <option value="Other">Other</option>
-                    </select>
+        <ul class="auth-plates">
+            <li><span style="--tone:var(--plate-red);"></span> Booking kelas tanpa antre</li>
+            <li><span style="--tone:var(--plate-blue);"></span> Bayar lewat e-wallet atau transfer</li>
+            <li><span style="--tone:var(--plate-yellow);"></span> Kumpulkan poin tiap check-in</li>
+            <li><span style="--tone:var(--plate-green);"></span> Rencana latihan &amp; nutrisi pribadi</li>
+        </ul>
+    </aside>
+
+    <main class="auth-panel">
+        <div class="auth-form" style="max-width:32rem;">
+            <h2 class="mb-1">Buat akun</h2>
+            <p class="text-muted mb-3">Kolom bertanda * wajib diisi.</p>
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="notice notice-danger mb-3" role="alert">
+                    <span>⚠️</span>
+                    <div>@errorMessage</div>
                 </div>
-                <div><label>Password *</label><InputText @bind-Value="regModel.Password" type="password" class="brutal-input" /></div>
-                <div><label>Confirm Password *</label><InputText @bind-Value="regModel.ConfirmPassword" type="password" class="brutal-input" /></div>
-            </div>
-            <div class="mt-1"><label>Address</label><InputText @bind-Value="regModel.Address" class="brutal-input" /></div>
-            <div class="mt-1"><label>KTP Number</label><InputText @bind-Value="regModel.KtpNumber" class="brutal-input" /></div>
-            <ValidationSummary class="text-danger" style="font-size:0.8rem;" />
+            }
+            @if (!string.IsNullOrEmpty(successMessage))
+            {
+                <div class="notice notice-success mb-3" role="status">
+                    <span>✅</span>
+                    <div>@successMessage</div>
+                </div>
+            }
 
-            <button type="submit" class="brutal-btn brutal-btn-primary w-full mt-2" disabled="@isLoading">
-                @(isLoading ? "Registering..." : "📝 REGISTER")
-            </button>
-        </EditForm>
+            <EditForm Model="regModel" OnValidSubmit="HandleRegister" FormName="registerForm">
+                <DataAnnotationsValidator />
 
-        <p class="mt-2 text-center">
-            Already have an account? <a href="/login">Login here</a>
-        </p>
-    </div>
+                <div class="grid-2" style="gap:var(--sp-3);">
+                    <div class="field">
+                        <label for="fullName">Nama lengkap *</label>
+                        <InputText id="fullName" @bind-Value="regModel.FullName" class="brutal-input" placeholder="Sesuai KTP" />
+                    </div>
+                    <div class="field">
+                        <label for="regEmail">Email *</label>
+                        <InputText id="regEmail" @bind-Value="regModel.Email" class="brutal-input" type="email" placeholder="nama@email.com" />
+                    </div>
+                    <div class="field">
+                        <label for="phone">Nomor HP</label>
+                        <InputText id="phone" @bind-Value="regModel.Phone" class="brutal-input" placeholder="08xxxxxxxxxx" />
+                    </div>
+                    <div class="field">
+                        <label for="gender">Jenis kelamin</label>
+                        <select id="gender" class="brutal-select" @bind="regModel.Gender">
+                            <option value="Male">Laki-laki</option>
+                            <option value="Female">Perempuan</option>
+                            <option value="Other">Lainnya</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="pwd">Password *</label>
+                        <InputText id="pwd" @bind-Value="regModel.Password" type="password" class="brutal-input" placeholder="Minimal 8 karakter" />
+                    </div>
+                    <div class="field">
+                        <label for="pwd2">Ulangi password *</label>
+                        <InputText id="pwd2" @bind-Value="regModel.ConfirmPassword" type="password" class="brutal-input" />
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="address">Alamat</label>
+                    <InputText id="address" @bind-Value="regModel.Address" class="brutal-input" />
+                </div>
+                <div class="field">
+                    <label for="ktp">Nomor KTP</label>
+                    <InputText id="ktp" @bind-Value="regModel.KtpNumber" class="brutal-input" />
+                    <span class="field-hint">Dipakai untuk verifikasi keanggotaan di resepsionis.</span>
+                </div>
+
+                <ValidationSummary class="text-sm" style="color:var(--plate-red);" />
+
+                <button type="submit" class="brutal-btn brutal-btn-lg brutal-btn-block mt-2" disabled="@isLoading">
+                    @(isLoading ? "Membuat akun…" : "Buat akun")
+                </button>
+            </EditForm>
+
+            <p class="mt-3 text-sm">
+                Sudah punya akun? <a href="/login">Masuk di sini</a>
+            </p>
+        </div>
+    </main>
 </div>
 
 @code {

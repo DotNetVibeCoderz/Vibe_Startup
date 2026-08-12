@@ -3,49 +3,97 @@
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Web
 
-<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg-primary);">
-    <div class="brutal-card" style="width:420px;max-width:90vw;">
-        <div class="text-center mb-3">
-            <div style="font-size:3rem;">🏋️</div>
-            <h2>FITNESS CENTER</h2>
-            <p style="color:var(--text-muted);">Login to your account</p>
+<div class="auth-split">
+
+    @* Sisi kiri: papan identitas, memakai warna plate sebagai penanda *@
+    <aside class="auth-brand">
+        <div class="auth-brand-top">
+            <div class="auth-logo">🏋️ Fitness<br />Center</div>
         </div>
 
-        @if (!string.IsNullOrEmpty(errorMessage))
-        {
-            <div class="brutal-badge brutal-badge-danger w-full mb-2" style="display:block;text-align:center;">@errorMessage</div>
-        }
+        <div class="auth-brand-mid">
+            <h1 class="auth-statement">Satu tempat<br />untuk seluruh<br />lantai gym.</h1>
+            <p class="auth-sub">Member, kelas, absensi, dan pembayaran — dikelola dari satu layar.</p>
+        </div>
 
-        <form method="post" action="/login" class="flex flex-col gap-2">
-            <AntiforgeryToken />
-            <input type="hidden" name="returnUrl" value="@returnUrl" />
+        <ul class="auth-plates">
+            <li><span style="--tone:var(--plate-red);"></span> Absensi &amp; kelas harian</li>
+            <li><span style="--tone:var(--plate-blue);"></span> Tagihan &amp; pembayaran online</li>
+            <li><span style="--tone:var(--plate-yellow);"></span> Poin, lencana, papan peringkat</li>
+            <li><span style="--tone:var(--plate-green);"></span> Coach Tommy siap menjawab</li>
+        </ul>
+    </aside>
 
-            <div class="mb-1">
-                <label style="display:block;font-weight:600;">Email</label>
-                <input name="email" type="email" class="brutal-input" placeholder="your@email.com" required />
+    @* Sisi kanan: formulir *@
+    <main class="auth-panel">
+        <div class="auth-form">
+            <h2 class="mb-1">Masuk</h2>
+            <p class="text-muted mb-3">Gunakan email yang terdaftar di fitness center.</p>
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="notice notice-danger mb-3" role="alert">
+                    <span>⚠️</span>
+                    <div>@errorMessage</div>
+                </div>
+            }
+
+            <form method="post" action="/login" id="loginForm">
+                <AntiforgeryToken />
+                <input type="hidden" name="returnUrl" value="@returnUrl" />
+
+                <div class="field">
+                    <label for="email">Email</label>
+                    <input id="email" name="email" type="email" class="brutal-input"
+                           placeholder="nama@email.com" autocomplete="username" required autofocus />
+                </div>
+
+                <div class="field">
+                    <label for="password">Password</label>
+                    <input id="password" name="password" type="password" class="brutal-input"
+                           placeholder="Minimal 8 karakter" autocomplete="current-password" required />
+                </div>
+
+                <button type="submit" class="brutal-btn brutal-btn-lg brutal-btn-block">Masuk</button>
+            </form>
+
+            <div class="flex justify-between mt-3 text-sm">
+                <a href="/register">Buat akun baru</a>
+                <a href="/reset-password" class="text-muted">Lupa password?</a>
             </div>
-            <div class="mb-2">
-                <label style="display:block;font-weight:600;">Password</label>
-                <input name="password" type="password" class="brutal-input" placeholder="••••••••" required />
+
+            <div class="demo-block">
+                <div class="eyebrow mb-1">Akun demo — klik untuk mengisi</div>
+                <div class="flex gap-1 flex-wrap">
+                    <button type="button" class="brutal-btn brutal-btn-outline brutal-btn-sm"
+                            onclick="fillLogin('admin@fitnesscenter.com','Admin123!')">Admin</button>
+                    <button type="button" class="brutal-btn brutal-btn-outline brutal-btn-sm"
+                            onclick="fillLogin('trainer1@fitnesscenter.com','Trainer123!')">Trainer</button>
+                    <button type="button" class="brutal-btn brutal-btn-outline brutal-btn-sm"
+                            onclick="fillLogin('member1@email.com','Member123!')">Member</button>
+                    <button type="button" class="brutal-btn brutal-btn-outline brutal-btn-sm"
+                            onclick="fillLogin('staff1@fitnesscenter.com','Staff123!')">Staff</button>
+                </div>
             </div>
-            <button type="submit" class="brutal-btn brutal-btn-primary w-full">🔑 LOGIN</button>
-        </form>
-
-        <div class="flex justify-between mt-2" style="font-size:0.85rem;">
-            <a href="/register">📝 Register</a>
-            <a href="/reset-password" style="color:var(--text-muted);">Lupa password?</a>
         </div>
-
-        <div class="mt-3 text-center" style="font-size:0.9rem;border-top:var(--border-thin);padding-top:1rem;">
-            <p style="font-weight:600;">🔑 Demo Accounts:</p>
-            <p style="font-size:0.8rem;color:var(--text-muted);">
-                Admin: admin@fitnesscenter.com / Admin123!<br>
-                Trainer: trainer1@fitnesscenter.com / Trainer123!<br>
-                Member: member1@email.com / Member123!
-            </p>
-        </div>
-    </div>
+    </main>
 </div>
+
+<script suppress-error="BL9992">
+    function fillLogin(email, password) {
+        var e = document.getElementById('email');
+        var p = document.getElementById('password');
+        if (!e || !p) return;
+        e.value = email;
+        p.value = password;
+        p.focus();
+        [e, p].forEach(function (el) {
+            el.animate(
+                [{ boxShadow: '0 0 0 0 rgba(243,194,24,.6)' }, { boxShadow: '0 0 0 6px rgba(243,194,24,0)' }],
+                { duration: 500, easing: 'cubic-bezier(.22,1,.36,1)' });
+        });
+    }
+</script>
 
 @code {
     [SupplyParameterFromQuery(Name = "error")]

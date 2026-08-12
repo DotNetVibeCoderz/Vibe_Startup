@@ -6,24 +6,87 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthState
 
-<h3>📅 Classes</h3>
-@if (isAdmin) { <button class="brutal-btn brutal-btn-sm brutal-btn-success mb-2" @onclick="ShowCreate">➕ New Class</button> }
+<div class="flex justify-between items-center gap-2 flex-wrap mb-3">
+    <div class="segmented">
+        <button class="@(filterType == "" ? "active" : "")" @onclick='() => filterType = ""'>Semua</button>
+        @foreach (var t in AvailableTypes)
+        {
+            <button class="@(filterType == t.ToString() ? "active" : "")" @onclick="() => filterType = t.ToString()">@Humanize(t)</button>
+        }
+    </div>
 
-<div class="grid-3">
-    @foreach (var c in classes)
+    @if (isAdmin)
     {
-        <div class="brutal-card">
-            @if (!string.IsNullOrEmpty(c.ImageUrl))
-            {
-                <img src="@c.ImageUrl" style="width:100%;height:140px;object-fit:cover;border:2px solid var(--border-color);margin-bottom:0.5rem;" />
-            }
-            <h4>@c.Name</h4><p>🎯 @c.Type | 📊 @c.Level</p><p>👤 @c.Trainer?.FullName</p><p>📍 @c.Room | ⏱️ @c.Duration.TotalMinutes min | 👥 @c.MaxParticipants</p>
-            @if (c.IsVirtual) { <span class="brutal-badge brutal-badge-info">Virtual</span> }
-            @if (currentUserId != null) { <button class="brutal-btn brutal-btn-sm mt-1" @onclick="() => BookClass(c.Id)">📝 Book</button> }
-            @if (isAdmin) { <div class="flex gap-1 mt-1"><button class="brutal-btn brutal-btn-sm" @onclick="() => EditClass(c)">✏️</button><button class="brutal-btn brutal-btn-sm brutal-btn-danger" @onclick="() => DeleteClass(c.Id)">🗑️</button></div> }
-        </div>
+        <button class="brutal-btn brutal-btn-sm" @onclick="ShowCreate">Tambah kelas</button>
     }
 </div>
+
+@if (FilteredClasses.Any())
+{
+    <div class="grid-3" data-stagger>
+        @foreach (var c in FilteredClasses)
+        {
+            <article class="class-card brutal-card" style="--plate:@TypeTone(c.Type);padding:0;">
+                <div class="class-cover">
+                    @* Kelas tanpa sampul sendiri memakai gambar bawaan sesuai jenisnya,
+                       jadi kartu tidak pernah tampil dengan gambar rusak. *@
+                    <img src="@CoverFor(c)" alt="" loading="lazy" />
+                    <span class="class-type">@Humanize(c.Type)</span>
+                    @if (c.IsVirtual) { <span class="class-virtual">Virtual</span> }
+                </div>
+
+                <div class="class-body">
+                    <h4 class="mb-1">@c.Name</h4>
+
+                    @if (!string.IsNullOrEmpty(c.Description))
+                    {
+                        <p class="text-sm text-muted mb-2">@c.Description</p>
+                    }
+
+                    <dl class="class-meta">
+                        <div><dt>Trainer</dt><dd>@(c.Trainer?.FullName ?? "Belum ditentukan")</dd></div>
+                        <div><dt>Ruang</dt><dd>@(string.IsNullOrEmpty(c.Room) ? "—" : c.Room)</dd></div>
+                        <div><dt>Durasi</dt><dd>@c.Duration.TotalMinutes menit</dd></div>
+                        <div><dt>Level</dt><dd>@c.Level</dd></div>
+                    </dl>
+
+                    <div class="mt-2">
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-muted">Kuota terisi minggu ini</span>
+                            <strong>@BookedFor(c) / @CapacityFor(c)</strong>
+                        </div>
+                        <div class="meter" style="--plate:@TypeTone(c.Type);">
+                            <span style="width:@(FillPercent(c))%;"></span>
+                        </div>
+                    </div>
+
+                    <div class="class-actions">
+                        @if (currentUserId != null)
+                        {
+                            <button class="brutal-btn brutal-btn-sm" @onclick="() => BookClass(c.Id)">Booking kelas</button>
+                        }
+                        @if (isAdmin)
+                        {
+                            <button class="brutal-btn brutal-btn-outline brutal-btn-sm" @onclick="() => EditClass(c)">Ubah</button>
+                            <button class="brutal-btn brutal-btn-ghost brutal-btn-sm" @onclick="() => DeleteClass(c.Id)">Hapus</button>
+                        }
+                    </div>
+                </div>
+            </article>
+        }
+    </div>
+}
+else
+{
+    <div class="brutal-card plate-none">
+        <div class="empty-state">
+            <div class="empty-icon">📅</div>
+            <h4>Tidak ada kelas @(filterType == "" ? "" : filterType)</h4>
+            <p class="text-sm">@(isAdmin ? "Tambahkan kelas baru untuk mulai menyusun jadwal." : "Coba pilih jenis kelas lain.")</p>
+            @if (isAdmin) { <button class="brutal-btn brutal-btn-sm mt-1" @onclick="ShowCreate">Tambah kelas</button> }
+        </div>
+    </div>
+}
 
 @if (!string.IsNullOrEmpty(message)) { <div class="brutal-toast">@message</div> }
 
@@ -70,6 +133,51 @@
     private bool showModal; private int? editId; private bool isAdmin; private bool isUploading;
     private string editName = "", editRoom = "", editType = "Yoga", editLevel = "AllLevels", editImage = "", editImagePreview = "";
     private int editTrainerId, editDuration = 60, editMax = 20; private bool editVirtual;
+    private string filterType = "";
+
+    /// <summary>Hanya jenis kelas yang benar-benar ada yang muncul sebagai penyaring.</summary>
+    private IEnumerable<ClassType> AvailableTypes =>
+        classes.Select(c => c.Type).Distinct().OrderBy(t => t.ToString());
+
+    private IEnumerable<FitnessClass> FilteredClasses =>
+        string.IsNullOrEmpty(filterType) ? classes : classes.Where(c => c.Type.ToString() == filterType);
+
+    /// <summary>
+    /// Sampul kelas: pakai gambar sendiri bila ada, kalau tidak jatuh ke
+    /// gambar bawaan per jenis di wwwroot/images/classes.
+    /// </summary>
+    private static string CoverFor(FitnessClass c) =>
+        string.IsNullOrWhiteSpace(c.ImageUrl)
+            ? $"/images/classes/{c.Type.ToString().ToLowerInvariant()}.svg"
+            : c.ImageUrl;
+
+    /// <summary>Nama jenis kelas dipisah per kata, "MartialArts" jadi "Martial Arts".</summary>
+    private static string Humanize(ClassType t) =>
+        System.Text.RegularExpressions.Regex.Replace(t.ToString(), "(?<=[a-z])(?=[A-Z])", " ");
+
+    // Kuota dihitung menyeluruh: satu kelas bisa punya beberapa jadwal per minggu,
+    // jadi angka terisi dan kapasitas sama-sama menjumlahkan seluruh jadwalnya.
+    private static int BookedFor(FitnessClass c) =>
+        c.Schedules?.Sum(s => s.CurrentBookings) ?? 0;
+
+    private static int CapacityFor(FitnessClass c) =>
+        c.MaxParticipants * Math.Max(c.Schedules?.Count ?? 1, 1);
+
+    private static int FillPercent(FitnessClass c)
+    {
+        var cap = CapacityFor(c);
+        return cap <= 0 ? 0 : (int)Math.Min(BookedFor(c) * 100.0 / cap, 100);
+    }
+
+    /// <summary>Warna plate per jenis kelas, dipakai untuk rim kartu dan meter kuota.</summary>
+    private static string TypeTone(ClassType t) => t switch
+    {
+        ClassType.Yoga or ClassType.Meditation or ClassType.Pilates => "var(--plate-green)",
+        ClassType.HIIT or ClassType.Boxing or ClassType.MartialArts => "var(--plate-red)",
+        ClassType.Spinning or ClassType.Swimming or ClassType.Aerobics => "var(--plate-blue)",
+        ClassType.Zumba or ClassType.Dance => "var(--plate-yellow)",
+        _ => "var(--plate-violet)"
+    };
 
     protected override async Task OnInitializedAsync()
     {

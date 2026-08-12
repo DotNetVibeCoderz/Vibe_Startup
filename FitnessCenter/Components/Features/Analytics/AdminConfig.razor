@@ -1,28 +1,90 @@
 @page "/admin/config"
 @attribute [Authorize(Roles = "Admin")]
+@using FitnessCenter.Services.Payments
 @inject AppDbContext Db
 @inject StorageService StorageService
-@inject IConfiguration Config
+@inject PaymentGatewayService Gateway
 
-<h3>⚙️ System Configuration</h3>
+<div class="grid-4 mb-3" data-stagger>
+    <div class="stat-card plate-blue">
+        <span class="stat-label">Storage</span>
+        <span class="stat-value" style="font-size:1.5rem;">@storageProvider</span>
+        <div class="stat-foot">@storageType</div>
+    </div>
+    <div class="stat-card plate-green">
+        <span class="stat-label">Database</span>
+        <span class="stat-value" style="font-size:1.5rem;">@dbProvider</span>
+    </div>
+    <div class="stat-card plate-violet">
+        <span class="stat-label">AI provider</span>
+        <span class="stat-value" style="font-size:1.5rem;">@aiProvider</span>
+    </div>
+    <div class="stat-card plate-yellow">
+        <span class="stat-label">Payment bawaan</span>
+        <span class="stat-value" style="font-size:1.5rem;">@defaultPaymentProvider</span>
+        <div class="stat-foot">@activeGatewayCount dari @paymentProviders.Count provider aktif</div>
+    </div>
+</div>
 
-<div class="grid-4 mb-3">
-    <div class="stat-card">
-        <div class="stat-value" style="font-size:1.2rem;">@storageProvider</div>
-        <div class="stat-label">📦 Storage Provider</div>
+@* ---------- Payment gateway ---------- *@
+<div class="brutal-card plate-yellow mb-3">
+    <div class="card-head">
+        <div>
+            <h4>Payment gateway</h4>
+            <p class="text-sm text-muted">
+                Provider dipilih di <code>PaymentGateway:DefaultProvider</code>. Yang belum berisi kunci API
+                otomatis dilewati, dan pembayaran jatuh ke transfer manual.
+            </p>
+        </div>
     </div>
-    <div class="stat-card">
-        <div class="stat-value" style="font-size:1.2rem;">@storageType</div>
-        <div class="stat-label">Storage Type</div>
+
+    <div class="provider-grid">
+        @foreach (var p in paymentProviders)
+        {
+            <div class="provider-card" style="cursor:default;">
+                <div class="provider-head">
+                    <span class="provider-mark" style="--tone:@ProviderTone(p.Key);"></span>
+                    <span class="provider-name">@p.DisplayName</span>
+                    @if (p.IsDefault) { <span class="brutal-badge">Bawaan</span> }
+                </div>
+
+                <div class="mb-1">
+                    <span class="brutal-badge @(p.IsConfigured ? "brutal-badge-success" : "brutal-badge-danger")">
+                        @(p.IsConfigured ? "Aktif" : "Belum dikonfigurasi")
+                    </span>
+                </div>
+
+                <p class="provider-desc">@p.Description</p>
+
+                @if (!p.IsConfigured)
+                {
+                    <p class="text-sm" style="color:var(--plate-red);">@p.SetupHint</p>
+                }
+                else if (p.Key != PaymentGatewayProvider.Manual)
+                {
+                    <div class="eyebrow mt-1">URL callback</div>
+                    <div class="flex items-center gap-1">
+                        <code class="text-sm" style="word-break:break-all;">@Gateway.WebhookUrlFor(p.Key)</code>
+                        <button class="brutal-btn brutal-btn-ghost brutal-btn-sm"
+                                @onclick="() => CopyWebhook(p.Key)" title="Salin URL">📋</button>
+                    </div>
+                    <span class="field-hint">Daftarkan URL ini di dashboard @p.DisplayName.</span>
+                }
+
+                <div class="provider-channels mt-1">
+                    @foreach (var channel in p.Channels)
+                    {
+                        <span>@channel</span>
+                    }
+                </div>
+            </div>
+        }
     </div>
-    <div class="stat-card">
-        <div class="stat-value" style="font-size:1.2rem;">@dbProvider</div>
-        <div class="stat-label">🗄️ Database</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-value" style="font-size:1.2rem;">@aiProvider</div>
-        <div class="stat-label">🤖 AI Provider</div>
-    </div>
+
+    @if (!string.IsNullOrEmpty(copyNotice))
+    {
+        <div class="notice notice-success mt-2"><span>✅</span><div>@copyNotice</div></div>
+    }
 </div>
 
 <div class="brutal-card mb-2">
@@ -94,6 +156,12 @@
     private AppConfiguration? editingConfig;
     private string editValue = "";
 
+    // Payment gateway
+    private IReadOnlyList<PaymentProviderInfo> paymentProviders = Array.Empty<PaymentProviderInfo>();
+    private string defaultPaymentProvider = "Manual";
+    private int activeGatewayCount;
+    private string copyNotice = "";
+
     // Storage info strings (avoid generic calls in Razor markup)
     private string storageProvider = "";
     private string storageType = "";
@@ -133,7 +201,25 @@
         minioEndpoint = Config.GetValue<string>("Storage:MinIO:Endpoint") ?? "localhost:9000";
         minioBucket = Config.GetValue<string>("Storage:MinIO:BucketName") ?? "fitnesscenter";
         minioStatus = "✅ Ready (default credentials)";
+
+        paymentProviders = Gateway.GetProviders();
+        defaultPaymentProvider = Gateway.DefaultProvider.ToString();
+        activeGatewayCount = paymentProviders.Count(p => p.IsConfigured);
     }
+
+    private async Task CopyWebhook(PaymentGatewayProvider provider)
+    {
+        await JS.InvokeVoidAsync("fitnessUI.copy", Gateway.WebhookUrlFor(provider));
+        copyNotice = $"URL callback {provider} disalin ke papan klip.";
+    }
+
+    private static string ProviderTone(PaymentGatewayProvider g) => g switch
+    {
+        PaymentGatewayProvider.Midtrans => "var(--plate-blue)",
+        PaymentGatewayProvider.Xendit => "var(--plate-violet)",
+        PaymentGatewayProvider.Stripe => "var(--plate-green)",
+        _ => "var(--plate-yellow)"
+    };
 
     private void EditConfig(AppConfiguration c) { editingConfig = c; editValue = c.Value ?? ""; }
 

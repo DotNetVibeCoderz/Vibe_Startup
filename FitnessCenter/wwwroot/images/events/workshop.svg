@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450" role="img" aria-label="Workshop">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#161B25"/><stop offset="1" stop-color="#0C0F16"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.72" cy="0.28" r="0.62">
+      <stop offset="0" stop-color="#1FA85C" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#1FA85C" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="1.5" fill="#ffffff" fill-opacity="0.05"/>
+    </pattern>
+  </defs>
+
+  <rect width="800" height="450" fill="url(#bg)"/>
+  <rect width="800" height="450" fill="url(#grid)"/>
+  <rect width="800" height="450" fill="url(#glow)"/>
+
+  <!-- rim plate -->
+  <rect x="0" y="0" width="800" height="6" fill="#1FA85C"/>
+
+  <g transform="translate(290,140)">
+    <rect x="14" y="26" width="122" height="132" rx="8" fill="#fff" fill-opacity=".92"/>
+    <line x1="38" y1="60" x2="112" y2="60" stroke="#0C0F16" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <line x1="38" y1="92" x2="112" y2="92" stroke="#0C0F16" stroke-opacity=".5" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <line x1="38" y1="124" x2="86" y2="124" stroke="#0C0F16" stroke-opacity=".5" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <circle cx="184" cy="70" r="30" stroke="#1FA85C" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M184 100 L184 158" stroke="#1FA85C" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>

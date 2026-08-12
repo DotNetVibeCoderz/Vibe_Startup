@@ -26,7 +26,11 @@ public class ClassService
     {
         var query = _db.ClassSchedules.Include(s => s.FitnessClass).ThenInclude(c => c!.Trainer).AsQueryable();
         if (date.HasValue) query = query.Where(s => s.DayOfWeek == date.Value.DayOfWeek);
-        return await query.OrderBy(s => s.StartTime).ToListAsync();
+
+        // SQLite tidak bisa ORDER BY kolom TimeSpan, jadi pengurutan dilakukan
+        // setelah data diambil. Jumlah jadwal kecil, sehingga aman di sisi klien.
+        var schedules = await query.ToListAsync();
+        return schedules.OrderBy(s => s.StartTime).ThenBy(s => s.FitnessClass?.Name).ToList();
     }
 
     public async Task<ClassBooking?> BookClassAsync(int scheduleId, string userId)

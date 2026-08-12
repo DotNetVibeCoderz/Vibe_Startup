@@ -5,6 +5,7 @@ using FitnessCenter.Data;
 using FitnessCenter.Models;
 using FitnessCenter.Services;
 using FitnessCenter.Services.Storage;
+using FitnessCenter.Services.Payments;
 using FitnessCenter.Api;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -112,6 +113,16 @@ builder.Services.AddScoped<StorageService>();
 builder.Services.AddScoped<ExportService>();
 builder.Services.AddScoped<DataSeedService>();
 
+// ==================== PAYMENT GATEWAY ====================
+// Semua provider didaftarkan sekaligus; PaymentGatewayService memilih
+// yang dipakai berdasarkan konfigurasi dan kesiapan kunci API.
+// Manual selalu ada sebagai jalan terakhir.
+builder.Services.AddScoped<IPaymentProvider, ManualPaymentProvider>();
+builder.Services.AddScoped<IPaymentProvider, MidtransPaymentProvider>();
+builder.Services.AddScoped<IPaymentProvider, XenditPaymentProvider>();
+builder.Services.AddScoped<IPaymentProvider, StripePaymentProvider>();
+builder.Services.AddScoped<PaymentGatewayService>();
+
 // ==================== BLAZOR + SIGNALR (LARGE FILE UPLOAD) ====================
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents(options =>
@@ -126,6 +137,16 @@ builder.Services.AddSignalR(options =>
 {
     options.MaximumReceiveMessageSize = 10 * 1024 * 1024; // 10 MB
     options.EnableDetailedErrors = true;
+});
+
+// ==================== JSON ====================
+// Entitas EF punya navigasi dua arah (User → Payments → User), sehingga endpoint
+// yang mengembalikan entitas langsung akan memutar tanpa henti saat diserialisasi.
+// IgnoreCycles memotong putaran itu alih-alih melempar error.
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+    options.SerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
 });
 
 // ==================== SWAGGER ====================
@@ -146,6 +167,18 @@ using (var scope = app.Services.CreateScope())
     {
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
         logger.LogWarning(ex, "Database initialization warning");
+    }
+
+    // EnsureCreated tidak mengubah tabel yang sudah ada, jadi kolom baru pada
+    // database lama ditambahkan di sini. Idempoten: kolom yang sudah ada dilewati.
+    try
+    {
+        await EnsureNewColumnsAsync(db, dbProvider);
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogWarning(ex, "Schema top-up warning");
     }
 
     try
@@ -230,3 +263,58 @@ app.MapRazorComponents<FitnessCenter.Components.App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+
+/// <summary>
+/// Menambahkan kolom yang belum ada ke tabel yang sudah terlanjur dibuat.
+/// Proyek ini memakai EnsureCreated tanpa migrations, sehingga perubahan model
+/// tidak sampai ke database lama. Fungsi ini menutup celah itu untuk kolom
+/// payment gateway, tanpa menghapus data yang sudah ada.
+/// </summary>
+static async Task EnsureNewColumnsAsync(AppDbContext db, string provider)
+{
+    // Sintaks pemeriksaan kolom berbeda antar provider; cukup tangani yang dipakai
+    // pengembangan sehari-hari. Provider lain memulai dari database kosong.
+    if (!string.Equals(provider, "SQLite", StringComparison.OrdinalIgnoreCase)) return;
+    if (!await db.Database.CanConnectAsync()) return;
+
+    var columns = new (string Name, string Definition)[]
+    {
+        ("Gateway", "INTEGER NOT NULL DEFAULT 0"),
+        ("GatewayReference", "TEXT NULL"),
+        ("PaymentUrl", "TEXT NULL"),
+        ("GatewayStatus", "TEXT NULL"),
+        ("PaymentChannel", "TEXT NULL"),
+        ("PaymentUrlExpiresAt", "TEXT NULL"),
+        ("LastSyncedAt", "TEXT NULL")
+    };
+
+    var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    var connection = db.Database.GetDbConnection();
+    await connection.OpenAsync();
+    try
+    {
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "PRAGMA table_info(Payments);";
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync()) existing.Add(reader.GetString(1));
+        }
+
+        // Tabel belum ada berarti EnsureCreated baru saja membuatnya lengkap.
+        if (existing.Count == 0) return;
+
+        foreach (var (name, definition) in columns)
+        {
+            if (existing.Contains(name)) continue;
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = $"ALTER TABLE Payments ADD COLUMN {name} {definition};";
+            await alter.ExecuteNonQueryAsync();
+        }
+    }
+    finally
+    {
+        await connection.CloseAsync();
+    }
+}
