@@ -1,0 +1,144 @@
+@page "/admin/transaksi"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@inject Data.AppDbContext Db
+@inject Services.PaymentGatewayService Pay
+@inject Services.ExportService Export
+@inject IJSRuntime JS
+
+<div class="card">
+    <div class="card-header">
+        <h3>💳 Transaksi Payment Gateway</h3>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline btn-sm" @onclick="ExportCsv"><i class="bi bi-filetype-csv"></i> CSV</button>
+            <button class="btn btn-outline btn-sm" @onclick="Load">🔄 Muat ulang</button>
+        </div>
+    </div>
+    <div class="card-body">
+        @if (!string.IsNullOrEmpty(_notif)) { <div class="alert alert-success">@_notif</div> }
+
+        <div class="stats-grid mb-3">
+            <div class="stat-card"><div class="stat-icon green">✅</div><div><div class="stat-value">@_all.Where(t => t.Status == Models.TransactionStatus.Paid).Sum(t => t.Jumlah).ToString("C0")</div><div class="stat-label">Total Diterima</div></div></div>
+            <div class="stat-card"><div class="stat-icon gold">⏳</div><div><div class="stat-value">@_all.Count(t => t.Status == Models.TransactionStatus.Pending)</div><div class="stat-label">Menunggu Bayar</div></div></div>
+            <div class="stat-card"><div class="stat-icon red">✕</div><div><div class="stat-value">@_all.Count(t => t.Status is Models.TransactionStatus.Failed or Models.TransactionStatus.Expired)</div><div class="stat-label">Gagal/Kedaluwarsa</div></div></div>
+            <div class="stat-card"><div class="stat-icon blue">🔗</div><div><div class="stat-value" style="font-size:1rem;">@Pay.DefaultProvider@(Pay.IsSandbox ? " (sandbox)" : "")</div><div class="stat-label">Provider Default</div></div></div>
+        </div>
+
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+            <input class="form-control" style="max-width:250px;" placeholder="🔍 Cari kode / deskripsi..." @bind="_search" @bind:event="oninput" />
+            <select class="form-control" style="max-width:180px;" @bind="_filterProvider">
+                <option value="">Semua Provider</option>
+                @foreach (var p in Enum.GetValues<Models.PaymentProvider>()) { <option value="@p">@p</option> }
+            </select>
+            <select class="form-control" style="max-width:180px;" @bind="_filterStatus">
+                <option value="">Semua Status</option>
+                @foreach (var s in Enum.GetValues<Models.TransactionStatus>()) { <option value="@s">@s</option> }
+            </select>
+        </div>
+
+        <div class="table-container"><table>
+            <thead><tr><th>Kode</th><th>Provider</th><th>Referensi</th><th>Jumlah</th><th>Status</th><th>Dibuat</th><th>Dibayar</th><th>Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var t in Filtered)
+                {
+                    <tr>
+                        <td style="font-size:0.75rem;"><strong>@t.KodeTransaksi</strong></td>
+                        <td>@Services.PaymentGatewayService.Icon(t.Provider) @t.Provider</td>
+                        <td style="font-size:0.8rem;">@t.ReferenceType #@t.ReferenceId</td>
+                        <td><strong>@t.Jumlah.ToString("C0")</strong></td>
+                        <td><span class="badge @Badge(t.Status)">@t.Status</span></td>
+                        <td style="font-size:0.75rem;">@t.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                        <td style="font-size:0.75rem;">@(t.PaidAt?.ToLocalTime().ToString("dd/MM HH:mm") ?? "-")</td>
+                        <td>
+                            @if (t.Status == Models.TransactionStatus.Pending)
+                            {
+                                <button class="btn btn-success btn-sm" @onclick="() => Konfirmasi(t)" title="Tandai lunas secara manual">✅ Lunas</button>
+                                <button class="btn btn-danger btn-sm" @onclick="() => Batalkan(t)">✕</button>
+                            }
+                            @if (!string.IsNullOrEmpty(t.PaymentUrl))
+                            { <a href="@t.PaymentUrl" target="_blank" class="btn btn-outline btn-sm">Link</a> }
+                            <button class="btn btn-outline btn-sm" @onclick="() => _detail = t">Detail</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+        @if (!Filtered.Any()) { <p class="text-muted mt-2">Belum ada transaksi.</p> }
+    </div>
+</div>
+
+@if (_detail != null)
+{
+    <div class="modal-backdrop" @onclick="() => _detail = null">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header"><h3>Detail @_detail.KodeTransaksi</h3><button class="btn-icon" @onclick="() => _detail = null">✕</button></div>
+            <div class="modal-body">
+                <p><strong>Provider:</strong> @_detail.Provider (@(Pay.IsSandbox ? "sandbox" : "produksi"))</p>
+                <p><strong>Deskripsi:</strong> @_detail.Deskripsi</p>
+                <p><strong>Jumlah:</strong> @_detail.Jumlah.ToString("C0")</p>
+                <p><strong>External ID:</strong> <code>@(_detail.ExternalId ?? "-")</code></p>
+                <p><strong>Kedaluwarsa:</strong> @(_detail.ExpiredAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "-")</p>
+                @if (!string.IsNullOrEmpty(_detail.Catatan)) { <p><strong>Catatan:</strong> @_detail.Catatan</p> }
+                @if (!string.IsNullOrEmpty(_detail.QrString))
+                {
+                    <p><strong>Payload QRIS:</strong></p>
+                    <code style="word-break:break-all;font-size:0.7rem;">@_detail.QrString</code>
+                }
+                @if (!string.IsNullOrEmpty(_detail.RawResponse))
+                {
+                    <details class="mt-2"><summary style="cursor:pointer;">Respons mentah provider</summary>
+                        <pre style="white-space:pre-wrap;font-size:0.7rem;max-height:240px;overflow:auto;">@_detail.RawResponse</pre>
+                    </details>
+                }
+            </div>
+            <div class="modal-footer"><button class="btn btn-outline" @onclick="() => _detail = null">Tutup</button></div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Models.PaymentTransaction> _all = new();
+    private Models.PaymentTransaction? _detail;
+    private string _search = "", _filterProvider = "", _filterStatus = "", _notif = "";
+
+    private IEnumerable<Models.PaymentTransaction> Filtered => _all.Where(t =>
+        (string.IsNullOrEmpty(_search) || t.KodeTransaksi.Contains(_search, StringComparison.OrdinalIgnoreCase) || t.Deskripsi.Contains(_search, StringComparison.OrdinalIgnoreCase)) &&
+        (string.IsNullOrEmpty(_filterProvider) || t.Provider.ToString() == _filterProvider) &&
+        (string.IsNullOrEmpty(_filterStatus) || t.Status.ToString() == _filterStatus));
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _all = await Db.PaymentTransactions.AsNoTracking().OrderByDescending(t => t.Id).Take(500).ToListAsync();
+    }
+
+    /// <summary>Konfirmasi manual — dipakai bila webhook provider gagal masuk atau untuk transfer manual.</summary>
+    private async Task Konfirmasi(Models.PaymentTransaction t)
+    {
+        await Pay.MarkPaidAsync(t.KodeTransaksi, "Dikonfirmasi manual oleh admin");
+        _notif = $"Transaksi {t.KodeTransaksi} ditandai lunas.";
+        await Load();
+    }
+
+    private async Task Batalkan(Models.PaymentTransaction t)
+    {
+        await Pay.MarkStatusAsync(t.KodeTransaksi, Models.TransactionStatus.Failed, "Dibatalkan admin");
+        _notif = $"Transaksi {t.KodeTransaksi} dibatalkan.";
+        await Load();
+    }
+
+    private async Task ExportCsv()
+    {
+        var rows = Filtered.Select(t => new { t.KodeTransaksi, Provider = t.Provider.ToString(), t.ReferenceType, t.ReferenceId, t.Jumlah, Status = t.Status.ToString(), t.CreatedAt, t.PaidAt }).ToList();
+        var bytes = Export.ExportToCsv(rows);
+        await JS.InvokeVoidAsync("hsDownload", "transaksi.csv", "text/csv", Convert.ToBase64String(bytes));
+    }
+
+    private static string Badge(Models.TransactionStatus s) => s switch
+    {
+        Models.TransactionStatus.Paid => "badge-success",
+        Models.TransactionStatus.Pending => "badge-warning",
+        _ => "badge-danger"
+    };
+}

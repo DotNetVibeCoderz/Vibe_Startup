@@ -1,8 +1,38 @@
 @rendermode InteractiveServer
 
+@* AuthorizeRouteView menegakkan atribut [Authorize] di tiap halaman —
+   sebelumnya menu admin hanya disembunyikan dari sidebar, tapi URL-nya tetap bisa dibuka siapa saja. *@
 <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <div class="card">
+                    <div class="card-body text-center" style="padding:48px;">
+                        <div class="empty-state-icon">@(context.User.Identity?.IsAuthenticated == true ? "⛔" : "🔒")</div>
+                        @if (context.User.Identity?.IsAuthenticated == true)
+                        {
+                            <h3>Akses ditolak</h3>
+                            <p class="text-muted">Akun Anda tidak memiliki hak untuk membuka halaman ini.</p>
+                            <a href="/" class="btn btn-primary mt-3">Kembali ke Beranda</a>
+                        }
+                        else
+                        {
+                            <h3>Anda belum login</h3>
+                            <p class="text-muted">Silakan masuk untuk melanjutkan.</p>
+                            <a href="@LoginUrl" class="btn btn-primary mt-3">Login</a>
+                        }
+                    </div>
+                </div>
+            </NotAuthorized>
+            <Authorizing>
+                <div class="card"><div class="card-body text-center" style="padding:48px;">Memeriksa hak akses...</div></div>
+            </Authorizing>
+        </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>
+
+@code {
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+    private string LoginUrl => $"/login?returnUrl={Uri.EscapeDataString(new Uri(Nav.Uri).PathAndQuery)}";
+}

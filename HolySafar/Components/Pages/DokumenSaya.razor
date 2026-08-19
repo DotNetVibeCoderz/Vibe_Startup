@@ -1,0 +1,208 @@
+@page "/dokumen"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject Data.AppDbContext Db
+@inject Services.AuthService AuthService
+@inject Services.StorageService Storage
+
+<div class="mb-3"><h2>📄 Dokumen Saya</h2><p class="text-muted">Unggah KTP, paspor, kartu keluarga, dan sertifikat vaksin untuk diverifikasi petugas</p></div>
+
+@if (!string.IsNullOrEmpty(_notif)) { <div class="alert @(_notifOk ? "alert-success" : "alert-danger")">@_notif</div> }
+
+@if (_jamaah == null)
+{
+    <div class="card"><div class="card-body text-center" style="padding:40px;">
+        <div class="empty-state-icon">📄</div><h3>Belum ada data jamaah</h3>
+        <p class="text-muted">Akun Anda belum terhubung ke data jamaah. Hubungi agen travel Anda terlebih dahulu.</p>
+    </div></div>
+}
+else
+{
+    <div class="card mb-3">
+        <div class="card-header">
+            <h3>Kelengkapan Dokumen</h3>
+            <span class="badge @(Lengkap ? "badge-success" : "badge-warning")">@_dokumen.Select(d => d.TipeDokumen).Distinct().Count(t => _wajib.Contains(t))/@_wajib.Length wajib</span>
+        </div>
+        <div class="card-body">
+            <div class="grid grid-2">
+                @foreach (var tipe in _wajib)
+                {
+                    var doc = _dokumen.Where(d => d.TipeDokumen == tipe).OrderByDescending(d => d.UploadedAt).FirstOrDefault();
+                    <div style="border:1px solid var(--border-color);border-radius:var(--radius-md);padding:16px;">
+                        <div class="d-flex gap-2" style="justify-content:space-between;align-items:center;">
+                            <strong>@Ikon(tipe) @Judul(tipe)</strong>
+                            @if (doc == null) { <span class="badge badge-danger">Belum ada</span> }
+                            else { <span class="badge @StatusBadge(doc.Status)">@StatusLabel(doc.Status)</span> }
+                        </div>
+
+                        @if (doc != null)
+                        {
+                            <p style="font-size:0.8rem;margin:8px 0;">
+                                <a href="@doc.FileUrl" target="_blank">@doc.NamaDokumen</a>
+                                <span class="text-muted"> — @(doc.FileSize / 1024) KB, @doc.UploadedAt.ToLocalTime().ToString("dd MMM yyyy")</span>
+                            </p>
+                            @if (!string.IsNullOrEmpty(doc.CatatanAdmin))
+                            {
+                                <div class="alert @(doc.Status == Models.DocumentStatus.Rejected ? "alert-danger" : "alert-info")" style="padding:8px;font-size:0.8rem;">
+                                    Catatan petugas: @doc.CatatanAdmin
+                                </div>
+                            }
+                        }
+
+                        @if (doc == null || doc.Status == Models.DocumentStatus.Rejected)
+                        {
+                            <InputFile OnChange="@(e => Upload(e, tipe))" accept="image/*,.pdf" class="form-control" />
+                            <small class="text-muted">JPG/PNG/PDF, maks 10 MB.</small>
+                        }
+                        else if (doc.Status != Models.DocumentStatus.Verified)
+                        {
+                            <p class="text-muted" style="font-size:0.8rem;">Menunggu verifikasi petugas. Ingin mengganti berkas?</p>
+                            <InputFile OnChange="@(e => Upload(e, tipe))" accept="image/*,.pdf" class="form-control" />
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>Dokumen Tambahan</h3></div>
+        <div class="card-body">
+            <div class="d-flex gap-2 mb-3 flex-wrap align-center">
+                <input class="form-control" style="max-width:240px;" placeholder="Nama dokumen (mis. Buku Nikah)" @bind="_namaLain" />
+                <InputFile OnChange="@(e => Upload(e, "Lainnya"))" accept="image/*,.pdf" class="form-control" style="max-width:280px;" />
+            </div>
+
+            @if (_lainnya.Any())
+            {
+                <div class="table-container"><table>
+                    <thead><tr><th>Nama</th><th>Diunggah</th><th>Status</th><th>Aksi</th></tr></thead>
+                    <tbody>
+                        @foreach (var d in _lainnya)
+                        {
+                            <tr>
+                                <td><a href="@d.FileUrl" target="_blank">@d.NamaDokumen</a></td>
+                                <td>@d.UploadedAt.ToLocalTime().ToString("dd MMM yyyy")</td>
+                                <td><span class="badge @StatusBadge(d.Status)">@StatusLabel(d.Status)</span></td>
+                                <td>@if (d.Status != Models.DocumentStatus.Verified) { <button class="btn btn-danger btn-sm" @onclick="() => Hapus(d)">Hapus</button> }</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+            else { <p class="text-muted">Belum ada dokumen tambahan.</p> }
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] _wajib = { "KTP", "Paspor", "KK", "Vaksin" };
+
+    private Models.Jamaah? _jamaah;
+    private List<Models.DokumenJamaah> _dokumen = new();
+    private string _notif = "", _namaLain = "";
+    private bool _notifOk;
+
+    private List<Models.DokumenJamaah> _lainnya => _dokumen.Where(d => !_wajib.Contains(d.TipeDokumen)).ToList();
+    private bool Lengkap => _wajib.All(t => _dokumen.Any(d => d.TipeDokumen == t));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await AuthService.EnsureAsync();
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        var uid = AuthService.CurrentUserId;
+        if (uid == null) return;
+        _jamaah = await Db.Jamaah.FirstOrDefaultAsync(j => j.UserId == uid);
+        if (_jamaah == null) return;
+        _dokumen = await Db.DokumenJamaah.Where(d => d.JamaahId == _jamaah.Id)
+            .OrderByDescending(d => d.UploadedAt).ToListAsync();
+    }
+
+    private async Task Upload(InputFileChangeEventArgs e, string tipe)
+    {
+        if (_jamaah == null) return;
+        var file = e.File;
+        if (file == null) return;
+        if (file.Size > 10 * 1024 * 1024) { _notif = "Ukuran berkas melebihi 10 MB."; _notifOk = false; return; }
+
+        try
+        {
+            await using var stream = file.OpenReadStream(10 * 1024 * 1024);
+            var url = await Storage.UploadAsync(stream, file.Name, "dokumen");
+
+            var nama = tipe == "Lainnya"
+                ? (string.IsNullOrWhiteSpace(_namaLain) ? file.Name : _namaLain.Trim())
+                : Judul(tipe);
+
+            // unggah ulang menggantikan berkas lama untuk tipe wajib yang sama
+            if (tipe != "Lainnya")
+            {
+                var lama = await Db.DokumenJamaah.Where(d => d.JamaahId == _jamaah.Id && d.TipeDokumen == tipe).ToListAsync();
+                if (lama.Any()) Db.DokumenJamaah.RemoveRange(lama);
+            }
+
+            Db.DokumenJamaah.Add(new Models.DokumenJamaah
+            {
+                JamaahId = _jamaah.Id,
+                NamaDokumen = nama,
+                TipeDokumen = tipe,
+                FileUrl = url,
+                FilePath = url,
+                FileSize = file.Size,
+                ContentType = file.ContentType,
+                Status = Models.DocumentStatus.Submitted,
+                UploadedAt = DateTime.UtcNow
+            });
+
+            // status dokumen jamaah ikut naik saat berkas wajib sudah lengkap
+            _jamaah.StatusDokumen = Models.DocumentStatus.Submitted;
+            if (tipe == "Vaksin") _jamaah.SudahVaksin = true;
+
+            await Db.SaveChangesAsync();
+            _namaLain = "";
+            _notif = $"{nama} berhasil diunggah dan menunggu verifikasi.";
+            _notifOk = true;
+            await Load();
+        }
+        catch (Exception ex) { _notif = $"Gagal mengunggah: {ex.Message}"; _notifOk = false; }
+    }
+
+    private async Task Hapus(Models.DokumenJamaah d)
+    {
+        Db.DokumenJamaah.Remove(d);
+        await Db.SaveChangesAsync();
+        await Load();
+        _notif = "Dokumen dihapus."; _notifOk = true;
+    }
+
+    private static string Judul(string tipe) => tipe switch
+    {
+        "KTP" => "KTP", "Paspor" => "Paspor", "KK" => "Kartu Keluarga",
+        "Vaksin" => "Sertifikat Vaksin Meningitis", _ => tipe
+    };
+
+    private static string Ikon(string tipe) => tipe switch
+    {
+        "KTP" => "🪪", "Paspor" => "📘", "KK" => "👨‍👩‍👧", "Vaksin" => "💉", _ => "📎"
+    };
+
+    private static string StatusLabel(Models.DocumentStatus s) => s switch
+    {
+        Models.DocumentStatus.Verified => "Terverifikasi",
+        Models.DocumentStatus.Rejected => "Ditolak",
+        Models.DocumentStatus.Submitted => "Menunggu verifikasi",
+        _ => "Belum diproses"
+    };
+
+    private static string StatusBadge(Models.DocumentStatus s) => s switch
+    {
+        Models.DocumentStatus.Verified => "badge-success",
+        Models.DocumentStatus.Rejected => "badge-danger",
+        Models.DocumentStatus.Submitted => "badge-warning",
+        _ => "badge-info"
+    };
+}

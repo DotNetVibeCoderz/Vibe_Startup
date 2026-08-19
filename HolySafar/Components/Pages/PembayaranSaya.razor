@@ -1,0 +1,308 @@
+@page "/pembayaran"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject Data.AppDbContext Db
+@inject Services.AuthService AuthService
+@inject Services.PaymentGatewayService Pay
+@inject Services.StorageService Storage
+@inject NavigationManager Nav
+
+<div class="mb-3"><h2>💳 Tagihan & Pembayaran</h2><p class="text-muted">Bayar lunas atau cicil lewat payment gateway pilihan Anda</p></div>
+
+@if (!string.IsNullOrEmpty(_notif)) { <div class="alert @(_notifOk ? "alert-success" : "alert-danger")">@((MarkupString)_notif)</div> }
+
+@if (_jamaah == null)
+{
+    <div class="card"><div class="card-body text-center" style="padding:40px;">
+        <div class="empty-state-icon">🧾</div><h3>Belum ada data jamaah</h3>
+        <p class="text-muted">Akun Anda belum terhubung ke data jamaah. Hubungi agen travel Anda.</p>
+    </div></div>
+}
+else if (_pembayaran == null)
+{
+    <div class="card"><div class="card-body text-center" style="padding:40px;">
+        <div class="empty-state-icon">🕋</div><h3>Belum ada tagihan</h3>
+        <p class="text-muted">Tagihan muncul setelah Anda terdaftar pada sebuah paket.</p>
+        <a href="/paket" class="btn btn-primary mt-3">Lihat Paket</a>
+    </div></div>
+}
+else
+{
+    <div class="stats-grid mb-3">
+        <div class="stat-card"><div class="stat-icon gold">💰</div><div><div class="stat-value">@_pembayaran.TotalBiaya.ToString("C0")</div><div class="stat-label">Total Biaya</div></div></div>
+        <div class="stat-card"><div class="stat-icon green">✅</div><div><div class="stat-value">@_pembayaran.TotalDibayar.ToString("C0")</div><div class="stat-label">Sudah Dibayar</div></div></div>
+        <div class="stat-card"><div class="stat-icon red">⏳</div><div><div class="stat-value">@Sisa.ToString("C0")</div><div class="stat-label">Sisa Tagihan</div></div></div>
+        <div class="stat-card"><div class="stat-icon blue">📅</div><div><div class="stat-value" style="font-size:1rem;">@(_pembayaran.TanggalJatuhTempo?.ToString("dd MMM yyyy") ?? "-")</div><div class="stat-label">Jatuh Tempo</div></div></div>
+    </div>
+
+    <div class="grid grid-2">
+        <!-- ============ BUAT PEMBAYARAN ============ -->
+        <div class="card">
+            <div class="card-header"><h3>🧾 Bayar Tagihan</h3><span class="badge @StatusBadge(_pembayaran.Status)">@_pembayaran.Status</span></div>
+            <div class="card-body">
+                @if (Sisa <= 0)
+                {
+                    <div class="alert alert-success">🎉 Tagihan paket <strong>@_pembayaran.Paket?.NamaPaket</strong> sudah lunas. Terima kasih!</div>
+                }
+                else if (_activeTrx != null && _activeTrx.Status == Models.TransactionStatus.Pending)
+                {
+                    <div class="alert alert-info">
+                        Transaksi <strong>@_activeTrx.KodeTransaksi</strong> menunggu pembayaran
+                        (@Services.PaymentGatewayService.Label(_activeTrx.Provider)) — @_activeTrx.Jumlah.ToString("C0")
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(_activeTrx.QrString))
+                    {
+                        <div class="text-center">
+                            <img src="@Pay.QrImageUrl(_activeTrx.QrString)" alt="QRIS" style="width:260px;max-width:100%;border:1px solid var(--border-color);border-radius:12px;padding:8px;background:#fff;" />
+                            <p class="text-muted mt-2" style="font-size:0.8rem;">Scan dengan GoPay, OVO, DANA, ShopeePay, atau mobile banking apa pun.</p>
+                            <details style="text-align:left;"><summary style="cursor:pointer;font-size:0.8rem;">Lihat payload QRIS</summary><code style="word-break:break-all;font-size:0.7rem;">@_activeTrx.QrString</code></details>
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(_activeTrx.PaymentUrl))
+                    {
+                        <a href="@_activeTrx.PaymentUrl" target="_blank" rel="noopener" class="btn btn-primary btn-lg w-100">
+                            Lanjutkan ke @_activeTrx.Provider →
+                        </a>
+                        <p class="text-muted mt-2" style="font-size:0.8rem;">Halaman pembayaran terbuka di tab baru. Status akan diperbarui otomatis setelah pembayaran diterima.</p>
+                    }
+                    else if (_activeTrx.Provider == Models.PaymentProvider.Manual)
+                    {
+                        <div style="padding:12px;background:var(--bg-secondary);border-radius:8px;">
+                            <strong>Transfer ke rekening:</strong>
+                            <p style="margin:6px 0;">@_rekening</p>
+                            <p style="font-size:0.85rem;">Nominal: <strong>@_activeTrx.Jumlah.ToString("C0")</strong><br>Berita: <strong>@_activeTrx.KodeTransaksi</strong></p>
+                        </div>
+                        <div class="form-group mt-3">
+                            <label>Unggah bukti transfer</label>
+                            <InputFile OnChange="OnBuktiUpload" accept="image/*,.pdf" class="form-control" />
+                            @if (_uploading) { <small class="text-muted">Mengupload...</small> }
+                        </div>
+                    }
+
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn btn-outline" @onclick="Refresh">🔄 Cek Status</button>
+                        <button class="btn btn-danger btn-sm" @onclick="BatalkanTransaksi">Batalkan</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="form-group">
+                        <label>Jumlah yang dibayar</label>
+                        <input type="number" class="form-control" @bind="_nominal" min="1" max="@Sisa" />
+                        <small class="text-muted">Bisa dicicil. Sisa tagihan saat ini @Sisa.ToString("C0").</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Metode pembayaran</label>
+                        <div class="d-flex flex-column gap-2">
+                            @foreach (var p in _providers)
+                            {
+                                <label class="provider-option @(_provider == p ? "selected" : "")">
+                                    <input type="radio" name="provider" checked="@(_provider == p)" @onchange="() => _provider = p" />
+                                    <span style="font-size:1.3rem;margin:0 8px;">@Services.PaymentGatewayService.Icon(p)</span>
+                                    <span>@Services.PaymentGatewayService.Label(p)</span>
+                                </label>
+                            }
+                        </div>
+                        @if (Pay.IsSandbox && _providers.Any(p => p != Models.PaymentProvider.Manual))
+                        {
+                            <small class="text-muted">Mode sandbox aktif — transaksi tidak menagih uang sungguhan.</small>
+                        }
+                    </div>
+
+                    <button class="btn btn-primary btn-lg w-100" @onclick="BuatTransaksi" disabled="@_processing">
+                        @(_processing ? "Memproses..." : "Bayar Sekarang")
+                    </button>
+                }
+            </div>
+        </div>
+
+        <!-- ============ RIWAYAT ============ -->
+        <div class="card">
+            <div class="card-header"><h3>📜 Riwayat Pembayaran</h3></div>
+            <div class="card-body">
+                @if (_cicilan.Any())
+                {
+                    <div class="table-container"><table>
+                        <thead><tr><th>Tanggal</th><th>Jumlah</th><th>Metode</th><th>Status</th><th>Bukti</th></tr></thead>
+                        <tbody>
+                            @foreach (var c in _cicilan)
+                            {
+                                <tr>
+                                    <td>@c.TanggalBayar.ToString("dd MMM yyyy")</td>
+                                    <td><strong>@c.Jumlah.ToString("C0")</strong></td>
+                                    <td>@(string.IsNullOrEmpty(c.MetodePembayaran) ? "-" : c.MetodePembayaran)</td>
+                                    <td><span class="badge @(c.Dikonfirmasi ? "badge-success" : "badge-warning")">@(c.Dikonfirmasi ? "Dikonfirmasi" : "Menunggu")</span></td>
+                                    <td>@if (!string.IsNullOrEmpty(c.BuktiBayarUrl)) { <a href="@c.BuktiBayarUrl" target="_blank" class="btn btn-outline btn-sm">Lihat</a> } else { <span class="text-muted">-</span> }</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table></div>
+                }
+                else { <p class="text-muted">Belum ada pembayaran tercatat.</p> }
+
+                @if (_transaksi.Any())
+                {
+                    <h4 class="mt-3" style="font-size:0.95rem;">Transaksi Gateway</h4>
+                    <div class="table-container"><table>
+                        <thead><tr><th>Kode</th><th>Provider</th><th>Jumlah</th><th>Status</th><th>Dibuat</th></tr></thead>
+                        <tbody>
+                            @foreach (var t in _transaksi)
+                            {
+                                <tr>
+                                    <td style="font-size:0.75rem;">@t.KodeTransaksi</td>
+                                    <td>@t.Provider</td>
+                                    <td>@t.Jumlah.ToString("C0")</td>
+                                    <td><span class="badge @TrxBadge(t.Status)">@t.Status</span></td>
+                                    <td style="font-size:0.75rem;">@t.CreatedAt.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table></div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .provider-option { display:flex; align-items:center; padding:10px 12px; border:1px solid var(--border-color); border-radius:var(--radius-sm); cursor:pointer; transition:var(--transition); }
+    .provider-option:hover { border-color:var(--accent); background:var(--accent-light); }
+    .provider-option.selected { border-color:var(--accent); background:var(--accent-light); font-weight:600; }
+</style>
+
+@code {
+    private Models.Jamaah? _jamaah;
+    private Models.Pembayaran? _pembayaran;
+    private List<Models.Cicilan> _cicilan = new();
+    private List<Models.PaymentTransaction> _transaksi = new();
+    private Models.PaymentTransaction? _activeTrx;
+    private List<Models.PaymentProvider> _providers = new();
+    private Models.PaymentProvider _provider = Models.PaymentProvider.Manual;
+    private decimal _nominal;
+    private bool _processing, _uploading, _notifOk;
+    private string _notif = "", _rekening = "";
+    private int? _uid;
+
+    private decimal Sisa => _pembayaran == null ? 0 : _pembayaran.TotalBiaya - _pembayaran.TotalDibayar;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await AuthService.EnsureAsync();
+        _uid = AuthService.CurrentUserId;
+        _providers = Pay.EnabledProviders();
+        _provider = _providers.Contains(Pay.DefaultProvider) ? Pay.DefaultProvider : _providers.First();
+        _rekening = "BSI 7001234567 a.n. PT HolySafar Travel";
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        if (_uid == null) return;
+        _jamaah = await Db.Jamaah.Include(j => j.Paket).FirstOrDefaultAsync(j => j.UserId == _uid);
+        if (_jamaah == null) return;
+
+        _pembayaran = await Db.Pembayaran.Include(p => p.Paket).FirstOrDefaultAsync(p => p.JamaahId == _jamaah.Id);
+        if (_pembayaran == null) return;
+
+        _cicilan = await Db.Cicilan.Where(c => c.PembayaranId == _pembayaran.Id)
+            .OrderByDescending(c => c.TanggalBayar).ToListAsync();
+        _transaksi = await Db.PaymentTransactions
+            .Where(t => t.ReferenceType == "Cicilan" && t.ReferenceId == _pembayaran.Id)
+            .OrderByDescending(t => t.Id).Take(20).ToListAsync();
+        _activeTrx = _transaksi.FirstOrDefault(t => t.Status == Models.TransactionStatus.Pending);
+        if (_nominal <= 0) _nominal = Sisa;
+    }
+
+    private async Task Refresh()
+    {
+        // entitas sudah ter-track oleh DbContext circuit; muat ulang agar status webhook terbaca
+        foreach (var e in Db.ChangeTracker.Entries().ToList()) e.Reload();
+        await Load();
+        _notif = _activeTrx == null ? "Pembayaran sudah diterima. Terima kasih!" : "Transaksi masih menunggu pembayaran.";
+        _notifOk = _activeTrx == null;
+    }
+
+    private async Task BuatTransaksi()
+    {
+        if (_pembayaran == null || _uid == null) return;
+        if (_nominal <= 0 || _nominal > Sisa) { _notif = "Nominal harus antara 1 dan sisa tagihan."; _notifOk = false; return; }
+
+        _processing = true;
+        try
+        {
+            var user = await AuthService.GetCurrentUserAsync();
+            var baseUrl = Nav.BaseUri.TrimEnd('/');
+            var trx = await Pay.CreateTransactionAsync(
+                _provider, _nominal,
+                $"Pembayaran paket {_pembayaran.Paket?.NamaPaket ?? "Haji/Umroh"} - {_jamaah?.NamaLengkap}",
+                "Cicilan", _pembayaran.Id, user, baseUrl);
+
+            if (trx.Status == Models.TransactionStatus.Failed)
+            { _notif = $"Gagal membuat transaksi: {trx.Catatan}"; _notifOk = false; }
+            else
+            { _notif = $"Transaksi <strong>{trx.KodeTransaksi}</strong> dibuat. Silakan selesaikan pembayaran."; _notifOk = true; }
+
+            await Load();
+        }
+        finally { _processing = false; }
+    }
+
+    private async Task BatalkanTransaksi()
+    {
+        if (_activeTrx == null) return;
+        await Pay.MarkStatusAsync(_activeTrx.KodeTransaksi, Models.TransactionStatus.Failed, "Dibatalkan oleh jamaah");
+        await Load();
+        _notif = "Transaksi dibatalkan."; _notifOk = true;
+    }
+
+    /// <summary>Bukti transfer manual dicatat sebagai cicilan yang menunggu konfirmasi admin.</summary>
+    private async Task OnBuktiUpload(InputFileChangeEventArgs e)
+    {
+        if (_activeTrx == null || _pembayaran == null) return;
+        var file = e.File;
+        if (file == null) return;
+
+        _uploading = true;
+        try
+        {
+            await using var stream = file.OpenReadStream(10 * 1024 * 1024);
+            var url = await Storage.UploadAsync(stream, file.Name, "bukti-bayar");
+
+            Db.Cicilan.Add(new Models.Cicilan
+            {
+                PembayaranId = _pembayaran.Id,
+                Jumlah = _activeTrx.Jumlah,
+                TanggalBayar = DateTime.UtcNow,
+                MetodePembayaran = "Manual",
+                BuktiBayarUrl = url,
+                Catatan = $"Bukti transfer {_activeTrx.KodeTransaksi}",
+                Dikonfirmasi = false
+            });
+            await Db.SaveChangesAsync();
+
+            _notif = "Bukti transfer terkirim. Menunggu konfirmasi admin.";
+            _notifOk = true;
+            await Load();
+        }
+        catch (Exception ex) { _notif = $"Gagal mengunggah: {ex.Message}"; _notifOk = false; }
+        finally { _uploading = false; }
+    }
+
+    private static string StatusBadge(Models.PaymentStatus s) => s switch
+    {
+        Models.PaymentStatus.Paid => "badge-success",
+        Models.PaymentStatus.Partial => "badge-info",
+        Models.PaymentStatus.Overdue => "badge-danger",
+        Models.PaymentStatus.Cancelled => "badge-danger",
+        _ => "badge-warning"
+    };
+
+    private static string TrxBadge(Models.TransactionStatus s) => s switch
+    {
+        Models.TransactionStatus.Paid => "badge-success",
+        Models.TransactionStatus.Pending => "badge-warning",
+        _ => "badge-danger"
+    };
+}

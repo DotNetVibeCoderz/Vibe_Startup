@@ -1,0 +1,250 @@
+@page "/forum"
+@page "/forum/{TopikId:int}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject Data.AppDbContext Db
+@inject Services.AuthService AuthService
+@inject Services.StorageService Storage
+@inject NavigationManager Nav
+
+<div class="mb-3"><h2>💬 Forum Jamaah</h2><p class="text-muted">Tempat berbagi pengalaman, tanya jawab, dan saling membantu sesama jamaah</p></div>
+
+@if (!string.IsNullOrEmpty(_notif)) { <div class="alert @(_notifOk ? "alert-success" : "alert-danger")">@_notif</div> }
+
+@if (_topik != null)
+{
+    <!-- ============ DETAIL TOPIK ============ -->
+    <div class="card mb-3">
+        <div class="card-header">
+            <h3>@_topik.Judul</h3>
+            <div class="d-flex gap-2">
+                <span class="badge badge-info">@_topik.Kategori</span>
+                @if (_bolehModerasi) { <button class="btn btn-danger btn-sm" @onclick="HapusTopik">Hapus</button> }
+                <a href="/forum" class="btn btn-outline btn-sm">← Kembali</a>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="d-flex gap-2 text-muted" style="font-size:0.8rem;">
+                <span>oleh <strong>@_topik.User?.FullName</strong></span>
+                <span>· @_topik.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+                <span>· 👁️ @_topik.JumlahDilihat</span>
+            </div>
+            <p style="white-space:pre-wrap;margin-top:12px;">@_topik.Isi</p>
+            @if (!string.IsNullOrEmpty(_topik.AttachmentUrl))
+            {
+                @if (IsGambar(_topik.AttachmentUrl)) { <img src="@_topik.AttachmentUrl" style="max-width:100%;max-height:360px;border-radius:8px;margin-top:8px;" /> }
+                else { <a href="@_topik.AttachmentUrl" target="_blank" class="btn btn-outline btn-sm mt-2">📎 Lampiran</a> }
+            }
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>Balasan (@_balasan.Count)</h3></div>
+        <div class="card-body">
+            @foreach (var b in _balasan)
+            {
+                <div style="border-bottom:1px solid var(--border-color);padding:12px 0;">
+                    <div class="d-flex gap-2" style="justify-content:space-between;">
+                        <strong>@b.User?.FullName</strong>
+                        <div class="d-flex gap-2 align-center">
+                            <small class="text-muted">@b.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</small>
+                            @if (_bolehModerasi || b.UserId == _uid) { <button class="btn btn-danger btn-sm" @onclick="() => HapusBalasan(b)">✕</button> }
+                        </div>
+                    </div>
+                    <p style="white-space:pre-wrap;margin-top:6px;">@b.Isi</p>
+                    @if (!string.IsNullOrEmpty(b.AttachmentUrl))
+                    {
+                        @if (IsGambar(b.AttachmentUrl)) { <img src="@b.AttachmentUrl" style="max-width:280px;border-radius:8px;" /> }
+                        else { <a href="@b.AttachmentUrl" target="_blank" class="btn btn-outline btn-sm">📎 Lampiran</a> }
+                    }
+                </div>
+            }
+            @if (!_balasan.Any()) { <p class="text-muted">Belum ada balasan. Jadilah yang pertama membantu.</p> }
+
+            @if (_topik.IsLocked)
+            {
+                <div class="alert alert-info mt-3">Topik ini dikunci moderator.</div>
+            }
+            else
+            {
+                <div class="form-group mt-3">
+                    <label>Tulis balasan</label>
+                    <textarea class="form-control" rows="3" @bind="_isiBalasan" placeholder="Bagikan jawaban atau pengalaman Anda..."></textarea>
+                </div>
+                <div class="d-flex gap-2 align-center">
+                    <InputFile OnChange="OnLampiranBalasan" accept="image/*,.pdf" class="form-control" style="max-width:280px;" />
+                    <button class="btn btn-primary" @onclick="KirimBalasan" disabled="@string.IsNullOrWhiteSpace(_isiBalasan)">Kirim</button>
+                </div>
+                @if (!string.IsNullOrEmpty(_lampiranBalasan)) { <small class="text-muted">Lampiran siap dikirim.</small> }
+            }
+        </div>
+    </div>
+}
+else
+{
+    <!-- ============ DAFTAR TOPIK ============ -->
+    <div class="card mb-3">
+        <div class="card-header"><h3>Buat Topik Baru</h3></div>
+        <div class="card-body">
+            <div class="grid grid-2">
+                <div class="form-group"><label>Judul *</label><input class="form-control" @bind="_judulBaru" placeholder="mis. Tips packing koper untuk umroh 9 hari" /></div>
+                <div class="form-group"><label>Kategori</label>
+                    <select class="form-control" @bind="_kategoriBaru">
+                        <option>Umum</option><option>Persiapan</option><option>Manasik</option><option>Kesehatan</option><option>Perlengkapan</option><option>Pengalaman</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group"><label>Isi *</label><textarea class="form-control" rows="4" @bind="_isiBaru"></textarea></div>
+            <div class="d-flex gap-2 align-center">
+                <InputFile OnChange="OnLampiranTopik" accept="image/*,.pdf" class="form-control" style="max-width:280px;" />
+                <button class="btn btn-primary" @onclick="BuatTopik" disabled="@(string.IsNullOrWhiteSpace(_judulBaru) || string.IsNullOrWhiteSpace(_isiBaru))">Posting</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3>Diskusi Terbaru</h3>
+            <div class="d-flex gap-2">
+                <input class="form-control form-control-sm" style="max-width:220px;" placeholder="🔍 Cari topik..." @bind="_cari" @bind:event="oninput" />
+                <select class="form-control form-control-sm" style="max-width:160px;" @bind="_filterKategori">
+                    <option value="">Semua kategori</option>
+                    <option>Umum</option><option>Persiapan</option><option>Manasik</option><option>Kesehatan</option><option>Perlengkapan</option><option>Pengalaman</option>
+                </select>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (Terfilter.Any())
+            {
+                <div class="table-container"><table>
+                    <thead><tr><th>Topik</th><th>Kategori</th><th>Penulis</th><th>Balasan</th><th>Terakhir</th></tr></thead>
+                    <tbody>
+                        @foreach (var t in Terfilter)
+                        {
+                            <tr style="cursor:pointer;" @onclick="() => BukaTopik(t.Id)">
+                                <td><strong>@t.Judul</strong><br><small class="text-muted">@(t.Isi.Length > 90 ? t.Isi[..90] + "..." : t.Isi)</small></td>
+                                <td><span class="badge badge-info">@t.Kategori</span></td>
+                                <td>@t.User?.FullName</td>
+                                <td>@t.Balasan.Count</td>
+                                <td style="font-size:0.78rem;">@t.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+            else { <p class="text-muted">Belum ada topik. Mulai diskusi pertama Anda di atas.</p> }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int? TopikId { get; set; }
+
+    private List<Models.ForumTopik> _semua = new();
+    private List<Models.ForumBalasan> _balasan = new();
+    private Models.ForumTopik? _topik;
+
+    private string _judulBaru = "", _isiBaru = "", _kategoriBaru = "Umum", _isiBalasan = "";
+    private string? _lampiranTopik, _lampiranBalasan;
+    private string _cari = "", _filterKategori = "", _notif = "";
+    private bool _notifOk, _bolehModerasi;
+    private int? _uid;
+
+    private IEnumerable<Models.ForumTopik> Terfilter => _semua.Where(t =>
+        (string.IsNullOrEmpty(_cari) || t.Judul.Contains(_cari, StringComparison.OrdinalIgnoreCase) || t.Isi.Contains(_cari, StringComparison.OrdinalIgnoreCase)) &&
+        (string.IsNullOrEmpty(_filterKategori) || t.Kategori == _filterKategori));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await AuthService.EnsureAsync();
+        _uid = AuthService.CurrentUserId;
+        _bolehModerasi = AuthService.CurrentUserRole is "Admin" or "Agen";
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        if (TopikId is int id)
+        {
+            _topik = await Db.ForumTopik.Include(t => t.User).FirstOrDefaultAsync(t => t.Id == id);
+            if (_topik != null)
+            {
+                _topik.JumlahDilihat++;
+                await Db.SaveChangesAsync();
+                _balasan = await Db.ForumBalasan.Include(b => b.User)
+                    .Where(b => b.TopikId == id).OrderBy(b => b.CreatedAt).ToListAsync();
+            }
+        }
+        else
+        {
+            _topik = null;
+            _semua = await Db.ForumTopik.Include(t => t.User).Include(t => t.Balasan)
+                .OrderByDescending(t => t.CreatedAt).Take(100).ToListAsync();
+        }
+    }
+
+    private void BukaTopik(int id) => Nav.NavigateTo($"/forum/{id}");
+
+    private async Task BuatTopik()
+    {
+        if (_uid == null) return;
+        Db.ForumTopik.Add(new Models.ForumTopik
+        {
+            Judul = _judulBaru.Trim(), Isi = _isiBaru.Trim(), Kategori = _kategoriBaru,
+            AttachmentUrl = _lampiranTopik, UserId = _uid.Value, CreatedAt = DateTime.UtcNow
+        });
+        await Db.SaveChangesAsync();
+
+        _judulBaru = ""; _isiBaru = ""; _lampiranTopik = null;
+        _notif = "Topik berhasil diposting."; _notifOk = true;
+        await Load();
+    }
+
+    private async Task KirimBalasan()
+    {
+        if (_uid == null || _topik == null) return;
+        Db.ForumBalasan.Add(new Models.ForumBalasan
+        {
+            TopikId = _topik.Id, UserId = _uid.Value, Isi = _isiBalasan.Trim(),
+            AttachmentUrl = _lampiranBalasan, CreatedAt = DateTime.UtcNow
+        });
+        await Db.SaveChangesAsync();
+
+        _isiBalasan = ""; _lampiranBalasan = null;
+        await Load();
+    }
+
+    private async Task HapusTopik()
+    {
+        if (_topik == null || !_bolehModerasi) return;
+        Db.ForumTopik.Remove(_topik);
+        await Db.SaveChangesAsync();
+        Nav.NavigateTo("/forum");
+    }
+
+    private async Task HapusBalasan(Models.ForumBalasan b)
+    {
+        if (!_bolehModerasi && b.UserId != _uid) return;
+        Db.ForumBalasan.Remove(b);
+        await Db.SaveChangesAsync();
+        await Load();
+    }
+
+    private async Task OnLampiranTopik(InputFileChangeEventArgs e) => _lampiranTopik = await Unggah(e);
+    private async Task OnLampiranBalasan(InputFileChangeEventArgs e) => _lampiranBalasan = await Unggah(e);
+
+    private async Task<string?> Unggah(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return null;
+        try
+        {
+            await using var s = file.OpenReadStream(10 * 1024 * 1024);
+            return await Storage.UploadAsync(s, file.Name, "forum");
+        }
+        catch (Exception ex) { _notif = $"Gagal mengunggah: {ex.Message}"; _notifOk = false; return null; }
+    }
+
+    private static bool IsGambar(string url) =>
+        new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" }.Any(x => url.Contains(x, StringComparison.OrdinalIgnoreCase));
+}

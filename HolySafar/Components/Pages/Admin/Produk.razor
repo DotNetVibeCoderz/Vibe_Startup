@@ -1,5 +1,6 @@
 @page "/admin/produk"
 @rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
 @inject Data.AppDbContext Db
 @inject Services.StorageService Storage
 @inject Services.ExportService Export

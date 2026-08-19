@@ -1,0 +1,72 @@
+@page "/pembayaran/selesai"
+@page "/pembayaran/gagal"
+@rendermode InteractiveServer
+@inject Services.PaymentGatewayService Pay
+@inject NavigationManager Nav
+
+@* Halaman balik dari provider (success_redirect_url / cancel_url).
+   Status resmi tetap datang dari webhook — halaman ini hanya menampilkan
+   kondisi terakhir yang tercatat di database. *@
+
+<div class="card">
+    <div class="card-body text-center" style="padding:48px;">
+        @if (_loading)
+        {
+            <p class="text-muted">Memeriksa status pembayaran...</p>
+        }
+        else if (_trx == null)
+        {
+            <div class="empty-state-icon">❓</div>
+            <h3>Transaksi tidak ditemukan</h3>
+            <p class="text-muted">Kode transaksi @Kode tidak dikenali.</p>
+        }
+        else if (_trx.Status == Models.TransactionStatus.Paid)
+        {
+            <div class="empty-state-icon">🎉</div>
+            <h3>Pembayaran berhasil</h3>
+            <p class="text-muted">@_trx.Jumlah.ToString("C0") via @_trx.Provider telah kami terima.</p>
+            <p style="font-size:0.8rem;">Kode: <code>@_trx.KodeTransaksi</code></p>
+        }
+        else if (_sukses)
+        {
+            <div class="empty-state-icon">⏳</div>
+            <h3>Menunggu konfirmasi provider</h3>
+            <p class="text-muted">
+                Pembayaran Anda sedang diproses @_trx.Provider. Status akan otomatis berubah
+                begitu konfirmasi diterima — biasanya kurang dari beberapa menit.
+            </p>
+            <button class="btn btn-outline mt-2" @onclick="Muat">🔄 Cek lagi</button>
+        }
+        else
+        {
+            <div class="empty-state-icon">⚠️</div>
+            <h3>Pembayaran dibatalkan</h3>
+            <p class="text-muted">Transaksi @_trx.KodeTransaksi belum diselesaikan. Anda bisa mengulanginya kapan saja.</p>
+        }
+
+        <div class="d-flex gap-2 justify-content-center mt-3" style="justify-content:center;">
+            <a href="/pembayaran" class="btn btn-primary">Kembali ke Tagihan</a>
+            <a href="/" class="btn btn-outline">Beranda</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "kode")] private string? Kode { get; set; }
+
+    private Models.PaymentTransaction? _trx;
+    private bool _loading = true, _sukses;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sukses = new Uri(Nav.Uri).AbsolutePath.EndsWith("selesai", StringComparison.OrdinalIgnoreCase);
+        await Muat();
+    }
+
+    private async Task Muat()
+    {
+        _loading = true;
+        if (!string.IsNullOrEmpty(Kode)) _trx = await Pay.GetByKodeAsync(Kode);
+        _loading = false;
+    }
+}

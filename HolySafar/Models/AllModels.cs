@@ -48,6 +48,12 @@ public class Jamaah
     [MaxLength(300)] public string AlamatAhliWaris { get; set; } = string.Empty;
     public DocumentStatus StatusDokumen { get; set; } = DocumentStatus.Pending;
     public DepartureStatus StatusKeberangkatan { get; set; } = DepartureStatus.Scheduled;
+    public VisaStatus StatusVisa { get; set; } = VisaStatus.BelumDiajukan;
+    [MaxLength(50)] public string NoVisa { get; set; } = string.Empty;
+    public DateTime? TanggalVisa { get; set; }
+    [MaxLength(50)] public string NoPorsi { get; set; } = string.Empty;
+    public DateTime? SiskohatSyncedAt { get; set; }
+    [MaxLength(30)] public string SiskohatStatus { get; set; } = "BelumSync";
     public bool SudahVaksin { get; set; }
     [MaxLength(100)] public string JenisVaksin { get; set; } = string.Empty;
     public int? UserId { get; set; }
@@ -93,6 +99,12 @@ public class Paket
     public DateTime? TanggalPulang { get; set; }
     [MaxLength(500)] public string BrosurUrl { get; set; } = string.Empty;
     [MaxLength(1000)] public string ItineraryJson { get; set; } = "[]";
+    public double? LatHotelMekkah { get; set; }
+    public double? LngHotelMekkah { get; set; }
+    public double? LatHotelMadinah { get; set; }
+    public double? LngHotelMadinah { get; set; }
+    [MaxLength(300)] public string Transportasi { get; set; } = string.Empty;
+    public ICollection<ItineraryItem> Itinerary { get; set; } = new List<ItineraryItem>();
     public int Kuota { get; set; } = 50; public int Terisi { get; set; }
     public bool IsActive { get; set; } = true; public bool IsPublished { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -258,6 +270,8 @@ public class Order
     [MaxLength(50)] public string NoOrder { get; set; } = string.Empty;
     public decimal Total { get; set; }
     [MaxLength(50)] public string StatusOrder { get; set; } = "Pending";
+    [MaxLength(50)] public string MetodePembayaran { get; set; } = string.Empty;
+    public DateTime? PaidAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
 }
@@ -293,5 +307,146 @@ public class ChatbotMessage
     [MaxLength(8000)] public string Content { get; set; } = string.Empty;
     [MaxLength(1000)] public string? ImageUrl { get; set; }
     [MaxLength(1000)] public string? AttachmentUrl { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// ================================================================
+// PAYMENT GATEWAY
+// ================================================================
+
+public enum PaymentProvider { Manual, Xendit, Midtrans, Stripe, QRIS }
+public enum TransactionStatus { Pending, Paid, Expired, Failed, Refunded }
+public enum VisaStatus { BelumDiajukan, Diajukan, Diproses, Terbit, Ditolak }
+
+public class PaymentTransaction
+{
+    [Key] public int Id { get; set; }
+    [MaxLength(60)] public string KodeTransaksi { get; set; } = string.Empty;
+    public PaymentProvider Provider { get; set; } = PaymentProvider.Manual;
+    /// <summary>"Cicilan" (pelunasan/cicilan paket) atau "Order" (marketplace)</summary>
+    [MaxLength(30)] public string ReferenceType { get; set; } = "Cicilan";
+    public int ReferenceId { get; set; }
+    public int? UserId { get; set; }
+    [ForeignKey(nameof(UserId))] public ApplicationUser? User { get; set; }
+    public decimal Jumlah { get; set; }
+    [MaxLength(300)] public string Deskripsi { get; set; } = string.Empty;
+    public TransactionStatus Status { get; set; } = TransactionStatus.Pending;
+    [MaxLength(200)] public string? ExternalId { get; set; }
+    [MaxLength(1000)] public string? PaymentUrl { get; set; }
+    [MaxLength(1000)] public string? QrString { get; set; }
+    [MaxLength(4000)] public string? RawResponse { get; set; }
+    [MaxLength(500)] public string? Catatan { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? ExpiredAt { get; set; }
+    public DateTime? PaidAt { get; set; }
+}
+
+// ================================================================
+// MANAJEMEN PERJALANAN (itinerary, ziarah, transportasi, hotel)
+// ================================================================
+
+public class ItineraryItem
+{
+    [Key] public int Id { get; set; }
+    public int PaketId { get; set; }
+    [ForeignKey(nameof(PaketId))] public Paket? Paket { get; set; }
+    public int Hari { get; set; } = 1;
+    [MaxLength(20)] public string Waktu { get; set; } = "08:00";
+    [Required, MaxLength(200)] public string Judul { get; set; } = string.Empty;
+    [MaxLength(2000)] public string Deskripsi { get; set; } = string.Empty;
+    /// <summary>Ibadah | Ziarah | Transportasi | Hotel | Lainnya</summary>
+    [MaxLength(30)] public string Jenis { get; set; } = "Ibadah";
+    [MaxLength(200)] public string Lokasi { get; set; } = string.Empty;
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public int Urutan { get; set; }
+}
+
+// ================================================================
+// FORUM JAMAAH
+// ================================================================
+
+public class ForumTopik
+{
+    [Key] public int Id { get; set; }
+    [Required, MaxLength(250)] public string Judul { get; set; } = string.Empty;
+    [MaxLength(4000)] public string Isi { get; set; } = string.Empty;
+    [MaxLength(500)] public string? AttachmentUrl { get; set; }
+    [MaxLength(100)] public string Kategori { get; set; } = "Umum";
+    public int UserId { get; set; }
+    [ForeignKey(nameof(UserId))] public ApplicationUser? User { get; set; }
+    public bool IsLocked { get; set; }
+    public int JumlahDilihat { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public ICollection<ForumBalasan> Balasan { get; set; } = new List<ForumBalasan>();
+}
+
+public class ForumBalasan
+{
+    [Key] public int Id { get; set; }
+    public int TopikId { get; set; }
+    [ForeignKey(nameof(TopikId))] public ForumTopik? Topik { get; set; }
+    public int UserId { get; set; }
+    [ForeignKey(nameof(UserId))] public ApplicationUser? User { get; set; }
+    [MaxLength(4000)] public string Isi { get; set; } = string.Empty;
+    [MaxLength(500)] public string? AttachmentUrl { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+// ================================================================
+// ASURANSI PERJALANAN
+// ================================================================
+
+public class Asuransi
+{
+    [Key] public int Id { get; set; }
+    [Required, MaxLength(200)] public string NamaProduk { get; set; } = string.Empty;
+    [MaxLength(200)] public string Penyedia { get; set; } = string.Empty;
+    [MaxLength(2000)] public string Cakupan { get; set; } = string.Empty;
+    public decimal NilaiPertanggungan { get; set; }
+    public decimal Premi { get; set; }
+    [MaxLength(200)] public string KontakKlaim { get; set; } = string.Empty;
+    [MaxLength(500)] public string? PolisUrl { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+// ================================================================
+// KONFIGURASI UI + INTEGRASI SISKOHAT
+// ================================================================
+
+/// <summary>Override konfigurasi appsettings.json dari UI admin (key = path config, mis. "Chatbot:Provider").</summary>
+public class PengaturanAplikasi
+{
+    [Key] public int Id { get; set; }
+    [Required, MaxLength(150)] public string Kunci { get; set; } = string.Empty;
+    [MaxLength(2000)] public string Nilai { get; set; } = string.Empty;
+    [MaxLength(300)] public string Keterangan { get; set; } = string.Empty;
+    [MaxLength(50)] public string Grup { get; set; } = "Umum";
+    public bool IsSecret { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class SiskohatLog
+{
+    [Key] public int Id { get; set; }
+    public int? JamaahId { get; set; }
+    [ForeignKey(nameof(JamaahId))] public Jamaah? Jamaah { get; set; }
+    [MaxLength(30)] public string Nik { get; set; } = string.Empty;
+    /// <summary>Valid | TidakDitemukan | DataBerbeda | Error</summary>
+    [MaxLength(30)] public string Hasil { get; set; } = "Valid";
+    [MaxLength(50)] public string? NoPorsi { get; set; }
+    [MaxLength(2000)] public string Pesan { get; set; } = string.Empty;
+    [MaxLength(50)] public string Sumber { get; set; } = "Simulasi";
+    public DateTime SyncedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class BackupLog
+{
+    [Key] public int Id { get; set; }
+    [MaxLength(300)] public string NamaFile { get; set; } = string.Empty;
+    [MaxLength(500)] public string? FileUrl { get; set; }
+    public long UkuranByte { get; set; }
+    [MaxLength(50)] public string Jenis { get; set; } = "Database";
+    [MaxLength(200)] public string DibuatOleh { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

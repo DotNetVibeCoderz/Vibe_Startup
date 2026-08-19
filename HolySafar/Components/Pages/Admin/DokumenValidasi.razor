@@ -1,0 +1,272 @@
+@page "/admin/dokumen"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Agen")]
+@inject Data.AppDbContext Db
+@inject Services.SiskohatService Siskohat
+@inject Services.NotifikasiService Notif
+
+<div class="mb-3"><h2>🗂️ Verifikasi Dokumen & Visa</h2><p class="text-muted">Validasi berkas jamaah, kelola status visa, dan sinkronkan data ke SISKOHAT</p></div>
+
+@if (!string.IsNullOrEmpty(_notif)) { <div class="alert @(_notifOk ? "alert-success" : "alert-danger")">@_notif</div> }
+
+<div class="card mb-3">
+    <div class="card-header">
+        <h3>Integrasi SISKOHAT Kemenag</h3>
+        <span class="badge @(Siskohat.IsLive ? "badge-success" : "badge-warning")">Mode @Siskohat.Mode</span>
+    </div>
+    <div class="card-body">
+        @if (!Siskohat.IsLive)
+        {
+            <p class="text-muted" style="font-size:0.85rem;">
+                Endpoint SISKOHAT resmi belum diisi, jadi validasi dijalankan lokal (cek format NIK, paspor,
+                dan kelengkapan data) serta nomor porsi dibangkitkan simulasi. Isi <code>Siskohat:Endpoint</code>
+                di menu Pengaturan untuk beralih ke sinkronisasi sungguhan.
+            </p>
+        }
+        <button class="btn btn-primary" @onclick="SyncSemua" disabled="@_syncing">
+            @(_syncing ? "Menyinkronkan..." : "🔄 Sinkronkan Semua Jamaah")
+        </button>
+        @if (_logs.Any())
+        {
+            <div class="table-container mt-3"><table>
+                <thead><tr><th>Waktu</th><th>NIK</th><th>Hasil</th><th>No Porsi</th><th>Pesan</th></tr></thead>
+                <tbody>
+                    @foreach (var l in _logs)
+                    {
+                        <tr>
+                            <td style="font-size:0.75rem;">@l.SyncedAt.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                            <td>@l.Nik</td>
+                            <td><span class="badge @(l.Hasil == "Valid" ? "badge-success" : "badge-danger")">@l.Hasil</span></td>
+                            <td>@(l.NoPorsi ?? "-")</td>
+                            <td style="font-size:0.78rem;">@(l.Pesan.Length > 120 ? l.Pesan[..120] + "..." : l.Pesan)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table></div>
+        }
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Dokumen Jamaah</h3>
+        <div class="d-flex gap-2">
+            <input class="form-control form-control-sm" style="max-width:220px;" placeholder="🔍 Cari nama / NIK..." @bind="_search" @bind:event="oninput" />
+            <select class="form-control form-control-sm" style="max-width:180px;" @bind="_filterStatus">
+                <option value="">Semua status</option>
+                <option value="Pending">Belum diproses</option>
+                <option value="Submitted">Menunggu verifikasi</option>
+                <option value="Verified">Terverifikasi</option>
+                <option value="Rejected">Ditolak</option>
+            </select>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="table-container"><table>
+            <thead><tr><th>Jamaah</th><th>NIK</th><th>Berkas</th><th>Status Dokumen</th><th>Visa</th><th>SISKOHAT</th><th>Aksi</th></tr></thead>
+            <tbody>
+                @foreach (var j in Filtered)
+                {
+                    var docs = _dokumen.Where(d => d.JamaahId == j.Id).ToList();
+                    <tr>
+                        <td><strong>@j.NamaLengkap</strong><br><small class="text-muted">@(j.Paket?.NamaPaket ?? "belum pilih paket")</small></td>
+                        <td style="font-size:0.8rem;">@j.Nik</td>
+                        <td>
+                            @foreach (var tipe in _wajib)
+                            {
+                                var d = docs.FirstOrDefault(x => x.TipeDokumen == tipe);
+                                <span class="badge @(d == null ? "badge-danger" : StatusBadge(d.Status))" style="margin:1px;" title="@tipe">@tipe</span>
+                            }
+                        </td>
+                        <td><span class="badge @StatusBadge(j.StatusDokumen)">@j.StatusDokumen</span></td>
+                        <td><span class="badge @VisaBadge(j.StatusVisa)">@j.StatusVisa</span></td>
+                        <td>
+                            <span class="badge @(j.SiskohatStatus == "Valid" ? "badge-success" : "badge-warning")">@j.SiskohatStatus</span>
+                            @if (!string.IsNullOrEmpty(j.NoPorsi)) { <br><small class="text-muted">@j.NoPorsi</small> }
+                        </td>
+                        <td>
+                            <button class="btn btn-outline btn-sm" @onclick="() => Buka(j)">Kelola</button>
+                            <button class="btn btn-outline btn-sm" @onclick="() => SyncSatu(j)">🔄</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+        @if (!Filtered.Any()) { <p class="text-muted">Tidak ada data.</p> }
+    </div>
+</div>
+
+@if (_selected != null)
+{
+    <div class="modal-backdrop" @onclick="() => _selected = null">
+        <div class="modal" @onclick:stopPropagation="true" style="max-width:720px;">
+            <div class="modal-header"><h3>@_selected.NamaLengkap</h3><button class="btn-icon" @onclick="() => _selected = null">✕</button></div>
+            <div class="modal-body">
+                <h4 style="font-size:0.95rem;">Berkas</h4>
+                @if (_selectedDocs.Any())
+                {
+                    <div class="table-container"><table>
+                        <thead><tr><th>Dokumen</th><th>Status</th><th>Aksi</th></tr></thead>
+                        <tbody>
+                            @foreach (var d in _selectedDocs)
+                            {
+                                <tr>
+                                    <td><a href="@d.FileUrl" target="_blank">@d.NamaDokumen</a><br><small class="text-muted">@d.TipeDokumen · @(d.FileSize / 1024) KB</small></td>
+                                    <td><span class="badge @StatusBadge(d.Status)">@d.Status</span></td>
+                                    <td>
+                                        <button class="btn btn-success btn-sm" @onclick="() => Verifikasi(d, true)">✓</button>
+                                        <button class="btn btn-danger btn-sm" @onclick="() => Verifikasi(d, false)">✕</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table></div>
+                    <div class="form-group mt-2">
+                        <label>Catatan untuk jamaah (dipakai saat menolak)</label>
+                        <input class="form-control" @bind="_catatan" placeholder="mis. Foto paspor buram, mohon unggah ulang" />
+                    </div>
+                }
+                else { <p class="text-muted">Jamaah belum mengunggah dokumen apa pun.</p> }
+
+                <hr>
+                <h4 style="font-size:0.95rem;">Visa</h4>
+                <div class="grid grid-2">
+                    <div class="form-group"><label>Status visa</label>
+                        <select class="form-control" @bind="_visaStatus">
+                            @foreach (var v in Enum.GetValues<Models.VisaStatus>()) { <option value="@v">@v</option> }
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Nomor visa</label><input class="form-control" @bind="_noVisa" /></div>
+                </div>
+                <div class="form-group"><label>Tanggal terbit</label><input type="date" class="form-control" @bind="_tglVisa" /></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="() => _selected = null">Tutup</button>
+                <button class="btn btn-primary" @onclick="SimpanVisa">Simpan Visa</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] _wajib = { "KTP", "Paspor", "KK", "Vaksin" };
+
+    private List<Models.Jamaah> _jamaah = new();
+    private List<Models.DokumenJamaah> _dokumen = new();
+    private List<Models.SiskohatLog> _logs = new();
+    private Models.Jamaah? _selected;
+    private List<Models.DokumenJamaah> _selectedDocs = new();
+
+    private string _search = "", _filterStatus = "", _notif = "", _catatan = "", _noVisa = "";
+    private Models.VisaStatus _visaStatus = Models.VisaStatus.BelumDiajukan;
+    private DateTime? _tglVisa;
+    private bool _notifOk, _syncing;
+
+    private IEnumerable<Models.Jamaah> Filtered => _jamaah.Where(j =>
+        (string.IsNullOrEmpty(_search) || j.NamaLengkap.Contains(_search, StringComparison.OrdinalIgnoreCase) || j.Nik.Contains(_search)) &&
+        (string.IsNullOrEmpty(_filterStatus) || j.StatusDokumen.ToString() == _filterStatus));
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _jamaah = await Db.Jamaah.Include(j => j.Paket).OrderBy(j => j.NamaLengkap).ToListAsync();
+        _dokumen = await Db.DokumenJamaah.ToListAsync();
+        _logs = await Db.SiskohatLogs.OrderByDescending(l => l.Id).Take(10).ToListAsync();
+    }
+
+    private void Buka(Models.Jamaah j)
+    {
+        _selected = j;
+        _selectedDocs = _dokumen.Where(d => d.JamaahId == j.Id).OrderBy(d => d.TipeDokumen).ToList();
+        _visaStatus = j.StatusVisa; _noVisa = j.NoVisa; _tglVisa = j.TanggalVisa; _catatan = "";
+    }
+
+    private async Task Verifikasi(Models.DokumenJamaah d, bool setuju)
+    {
+        var doc = await Db.DokumenJamaah.FindAsync(d.Id);
+        if (doc == null) return;
+
+        doc.Status = setuju ? Models.DocumentStatus.Verified : Models.DocumentStatus.Rejected;
+        doc.CatatanAdmin = setuju ? null : (string.IsNullOrWhiteSpace(_catatan) ? "Berkas ditolak, mohon unggah ulang." : _catatan);
+
+        var jamaah = await Db.Jamaah.FindAsync(doc.JamaahId);
+        if (jamaah != null)
+        {
+            var semua = await Db.DokumenJamaah.Where(x => x.JamaahId == jamaah.Id).ToListAsync();
+            var wajibTerverifikasi = _wajib.All(t => semua.Any(x => x.TipeDokumen == t && x.Status == Models.DocumentStatus.Verified));
+            jamaah.StatusDokumen = semua.Any(x => x.Status == Models.DocumentStatus.Rejected)
+                ? Models.DocumentStatus.Rejected
+                : wajibTerverifikasi ? Models.DocumentStatus.Verified : Models.DocumentStatus.Submitted;
+
+            if (jamaah.UserId != null)
+                await Notif.SendAsync(jamaah.UserId, setuju ? "Dokumen diverifikasi" : "Dokumen ditolak",
+                    setuju ? $"{doc.NamaDokumen} sudah diverifikasi petugas."
+                           : $"{doc.NamaDokumen} ditolak. {doc.CatatanAdmin}",
+                    setuju ? "success" : "danger");
+        }
+
+        await Db.SaveChangesAsync();
+        await Load();
+        if (_selected != null) Buka(_jamaah.First(j => j.Id == _selected.Id));
+        _notif = setuju ? "Dokumen diverifikasi." : "Dokumen ditolak dan jamaah diberi tahu.";
+        _notifOk = true;
+    }
+
+    private async Task SimpanVisa()
+    {
+        if (_selected == null) return;
+        var j = await Db.Jamaah.FindAsync(_selected.Id);
+        if (j == null) return;
+
+        var berubah = j.StatusVisa != _visaStatus;
+        j.StatusVisa = _visaStatus; j.NoVisa = _noVisa; j.TanggalVisa = _tglVisa;
+        await Db.SaveChangesAsync();
+
+        if (berubah && j.UserId != null)
+            await Notif.SendAsync(j.UserId, "Status visa diperbarui",
+                $"Status visa Anda kini: {_visaStatus}." + (string.IsNullOrEmpty(_noVisa) ? "" : $" Nomor visa: {_noVisa}."),
+                _visaStatus == Models.VisaStatus.Ditolak ? "danger" : "info");
+
+        await Load();
+        _selected = null;
+        _notif = "Data visa tersimpan."; _notifOk = true;
+    }
+
+    private async Task SyncSatu(Models.Jamaah j)
+    {
+        var log = await Siskohat.SyncJamaahAsync(j.Id);
+        await Load();
+        _notif = $"{j.NamaLengkap}: {log.Hasil} — {log.Pesan}";
+        _notifOk = log.Hasil == "Valid";
+    }
+
+    private async Task SyncSemua()
+    {
+        _syncing = true;
+        try
+        {
+            var (total, valid, bermasalah) = await Siskohat.SyncSemuaAsync();
+            await Load();
+            _notif = $"Sinkronisasi selesai: {total} jamaah, {valid} valid, {bermasalah} perlu perbaikan.";
+            _notifOk = bermasalah == 0;
+        }
+        finally { _syncing = false; }
+    }
+
+    private static string StatusBadge(Models.DocumentStatus s) => s switch
+    {
+        Models.DocumentStatus.Verified => "badge-success",
+        Models.DocumentStatus.Rejected => "badge-danger",
+        Models.DocumentStatus.Submitted => "badge-warning",
+        _ => "badge-info"
+    };
+
+    private static string VisaBadge(Models.VisaStatus v) => v switch
+    {
+        Models.VisaStatus.Terbit => "badge-success",
+        Models.VisaStatus.Ditolak => "badge-danger",
+        Models.VisaStatus.Diproses or Models.VisaStatus.Diajukan => "badge-warning",
+        _ => "badge-info"
+    };
+}

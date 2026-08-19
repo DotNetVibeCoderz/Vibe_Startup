@@ -1,5 +1,6 @@
 @page "/tracker"
 @rendermode InteractiveServer
+@attribute [Authorize]
 @inject Services.AuthService AuthService
 @inject Data.AppDbContext Db
 @inject IJSRuntime JS
@@ -62,6 +63,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        await AuthService.EnsureAsync();
         var uid = AuthService.CurrentUserId; if (uid == null) return;
         _jamaah = Db.Jamaah.Include(j => j.Paket).FirstOrDefault(j => j.UserId == uid);
         if (_jamaah != null) { _lastLat = _jamaah.Latitude; _lastLng = _jamaah.Longitude; _lastUpd = _jamaah.LastLocationUpdate; }

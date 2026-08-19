@@ -27,6 +27,14 @@ public class AppDbContext : DbContext
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<ChatSession> ChatSessions => Set<ChatSession>();
     public DbSet<ChatbotMessage> ChatbotMessages => Set<ChatbotMessage>();
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<ItineraryItem> ItineraryItems => Set<ItineraryItem>();
+    public DbSet<ForumTopik> ForumTopik => Set<ForumTopik>();
+    public DbSet<ForumBalasan> ForumBalasan => Set<ForumBalasan>();
+    public DbSet<Asuransi> Asuransi => Set<Asuransi>();
+    public DbSet<PengaturanAplikasi> Pengaturan => Set<PengaturanAplikasi>();
+    public DbSet<SiskohatLog> SiskohatLogs => Set<SiskohatLog>();
+    public DbSet<BackupLog> BackupLogs => Set<BackupLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -48,10 +56,24 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ChatSession>()
             .HasMany(s => s.Messages).WithOne(m => m.Session).HasForeignKey(m => m.SessionId);
 
+        // === Paket -> ItineraryItem ===
+        modelBuilder.Entity<Paket>()
+            .HasMany(p => p.Itinerary).WithOne(i => i.Paket).HasForeignKey(i => i.PaketId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // === ForumTopik -> ForumBalasan ===
+        modelBuilder.Entity<ForumTopik>()
+            .HasMany(t => t.Balasan).WithOne(b => b.Topik).HasForeignKey(b => b.TopikId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         // === Indexes ===
         modelBuilder.Entity<ApplicationUser>().HasIndex(u => u.Username).IsUnique();
         modelBuilder.Entity<Jamaah>().HasIndex(j => j.Nik);
         modelBuilder.Entity<Pembayaran>().HasIndex(p => p.Status);
         modelBuilder.Entity<SOSTrigger>().HasIndex(s => s.IsResolved);
+        modelBuilder.Entity<PengaturanAplikasi>().HasIndex(p => p.Kunci).IsUnique();
+        modelBuilder.Entity<PaymentTransaction>().HasIndex(t => t.KodeTransaksi).IsUnique();
+        modelBuilder.Entity<PaymentTransaction>().HasIndex(t => new { t.ReferenceType, t.ReferenceId });
+        modelBuilder.Entity<ItineraryItem>().HasIndex(i => new { i.PaketId, i.Hari, i.Urutan });
     }
 }

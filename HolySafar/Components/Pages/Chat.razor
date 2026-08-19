@@ -1,5 +1,6 @@
 @page "/chat"
 @rendermode InteractiveServer
+@attribute [Authorize]
 @inject Data.AppDbContext Db
 @inject Services.AuthService AuthService
 @inject Services.StorageService StorageService
@@ -64,6 +65,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await AuthService.EnsureAsync();
         _userId = AuthService.CurrentUserId;
         _role = AuthService.CurrentUserRole;
         await RefreshMessages();

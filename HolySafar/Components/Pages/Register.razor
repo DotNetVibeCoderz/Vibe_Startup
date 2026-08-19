@@ -102,8 +102,9 @@
     private string? _success;
     private bool _loading;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        await AuthService.EnsureAsync();
         if (AuthService.IsAuthenticated) Nav.NavigateTo("/", true);
     }
 

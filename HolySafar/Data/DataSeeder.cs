@@ -201,16 +201,112 @@ public static class DataSeeder
         };
         db.Pengumuman.AddRange(pengumumanList);
 
+        // ===== KOORDINAT HOTEL (untuk peta di halaman Perjalanan) =====
+        pakets[0].LatHotelMekkah = 21.4181; pakets[0].LngHotelMekkah = 39.8256;
+        pakets[0].LatHotelMadinah = 24.4694; pakets[0].LngHotelMadinah = 39.6108;
+        pakets[0].Transportasi = "Bus AC 45 seat, transfer bandara-hotel, city tour Makkah & Madinah";
+        pakets[1].LatHotelMekkah = 21.4225; pakets[1].LngHotelMekkah = 39.8262;
+        pakets[1].LatHotelMadinah = 24.4672; pakets[1].LngHotelMadinah = 39.6112;
+        pakets[1].Transportasi = "Bus AC eksekutif + kereta cepat Haramain Makkah-Madinah";
+        pakets[2].LatHotelMekkah = 21.4190; pakets[2].LngHotelMekkah = 39.8244;
+        pakets[2].LatHotelMadinah = 24.4686; pakets[2].LngHotelMadinah = 39.6142;
+        pakets[2].Transportasi = "Bus VIP, kereta cepat Haramain, transfer Arafah-Mina-Muzdalifah";
+
+        // ===== ITINERARY / ZIARAH / TRANSPORTASI =====
+        var itinerary = new List<ItineraryItem>
+        {
+            new() { PaketId = pakets[0].Id, Hari = 1, Waktu = "14:00", Judul = "Kumpul di Bandara Soekarno-Hatta", Jenis = "Transportasi", Lokasi = "Terminal 3 CGK", Latitude = -6.1256, Longitude = 106.6559, Urutan = 1, Deskripsi = "Check-in kolektif, pembagian koper dan kartu identitas jamaah." },
+            new() { PaketId = pakets[0].Id, Hari = 1, Waktu = "18:30", Judul = "Penerbangan CGK - JED", Jenis = "Transportasi", Lokasi = "Saudi Airlines SV817", Urutan = 2, Deskripsi = "Lama penerbangan sekitar 9 jam. Niat ihram dilakukan di pesawat." },
+            new() { PaketId = pakets[0].Id, Hari = 2, Waktu = "06:00", Judul = "Tiba di Jeddah, perjalanan ke Makkah", Jenis = "Transportasi", Lokasi = "King Abdulaziz Intl Airport", Latitude = 21.6796, Longitude = 39.1565, Urutan = 1 },
+            new() { PaketId = pakets[0].Id, Hari = 2, Waktu = "13:00", Judul = "Umroh pertama: thawaf, sai, tahallul", Jenis = "Ibadah", Lokasi = "Masjidil Haram", Latitude = 21.4225, Longitude = 39.8262, Urutan = 2, Deskripsi = "Dibimbing muthawif. Bawa air minum dan sandal dalam tas kecil." },
+            new() { PaketId = pakets[0].Id, Hari = 3, Waktu = "08:00", Judul = "Ziarah Jabal Rahmah & Padang Arafah", Jenis = "Ziarah", Lokasi = "Arafah", Latitude = 21.3549, Longitude = 39.9843, Urutan = 1 },
+            new() { PaketId = pakets[0].Id, Hari = 3, Waktu = "10:30", Judul = "Ziarah Jabal Tsur dan Mina", Jenis = "Ziarah", Lokasi = "Mina", Latitude = 21.4133, Longitude = 39.8933, Urutan = 2 },
+            new() { PaketId = pakets[0].Id, Hari = 4, Waktu = "05:00", Judul = "Ibadah bebas & thawaf sunnah", Jenis = "Ibadah", Lokasi = "Masjidil Haram", Latitude = 21.4225, Longitude = 39.8262, Urutan = 1 },
+            new() { PaketId = pakets[0].Id, Hari = 5, Waktu = "07:00", Judul = "Perjalanan Makkah - Madinah", Jenis = "Transportasi", Lokasi = "Bus AC / Haramain", Urutan = 1, Deskripsi = "Perjalanan sekitar 5 jam, transit di Bir Ali untuk miqat." },
+            new() { PaketId = pakets[0].Id, Hari = 5, Waktu = "16:00", Judul = "Check-in hotel Madinah", Jenis = "Hotel", Lokasi = "Dar Al Taqwa Hotel", Latitude = 24.4694, Longitude = 39.6108, Urutan = 2 },
+            new() { PaketId = pakets[0].Id, Hari = 6, Waktu = "08:00", Judul = "Ziarah Masjid Quba & Kebun Kurma", Jenis = "Ziarah", Lokasi = "Masjid Quba", Latitude = 24.4394, Longitude = 39.6172, Urutan = 1 },
+            new() { PaketId = pakets[0].Id, Hari = 6, Waktu = "10:00", Judul = "Ziarah Jabal Uhud & Makam Syuhada", Jenis = "Ziarah", Lokasi = "Jabal Uhud", Latitude = 24.5008, Longitude = 39.6142, Urutan = 2 },
+            new() { PaketId = pakets[0].Id, Hari = 7, Waktu = "02:00", Judul = "Raudhah dan ziarah Makam Rasulullah", Jenis = "Ibadah", Lokasi = "Masjid Nabawi", Latitude = 24.4672, Longitude = 39.6112, Urutan = 1, Deskripsi = "Masuk sesuai jadwal tasreh, bawa paspor/identitas." },
+            new() { PaketId = pakets[0].Id, Hari = 8, Waktu = "09:00", Judul = "Belanja oleh-oleh & persiapan pulang", Jenis = "Lainnya", Lokasi = "Pasar Kurma Madinah", Latitude = 24.4790, Longitude = 39.6110, Urutan = 1 },
+            new() { PaketId = pakets[0].Id, Hari = 9, Waktu = "12:00", Judul = "Tiba kembali di Jakarta", Jenis = "Transportasi", Lokasi = "Terminal 3 CGK", Latitude = -6.1256, Longitude = 106.6559, Urutan = 1 },
+            new() { PaketId = pakets[0].Id, Hari = 1, Waktu = "09:00", Judul = "Manasik akhir sebelum berangkat", Jenis = "Manasik", Lokasi = "Aula HolySafar Jakarta", Latitude = -6.2088, Longitude = 106.8456, Urutan = 0, Deskripsi = "Gladi bersih thawaf dan sai, pembagian buku doa." },
+
+            new() { PaketId = pakets[1].Id, Hari = 1, Waktu = "10:00", Judul = "Keberangkatan CGK - JED", Jenis = "Transportasi", Lokasi = "Terminal 3 CGK", Latitude = -6.1256, Longitude = 106.6559, Urutan = 1 },
+            new() { PaketId = pakets[1].Id, Hari = 2, Waktu = "14:00", Judul = "Umroh pertama", Jenis = "Ibadah", Lokasi = "Masjidil Haram", Latitude = 21.4225, Longitude = 39.8262, Urutan = 1 },
+            new() { PaketId = pakets[1].Id, Hari = 6, Waktu = "08:00", Judul = "City tour Thaif", Jenis = "Ziarah", Lokasi = "Thaif", Latitude = 21.2854, Longitude = 40.4158, Urutan = 1 },
+            new() { PaketId = pakets[1].Id, Hari = 10, Waktu = "09:00", Judul = "Ziarah Aqabah & Museum Nabawi", Jenis = "Ziarah", Lokasi = "Madinah", Latitude = 24.4672, Longitude = 39.6112, Urutan = 1 },
+
+            new() { PaketId = pakets[2].Id, Hari = 1, Waktu = "08:00", Judul = "Manasik haji lengkap", Jenis = "Manasik", Lokasi = "Asrama Haji Pondok Gede", Latitude = -6.2833, Longitude = 106.9000, Urutan = 1 },
+            new() { PaketId = pakets[2].Id, Hari = 5, Waktu = "05:00", Judul = "Wukuf di Arafah", Jenis = "Ibadah", Lokasi = "Padang Arafah", Latitude = 21.3549, Longitude = 39.9843, Urutan = 1, Deskripsi = "Puncak ibadah haji. Perbanyak doa dari zuhur hingga maghrib." },
+            new() { PaketId = pakets[2].Id, Hari = 6, Waktu = "00:00", Judul = "Mabit di Muzdalifah & lempar jumrah", Jenis = "Ibadah", Lokasi = "Muzdalifah - Mina", Latitude = 21.3833, Longitude = 39.9370, Urutan = 1 },
+        };
+        db.ItineraryItems.AddRange(itinerary);
+
+        // ===== ASURANSI PERJALANAN =====
+        db.Asuransi.AddRange(new List<Asuransi>
+        {
+            new()
+            {
+                NamaProduk = "HolySafar Travel Protect",
+                Penyedia = "PT Asuransi Jiwa Amanah",
+                NilaiPertanggungan = 250000000,
+                Premi = 350000,
+                KontakKlaim = "claim@holysafar.com / 0800-1-472672",
+                IsActive = true,
+                Cakupan = @"Asuransi kesehatan selama di Tanah Suci
+Asuransi kecelakaan diri 24 jam
+Penggantian bagasi hilang & keterlambatan penerbangan
+Evakuasi medis darurat
+Repatriasi jenazah"
+            },
+            new()
+            {
+                NamaProduk = "Haji Plus Premium Cover",
+                Penyedia = "PT Asuransi Takaful Umum",
+                NilaiPertanggungan = 500000000,
+                Premi = 750000,
+                KontakKlaim = "klaim.haji@holysafar.com / 021-5000-472",
+                IsActive = true,
+                Cakupan = @"Seluruh manfaat Travel Protect
+Santunan rawat inap hingga 30 hari
+Perlindungan pembatalan perjalanan
+Pendamping keluarga saat rawat inap"
+            }
+        });
+
+        // ===== FORUM JAMAAH =====
+        var topik1 = new ForumTopik { Judul = "Tips packing koper untuk umroh 9 hari", Kategori = "Perlengkapan", UserId = 4, CreatedAt = DateTime.UtcNow.AddDays(-6), JumlahDilihat = 42, Isi = "Assalamualaikum, ini pengalaman saya umroh tahun lalu: bawa koper 20kg saja, isi baju ihram 2 set, sandal jepit, obat pribadi, dan kantong kain untuk sandal saat masuk masjid. Sisakan ruang untuk oleh-oleh kurma." };
+        var topik2 = new ForumTopik { Judul = "Bagaimana cara menjaga stamina saat thawaf?", Kategori = "Kesehatan", UserId = 5, CreatedAt = DateTime.UtcNow.AddDays(-3), JumlahDilihat = 27, Isi = "Saya sering kelelahan setelah 3 putaran. Ada yang punya tips latihan sebelum berangkat?" };
+        var topik3 = new ForumTopik { Judul = "Pengalaman pertama masuk Raudhah", Kategori = "Pengalaman", UserId = 6, CreatedAt = DateTime.UtcNow.AddDays(-1), JumlahDilihat = 15, Isi = "Alhamdulillah dapat tasreh jam 2 pagi. Saran saya datang 45 menit lebih awal dan bawa botol minum kecil." };
+        db.ForumTopik.AddRange(topik1, topik2, topik3);
+        await db.SaveChangesAsync();
+
+        db.ForumBalasan.AddRange(
+            new ForumBalasan { TopikId = topik1.Id, UserId = 5, Isi = "Setuju! Tambahan: bawa power bank dan colokan universal, stop kontak di hotel tipe G.", CreatedAt = DateTime.UtcNow.AddDays(-5) },
+            new ForumBalasan { TopikId = topik1.Id, UserId = 2, Isi = "Dari travel: pastikan obat pribadi disertai resep dokter ya, memudahkan pemeriksaan bandara.", CreatedAt = DateTime.UtcNow.AddDays(-5) },
+            new ForumBalasan { TopikId = topik2.Id, UserId = 6, Isi = "Saya rutin jalan kaki 5 km tiap pagi selama 2 bulan sebelum berangkat, sangat membantu.", CreatedAt = DateTime.UtcNow.AddDays(-2) }
+        );
+
+        // ===== STATUS VISA & SISKOHAT CONTOH =====
+        var jamaah1 = jamaahList[0];
+        jamaah1.StatusVisa = VisaStatus.Terbit; jamaah1.NoVisa = "SA-2025-004471"; jamaah1.TanggalVisa = DateTime.UtcNow.AddDays(-20);
+        jamaah1.SiskohatStatus = "Valid"; jamaah1.NoPorsi = "1000247881"; jamaah1.SiskohatSyncedAt = DateTime.UtcNow.AddDays(-18);
+        jamaahList[1].StatusVisa = VisaStatus.Terbit; jamaahList[1].NoVisa = "SA-2025-004472"; jamaahList[1].TanggalVisa = DateTime.UtcNow.AddDays(-19);
+        jamaahList[2].StatusVisa = VisaStatus.Diproses;
+        jamaahList[3].StatusVisa = VisaStatus.Diajukan;
+
+        // ===== CONTOH DOKUMEN TERUNGGAH =====
+        db.DokumenJamaah.AddRange(
+            new DokumenJamaah { JamaahId = jamaah1.Id, NamaDokumen = "KTP", TipeDokumen = "KTP", FileUrl = "/uploads/dokumen/contoh-ktp.jpg", FilePath = "/uploads/dokumen/contoh-ktp.jpg", FileSize = 184320, ContentType = "image/jpeg", Status = DocumentStatus.Verified, UploadedAt = DateTime.UtcNow.AddDays(-30) },
+            new DokumenJamaah { JamaahId = jamaah1.Id, NamaDokumen = "Paspor", TipeDokumen = "Paspor", FileUrl = "/uploads/dokumen/contoh-paspor.jpg", FilePath = "/uploads/dokumen/contoh-paspor.jpg", FileSize = 220160, ContentType = "image/jpeg", Status = DocumentStatus.Verified, UploadedAt = DateTime.UtcNow.AddDays(-30) },
+            new DokumenJamaah { JamaahId = jamaah1.Id, NamaDokumen = "Kartu Keluarga", TipeDokumen = "KK", FileUrl = "/uploads/dokumen/contoh-kk.pdf", FilePath = "/uploads/dokumen/contoh-kk.pdf", FileSize = 310272, ContentType = "application/pdf", Status = DocumentStatus.Verified, UploadedAt = DateTime.UtcNow.AddDays(-29) },
+            new DokumenJamaah { JamaahId = jamaah1.Id, NamaDokumen = "Sertifikat Vaksin Meningitis", TipeDokumen = "Vaksin", FileUrl = "/uploads/dokumen/contoh-vaksin.pdf", FilePath = "/uploads/dokumen/contoh-vaksin.pdf", FileSize = 156672, ContentType = "application/pdf", Status = DocumentStatus.Verified, UploadedAt = DateTime.UtcNow.AddDays(-25) },
+            new DokumenJamaah { JamaahId = jamaahList[2].Id, NamaDokumen = "KTP", TipeDokumen = "KTP", FileUrl = "/uploads/dokumen/contoh-ktp2.jpg", FilePath = "/uploads/dokumen/contoh-ktp2.jpg", FileSize = 172032, ContentType = "image/jpeg", Status = DocumentStatus.Submitted, UploadedAt = DateTime.UtcNow.AddDays(-4) }
+        );
+
         await db.SaveChangesAsync();
     }
 
-    private static string HashPassword(string password)
-    {
-        // Simple hash for demo - use proper hashing in production
-        return Convert.ToBase64String(
-            System.Security.Cryptography.SHA256.HashData(
-                System.Text.Encoding.UTF8.GetBytes(password + "HolySafarSalt")
-            )
-        );
-    }
+    /// <summary>Hash PBKDF2 yang sama dengan AuthService — jangan pakai SHA256 polos lagi.</summary>
+    private static string HashPassword(string password) => HolySafar.Services.AuthService.HashPassword(password);
 }

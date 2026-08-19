@@ -13,14 +13,17 @@ public class StorageService
 {
     private readonly IConfiguration _config;
     private readonly IWebHostEnvironment _env;
+    private readonly SettingsService _settings;
 
-    public StorageService(IConfiguration config, IWebHostEnvironment env)
+    public StorageService(IConfiguration config, IWebHostEnvironment env, SettingsService settings)
     {
         _config = config;
         _env = env;
+        _settings = settings;
     }
 
-    public string Provider => _config["Storage:Provider"] ?? "FileSystem";
+    /// <summary>Provider dibaca lewat SettingsService supaya bisa diganti dari UI admin.</summary>
+    public string Provider => _settings.Get("Storage:Provider", "FileSystem");
 
     /// <summary>
     /// Upload file and return public URL

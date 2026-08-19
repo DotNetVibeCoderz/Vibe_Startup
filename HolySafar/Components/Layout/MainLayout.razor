@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @inject Services.AuthService AuthService
 @inject Services.NotifikasiService NotifService
+@inject Services.LocalizationService L
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @implements IDisposable
@@ -15,43 +16,52 @@
             <button class="btn-toggle-sidebar" @onclick="ToggleSidebar"><i class="bi bi-list"></i></button>
         </div>
         <nav class="sidebar-nav" @onclick="() => { if (_mobileOpen) CloseMobileSidebar(); }">
-            <NavLink href="/" Match="NavLinkMatch.All"><i class="bi bi-house-door"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Beranda</span> }</NavLink>
+            <NavLink href="/" Match="NavLinkMatch.All"><i class="bi bi-house-door"></i>@Lbl(L["nav.beranda"])</NavLink>
             @if (_isAuth)
             {
                 @if (_role == "Admin")
                 {
-                    <div class="nav-section">Admin Master Data</div>
-                    <NavLink href="/admin/users"><i class="bi bi-people"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>User</span> }</NavLink>
-                    <NavLink href="/admin/jamaah"><i class="bi bi-person-vcard"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Jamaah</span> }</NavLink>
-                    <NavLink href="/admin/paket"><i class="bi bi-box"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Paket</span> }</NavLink>
-                    <NavLink href="/admin/produk"><i class="bi bi-bag"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Produk</span> }</NavLink>
-                    <NavLink href="/admin/pembayaran"><i class="bi bi-cash-coin"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Pembayaran</span> }</NavLink>
-                    <NavLink href="/admin/keberangkatan"><i class="bi bi-airplane"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Keberangkatan</span> }</NavLink>
-                    <NavLink href="/admin/materi-manasik"><i class="bi bi-journal-text"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Materi Manasik</span> }</NavLink>
-                    <NavLink href="/admin/kuis"><i class="bi bi-patch-question"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Kuis</span> }</NavLink>
-                    <NavLink href="/admin/pengumuman"><i class="bi bi-megaphone"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Pengumuman</span> }</NavLink>
-                    <div class="nav-section">Admin Monitoring</div>
-                    <NavLink href="/admin/operasional"><i class="bi bi-speedometer2"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Operasional</span> }</NavLink>
-                    <NavLink href="/admin/laporan"><i class="bi bi-graph-up"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Laporan</span> }</NavLink>
-                    <NavLink href="/admin/sos"><i class="bi bi-exclamation-triangle"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>SOS Panel</span> }</NavLink>
-                    <NavLink href="/admin/orders"><i class="bi bi-cart-check"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Orders</span> }</NavLink>
+                    <div class="nav-section">@L["nav.masterAdmin"]</div>
+                    <NavLink href="/admin/users"><i class="bi bi-people"></i>@Lbl(L["nav.user"])</NavLink>
+                    <NavLink href="/admin/jamaah"><i class="bi bi-person-vcard"></i>@Lbl(L["nav.jamaah"])</NavLink>
+                    <NavLink href="/admin/paket"><i class="bi bi-box"></i>@Lbl(L["nav.paket"])</NavLink>
+                    <NavLink href="/admin/itinerary"><i class="bi bi-signpost-split"></i>@Lbl(L["nav.itinerary"])</NavLink>
+                    <NavLink href="/admin/produk"><i class="bi bi-bag"></i>@Lbl(L["nav.produk"])</NavLink>
+                    <NavLink href="/admin/pembayaran"><i class="bi bi-cash-coin"></i>@Lbl(L["nav.pembayaran"])</NavLink>
+                    <NavLink href="/admin/keberangkatan"><i class="bi bi-airplane"></i>@Lbl(L["nav.keberangkatan"])</NavLink>
+                    <NavLink href="/admin/materi-manasik"><i class="bi bi-journal-text"></i>@Lbl(L["nav.materi"])</NavLink>
+                    <NavLink href="/admin/kuis"><i class="bi bi-patch-question"></i>@Lbl(L["nav.kuis"])</NavLink>
+                    <NavLink href="/admin/pengumuman"><i class="bi bi-megaphone"></i>@Lbl(L["nav.pengumuman"])</NavLink>
+                    <div class="nav-section">@L["nav.monitoring"]</div>
+                    <NavLink href="/admin/operasional"><i class="bi bi-speedometer2"></i>@Lbl(L["nav.operasional"])</NavLink>
+                    <NavLink href="/admin/laporan"><i class="bi bi-graph-up"></i>@Lbl(L["nav.laporan"])</NavLink>
+                    <NavLink href="/admin/transaksi"><i class="bi bi-credit-card-2-front"></i>@Lbl(L["nav.transaksi"])</NavLink>
+                    <NavLink href="/admin/sos"><i class="bi bi-exclamation-triangle"></i>@Lbl(L["nav.sosPanel"])</NavLink>
+                    <NavLink href="/admin/orders"><i class="bi bi-cart-check"></i>@Lbl(L["nav.orders"])</NavLink>
+                    <NavLink href="/admin/pengaturan"><i class="bi bi-gear"></i>@Lbl(L["nav.pengaturan"])</NavLink>
                 }
                 @if (_role == "Agen" || _role == "Admin")
                 {
-                    <div class="nav-section">Agen</div>
-                    <NavLink href="/agen/paket"><i class="bi bi-box"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Kelola Paket</span> }</NavLink>
-                    <NavLink href="/agen/jamaah"><i class="bi bi-people"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Jamaah Saya</span> }</NavLink>
+                    <div class="nav-section">@L["nav.agen"]</div>
+                    <NavLink href="/agen/paket"><i class="bi bi-box"></i>@Lbl(L["nav.kelolaPaket"])</NavLink>
+                    <NavLink href="/agen/jamaah"><i class="bi bi-people"></i>@Lbl(L["nav.jamaahSaya"])</NavLink>
+                    <NavLink href="/admin/dokumen"><i class="bi bi-folder-check"></i>@Lbl(L["nav.dokumen"])</NavLink>
                 }
-                <div class="nav-section">Menu</div>
-                <NavLink href="/paket"><i class="bi bi-tag"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Paket</span> }</NavLink>
-                <NavLink href="/marketplace"><i class="bi bi-shop"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Marketplace</span> }</NavLink>
-                <NavLink href="/edukasi"><i class="bi bi-book"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Edukasi</span> }</NavLink>
-                <NavLink href="/chatbot"><i class="bi bi-robot"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Syeikh Jenggot</span> }</NavLink>
-                <NavLink href="/tracker"><i class="bi bi-crosshair"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>GPS Tracker</span> }</NavLink>
-                <NavLink href="/gps"><i class="bi bi-geo-alt"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>GPS Admin</span> }</NavLink>
-                <NavLink href="/sos"><i class="bi bi-exclamation-circle"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>SOS</span> }</NavLink>
-                <NavLink href="/pengumuman"><i class="bi bi-megaphone"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Pengumuman</span> }</NavLink>
-                <NavLink href="/chat"><i class="bi bi-chat-dots"></i>@if (!_sidebarCollapsed || _mobileOpen) { <span>Pesan</span> }</NavLink>
+                <div class="nav-section">@L["nav.menu"]</div>
+                <NavLink href="/paket"><i class="bi bi-tag"></i>@Lbl(L["nav.paket"])</NavLink>
+                <NavLink href="/tracking"><i class="bi bi-clipboard-check"></i>@Lbl(L["nav.tracking"])</NavLink>
+                <NavLink href="/dokumen"><i class="bi bi-file-earmark-arrow-up"></i>@Lbl(L["nav.dokumenSaya"])</NavLink>
+                <NavLink href="/pembayaran"><i class="bi bi-wallet2"></i>@Lbl(L["nav.tagihan"])</NavLink>
+                <NavLink href="/perjalanan"><i class="bi bi-map"></i>@Lbl(L["nav.perjalanan"])</NavLink>
+                <NavLink href="/marketplace"><i class="bi bi-shop"></i>@Lbl(L["nav.marketplace"])</NavLink>
+                <NavLink href="/edukasi"><i class="bi bi-book"></i>@Lbl(L["nav.edukasi"])</NavLink>
+                <NavLink href="/chatbot"><i class="bi bi-robot"></i>@Lbl(L["nav.chatbot"])</NavLink>
+                <NavLink href="/tracker"><i class="bi bi-crosshair"></i>@Lbl(L["nav.gpsTracker"])</NavLink>
+                <NavLink href="/gps"><i class="bi bi-geo-alt"></i>@Lbl(L["nav.gpsAdmin"])</NavLink>
+                <NavLink href="/sos"><i class="bi bi-exclamation-circle"></i>@Lbl(L["nav.sos"])</NavLink>
+                <NavLink href="/forum"><i class="bi bi-chat-square-text"></i>@Lbl(L["nav.forum"])</NavLink>
+                <NavLink href="/pengumuman"><i class="bi bi-megaphone"></i>@Lbl(L["nav.pengumuman"])</NavLink>
+                <NavLink href="/chat"><i class="bi bi-chat-dots"></i>@Lbl(L["nav.pesan"])</NavLink>
             }
         </nav>
     </aside>
@@ -65,7 +75,8 @@
                 <h2 class="page-title">@_pageTitle</h2>
             </div>
             <div class="topbar-right">
-                <button class="btn-icon" @onclick="ToggleTheme"><i class="bi bi-@(_isDark ? "sun" : "moon")"></i></button>
+                <a class="btn-icon" href="@CultureUrl()" title="@L["ui.bahasa"]" style="font-size:0.75rem;font-weight:700;text-decoration:none;">@L.CurrentLanguageLabel</a>
+                <button class="btn-icon" @onclick="ToggleTheme" title="@L["ui.tema"]"><i class="bi bi-@(_isDark ? "sun" : "moon")"></i></button>
                 @if (_isAuth)
                 {
                     <button class="btn-icon position-relative" @onclick="GoNotif"><i class="bi bi-bell"></i>
@@ -82,13 +93,17 @@
                             <div class="dropdown-menu show" style="position:absolute;top:100%;right:0;z-index:9999;pointer-events:auto;">
                                 <div style="padding:8px 12px;"><strong>@_cUser?.FullName</strong><br><small class="text-muted">@_cUser?.Role</small></div>
                                 <hr>
-                                <a href="/profile" class="dropdown-item" @onclick="() => _showUserMenu = false"><i class="bi bi-person"></i> Profil Saya</a>
-                                <button class="dropdown-item" @onclick="Logout"><i class="bi bi-box-arrow-right"></i> Logout</button>
+                                <a href="/profile" class="dropdown-item" @onclick="() => _showUserMenu = false"><i class="bi bi-person"></i> @L["ui.profil"]</a>
+                                <!-- Logout wajib POST ber-antiforgery: cookie auth hanya bisa dihapus server-side -->
+                                <form method="post" action="/auth/logout" style="margin:0;">
+                                    <AntiforgeryToken />
+                                    <button type="submit" class="dropdown-item" style="width:100%;text-align:left;"><i class="bi bi-box-arrow-right"></i> @L["ui.logout"]</button>
+                                </form>
                             </div>
                         }
                     </div>
                 }
-                else { <a href="/login" class="btn btn-primary btn-sm">Login</a> }
+                else { <a href="/login" class="btn btn-primary btn-sm">@L["ui.login"]</a> }
             </div>
         </header>
         <div class="page-content">@Body</div>
@@ -102,20 +117,20 @@
 
     protected override async Task OnInitializedAsync()
     {
-        AuthService.SetJsRuntime(JS);
-        await AuthService.InitializeFromCookieAsync();
+        await AuthService.EnsureAsync();
         _cUser = await AuthService.GetCurrentUserAsync(); _isAuth = _cUser != null; _role = AuthService.CurrentUserRole;
         await LoadNotif(); Nav.LocationChanged += OnLocChanged;
     }
     protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) { await LoadNotif(); StateHasChanged(); } }
     private async Task LoadNotif() { try { if (AuthService.CurrentUserId is int uid) _unreadNotif = await NotifService.GetUnreadCountAsync(uid); } catch { } }
-    private void OnLocChanged(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) { _showUserMenu = false; _mobileOpen = false; _cUser = null; StateHasChanged(); }
+    private void OnLocChanged(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) { _showUserMenu = false; _mobileOpen = false; StateHasChanged(); }
+    private RenderFragment Lbl(string text) => builder => { if (!_sidebarCollapsed || _mobileOpen) { builder.OpenElement(0, "span"); builder.AddContent(1, text); builder.CloseElement(); } };
+    private string CultureUrl() => $"/set-culture?culture={(L.CurrentLanguage == "id" ? "en" : "id")}&redirectUri={Uri.EscapeDataString(new Uri(Nav.Uri).PathAndQuery)}";
     private void ToggleSidebar() => _sidebarCollapsed = !_sidebarCollapsed;
     private void ToggleUserMenu() => _showUserMenu = !_showUserMenu;
     private void ToggleTheme() { _isDark = !_isDark; _themeClass = _isDark ? "theme-dark" : "theme-light"; }
     private void GoNotif() => Nav.NavigateTo("/notifikasi");
     private void ToggleMobileSidebar() => _mobileOpen = !_mobileOpen;
     private void CloseMobileSidebar() => _mobileOpen = false;
-    private async Task Logout() { await AuthService.LogoutAsync(); _showUserMenu = false; Nav.NavigateTo("/login", forceLoad: true); }
     public void Dispose() => Nav.LocationChanged -= OnLocChanged;
 }

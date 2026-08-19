@@ -1,5 +1,6 @@
 using HolySafar.Data;
 using HolySafar.Models;
+using HolySafar.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace HolySafar.Api;
@@ -11,6 +12,18 @@ public static class ApiEndpoints
     public static void MapApi(WebApplication app)
     {
         var api = app.MapGroup("/api");
+
+        // ==================== WEBHOOK PAYMENT GATEWAY ====================
+        // Di luar grup /api: dipanggil server provider, jadi tidak memakai X-Api-Key.
+        // Keamanan dilakukan per provider (callback token / signature) di PaymentGatewayService.
+        app.MapPost("/webhook/payment/{provider}", async (string provider, HttpContext ctx, PaymentGatewayService pay) =>
+        {
+            using var reader = new StreamReader(ctx.Request.Body);
+            var raw = await reader.ReadToEndAsync();
+            var (ok, msg) = await pay.HandleWebhookAsync(provider, raw, ctx.Request.Headers);
+            return ok ? Results.Ok(new { received = true, message = msg })
+                      : Results.BadRequest(new { received = false, message = msg });
+        }).DisableAntiforgery().WithTags("Webhook");
 
         // Auth filter
         api.AddEndpointFilter(async (ctx, next) =>
@@ -123,6 +136,40 @@ public static class ApiEndpoints
         api.MapGet("/chat", async (AppDbContext db) =>
             await db.ChatMessages.Include(m => m.Sender).OrderByDescending(m => m.SentAt).Take(100).ToListAsync()).WithTags("Chat");
 
+
+        // ==================== TRANSAKSI PEMBAYARAN ====================
+        api.MapGet("/transaksi", async (AppDbContext db) =>
+            await db.PaymentTransactions.OrderByDescending(t => t.Id).Take(100)
+                .Select(t => new { t.Id, t.KodeTransaksi, Provider = t.Provider.ToString(), t.ReferenceType, t.ReferenceId, t.Jumlah, Status = t.Status.ToString(), t.PaymentUrl, t.CreatedAt, t.PaidAt })
+                .ToListAsync()).WithTags("Pembayaran");
+
+        api.MapGet("/transaksi/{kode}", async (string kode, AppDbContext db) =>
+            await db.PaymentTransactions.FirstOrDefaultAsync(t => t.KodeTransaksi == kode) is PaymentTransaction t
+                ? Results.Ok(new { t.KodeTransaksi, Provider = t.Provider.ToString(), t.Jumlah, Status = t.Status.ToString(), t.PaymentUrl, t.QrString, t.CreatedAt, t.PaidAt })
+                : Results.NotFound()).WithTags("Pembayaran");
+
+        // ==================== DOKUMEN JAMAAH ====================
+        api.MapGet("/jamaah/{id}/dokumen", async (int id, AppDbContext db) =>
+            await db.DokumenJamaah.Where(d => d.JamaahId == id).OrderByDescending(d => d.UploadedAt)
+                .Select(d => new { d.Id, d.NamaDokumen, d.TipeDokumen, d.FileUrl, d.FileSize, Status = d.Status.ToString(), d.CatatanAdmin, d.UploadedAt })
+                .ToListAsync()).WithTags("Dokumen");
+
+        // ==================== ITINERARY / PERJALANAN ====================
+        api.MapGet("/paket/{id}/itinerary", async (int id, AppDbContext db) =>
+            await db.ItineraryItems.Where(i => i.PaketId == id)
+                .OrderBy(i => i.Hari).ThenBy(i => i.Urutan).ThenBy(i => i.Waktu)
+                .Select(i => new { i.Id, i.Hari, i.Waktu, i.Judul, i.Jenis, i.Lokasi, i.Latitude, i.Longitude, i.Deskripsi })
+                .ToListAsync()).WithTags("Perjalanan");
+
+        // ==================== FORUM JAMAAH ====================
+        api.MapGet("/forum", async (AppDbContext db) =>
+            await db.ForumTopik.Include(t => t.User).OrderByDescending(t => t.CreatedAt).Take(50)
+                .Select(t => new { t.Id, t.Judul, t.Kategori, Penulis = t.User!.FullName, t.JumlahDilihat, JumlahBalasan = t.Balasan.Count, t.CreatedAt })
+                .ToListAsync()).WithTags("Forum");
+
+        // ==================== ASURANSI ====================
+        api.MapGet("/asuransi", async (AppDbContext db) =>
+            await db.Asuransi.Where(a => a.IsActive).ToListAsync()).WithTags("Darurat");
         // ==================== DASHBOARD ====================
         api.MapGet("/dashboard", async (AppDbContext db) => new
         {

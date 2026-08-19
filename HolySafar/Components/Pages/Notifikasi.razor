@@ -1,5 +1,6 @@
 @page "/notifikasi"
 @rendermode InteractiveServer
+@attribute [Authorize]
 @inject Services.AuthService AuthService
 @inject Services.NotifikasiService NotifService
 
@@ -50,7 +51,7 @@
     private List<Models.Notifikasi> _notifList = new();
     private string _filterTipe = "";
 
-    protected override async Task OnInitializedAsync() => await Load();
+    protected override async Task OnInitializedAsync() { await AuthService.EnsureAsync(); await Load(); }
     private async Task Load()
     {
         var uid = AuthService.CurrentUserId;

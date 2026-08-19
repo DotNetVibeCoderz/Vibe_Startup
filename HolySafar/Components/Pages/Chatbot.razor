@@ -1,5 +1,6 @@
 @page "/chatbot"
 @rendermode InteractiveServer
+@attribute [Authorize]
 @inject Services.ChatbotService ChatbotService
 @inject Services.AuthService AuthService
 @inject Services.StorageService StorageService
@@ -121,6 +122,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await AuthService.EnsureAsync();
         var uid = AuthService.CurrentUserId;
         if (uid == null) return;
         _sessions = await ChatbotService.GetUserSessionsAsync(uid.Value);

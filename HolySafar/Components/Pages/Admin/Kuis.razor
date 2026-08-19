@@ -1,5 +1,6 @@
 @page "/admin/kuis"
 @rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
 @inject Data.AppDbContext Db
 @inject Services.ExportService Export
 @inject IJSRuntime JS

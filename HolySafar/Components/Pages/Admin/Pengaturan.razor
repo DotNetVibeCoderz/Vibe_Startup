@@ -1,0 +1,491 @@
+@page "/admin/pengaturan"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@inject Data.AppDbContext Db
+@inject Services.SettingsService Settings
+@inject Services.PaymentGatewayService Pay
+@inject Services.BackupService Backup
+@inject Services.SiskohatService Siskohat
+@inject Services.AuthService AuthService
+@inject IJSRuntime JS
+
+<div class="mb-3"><h2>⚙️ Pengaturan Aplikasi</h2><p class="text-muted">Konfigurasi runtime — nilai di sini menimpa appsettings.json tanpa perlu restart</p></div>
+
+@if (!string.IsNullOrEmpty(_notif)) { <div class="alert @(_notifOk ? "alert-success" : "alert-danger")">@((MarkupString)_notif)</div> }
+
+<div class="d-flex gap-2 mb-3 flex-wrap">
+    @foreach (var t in _tabs)
+    { <button class="btn @(_tab == t ? "btn-primary" : "btn-outline") btn-sm" @onclick="() => _tab = t">@t</button> }
+</div>
+
+@if (_tab == "Pembayaran")
+{
+    <div class="card">
+        <div class="card-header"><h3>💳 Payment Gateway</h3><span class="badge @(Pay.IsSandbox ? "badge-warning" : "badge-success")">@(Pay.IsSandbox ? "Sandbox" : "Produksi")</span></div>
+        <div class="card-body">
+            <div class="grid grid-2">
+                <div class="form-group"><label>Provider default</label>
+                    <select class="form-control" @bind="_v_paymentProvider">
+                        @foreach (var p in Enum.GetValues<Models.PaymentProvider>()) { <option value="@p">@Services.PaymentGatewayService.Label(p)</option> }
+                    </select>
+                </div>
+                <div class="form-group"><label>Provider yang diaktifkan (pisahkan koma)</label>
+                    <input class="form-control" @bind="_v_paymentEnabled" placeholder="Manual,Xendit,Midtrans,Stripe,QRIS" />
+                </div>
+                <div class="form-group"><label>Mode</label>
+                    <select class="form-control" @bind="_v_sandbox"><option value="true">Sandbox / uji coba</option><option value="false">Produksi</option></select>
+                </div>
+                <div class="form-group"><label>Masa berlaku tagihan (jam)</label><input type="number" class="form-control" @bind="_v_expiry" /></div>
+            </div>
+
+            <h4 class="mt-3" style="font-size:0.95rem;">💳 Xendit</h4>
+            <div class="grid grid-2">
+                <div class="form-group"><label>Secret Key</label><input type="password" class="form-control" @bind="_v_xenditKey" placeholder="xnd_development_..." /></div>
+                <div class="form-group"><label>Callback Token</label><input type="password" class="form-control" @bind="_v_xenditToken" /></div>
+            </div>
+            <small class="text-muted">Webhook URL: <code>@_baseUrl/webhook/payment/xendit</code></small>
+
+            <h4 class="mt-3" style="font-size:0.95rem;">🟢 Midtrans</h4>
+            <div class="grid grid-2">
+                <div class="form-group"><label>Server Key</label><input type="password" class="form-control" @bind="_v_midtransServer" placeholder="SB-Mid-server-..." /></div>
+                <div class="form-group"><label>Client Key</label><input class="form-control" @bind="_v_midtransClient" /></div>
+            </div>
+            <small class="text-muted">Payment Notification URL: <code>@_baseUrl/webhook/payment/midtrans</code></small>
+
+            <h4 class="mt-3" style="font-size:0.95rem;">🔵 Stripe</h4>
+            <div class="grid grid-2">
+                <div class="form-group"><label>Secret Key</label><input type="password" class="form-control" @bind="_v_stripeKey" placeholder="sk_test_..." /></div>
+                <div class="form-group"><label>Webhook Secret</label><input type="password" class="form-control" @bind="_v_stripeWebhook" placeholder="whsec_..." /></div>
+                <div class="form-group"><label>Mata uang</label><input class="form-control" @bind="_v_stripeCurrency" placeholder="idr" /></div>
+            </div>
+            <small class="text-muted">Endpoint webhook: <code>@_baseUrl/webhook/payment/stripe</code> (event <code>checkout.session.completed</code>)</small>
+
+            <h4 class="mt-3" style="font-size:0.95rem;">📱 QRIS</h4>
+            <div class="form-group"><label>Payload QRIS statis dari penyedia (opsional, paling akurat)</label>
+                <textarea class="form-control" rows="2" @bind="_v_qrisStatic" placeholder="00020101021126..."></textarea>
+                <small class="text-muted">Bila diisi, sistem mengubahnya menjadi QRIS dinamis + nominal dan menghitung ulang CRC16.</small>
+            </div>
+            <div class="grid grid-2">
+                <div class="form-group"><label>Nama merchant</label><input class="form-control" @bind="_v_qrisName" /></div>
+                <div class="form-group"><label>Kota merchant</label><input class="form-control" @bind="_v_qrisCity" /></div>
+                <div class="form-group"><label>NMID</label><input class="form-control" @bind="_v_qrisNmid" /></div>
+                <div class="form-group"><label>Merchant ID</label><input class="form-control" @bind="_v_qrisMerchantId" /></div>
+            </div>
+
+            <button class="btn btn-primary mt-3" @onclick="SimpanPembayaran">Simpan Pengaturan Pembayaran</button>
+        </div>
+    </div>
+}
+else if (_tab == "Chatbot")
+{
+    <div class="card">
+        <div class="card-header"><h3>🤖 Syeikh Jenggot</h3></div>
+        <div class="card-body">
+            <div class="grid grid-2">
+                <div class="form-group"><label>Provider LLM</label>
+                    <select class="form-control" @bind="_v_chatProvider">
+                        <option>OpenAI</option><option>Anthropic</option><option>Gemini</option><option>Ollama</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>Model</label><input class="form-control" @bind="_v_chatModel" /></div>
+                <div class="form-group"><label>Endpoint</label><input class="form-control" @bind="_v_chatEndpoint" /></div>
+                <div class="form-group"><label>API Key</label><input type="password" class="form-control" @bind="_v_chatKey" /></div>
+                <div class="form-group"><label>Temperature</label><input type="number" step="0.1" min="0" max="2" class="form-control" @bind="_v_chatTemp" /></div>
+                <div class="form-group"><label>Max tokens</label><input type="number" class="form-control" @bind="_v_chatMaxTokens" /></div>
+            </div>
+            <div class="form-group"><label>System prompt (persona)</label><textarea class="form-control" rows="4" @bind="_v_chatPrompt"></textarea></div>
+            <div class="form-group"><label>Tavily API Key (pencarian internet)</label><input type="password" class="form-control" @bind="_v_tavily" /></div>
+            <button class="btn btn-primary" @onclick="SimpanChatbot">Simpan Pengaturan Chatbot</button>
+            <p class="text-muted mt-2" style="font-size:0.8rem;">Perubahan berlaku pada percakapan berikutnya — kernel dibangun ulang tiap pesan.</p>
+        </div>
+    </div>
+}
+else if (_tab == "Umum")
+{
+    <div class="card">
+        <div class="card-header"><h3>🏢 Umum & Notifikasi</h3></div>
+        <div class="card-body">
+            <div class="grid grid-2">
+                <div class="form-group"><label>Nama aplikasi</label><input class="form-control" @bind="_v_appName" /></div>
+                <div class="form-group"><label>Baris per halaman</label><input type="number" class="form-control" @bind="_v_itemsPerPage" /></div>
+                <div class="form-group"><label>Bahasa default</label>
+                    <select class="form-control" @bind="_v_lang"><option value="id">Indonesia</option><option value="en">English</option></select>
+                </div>
+                <div class="form-group"><label>Tema default</label>
+                    <select class="form-control" @bind="_v_theme"><option value="light">Terang</option><option value="dark">Gelap</option></select>
+                </div>
+                <div class="form-group"><label>Interval simulator GPS (ms)</label><input type="number" class="form-control" @bind="_v_gpsInterval" /></div>
+                <div class="form-group"><label>Storage provider</label>
+                    <select class="form-control" @bind="_v_storage"><option>FileSystem</option><option>AzureBlob</option><option>S3</option><option>MinIO</option></select>
+                </div>
+            </div>
+
+            <h4 class="mt-3" style="font-size:0.95rem;">🔔 Reminder Otomatis</h4>
+            <div class="grid grid-2">
+                <div class="form-group"><label>Aktif</label>
+                    <select class="form-control" @bind="_v_reminderOn"><option value="true">Ya</option><option value="false">Tidak</option></select>
+                </div>
+                <div class="form-group"><label>Interval pemeriksaan (jam)</label><input type="number" class="form-control" @bind="_v_reminderInterval" /></div>
+                <div class="form-group"><label>Ingatkan pembayaran H- (pisahkan koma)</label><input class="form-control" @bind="_v_reminderPayment" placeholder="7,3,1" /></div>
+                <div class="form-group"><label>Ingatkan keberangkatan H-</label><input type="number" class="form-control" @bind="_v_reminderDeparture" /></div>
+            </div>
+
+            <h4 class="mt-3" style="font-size:0.95rem;">🏛️ SISKOHAT Kemenag</h4>
+            <div class="grid grid-2">
+                <div class="form-group"><label>Endpoint validasi</label><input class="form-control" @bind="_v_siskohatEndpoint" placeholder="kosongkan untuk mode simulasi" /></div>
+                <div class="form-group"><label>API Key</label><input type="password" class="form-control" @bind="_v_siskohatKey" /></div>
+            </div>
+            <p class="text-muted" style="font-size:0.8rem;">Status saat ini: <strong>@Siskohat.Mode</strong></p>
+
+            <button class="btn btn-primary mt-2" @onclick="SimpanUmum">Simpan Pengaturan Umum</button>
+        </div>
+    </div>
+}
+else if (_tab == "Backup")
+{
+    <div class="card">
+        <div class="card-header"><h3>🛡️ Keamanan Data & Backup</h3><span class="badge badge-info">@Backup.DbProvider</span></div>
+        <div class="card-body">
+            <p class="text-muted">
+                Snapshot database dibuat dengan <code>VACUUM INTO</code> sehingga aman dilakukan saat aplikasi berjalan.
+                Ekspor Excel berisi seluruh tabel dan bisa dibuka tanpa aplikasi — berguna untuk audit dan compliance.
+                Kolom sensitif (hash password, token) tidak ikut diekspor.
+            </p>
+            <div class="d-flex gap-2 flex-wrap">
+                <button class="btn btn-primary" @onclick="BackupDatabase" disabled="@(_working || !Backup.DatabaseSnapshotSupported)">
+                    @(_working ? "Memproses..." : "💾 Backup Database")
+                </button>
+                <button class="btn btn-outline" @onclick="ExportSemua" disabled="@_working">📊 Ekspor Semua Tabel (Excel)</button>
+            </div>
+            @if (!Backup.DatabaseSnapshotSupported)
+            { <small class="text-muted">Snapshot file hanya tersedia untuk SQLite. Untuk @Backup.DbProvider gunakan ekspor Excel atau tool backup bawaan server.</small> }
+
+            @if (_riwayat.Any())
+            {
+                <div class="table-container mt-3"><table>
+                    <thead><tr><th>Waktu</th><th>Nama file</th><th>Jenis</th><th>Ukuran</th><th>Oleh</th></tr></thead>
+                    <tbody>
+                        @foreach (var b in _riwayat)
+                        {
+                            <tr>
+                                <td style="font-size:0.78rem;">@b.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</td>
+                                <td>@b.NamaFile</td>
+                                <td><span class="badge badge-info">@b.Jenis</span></td>
+                                <td>@((b.UkuranByte / 1024.0).ToString("N0")) KB</td>
+                                <td>@b.DibuatOleh</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div>
+    </div>
+}
+else if (_tab == "Asuransi")
+{
+    <div class="card">
+        <div class="card-header"><h3>🛡️ Asuransi Perjalanan</h3><button class="btn btn-primary btn-sm" @onclick="() => BukaAsuransi(null)">+ Tambah</button></div>
+        <div class="card-body">
+            @if (_asuransi.Any())
+            {
+                <div class="table-container"><table>
+                    <thead><tr><th>Produk</th><th>Penyedia</th><th>Pertanggungan</th><th>Premi</th><th>Status</th><th>Aksi</th></tr></thead>
+                    <tbody>
+                        @foreach (var a in _asuransi)
+                        {
+                            <tr>
+                                <td><strong>@a.NamaProduk</strong><br><small class="text-muted">@a.KontakKlaim</small></td>
+                                <td>@a.Penyedia</td>
+                                <td>@a.NilaiPertanggungan.ToString("C0")</td>
+                                <td>@a.Premi.ToString("C0")</td>
+                                <td><span class="badge @(a.IsActive ? "badge-success" : "badge-danger")">@(a.IsActive ? "Aktif" : "Nonaktif")</span></td>
+                                <td>
+                                    <button class="btn btn-outline btn-sm" @onclick="() => BukaAsuransi(a)">Edit</button>
+                                    <button class="btn btn-danger btn-sm" @onclick="() => HapusAsuransi(a)">Hapus</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+            else { <p class="text-muted">Belum ada produk asuransi. Data ini yang tampil di halaman Layanan Darurat jamaah.</p> }
+        </div>
+    </div>
+}
+else if (_tab == "Override Aktif")
+{
+    <div class="card">
+        <div class="card-header"><h3>📋 Nilai yang Di-override dari UI</h3></div>
+        <div class="card-body">
+            <p class="text-muted" style="font-size:0.85rem;">Kunci di bawah tersimpan di database dan menimpa appsettings.json. Hapus untuk kembali memakai nilai file konfigurasi.</p>
+            @if (_overrides.Any())
+            {
+                <div class="table-container"><table>
+                    <thead><tr><th>Kunci</th><th>Nilai</th><th>Grup</th><th>Diubah</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var o in _overrides)
+                        {
+                            <tr>
+                                <td><code>@o.Kunci</code></td>
+                                <td>@(o.IsSecret ? "••••••••" : (o.Nilai.Length > 60 ? o.Nilai[..60] + "..." : o.Nilai))</td>
+                                <td>@o.Grup</td>
+                                <td style="font-size:0.78rem;">@o.UpdatedAt.ToLocalTime().ToString("dd MMM HH:mm")</td>
+                                <td><button class="btn btn-danger btn-sm" @onclick="() => Reset(o.Kunci)">Reset</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+            else { <p class="text-muted">Belum ada override — semua nilai masih mengikuti appsettings.json.</p> }
+        </div>
+    </div>
+}
+
+@if (_showAsuransiForm)
+{
+    <div class="modal-backdrop" @onclick="() => _showAsuransiForm = false">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header"><h3>@(_editAsuransi.Id == 0 ? "Tambah" : "Edit") Asuransi</h3><button class="btn-icon" @onclick="() => _showAsuransiForm = false">✕</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>Nama produk *</label><input class="form-control" @bind="_editAsuransi.NamaProduk" /></div>
+                <div class="form-group"><label>Penyedia</label><input class="form-control" @bind="_editAsuransi.Penyedia" /></div>
+                <div class="form-group"><label>Cakupan (satu per baris)</label><textarea class="form-control" rows="5" @bind="_editAsuransi.Cakupan"></textarea></div>
+                <div class="grid grid-2">
+                    <div class="form-group"><label>Nilai pertanggungan</label><input type="number" class="form-control" @bind="_editAsuransi.NilaiPertanggungan" /></div>
+                    <div class="form-group"><label>Premi</label><input type="number" class="form-control" @bind="_editAsuransi.Premi" /></div>
+                </div>
+                <div class="form-group"><label>Kontak klaim</label><input class="form-control" @bind="_editAsuransi.KontakKlaim" /></div>
+                <div class="form-group"><label>URL polis</label><input class="form-control" @bind="_editAsuransi.PolisUrl" /></div>
+                <div class="form-group"><label><input type="checkbox" @bind="_editAsuransi.IsActive" /> Aktif</label></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="() => _showAsuransiForm = false">Batal</button>
+                <button class="btn btn-primary" @onclick="SimpanAsuransi">Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly string[] _tabs = { "Pembayaran", "Chatbot", "Umum", "Backup", "Asuransi", "Override Aktif" };
+    private string _tab = "Pembayaran";
+    private string _notif = "", _baseUrl = "";
+    private bool _notifOk, _working;
+
+    private List<Models.PengaturanAplikasi> _overrides = new();
+    private List<Models.BackupLog> _riwayat = new();
+    private List<Models.Asuransi> _asuransi = new();
+    private Models.Asuransi _editAsuransi = new();
+    private bool _showAsuransiForm;
+
+    // Pembayaran
+    private string _v_paymentProvider = "", _v_paymentEnabled = "", _v_sandbox = "true", _v_expiry = "24";
+    private string _v_xenditKey = "", _v_xenditToken = "";
+    private string _v_midtransServer = "", _v_midtransClient = "";
+    private string _v_stripeKey = "", _v_stripeWebhook = "", _v_stripeCurrency = "idr";
+    private string _v_qrisStatic = "", _v_qrisName = "", _v_qrisCity = "", _v_qrisNmid = "", _v_qrisMerchantId = "";
+
+    // Chatbot
+    private string _v_chatProvider = "", _v_chatModel = "", _v_chatEndpoint = "", _v_chatKey = "",
+                   _v_chatTemp = "0.7", _v_chatMaxTokens = "4096", _v_chatPrompt = "", _v_tavily = "";
+
+    // Umum
+    private string _v_appName = "", _v_itemsPerPage = "15", _v_lang = "id", _v_theme = "light",
+                   _v_gpsInterval = "2000", _v_storage = "FileSystem";
+    private string _v_reminderOn = "true", _v_reminderInterval = "6", _v_reminderPayment = "7,3,1", _v_reminderDeparture = "7";
+    private string _v_siskohatEndpoint = "", _v_siskohatKey = "";
+
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await AuthService.EnsureAsync();
+        _baseUrl = Nav.BaseUri.TrimEnd('/');
+        MuatNilai();
+        await MuatData();
+    }
+
+    private void MuatNilai()
+    {
+        _v_paymentProvider = Settings.Get("Payment:Provider", "Manual");
+        _v_paymentEnabled = Settings.Get("Payment:EnabledProviders", "Manual,Xendit,Midtrans,Stripe,QRIS");
+        _v_sandbox = Settings.Get("Payment:Sandbox", "true");
+        _v_expiry = Settings.Get("Payment:ExpiryHours", "24");
+        _v_xenditKey = Settings.Get("Payment:Xendit:SecretKey");
+        _v_xenditToken = Settings.Get("Payment:Xendit:CallbackToken");
+        _v_midtransServer = Settings.Get("Payment:Midtrans:ServerKey");
+        _v_midtransClient = Settings.Get("Payment:Midtrans:ClientKey");
+        _v_stripeKey = Settings.Get("Payment:Stripe:SecretKey");
+        _v_stripeWebhook = Settings.Get("Payment:Stripe:WebhookSecret");
+        _v_stripeCurrency = Settings.Get("Payment:Stripe:Currency", "idr");
+        _v_qrisStatic = Settings.Get("Payment:QRIS:StaticPayload");
+        _v_qrisName = Settings.Get("Payment:QRIS:MerchantName");
+        _v_qrisCity = Settings.Get("Payment:QRIS:MerchantCity");
+        _v_qrisNmid = Settings.Get("Payment:QRIS:NMID");
+        _v_qrisMerchantId = Settings.Get("Payment:QRIS:MerchantId");
+
+        _v_chatProvider = Settings.Get("Chatbot:Provider", "OpenAI");
+        _v_chatModel = Settings.Get($"Chatbot:Providers:{_v_chatProvider}:Model");
+        _v_chatEndpoint = Settings.Get($"Chatbot:Providers:{_v_chatProvider}:Endpoint");
+        _v_chatKey = Settings.Get($"Chatbot:Providers:{_v_chatProvider}:ApiKey");
+        _v_chatTemp = Settings.Get("Chatbot:Temperature", "0.7");
+        _v_chatMaxTokens = Settings.Get("Chatbot:MaxTokens", "4096");
+        _v_chatPrompt = Settings.Get("Chatbot:SystemPrompt");
+        _v_tavily = Settings.Get("Chatbot:TavilyApiKey");
+
+        _v_appName = Settings.Get("AppSettings:AppName", "HolySafar");
+        _v_itemsPerPage = Settings.Get("AppSettings:ItemsPerPage", "15");
+        _v_lang = Settings.Get("AppSettings:DefaultLanguage", "id");
+        _v_theme = Settings.Get("AppSettings:DefaultTheme", "light");
+        _v_gpsInterval = Settings.Get("AppSettings:SimulatorIntervalMs", "2000");
+        _v_storage = Settings.Get("Storage:Provider", "FileSystem");
+
+        _v_reminderOn = Settings.Get("Reminder:Enabled", "true");
+        _v_reminderInterval = Settings.Get("Reminder:IntervalHours", "6");
+        _v_reminderPayment = Settings.Get("Reminder:PaymentDaysBefore", "7,3,1");
+        _v_reminderDeparture = Settings.Get("Reminder:DepartureDaysBefore", "7");
+
+        _v_siskohatEndpoint = Settings.Get("Siskohat:Endpoint");
+        _v_siskohatKey = Settings.Get("Siskohat:ApiKey");
+    }
+
+    private async Task MuatData()
+    {
+        _overrides = await Settings.GetAllAsync();
+        _riwayat = await Backup.RiwayatAsync();
+        _asuransi = await Db.Asuransi.OrderBy(a => a.NamaProduk).ToListAsync();
+    }
+
+    private async Task SimpanPembayaran()
+    {
+        await Settings.SetAsync("Payment:Provider", _v_paymentProvider, "Pembayaran", "Provider default");
+        await Settings.SetAsync("Payment:EnabledProviders", _v_paymentEnabled, "Pembayaran", "Provider aktif");
+        await Settings.SetAsync("Payment:Sandbox", _v_sandbox, "Pembayaran", "Mode sandbox");
+        await Settings.SetAsync("Payment:ExpiryHours", _v_expiry, "Pembayaran", "Masa berlaku tagihan (jam)");
+        await Settings.SetAsync("Payment:Xendit:SecretKey", _v_xenditKey, "Pembayaran", "Xendit secret key", true);
+        await Settings.SetAsync("Payment:Xendit:CallbackToken", _v_xenditToken, "Pembayaran", "Xendit callback token", true);
+        await Settings.SetAsync("Payment:Midtrans:ServerKey", _v_midtransServer, "Pembayaran", "Midtrans server key", true);
+        await Settings.SetAsync("Payment:Midtrans:ClientKey", _v_midtransClient, "Pembayaran", "Midtrans client key");
+        await Settings.SetAsync("Payment:Stripe:SecretKey", _v_stripeKey, "Pembayaran", "Stripe secret key", true);
+        await Settings.SetAsync("Payment:Stripe:WebhookSecret", _v_stripeWebhook, "Pembayaran", "Stripe webhook secret", true);
+        await Settings.SetAsync("Payment:Stripe:Currency", _v_stripeCurrency, "Pembayaran", "Mata uang Stripe");
+        await Settings.SetAsync("Payment:QRIS:StaticPayload", _v_qrisStatic, "Pembayaran", "Payload QRIS statis");
+        await Settings.SetAsync("Payment:QRIS:MerchantName", _v_qrisName, "Pembayaran", "Nama merchant QRIS");
+        await Settings.SetAsync("Payment:QRIS:MerchantCity", _v_qrisCity, "Pembayaran", "Kota merchant QRIS");
+        await Settings.SetAsync("Payment:QRIS:NMID", _v_qrisNmid, "Pembayaran", "NMID QRIS");
+        await Settings.SetAsync("Payment:QRIS:MerchantId", _v_qrisMerchantId, "Pembayaran", "Merchant ID QRIS");
+
+        var aktif = Pay.EnabledProviders();
+        _notif = $"Pengaturan pembayaran tersimpan. Provider siap dipakai: <strong>{string.Join(", ", aktif)}</strong>.";
+        _notifOk = true;
+        await MuatData();
+    }
+
+    private async Task SimpanChatbot()
+    {
+        await Settings.SetAsync("Chatbot:Provider", _v_chatProvider, "Chatbot", "Provider LLM");
+        await Settings.SetAsync($"Chatbot:Providers:{_v_chatProvider}:Model", _v_chatModel, "Chatbot", "Model");
+        await Settings.SetAsync($"Chatbot:Providers:{_v_chatProvider}:Endpoint", _v_chatEndpoint, "Chatbot", "Endpoint");
+        await Settings.SetAsync($"Chatbot:Providers:{_v_chatProvider}:ApiKey", _v_chatKey, "Chatbot", "API key", true);
+        await Settings.SetAsync("Chatbot:Temperature", _v_chatTemp, "Chatbot", "Temperature");
+        await Settings.SetAsync("Chatbot:MaxTokens", _v_chatMaxTokens, "Chatbot", "Max tokens");
+        await Settings.SetAsync("Chatbot:SystemPrompt", _v_chatPrompt, "Chatbot", "System prompt");
+        await Settings.SetAsync("Chatbot:TavilyApiKey", _v_tavily, "Chatbot", "Tavily API key", true);
+        _notif = "Pengaturan chatbot tersimpan."; _notifOk = true;
+        await MuatData();
+    }
+
+    private async Task SimpanUmum()
+    {
+        await Settings.SetAsync("AppSettings:AppName", _v_appName, "Umum", "Nama aplikasi");
+        await Settings.SetAsync("AppSettings:ItemsPerPage", _v_itemsPerPage, "Umum", "Baris per halaman");
+        await Settings.SetAsync("AppSettings:DefaultLanguage", _v_lang, "Umum", "Bahasa default");
+        await Settings.SetAsync("AppSettings:DefaultTheme", _v_theme, "Umum", "Tema default");
+        await Settings.SetAsync("AppSettings:SimulatorIntervalMs", _v_gpsInterval, "Umum", "Interval simulator GPS");
+        await Settings.SetAsync("Storage:Provider", _v_storage, "Umum", "Storage provider");
+        await Settings.SetAsync("Reminder:Enabled", _v_reminderOn, "Reminder", "Reminder aktif");
+        await Settings.SetAsync("Reminder:IntervalHours", _v_reminderInterval, "Reminder", "Interval jam");
+        await Settings.SetAsync("Reminder:PaymentDaysBefore", _v_reminderPayment, "Reminder", "H- pengingat pembayaran");
+        await Settings.SetAsync("Reminder:DepartureDaysBefore", _v_reminderDeparture, "Reminder", "H- pengingat keberangkatan");
+        await Settings.SetAsync("Siskohat:Endpoint", _v_siskohatEndpoint, "Siskohat", "Endpoint validasi");
+        await Settings.SetAsync("Siskohat:ApiKey", _v_siskohatKey, "Siskohat", "API key", true);
+        _notif = "Pengaturan umum tersimpan."; _notifOk = true;
+        await MuatData();
+    }
+
+    private async Task Reset(string kunci)
+    {
+        await Settings.ResetAsync(kunci);
+        MuatNilai();
+        await MuatData();
+        _notif = $"Override <code>{kunci}</code> dihapus — nilai kembali mengikuti appsettings.json."; _notifOk = true;
+    }
+
+    private async Task BackupDatabase()
+    {
+        _working = true;
+        try
+        {
+            var user = await AuthService.GetCurrentUserAsync();
+            var (nama, isi) = await Backup.CreateDatabaseSnapshotAsync(user?.Username ?? "admin");
+            await JS.InvokeVoidAsync("hsDownload", nama, "application/octet-stream", Convert.ToBase64String(isi));
+            _notif = $"Backup {nama} berhasil dibuat dan diunduh."; _notifOk = true;
+            await MuatData();
+        }
+        catch (Exception ex) { _notif = $"Backup gagal: {ex.Message}"; _notifOk = false; }
+        finally { _working = false; }
+    }
+
+    private async Task ExportSemua()
+    {
+        _working = true;
+        try
+        {
+            var user = await AuthService.GetCurrentUserAsync();
+            var (nama, isi) = await Backup.CreateFullExportAsync(user?.Username ?? "admin");
+            await JS.InvokeVoidAsync("hsDownload", nama, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Convert.ToBase64String(isi));
+            _notif = $"Ekspor {nama} selesai."; _notifOk = true;
+            await MuatData();
+        }
+        catch (Exception ex) { _notif = $"Ekspor gagal: {ex.Message}"; _notifOk = false; }
+        finally { _working = false; }
+    }
+
+    private void BukaAsuransi(Models.Asuransi? a)
+    {
+        _editAsuransi = a == null ? new Models.Asuransi { IsActive = true } : new Models.Asuransi
+        {
+            Id = a.Id, NamaProduk = a.NamaProduk, Penyedia = a.Penyedia, Cakupan = a.Cakupan,
+            NilaiPertanggungan = a.NilaiPertanggungan, Premi = a.Premi, KontakKlaim = a.KontakKlaim,
+            PolisUrl = a.PolisUrl, IsActive = a.IsActive
+        };
+        _showAsuransiForm = true;
+    }
+
+    private async Task SimpanAsuransi()
+    {
+        if (string.IsNullOrWhiteSpace(_editAsuransi.NamaProduk)) return;
+        if (_editAsuransi.Id == 0) Db.Asuransi.Add(_editAsuransi);
+        else
+        {
+            var row = await Db.Asuransi.FindAsync(_editAsuransi.Id);
+            if (row == null) return;
+            row.NamaProduk = _editAsuransi.NamaProduk; row.Penyedia = _editAsuransi.Penyedia;
+            row.Cakupan = _editAsuransi.Cakupan; row.NilaiPertanggungan = _editAsuransi.NilaiPertanggungan;
+            row.Premi = _editAsuransi.Premi; row.KontakKlaim = _editAsuransi.KontakKlaim;
+            row.PolisUrl = _editAsuransi.PolisUrl; row.IsActive = _editAsuransi.IsActive;
+        }
+        await Db.SaveChangesAsync();
+        _showAsuransiForm = false;
+        _notif = "Data asuransi tersimpan."; _notifOk = true;
+        await MuatData();
+    }
+
+    private async Task HapusAsuransi(Models.Asuransi a)
+    {
+        Db.Asuransi.Remove(a);
+        await Db.SaveChangesAsync();
+        await MuatData();
+        _notif = "Produk asuransi dihapus."; _notifOk = true;
+    }
+}

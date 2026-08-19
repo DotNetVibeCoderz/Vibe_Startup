@@ -1,5 +1,6 @@
 @page "/admin/orders"
 @rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
 @inject Data.AppDbContext Db
 
 <div class="card">

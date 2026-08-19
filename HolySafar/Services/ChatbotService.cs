@@ -15,17 +15,21 @@ public class ChatbotService
 {
     private readonly IConfiguration _config;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly SettingsService _settings;
 
-    public ChatbotService(IConfiguration config, IServiceScopeFactory scopeFactory)
-    { _config = config; _scopeFactory = scopeFactory; }
+    public ChatbotService(IConfiguration config, IServiceScopeFactory scopeFactory, SettingsService settings)
+    { _config = config; _scopeFactory = scopeFactory; _settings = settings; }
 
-    public string ChatbotName => _config["Chatbot:Name"] ?? "Syeikh Jenggot";
-    public string Provider => _config["Chatbot:Provider"] ?? "OpenAI";
+    /// <summary>Konfigurasi dibaca lewat SettingsService supaya override dari UI admin ikut berlaku.</summary>
+    private string Cfg(string key, string fallback = "") => _settings.Get(key, fallback);
+
+    public string ChatbotName => Cfg("Chatbot:Name", "Syeikh Jenggot");
+    public string Provider => Cfg("Chatbot:Provider", "OpenAI");
 
     private Kernel CreateKernel()
     {
         var builder = Kernel.CreateBuilder();
-        var provider = _config["Chatbot:Provider"] ?? "OpenAI";
+        var provider = Cfg("Chatbot:Provider", "OpenAI");
         switch (provider)
         {
             case "OpenAI": ConfigureOpenAI(builder); break;
@@ -36,7 +40,7 @@ public class ChatbotService
         }
         builder.Plugins.AddFromType<TimePlugin>("TimePlugin");
         builder.Plugins.AddFromType<CalculationsPlugin>("MathPlugin");
-        builder.Plugins.AddFromType<WebSearchPlugin>("WebSearchPlugin");
+        builder.Plugins.AddFromObject(new WebSearchPlugin(_settings), "WebSearchPlugin");
         builder.Plugins.AddFromType<HijriCalendarPlugin>("HijriCalendarPlugin");
         builder.Plugins.AddFromType<TravelInfoPlugin>("TravelInfoPlugin");
         var dbPlugin = new DatabaseQueryPlugin(_scopeFactory);
@@ -46,17 +50,17 @@ public class ChatbotService
 
     private void ConfigureOpenAI(IKernelBuilder builder)
     {
-        var apiKey = _config["Chatbot:Providers:OpenAI:ApiKey"] ?? "";
-        var model = _config["Chatbot:Providers:OpenAI:Model"] ?? "gpt-4o";
-        var endpoint = _config["Chatbot:Providers:OpenAI:Endpoint"] ?? "";
+        var apiKey = Cfg("Chatbot:Providers:OpenAI:ApiKey");
+        var model = Cfg("Chatbot:Providers:OpenAI:Model", "gpt-4o");
+        var endpoint = Cfg("Chatbot:Providers:OpenAI:Endpoint");
         if (!string.IsNullOrEmpty(endpoint)) builder.AddOpenAIChatCompletion(model, new Uri(endpoint), apiKey);
         else builder.AddOpenAIChatCompletion(model, apiKey);
     }
     private void ConfigureOpenAICompat(IKernelBuilder builder, string providerKey)
     {
-        var apiKey = _config[$"Chatbot:Providers:{providerKey}:ApiKey"] ?? "not-needed";
-        var model = _config[$"Chatbot:Providers:{providerKey}:Model"] ?? "llama3.1";
-        var endpoint = _config[$"Chatbot:Providers:{providerKey}:Endpoint"] ?? "";
+        var apiKey = Cfg($"Chatbot:Providers:{providerKey}:ApiKey", "not-needed");
+        var model = Cfg($"Chatbot:Providers:{providerKey}:Model", "llama3.1");
+        var endpoint = Cfg($"Chatbot:Providers:{providerKey}:Endpoint");
         if (providerKey == "Ollama" && string.IsNullOrEmpty(endpoint)) endpoint = "http://localhost:11434/v1";
         if (!string.IsNullOrEmpty(endpoint)) builder.AddOpenAIChatCompletion(model, new Uri(endpoint), apiKey);
         else builder.AddOpenAIChatCompletion(model, apiKey);
@@ -80,14 +84,14 @@ public class ChatbotService
         try
         {
             var k = CreateKernel(); var cc = k.GetRequiredService<IChatCompletionService>(); var h = new ChatHistory();
-            h.AddSystemMessage(_config["Chatbot:SystemPrompt"] ?? "Kamu adalah Syeikh Jenggot.");
+            h.AddSystemMessage(Cfg("Chatbot:SystemPrompt", "Kamu adalah Syeikh Jenggot."));
             var ctx = await Ctx(db, uid); if (!string.IsNullOrEmpty(ctx)) h.AddSystemMessage(ctx);
             foreach (var m in s.Messages.OrderByDescending(m => m.CreatedAt).Take(20).Reverse())
             { if (m.Role == "user") h.AddUserMessage(m.Content + (m.AttachmentUrl != null ? " [Attachment]" : "")); else if (m.Role == "assistant") h.AddAssistantMessage(m.Content); }
             if (!string.IsNullOrEmpty(imageUrl) && Uri.TryCreate(imageUrl, UriKind.Absolute, out var img))
             { var items = new ChatMessageContentItemCollection(); if (!string.IsNullOrEmpty(message)) items.Add(new TextContent(message)); items.Add(new ImageContent(img)); if (!string.IsNullOrEmpty(attachmentUrl)) items.Add(new TextContent($"\n[Attach: {attachmentUrl}]")); h.AddUserMessage(items); }
             else h.AddUserMessage(message + (attachmentUrl != null ? $" [Attach: {attachmentUrl}]" : ""));
-            var st = new OpenAIPromptExecutionSettings { Temperature = _config.GetValue<double>("Chatbot:Temperature", 0.7), MaxTokens = _config.GetValue<int>("Chatbot:MaxTokens", 4096), ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions };
+            var st = new OpenAIPromptExecutionSettings { Temperature = _settings.GetDouble("Chatbot:Temperature", 0.7), MaxTokens = _settings.GetInt("Chatbot:MaxTokens", 4096), ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions };
             var r = await cc.GetChatMessageContentAsync(h, st, k); var t = r.Content ?? "*Maaf.*";
             db.ChatbotMessages.Add(new ChatbotMessage { SessionId = sid, Role = "assistant", Content = t, CreatedAt = DateTime.UtcNow });
             await db.SaveChangesAsync(); return t;
@@ -117,17 +121,16 @@ public class TimePlugin
 public class CalculationsPlugin
 {
     [KernelFunction, Description("Kalkulasi")] public string Calculate(string e) { try { return $"{e} = {new System.Data.DataTable().Compute(e, null):N0}"; } catch { return $"Tidak bisa: {e}"; } }
-    [KernelFunction, Description("Konversi mata uang (amount,from,to)")] public string ConvertCurrency(decimal a, string f, string t) { var r = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { ["USD"] = 1, ["IDR"] = 15700, ["SAR"] = 3.75m, ["EUR"] = 0.92m, ["MYR"] = 4.70m }; if (!r.ContainsKey(f) || !r.ContainsKey(t)) return "Gunakan: USD,IDR,SAR,EUR,MYR."; return $"{a:N2} {f} = {(a / r[f]) * r[t]:N2} {t}"; }
+    //[KernelFunction, Description("Konversi mata uang (amount,from,to)")] public string ConvertCurrency(decimal a, string f, string t) { var r = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase) { ["USD"] = 1, ["IDR"] = 15700, ["SAR"] = 3.75m, ["EUR"] = 0.92m, ["MYR"] = 4.70m }; if (!r.ContainsKey(f) || !r.ContainsKey(t)) return "Gunakan: USD,IDR,SAR,EUR,MYR."; return $"{a:N2} {f} = {(a / r[f]) * r[t]:N2} {t}"; }
     [KernelFunction, Description("Persentase")] public string CalcPercentage(decimal p, decimal t) => $"{p}% x {t:N0} = {t * p / 100:N0}";
 }
 
 public class WebSearchPlugin
 {
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
-    private readonly IConfiguration _cfg;
-    public WebSearchPlugin() : this(null!) { }
-    public WebSearchPlugin(IConfiguration cfg) { _cfg = cfg ?? new ConfigurationBuilder().AddJsonFile("appsettings.json", optional: true).Build(); }
-    [KernelFunction, Description("Cari internet via Tavily")] public async Task<string> SearchInternet(string q) { var k = _cfg["Chatbot:TavilyApiKey"]; if (string.IsNullOrEmpty(k)) return "Tavily key belum dikonfig."; try { var r = await _http.PostAsJsonAsync("https://api.tavily.com/search", new { api_key = k, query = q, search_depth = "advanced", max_results = 5 }); var j = await r.Content.ReadAsStringAsync(); using var d = JsonDocument.Parse(j); var res = d.RootElement.GetProperty("results"); var ans = d.RootElement.TryGetProperty("answer", out var a) ? a.GetString() : null; var l = new List<string>(); if (!string.IsNullOrEmpty(ans)) l.Add($"**Ringkasan:** {ans}"); l.Add("**Hasil:**"); int i = 1; foreach (var x in res.EnumerateArray().Take(5)) { l.Add($"{i}. **{x.GetProperty("title").GetString()}** — {x.GetProperty("content").GetString()} — [Link]({x.GetProperty("url").GetString()})"); i++; } return string.Join("\n", l); } catch (Exception e) { return $"Gagal: {e.Message}"; } }
+    private readonly SettingsService _settings;
+    public WebSearchPlugin(SettingsService settings) { _settings = settings; }
+    [KernelFunction, Description("Cari internet via Tavily")] public async Task<string> SearchInternet(string q) { var k = _settings.Get("Chatbot:TavilyApiKey"); if (string.IsNullOrEmpty(k)) return "Tavily key belum dikonfig."; try { var r = await _http.PostAsJsonAsync("https://api.tavily.com/search", new { api_key = k, query = q, search_depth = "advanced", max_results = 5 }); var j = await r.Content.ReadAsStringAsync(); using var d = JsonDocument.Parse(j); var res = d.RootElement.GetProperty("results"); var ans = d.RootElement.TryGetProperty("answer", out var a) ? a.GetString() : null; var l = new List<string>(); if (!string.IsNullOrEmpty(ans)) l.Add($"**Ringkasan:** {ans}"); l.Add("**Hasil:**"); int i = 1; foreach (var x in res.EnumerateArray().Take(5)) { l.Add($"{i}. **{x.GetProperty("title").GetString()}** — {x.GetProperty("content").GetString()} — [Link]({x.GetProperty("url").GetString()})"); i++; } return string.Join("\n", l); } catch (Exception e) { return $"Gagal: {e.Message}"; } }
     [KernelFunction, Description("Scrape halaman web")] public async Task<string> ScrapeWebpage(string u) { try { var h = await _http.GetStringAsync(u); var t = System.Text.RegularExpressions.Regex.Replace(h, @"<(script|style)[^>]*>.*?</\1>", "", System.Text.RegularExpressions.RegexOptions.Singleline); t = System.Text.RegularExpressions.Regex.Replace(t, "<[^>]+>", " "); t = System.Text.RegularExpressions.Regex.Replace(t, @"\s+", " ").Trim(); t = System.Net.WebUtility.HtmlDecode(t); if (t.Length > 4000) t = t[..4000] + "..."; return $"**{u}:**\n{t}"; } catch (Exception e) { return $"Gagal: {e.Message}"; } }
     [KernelFunction, Description("Baca file dari URL")] public async Task<string> ReadFileFromUrl(string u) { try { var b = await _http.GetByteArrayAsync(u); var t = System.Text.Encoding.UTF8.GetString(b); if (t.Length > 5000) t = t[..5000] + $"...({t.Length} chars)"; return $"**File:**\n```\n{t}\n```"; } catch (Exception e) { return $"Gagal: {e.Message}"; } }
 }

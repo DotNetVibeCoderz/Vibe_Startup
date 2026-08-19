@@ -1,0 +1,188 @@
+@page "/admin/itinerary"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Agen")]
+@inject Data.AppDbContext Db
+
+<div class="card">
+    <div class="card-header">
+        <h3>🧭 Itinerary, Ziarah & Transportasi</h3>
+        <div class="d-flex gap-2">
+            <select class="form-control form-control-sm" style="max-width:240px;" value="@_paketId" @onchange="GantiPaket">
+                <option value="0">— pilih paket —</option>
+                @foreach (var p in _pakets) { <option value="@p.Id">@p.NamaPaket</option> }
+            </select>
+            <button class="btn btn-primary btn-sm" @onclick="() => Buka(null)" disabled="@(_paketId == 0)">+ Tambah</button>
+        </div>
+    </div>
+    <div class="card-body">
+        @if (!string.IsNullOrEmpty(_notif)) { <div class="alert alert-success">@_notif</div> }
+
+        @if (_paketId == 0)
+        {
+            <p class="text-muted">Pilih paket untuk menyusun itinerary hariannya.</p>
+        }
+        else
+        {
+            <div class="grid grid-2 mb-3">
+                <div class="form-group"><label>Koordinat Hotel Mekkah (lat, lng)</label>
+                    <div class="d-flex gap-2">
+                        <input class="form-control" type="number" step="0.000001" @bind="_latMekkah" placeholder="21.4225" />
+                        <input class="form-control" type="number" step="0.000001" @bind="_lngMekkah" placeholder="39.8262" />
+                    </div>
+                </div>
+                <div class="form-group"><label>Koordinat Hotel Madinah (lat, lng)</label>
+                    <div class="d-flex gap-2">
+                        <input class="form-control" type="number" step="0.000001" @bind="_latMadinah" placeholder="24.4672" />
+                        <input class="form-control" type="number" step="0.000001" @bind="_lngMadinah" placeholder="39.6112" />
+                    </div>
+                </div>
+            </div>
+            <div class="form-group"><label>Transportasi</label>
+                <input class="form-control" @bind="_transportasi" placeholder="mis. Bus AC 45 seat, transfer bandara–hotel, kereta cepat Haramain" />
+            </div>
+            <button class="btn btn-outline btn-sm mb-3" @onclick="SimpanPaket">Simpan Data Paket</button>
+
+            @if (_items.Any())
+            {
+                <div class="table-container"><table>
+                    <thead><tr><th>Hari</th><th>Waktu</th><th>Kegiatan</th><th>Jenis</th><th>Lokasi</th><th>Koordinat</th><th>Aksi</th></tr></thead>
+                    <tbody>
+                        @foreach (var it in _items)
+                        {
+                            <tr>
+                                <td>@it.Hari</td>
+                                <td>@it.Waktu</td>
+                                <td><strong>@it.Judul</strong>@if (!string.IsNullOrEmpty(it.Deskripsi)) { <br><small class="text-muted">@(it.Deskripsi.Length > 60 ? it.Deskripsi[..60] + "..." : it.Deskripsi)</small> }</td>
+                                <td><span class="badge badge-info">@it.Jenis</span></td>
+                                <td>@it.Lokasi</td>
+                                <td style="font-size:0.75rem;">@(it.Latitude != null ? $"{it.Latitude:F4}, {it.Longitude:F4}" : "-")</td>
+                                <td>
+                                    <button class="btn btn-outline btn-sm" @onclick="() => Buka(it)">Edit</button>
+                                    <button class="btn btn-danger btn-sm" @onclick="() => Hapus(it)">Hapus</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+            else { <p class="text-muted">Belum ada kegiatan untuk paket ini.</p> }
+        }
+    </div>
+</div>
+
+@if (_showForm)
+{
+    <div class="modal-backdrop" @onclick="() => _showForm = false">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header"><h3>@(_edit.Id == 0 ? "Tambah" : "Edit") Kegiatan</h3><button class="btn-icon" @onclick="() => _showForm = false">✕</button></div>
+            <div class="modal-body">
+                <div class="grid grid-2">
+                    <div class="form-group"><label>Hari ke-</label><input type="number" min="1" class="form-control" @bind="_edit.Hari" /></div>
+                    <div class="form-group"><label>Waktu</label><input class="form-control" @bind="_edit.Waktu" placeholder="08:00" /></div>
+                </div>
+                <div class="form-group"><label>Judul kegiatan *</label><input class="form-control" @bind="_edit.Judul" placeholder="mis. Ziarah Jabal Rahmah" /></div>
+                <div class="form-group"><label>Jenis</label>
+                    <select class="form-control" @bind="_edit.Jenis">
+                        <option>Ibadah</option><option>Ziarah</option><option>Transportasi</option><option>Hotel</option><option>Manasik</option><option>Lainnya</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>Lokasi</label><input class="form-control" @bind="_edit.Lokasi" /></div>
+                <div class="grid grid-2">
+                    <div class="form-group"><label>Latitude</label><input type="number" step="0.000001" class="form-control" @bind="_edit.Latitude" /></div>
+                    <div class="form-group"><label>Longitude</label><input type="number" step="0.000001" class="form-control" @bind="_edit.Longitude" /></div>
+                </div>
+                <div class="form-group"><label>Deskripsi</label><textarea class="form-control" rows="3" @bind="_edit.Deskripsi"></textarea></div>
+                <div class="form-group"><label>Urutan dalam hari</label><input type="number" class="form-control" @bind="_edit.Urutan" /></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="() => _showForm = false">Batal</button>
+                <button class="btn btn-primary" @onclick="Simpan">Simpan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Models.Paket> _pakets = new();
+    private List<Models.ItineraryItem> _items = new();
+    private Models.ItineraryItem _edit = new();
+    private int _paketId;
+    private bool _showForm;
+    private string _notif = "", _transportasi = "";
+    private double? _latMekkah, _lngMekkah, _latMadinah, _lngMadinah;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _pakets = await Db.Paket.OrderBy(p => p.NamaPaket).ToListAsync();
+    }
+
+    private async Task GantiPaket(ChangeEventArgs e)
+    {
+        _paketId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        if (_paketId == 0) { _items = new(); return; }
+        _items = await Db.ItineraryItems.Where(i => i.PaketId == _paketId)
+            .OrderBy(i => i.Hari).ThenBy(i => i.Urutan).ThenBy(i => i.Waktu).ToListAsync();
+
+        var p = await Db.Paket.FindAsync(_paketId);
+        _latMekkah = p?.LatHotelMekkah; _lngMekkah = p?.LngHotelMekkah;
+        _latMadinah = p?.LatHotelMadinah; _lngMadinah = p?.LngHotelMadinah;
+        _transportasi = p?.Transportasi ?? "";
+    }
+
+    private async Task SimpanPaket()
+    {
+        var p = await Db.Paket.FindAsync(_paketId);
+        if (p == null) return;
+        p.LatHotelMekkah = _latMekkah; p.LngHotelMekkah = _lngMekkah;
+        p.LatHotelMadinah = _latMadinah; p.LngHotelMadinah = _lngMadinah;
+        p.Transportasi = _transportasi;
+        await Db.SaveChangesAsync();
+        _notif = "Data hotel & transportasi paket tersimpan.";
+    }
+
+    private void Buka(Models.ItineraryItem? it)
+    {
+        _edit = it == null
+            ? new Models.ItineraryItem { PaketId = _paketId, Hari = 1, Waktu = "08:00", Jenis = "Ibadah", Urutan = _items.Count + 1 }
+            : new Models.ItineraryItem
+            {
+                Id = it.Id, PaketId = it.PaketId, Hari = it.Hari, Waktu = it.Waktu, Judul = it.Judul,
+                Deskripsi = it.Deskripsi, Jenis = it.Jenis, Lokasi = it.Lokasi,
+                Latitude = it.Latitude, Longitude = it.Longitude, Urutan = it.Urutan
+            };
+        _showForm = true;
+    }
+
+    private async Task Simpan()
+    {
+        if (string.IsNullOrWhiteSpace(_edit.Judul)) return;
+
+        if (_edit.Id == 0) { _edit.PaketId = _paketId; Db.ItineraryItems.Add(_edit); }
+        else
+        {
+            var row = await Db.ItineraryItems.FindAsync(_edit.Id);
+            if (row == null) return;
+            row.Hari = _edit.Hari; row.Waktu = _edit.Waktu; row.Judul = _edit.Judul;
+            row.Deskripsi = _edit.Deskripsi; row.Jenis = _edit.Jenis; row.Lokasi = _edit.Lokasi;
+            row.Latitude = _edit.Latitude; row.Longitude = _edit.Longitude; row.Urutan = _edit.Urutan;
+        }
+
+        await Db.SaveChangesAsync();
+        _showForm = false;
+        _notif = "Kegiatan tersimpan.";
+        await Load();
+    }
+
+    private async Task Hapus(Models.ItineraryItem it)
+    {
+        Db.ItineraryItems.Remove(it);
+        await Db.SaveChangesAsync();
+        _notif = "Kegiatan dihapus.";
+        await Load();
+    }
+}

@@ -1,5 +1,6 @@
 @page "/agen/jamaah"
 @rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,Agen")]
 @inject Data.AppDbContext Db
 
 <div class="card">

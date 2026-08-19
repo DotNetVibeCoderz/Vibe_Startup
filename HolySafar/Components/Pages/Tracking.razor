@@ -1,0 +1,209 @@
+@page "/tracking"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@implements IDisposable
+@inject Data.AppDbContext Db
+@inject Services.AuthService AuthService
+
+<div class="mb-3"><h2>📋 Tracking Proses</h2><p class="text-muted">Pantau status dokumen, visa, pembayaran, dan keberangkatan Anda secara real-time</p></div>
+
+@if (_jamaah == null)
+{
+    <div class="card"><div class="card-body text-center" style="padding:40px;">
+        <div class="empty-state-icon">📋</div><h3>Belum ada data jamaah</h3>
+        <p class="text-muted">Proses tracking muncul setelah agen travel mendaftarkan Anda.</p>
+    </div></div>
+}
+else
+{
+    <div class="card mb-3">
+        <div class="card-header">
+            <h3>@_jamaah.NamaLengkap</h3>
+            <span class="badge badge-info">@(_jamaah.Paket?.NamaPaket ?? "Belum pilih paket")</span>
+        </div>
+        <div class="card-body">
+            <div class="tl">
+                @foreach (var s in _tahapan)
+                {
+                    <div class="tl-item @(s.Selesai ? "done" : s.Aktif ? "active" : "")">
+                        <div class="tl-dot">@(s.Selesai ? "✓" : s.Ikon)</div>
+                        <div class="tl-body">
+                            <strong>@s.Judul</strong>
+                            <span class="badge @s.Badge">@s.Status</span>
+                            <p class="text-muted" style="font-size:0.82rem;margin-top:4px;">@s.Detail</p>
+                            @if (!string.IsNullOrEmpty(s.Aksi))
+                            { <a href="@s.AksiUrl" class="btn btn-outline btn-sm">@s.Aksi</a> }
+                        </div>
+                    </div>
+                }
+            </div>
+            <p class="text-muted mt-3" style="font-size:0.75rem;">Terakhir diperbarui @_updated.ToLocalTime().ToString("HH:mm:ss") — halaman menyegarkan sendiri tiap 30 detik.</p>
+        </div>
+    </div>
+
+    <div class="grid grid-2">
+        <div class="card">
+            <div class="card-header"><h3>📄 Rincian Dokumen</h3></div>
+            <div class="card-body">
+                <div class="table-container"><table>
+                    <thead><tr><th>Dokumen</th><th>Status</th><th>Catatan</th></tr></thead>
+                    <tbody>
+                        @foreach (var tipe in _wajib)
+                        {
+                            var d = _dokumen.FirstOrDefault(x => x.TipeDokumen == tipe);
+                            <tr>
+                                <td>@tipe</td>
+                                <td>@if (d == null) { <span class="badge badge-danger">Belum diunggah</span> } else { <span class="badge @DocBadge(d.Status)">@d.Status</span> }</td>
+                                <td style="font-size:0.8rem;">@(d?.CatatanAdmin ?? "-")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+                <a href="/dokumen" class="btn btn-primary btn-sm mt-2">Kelola Dokumen</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><h3>✈️ Jadwal Keberangkatan</h3></div>
+            <div class="card-body">
+                @if (_keberangkatan != null)
+                {
+                    <p><strong>Kode:</strong> @_keberangkatan.KodeKeberangkatan</p>
+                    <p><strong>Maskapai:</strong> @_keberangkatan.Maskapai @_keberangkatan.NoPenerbangan</p>
+                    <p><strong>Rute:</strong> @_keberangkatan.BandaraAsal → @_keberangkatan.BandaraTujuan</p>
+                    <p><strong>Berangkat:</strong> @(_keberangkatan.TanggalBerangkat?.ToString("dddd, dd MMMM yyyy HH:mm") ?? "-")</p>
+                    <p><strong>Tiba:</strong> @(_keberangkatan.TanggalTiba?.ToString("dddd, dd MMMM yyyy HH:mm") ?? "-")</p>
+                    @if (_hariLagi.HasValue && _hariLagi > 0)
+                    { <div class="alert alert-info">🕋 @_hariLagi hari lagi menuju keberangkatan.</div> }
+                    <a href="/perjalanan" class="btn btn-outline btn-sm">Lihat Itinerary</a>
+                }
+                else { <p class="text-muted">Jadwal keberangkatan untuk paket Anda belum ditetapkan.</p> }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .tl { position:relative; padding-left:8px; }
+    .tl-item { display:flex; gap:14px; padding-bottom:20px; position:relative; }
+    .tl-item:not(:last-child)::before { content:''; position:absolute; left:17px; top:36px; bottom:0; width:2px; background:var(--border-color); }
+    .tl-item.done:not(:last-child)::before { background:var(--success); }
+    .tl-dot { flex:0 0 36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+              background:var(--bg-tertiary); color:var(--text-secondary); font-size:0.95rem; border:2px solid var(--border-color); }
+    .tl-item.done .tl-dot { background:var(--success); color:#fff; border-color:var(--success); }
+    .tl-item.active .tl-dot { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .tl-body { flex:1; }
+</style>
+
+@code {
+    private static readonly string[] _wajib = { "KTP", "Paspor", "KK", "Vaksin" };
+
+    private Models.Jamaah? _jamaah;
+    private Models.Pembayaran? _pembayaran;
+    private Models.Keberangkatan? _keberangkatan;
+    private List<Models.DokumenJamaah> _dokumen = new();
+    private List<Tahap> _tahapan = new();
+    private int? _hariLagi;
+    private DateTime _updated = DateTime.UtcNow;
+    private Timer? _timer;
+    private volatile bool _disposed;
+
+    private record Tahap(string Judul, string Ikon, string Status, string Badge, string Detail, bool Selesai, bool Aktif, string Aksi = "", string AksiUrl = "");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await AuthService.EnsureAsync();
+        await Load();
+        _timer = new Timer(async _ =>
+        {
+            if (_disposed) return;
+            await InvokeAsync(async () => { await Load(); StateHasChanged(); });
+        }, null, 30_000, 30_000);
+    }
+
+    private async Task Load()
+    {
+        var uid = AuthService.CurrentUserId;
+        if (uid == null) return;
+
+        _jamaah = await Db.Jamaah.Include(j => j.Paket).AsNoTracking().FirstOrDefaultAsync(j => j.UserId == uid);
+        if (_jamaah == null) return;
+
+        _dokumen = await Db.DokumenJamaah.AsNoTracking().Where(d => d.JamaahId == _jamaah.Id).ToListAsync();
+        _pembayaran = await Db.Pembayaran.AsNoTracking().FirstOrDefaultAsync(p => p.JamaahId == _jamaah.Id);
+        _keberangkatan = _jamaah.PaketId == null ? null
+            : await Db.Keberangkatan.AsNoTracking().Where(k => k.PaketId == _jamaah.PaketId)
+                .OrderBy(k => k.TanggalBerangkat).FirstOrDefaultAsync();
+
+        _hariLagi = _keberangkatan?.TanggalBerangkat is DateTime tgl ? (int?)(tgl.Date - DateTime.UtcNow.Date).Days : null;
+        _updated = DateTime.UtcNow;
+        BangunTahapan();
+    }
+
+    private void BangunTahapan()
+    {
+        var list = new List<Tahap>();
+
+        // 1. Pendaftaran
+        list.Add(new Tahap("Pendaftaran", "1", "Selesai", "badge-success",
+            $"Terdaftar {_jamaah!.CreatedAt.ToLocalTime():dd MMM yyyy} atas nama {_jamaah.NamaLengkap}.", true, false));
+
+        // 2. Dokumen
+        var terunggah = _wajib.Count(t => _dokumen.Any(d => d.TipeDokumen == t));
+        var dokSelesai = _jamaah.StatusDokumen == Models.DocumentStatus.Verified;
+        list.Add(new Tahap("Kelengkapan Dokumen", "2",
+            dokSelesai ? "Terverifikasi" : _jamaah.StatusDokumen == Models.DocumentStatus.Rejected ? "Perlu perbaikan" : $"{terunggah}/{_wajib.Length} berkas",
+            dokSelesai ? "badge-success" : _jamaah.StatusDokumen == Models.DocumentStatus.Rejected ? "badge-danger" : "badge-warning",
+            dokSelesai ? "Semua dokumen wajib sudah diverifikasi petugas."
+                       : "Unggah KTP, paspor, kartu keluarga, dan sertifikat vaksin lalu tunggu verifikasi.",
+            dokSelesai, !dokSelesai, dokSelesai ? "" : "Unggah Dokumen", "/dokumen"));
+
+        // 3. Pembayaran
+        var lunas = _pembayaran != null && _pembayaran.Status == Models.PaymentStatus.Paid;
+        list.Add(new Tahap("Pembayaran", "3",
+            _pembayaran == null ? "Belum ada tagihan" : _pembayaran.Status.ToString(),
+            lunas ? "badge-success" : _pembayaran?.Status == Models.PaymentStatus.Overdue ? "badge-danger" : "badge-warning",
+            _pembayaran == null ? "Tagihan terbit setelah Anda terdaftar pada sebuah paket."
+                : $"Dibayar {_pembayaran.TotalDibayar:C0} dari {_pembayaran.TotalBiaya:C0}. Sisa {(_pembayaran.TotalBiaya - _pembayaran.TotalDibayar):C0}." +
+                  (_pembayaran.TanggalJatuhTempo != null ? $" Jatuh tempo {_pembayaran.TanggalJatuhTempo:dd MMM yyyy}." : ""),
+            lunas, !lunas && dokSelesai, lunas ? "" : "Bayar Sekarang", "/pembayaran"));
+
+        // 4. Visa
+        var visaSelesai = _jamaah.StatusVisa == Models.VisaStatus.Terbit;
+        list.Add(new Tahap("Pengurusan Visa", "4", _jamaah.StatusVisa.ToString(),
+            visaSelesai ? "badge-success" : _jamaah.StatusVisa == Models.VisaStatus.Ditolak ? "badge-danger" : "badge-warning",
+            visaSelesai ? $"Visa {_jamaah.NoVisa} terbit {_jamaah.TanggalVisa?.ToString("dd MMM yyyy")}."
+                        : "Visa diurus travel setelah dokumen lengkap dan pembayaran memenuhi syarat.",
+            visaSelesai, !visaSelesai && lunas));
+
+        // 5. Validasi SISKOHAT
+        var siskohatOk = _jamaah.SiskohatStatus == "Valid";
+        list.Add(new Tahap("Validasi SISKOHAT", "5", _jamaah.SiskohatStatus,
+            siskohatOk ? "badge-success" : "badge-warning",
+            siskohatOk ? $"Data tervalidasi{(string.IsNullOrEmpty(_jamaah.NoPorsi) ? "" : $", nomor porsi {_jamaah.NoPorsi}")}."
+                       : "Menunggu sinkronisasi data ke SISKOHAT Kemenag oleh petugas.",
+            siskohatOk, !siskohatOk && visaSelesai));
+
+        // 6. Keberangkatan
+        var berangkatSelesai = _jamaah.StatusKeberangkatan is Models.DepartureStatus.Completed;
+        list.Add(new Tahap("Keberangkatan", "6", _jamaah.StatusKeberangkatan.ToString(),
+            berangkatSelesai ? "badge-success" : "badge-info",
+            _keberangkatan?.TanggalBerangkat != null
+                ? $"{_keberangkatan.Maskapai} {_keberangkatan.NoPenerbangan}, {_keberangkatan.TanggalBerangkat:dd MMM yyyy HH:mm} dari {_keberangkatan.BandaraAsal}."
+                  + (_hariLagi is > 0 ? $" Tinggal {_hariLagi} hari lagi." : "")
+                : "Jadwal keberangkatan belum ditetapkan.",
+            berangkatSelesai, !berangkatSelesai && siskohatOk));
+
+        _tahapan = list;
+    }
+
+    private static string DocBadge(Models.DocumentStatus s) => s switch
+    {
+        Models.DocumentStatus.Verified => "badge-success",
+        Models.DocumentStatus.Rejected => "badge-danger",
+        Models.DocumentStatus.Submitted => "badge-warning",
+        _ => "badge-info"
+    };
+
+    public void Dispose() { _disposed = true; _timer?.Dispose(); }
+}

@@ -101,3 +101,99 @@ To reset: delete `Data/holysafar.db` and restart.
 ---
 
 *For more information, contact Gravicode Studios.*
+
+---
+
+# Pembaruan Arsitektur (modul tambahan)
+
+## Autentikasi (diperbarui)
+
+Autentikasi **tidak lagi** memakai cookie yang ditulis `document.cookie` dari JavaScript.
+Sekarang memakai **ASP.NET Core cookie authentication**:
+
+- Cookie `hsauth` ditulis server-side oleh `POST /auth/login` dengan `HttpOnly`, `SameSite=Lax`,
+  dan `Secure` pada koneksi HTTPS — tidak dapat dibaca atau dipalsukan dari JavaScript.
+- `Login.razor` adalah form POST biasa dengan `<AntiforgeryToken />` (cookie tidak bisa ditulis
+  dari dalam circuit SignalR). Logout juga POST ber-antiforgery.
+- Password disimpan sebagai **PBKDF2-SHA256**, 210.000 iterasi, salt acak per user
+  (format `pbkdf2$iterasi$salt$hash`). Hash SHA256 lama tetap bisa login dan otomatis
+  di-upgrade saat login berhasil.
+- `OnValidatePrincipal` memeriksa ulang tiap request apakah user masih ada dan aktif,
+  sehingga menonaktifkan akun langsung memutus sesi yang sedang berjalan.
+- Otorisasi halaman ditegakkan `AuthorizeRouteView` + atribut `[Authorize]` di tiap halaman.
+  Sebelumnya menu admin hanya disembunyikan dari sidebar, sementara URL-nya tetap terbuka.
+
+`AuthService` kini pembungkus tipis di atas `AuthenticationStateProvider`. Panggil
+`await AuthService.EnsureAsync()` di awal `OnInitializedAsync` sebelum membaca
+`CurrentUserId` / `CurrentUserRole`.
+
+## Konfigurasi berlapis
+
+`SettingsService` (singleton, ber-cache) menyelesaikan sebuah kunci dengan urutan:
+
+1. Tabel `Pengaturan` di database (diisi dari **Admin → Pengaturan**)
+2. `appsettings.json`
+3. Nilai default di kode
+
+Artinya kredensial payment gateway, model chatbot, provider storage, cadence reminder,
+dan endpoint SISKOHAT bisa diubah dari UI tanpa restart. Untuk apa pun yang boleh diatur admin,
+baca konfigurasi lewat `SettingsService.Get(...)`, bukan `IConfiguration`.
+
+## Modul baru
+
+| Modul | Berkas utama | Halaman |
+|-------|--------------|---------|
+| Payment gateway | `Services/PaymentGatewayService.cs` | `/pembayaran`, `/admin/transaksi`, checkout marketplace |
+| Dokumen jamaah | entitas `DokumenJamaah` | `/dokumen` (unggah), `/admin/dokumen` (verifikasi) |
+| Tracking proses | — | `/tracking` (timeline dokumen → bayar → visa → SISKOHAT → berangkat) |
+| Manajemen perjalanan | entitas `ItineraryItem` | `/perjalanan`, `/admin/itinerary` |
+| Forum jamaah | `ForumTopik`, `ForumBalasan` | `/forum`, `/forum/{id}` |
+| Reminder otomatis | `Services/ReminderService.cs` (BackgroundService) | notifikasi in-app |
+| Integrasi SISKOHAT | `Services/SiskohatService.cs` | `/admin/dokumen` |
+| Backup & compliance | `Services/BackupService.cs` | `/admin/pengaturan` → Backup |
+| Multi bahasa ID/EN | `Services/LocalizationService.cs`, `/set-culture` | tombol ID/EN di topbar |
+| Asuransi perjalanan | entitas `Asuransi` | `/sos`, dikelola di `/admin/pengaturan` |
+
+## Reminder otomatis
+
+`ReminderService` berjalan sebagai hosted service dan memeriksa berkala
+(`Reminder:IntervalHours`, default 6 jam):
+
+- tagihan mendekati jatuh tempo (`Reminder:PaymentDaysBefore`, default H-7/H-3/H-1) dan yang terlambat
+- keberangkatan H-7 dan H-1
+- jadwal manasik dari itinerary berjenis `Manasik`
+- dokumen wajib yang belum diunggah
+
+Anti-duplikat: satu judul notifikasi maksimal sekali per user per hari, sehingga restart
+aplikasi tidak membanjiri jamaah.
+
+## Integrasi SISKOHAT
+
+SISKOHAT Kemenag tidak menyediakan API publik. `SiskohatService` karenanya punya dua mode:
+
+- **Live** — bila `Siskohat:Endpoint` diisi, data jamaah di-POST ke endpoint tersebut
+  dengan header `X-Api-Key`, respons `{ status, no_porsi }` disimpan.
+- **Simulasi** (default) — validasi dijalankan lokal: format NIK 16 digit, kelengkapan nama,
+  tanggal lahir, dan nomor paspor; nomor porsi dibangkitkan deterministik dari NIK.
+
+Setiap sinkronisasi dicatat di `SiskohatLog` dan hasilnya menempel di `Jamaah.SiskohatStatus`
+serta `Jamaah.NoPorsi`.
+
+## Backup
+
+`BackupService` menyediakan dua bentuk:
+
+- **Snapshot SQLite** lewat `VACUUM INTO` — konsisten dan aman dijalankan saat aplikasi hidup
+  (tidak menyalin file yang sedang ditulis WAL).
+- **Ekspor Excel multi-sheet** seluruh tabel — dipakai untuk provider selain SQLite dan untuk
+  audit/compliance. Kolom sensitif (hash password, token) tidak diekspor.
+
+Setiap backup dicatat di `BackupLog`.
+
+## Multi bahasa
+
+Bahasa dipilih lewat `GET /set-culture?culture=id|en&redirectUri=...` yang menulis cookie budaya
+ASP.NET Core, sehingga format tanggal dan mata uang ikut menyesuaikan. Teks antarmuka diambil dari
+kamus di `LocalizationService` (`L["nav.jamaah"]`). Kunci yang belum diterjemahkan otomatis
+jatuh ke teks Indonesia, jadi terjemahan bisa dilengkapi bertahap. Saat ini kerangka aplikasi
+(sidebar, topbar, label umum) sudah dwibahasa; isi halaman masih berbahasa Indonesia.

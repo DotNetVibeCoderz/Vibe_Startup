@@ -1,5 +1,6 @@
 @page "/profile"
 @rendermode InteractiveServer
+@attribute [Authorize]
 @inject Services.AuthService AuthService
 @inject Services.StorageService StorageService
 @inject Data.AppDbContext Db
@@ -106,6 +107,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        await AuthService.EnsureAsync();
         _currentUser = await AuthService.GetCurrentUserAsync();
         if (_currentUser != null)
             _jamaah = Db.Jamaah.Include(j => j.Paket).FirstOrDefault(j => j.UserId == _currentUser.Id);

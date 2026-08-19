@@ -1,5 +1,6 @@
 @page "/admin/users"
 @rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
 @inject Services.AuthService AuthService
 @inject Services.ExportService ExportService
 @inject Data.AppDbContext Db

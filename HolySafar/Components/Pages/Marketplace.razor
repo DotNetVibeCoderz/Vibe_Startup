@@ -1,8 +1,10 @@
 @page "/marketplace"
 @rendermode InteractiveServer
+@attribute [Authorize]
 @inject Data.AppDbContext Db
 @inject Services.AuthService AuthService
 @inject NavigationManager Nav
+@inject Services.PaymentGatewayService Pay
 
 <div class="mb-3"><h2>🛍️ Marketplace HolySafar</h2><p class="text-muted">Perlengkapan Haji & Umroh Berkualitas</p></div>
 @if (_showNotify) { <div class="alert alert-success">@_notifyMsg</div> }
@@ -33,16 +35,55 @@
         <thead><tr><th>Produk</th><th>Harga</th><th>Qty</th><th>Subtotal</th><th></th></tr></thead>
         <tbody>@foreach(var ci in _cartItems){<tr><td>@ci.Produk?.NamaProduk</td><td>@ci.Produk?.Harga.ToString("C0")</td><td>@ci.Quantity</td><td><strong>@((ci.Produk?.Harga??0)*ci.Quantity).ToString("C0")</strong></td><td><button class="btn btn-danger btn-sm" @onclick="()=>RemoveFromCart(ci)">✕</button></td></tr>}</tbody>
         <tfoot><tr><td colspan="3"><strong>Total</strong></td><td><strong style="font-size:1.2rem;">@_cartTotal.ToString("C0")</strong></td><td></td></tr></tfoot>
-    </table></div><div class="mt-3"><button class="btn btn-success btn-lg" @onclick="Checkout">💰 Bayar Sekarang</button></div></div></div>
+    </table></div><div class="mt-3 d-flex gap-2 flex-wrap align-center">
+        <select class="form-control" style="max-width:280px;" @bind="_provider">
+            @foreach (var p in _providers) { <option value="@p">@Services.PaymentGatewayService.Icon(p) @Services.PaymentGatewayService.Label(p)</option> }
+        </select>
+        <button class="btn btn-success btn-lg" @onclick="Checkout" disabled="@_checkingOut">@(_checkingOut ? "Memproses..." : "💰 Bayar Sekarang")</button>
+    </div></div></div>
 }
 
+
+@if (_pendingTrx != null)
+{
+    <div class="card mt-3">
+        <div class="card-header"><h3>💳 Selesaikan Pembayaran</h3><span class="badge badge-warning">@_pendingTrx.Status</span></div>
+        <div class="card-body">
+            <p>Pesanan <strong>@_pendingOrderNo</strong> — @_pendingTrx.Jumlah.ToString("C0") via @Services.PaymentGatewayService.Label(_pendingTrx.Provider)</p>
+            @if (!string.IsNullOrEmpty(_pendingTrx.QrString))
+            {
+                <div class="text-center">
+                    <img src="@Pay.QrImageUrl(_pendingTrx.QrString)" alt="QRIS" style="width:240px;max-width:100%;background:#fff;padding:8px;border-radius:12px;border:1px solid var(--border-color);" />
+                    <p class="text-muted mt-2" style="font-size:0.8rem;">Scan untuk membayar. Status pesanan otomatis berubah setelah pembayaran diterima.</p>
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(_pendingTrx.PaymentUrl))
+            {
+                <a href="@_pendingTrx.PaymentUrl" target="_blank" rel="noopener" class="btn btn-primary btn-lg">Lanjutkan ke @_pendingTrx.Provider →</a>
+            }
+            else
+            {
+                <div class="alert alert-info">Transfer manual sebesar <strong>@_pendingTrx.Jumlah.ToString("C0")</strong> dengan berita <strong>@_pendingTrx.KodeTransaksi</strong>, lalu konfirmasi ke admin.</div>
+            }
+            <p class="text-muted mt-2" style="font-size:0.8rem;">Kode transaksi: <code>@_pendingTrx.KodeTransaksi</code></p>
+        </div>
+    </div>
+}
 @code {
     private List<Models.Produk> _products = new();
     private List<Models.CartItem> _cartItems = new();
     private Dictionary<int,int> _qty = new(); private decimal _cartTotal;
+    private List<Models.PaymentProvider> _providers = new();
+    private Models.PaymentProvider _provider = Models.PaymentProvider.Manual;
+    private Models.PaymentTransaction? _pendingTrx; private string _pendingOrderNo = ""; private bool _checkingOut;
     private bool _showNotify; private string _notifyMsg = ""; private int? _uid;
 
-    protected override async Task OnInitializedAsync(){ _uid=AuthService.CurrentUserId; await LoadAll(); }
+    protected override async Task OnInitializedAsync(){
+        await AuthService.EnsureAsync(); _uid=AuthService.CurrentUserId;
+        _providers = Pay.EnabledProviders();
+        _provider = _providers.Contains(Pay.DefaultProvider) ? Pay.DefaultProvider : _providers.First();
+        await LoadAll();
+    }
 
     private Task LoadAll(){
         _products = Db.Produk.Where(p=>p.IsActive).ToList();
@@ -63,11 +104,26 @@
 
     private async Task RemoveFromCart(Models.CartItem ci){ Db.CartItems.Remove(ci); await Db.SaveChangesAsync(); await LoadAll(); }
 
+    /// <summary>Buat order lalu langsung terbitkan transaksi pembayaran lewat gateway terpilih.</summary>
     private async Task Checkout(){
         if(_uid==null||!_cartItems.Any())return;
-        var o=new Models.Order{UserId=_uid.Value,NoOrder=$"ORD-{DateTime.UtcNow:yyyyMMdd}-{_uid:D4}",Total=_cartTotal,StatusOrder="Pending"};
-        foreach(var ci in _cartItems)o.Items.Add(new Models.OrderItem{ProdukId=ci.ProdukId,Quantity=ci.Quantity,HargaSatuan=ci.Produk?.Harga??0});
-        Db.Orders.Add(o); Db.CartItems.RemoveRange(_cartItems); await Db.SaveChangesAsync(); await LoadAll();
-        _notifyMsg="Pesanan dibuat!"; _showNotify=true;
+        _checkingOut=true;
+        try{
+            var total=_cartTotal;
+            var o=new Models.Order{UserId=_uid.Value,NoOrder=$"ORD-{DateTime.UtcNow:yyyyMMddHHmmss}-{_uid:D4}",Total=total,StatusOrder="Pending",MetodePembayaran=_provider.ToString()};
+            foreach(var ci in _cartItems)o.Items.Add(new Models.OrderItem{ProdukId=ci.ProdukId,Quantity=ci.Quantity,HargaSatuan=ci.Produk?.Harga??0});
+            Db.Orders.Add(o); Db.CartItems.RemoveRange(_cartItems); await Db.SaveChangesAsync();
+
+            var user=await AuthService.GetCurrentUserAsync();
+            _pendingTrx=await Pay.CreateTransactionAsync(_provider,total,$"Pesanan marketplace {o.NoOrder}","Order",o.Id,user,Nav.BaseUri.TrimEnd('/'));
+            _pendingOrderNo=o.NoOrder;
+
+            await LoadAll();
+            _notifyMsg=_pendingTrx.Status==Models.TransactionStatus.Failed
+                ? $"Pesanan dibuat, tapi pembayaran gagal diinisiasi: {_pendingTrx.Catatan}"
+                : $"Pesanan {o.NoOrder} dibuat. Silakan selesaikan pembayaran di bawah.";
+            _showNotify=true;
+        }
+        finally{ _checkingOut=false; }
     }
 }

@@ -1,0 +1,186 @@
+@page "/perjalanan"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@inject Data.AppDbContext Db
+@inject Services.AuthService AuthService
+@inject IJSRuntime JS
+
+<div class="mb-3"><h2>🗺️ Manajemen Perjalanan</h2><p class="text-muted">Itinerary digital, lokasi hotel, jadwal ziarah, dan transportasi</p></div>
+
+@if (_paket == null)
+{
+    <div class="card"><div class="card-body text-center" style="padding:40px;">
+        <div class="empty-state-icon">🗺️</div><h3>Belum terdaftar pada paket</h3>
+        <p class="text-muted">Itinerary tampil setelah Anda terdaftar pada sebuah paket perjalanan.</p>
+        <a href="/paket" class="btn btn-primary mt-3">Lihat Paket</a>
+    </div></div>
+}
+else
+{
+    <div class="card mb-3">
+        <div class="card-header"><h3>@_paket.NamaPaket</h3><span class="badge badge-info">@_paket.DurasiHari hari</span></div>
+        <div class="card-body">
+            <div class="grid grid-3">
+                <div>
+                    <strong>🏨 Hotel Mekkah</strong>
+                    <p>@(string.IsNullOrEmpty(_paket.NamaHotelMekkah) ? "-" : _paket.NamaHotelMekkah)</p>
+                    @if (_paket.LatHotelMekkah != null)
+                    {
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-outline btn-sm" @onclick="() => Fokus(_paket.LatHotelMekkah!.Value, _paket.LngHotelMekkah!.Value)">📍 Di peta</button>
+                            <a class="btn btn-outline btn-sm" target="_blank" href="https://www.google.com/maps?q=@_paket.LatHotelMekkah,@_paket.LngHotelMekkah">Google Maps</a>
+                        </div>
+                    }
+                </div>
+                <div>
+                    <strong>🏨 Hotel Madinah</strong>
+                    <p>@(string.IsNullOrEmpty(_paket.NamaHotelMadinah) ? "-" : _paket.NamaHotelMadinah)</p>
+                    @if (_paket.LatHotelMadinah != null)
+                    {
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-outline btn-sm" @onclick="() => Fokus(_paket.LatHotelMadinah!.Value, _paket.LngHotelMadinah!.Value)">📍 Di peta</button>
+                            <a class="btn btn-outline btn-sm" target="_blank" href="https://www.google.com/maps?q=@_paket.LatHotelMadinah,@_paket.LngHotelMadinah">Google Maps</a>
+                        </div>
+                    }
+                </div>
+                <div>
+                    <strong>🚌 Transportasi</strong>
+                    <p>@(string.IsNullOrEmpty(_paket.Transportasi) ? "Bus AC antar kota, transfer bandara–hotel" : _paket.Transportasi)</p>
+                    <strong>✈️ Maskapai</strong>
+                    <p>@_paket.Maskapai — @_paket.RutePenerbangan</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header"><h3>🗺️ Peta Lokasi</h3></div>
+        <div class="card-body" style="padding:0;">
+            <div id="itinerary-map" style="height:380px;width:100%;border-radius:0 0 var(--radius-md) var(--radius-md);"></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3>📅 Itinerary Harian</h3>
+            <select class="form-control form-control-sm" style="max-width:180px;" @bind="_filterJenis">
+                <option value="">Semua kegiatan</option>
+                @foreach (var j in _jenisTersedia) { <option value="@j">@j</option> }
+            </select>
+        </div>
+        <div class="card-body">
+            @if (!_itinerary.Any())
+            {
+                <p class="text-muted">Itinerary untuk paket ini belum disusun travel.</p>
+            }
+            else
+            {
+                @foreach (var hari in Terfilter.GroupBy(i => i.Hari).OrderBy(g => g.Key))
+                {
+                    <div class="mb-3">
+                        <h4 style="font-size:1rem;margin-bottom:8px;">
+                            Hari @hari.Key
+                            @if (_tanggalMulai != null) { <span class="text-muted" style="font-weight:400;font-size:0.85rem;"> — @_tanggalMulai.Value.AddDays(hari.Key - 1).ToString("dddd, dd MMM yyyy")</span> }
+                        </h4>
+                        <div class="table-container"><table>
+                            <thead><tr><th style="width:70px;">Waktu</th><th>Kegiatan</th><th style="width:110px;">Jenis</th><th>Lokasi</th></tr></thead>
+                            <tbody>
+                                @foreach (var it in hari.OrderBy(x => x.Urutan).ThenBy(x => x.Waktu))
+                                {
+                                    <tr>
+                                        <td><strong>@it.Waktu</strong></td>
+                                        <td>@IkonJenis(it.Jenis) <strong>@it.Judul</strong>
+                                            @if (!string.IsNullOrEmpty(it.Deskripsi)) { <br><small class="text-muted">@it.Deskripsi</small> }
+                                        </td>
+                                        <td><span class="badge @BadgeJenis(it.Jenis)">@it.Jenis</span></td>
+                                        <td>
+                                            @it.Lokasi
+                                            @if (it.Latitude != null && it.Longitude != null)
+                                            {
+                                                <div class="d-flex gap-1 mt-1">
+                                                    <button class="btn btn-outline btn-sm" @onclick="() => Fokus(it.Latitude!.Value, it.Longitude!.Value)">📍</button>
+                                                    <a class="btn btn-outline btn-sm" target="_blank" href="https://www.google.com/maps?q=@it.Latitude,@it.Longitude">Maps</a>
+                                                </div>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table></div>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private Models.Paket? _paket;
+    private List<Models.ItineraryItem> _itinerary = new();
+    private DateTime? _tanggalMulai;
+    private string _filterJenis = "";
+    private bool _mapSiap;
+
+    private IEnumerable<Models.ItineraryItem> Terfilter =>
+        string.IsNullOrEmpty(_filterJenis) ? _itinerary : _itinerary.Where(i => i.Jenis == _filterJenis);
+
+    private IEnumerable<string> _jenisTersedia => _itinerary.Select(i => i.Jenis).Distinct().OrderBy(j => j);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await AuthService.EnsureAsync();
+        var uid = AuthService.CurrentUserId;
+        if (uid == null) return;
+
+        var jamaah = await Db.Jamaah.Include(j => j.Paket).AsNoTracking().FirstOrDefaultAsync(j => j.UserId == uid);
+        _paket = jamaah?.Paket;
+        if (_paket == null) return;
+
+        _tanggalMulai = _paket.TanggalBerangkat;
+        _itinerary = await Db.ItineraryItems.AsNoTracking()
+            .Where(i => i.PaketId == _paket.Id)
+            .OrderBy(i => i.Hari).ThenBy(i => i.Urutan).ToListAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_paket == null || _mapSiap) return;
+        _mapSiap = true;
+        await GambarPeta();
+    }
+
+    private async Task GambarPeta()
+    {
+        var titik = new List<object>();
+        if (_paket!.LatHotelMekkah != null && _paket.LngHotelMekkah != null)
+            titik.Add(new { lat = _paket.LatHotelMekkah, lng = _paket.LngHotelMekkah, title = _paket.NamaHotelMekkah, subtitle = "Hotel Mekkah", icon = "🏨", color = "#d4a853" });
+        if (_paket.LatHotelMadinah != null && _paket.LngHotelMadinah != null)
+            titik.Add(new { lat = _paket.LatHotelMadinah, lng = _paket.LngHotelMadinah, title = _paket.NamaHotelMadinah, subtitle = "Hotel Madinah", icon = "🏨", color = "#d4a853" });
+
+        foreach (var i in _itinerary.Where(x => x.Latitude != null && x.Longitude != null))
+            titik.Add(new { lat = i.Latitude, lng = i.Longitude, title = i.Judul, subtitle = $"Hari {i.Hari} · {i.Waktu} · {i.Lokasi}", icon = IkonJenis(i.Jenis), color = WarnaJenis(i.Jenis) });
+
+        var json = System.Text.Json.JsonSerializer.Serialize(titik);
+        try { await JS.InvokeVoidAsync("initItineraryMap", json); } catch { }
+    }
+
+    private async Task Fokus(double lat, double lng)
+    {
+        try { await JS.InvokeVoidAsync("focusItineraryMap", lat, lng); } catch { }
+    }
+
+    private static string IkonJenis(string jenis) => jenis switch
+    {
+        "Ziarah" => "🕌", "Transportasi" => "🚌", "Hotel" => "🏨", "Ibadah" => "🕋", "Manasik" => "📖", _ => "📍"
+    };
+
+    private static string WarnaJenis(string jenis) => jenis switch
+    {
+        "Ziarah" => "#6f42c1", "Transportasi" => "#17a2b8", "Hotel" => "#d4a853", "Ibadah" => "#1a5f4e", _ => "#6c757d"
+    };
+
+    private static string BadgeJenis(string jenis) => jenis switch
+    {
+        "Ziarah" => "badge-info", "Transportasi" => "badge-warning", "Hotel" => "badge-success", "Ibadah" => "badge-success", _ => "badge-info"
+    };
+}

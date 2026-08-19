@@ -292,3 +292,49 @@ ENTRYPOINT ["dotnet", "HolySafar.dll"]
 ---
 
 *Built by Jacky the Code Bender @ Gravicode Studios*
+
+---
+
+## Endpoint Tambahan
+
+Semua endpoint `/api/*` tetap memerlukan header `X-Api-Key`.
+
+### Pembayaran
+| Method | Endpoint | Keterangan |
+|--------|----------|------------|
+| GET | `/api/transaksi` | 100 transaksi payment gateway terakhir |
+| GET | `/api/transaksi/{kode}` | Detail satu transaksi berdasarkan `KodeTransaksi` |
+
+### Dokumen
+| Method | Endpoint | Keterangan |
+|--------|----------|------------|
+| GET | `/api/jamaah/{id}/dokumen` | Daftar dokumen jamaah beserta status verifikasi |
+
+### Perjalanan
+| Method | Endpoint | Keterangan |
+|--------|----------|------------|
+| GET | `/api/paket/{id}/itinerary` | Itinerary harian (ibadah, ziarah, transportasi, hotel) |
+
+### Forum & Asuransi
+| Method | Endpoint | Keterangan |
+|--------|----------|------------|
+| GET | `/api/forum` | 50 topik forum terbaru + jumlah balasan |
+| GET | `/api/asuransi` | Produk asuransi perjalanan yang aktif |
+
+### Webhook pembayaran (tanpa `X-Api-Key`)
+| Method | Endpoint | Verifikasi |
+|--------|----------|-----------|
+| POST | `/webhook/payment/xendit` | header `x-callback-token` |
+| POST | `/webhook/payment/midtrans` | `signature_key` SHA512 |
+| POST | `/webhook/payment/stripe` | header `Stripe-Signature` |
+| POST | `/webhook/payment/qris` | header `x-callback-token` |
+
+Webhook ditolak (HTTP 400) bila secret provider terkait belum dikonfigurasi.
+Rincian lengkap ada di [PAYMENT-GATEWAY.md](PAYMENT-GATEWAY.md).
+
+### Endpoint autentikasi (bukan bagian API key)
+| Method | Endpoint | Keterangan |
+|--------|----------|------------|
+| POST | `/auth/login` | Form login, memerlukan antiforgery token; menulis cookie `hsauth` (HttpOnly) |
+| POST | `/auth/logout` | Menghapus cookie sesi |
+| GET | `/set-culture?culture=id\|en&redirectUri=/` | Mengganti bahasa antarmuka |

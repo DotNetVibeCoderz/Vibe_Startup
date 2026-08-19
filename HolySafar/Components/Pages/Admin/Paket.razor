@@ -1,6 +1,7 @@
 @page "/admin/paket"
 @page "/agen/paket"
 @rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
 @inject Data.AppDbContext Db
 
 <div class="card">

@@ -1,5 +1,6 @@
 @page "/sos"
 @rendermode InteractiveServer
+@attribute [Authorize]
 @inject Data.AppDbContext Db
 @inject Services.AuthService AuthService
 @inject Services.NotifikasiService NotifService
@@ -79,21 +80,46 @@
 <div class="card mt-3">
     <div class="card-header"><h3>🛡️ Informasi Asuransi Perjalanan</h3></div>
     <div class="card-body">
-        <p>Semua jamaah HolySafar dilindungi oleh asuransi perjalanan yang mencakup:</p>
-        <ul>
-            <li>✅ Asuransi kesehatan selama di Tanah Suci</li>
-            <li>✅ Asuransi kecelakaan diri</li>
-            <li>✅ Asuransi bagasi & keterlambatan penerbangan</li>
-            <li>✅ Evakuasi medis darurat</li>
-            <li>✅ Repatriasi jenazah (naudzubillah)</li>
-        </ul>
-        <p class="text-muted mt-2">Klaim asuransi: <strong>claim@holysafar.com</strong></p>
+        @if (_asuransi.Any())
+        {
+            @foreach (var a in _asuransi)
+            {
+                <div style="border:1px solid var(--border-color);border-radius:var(--radius-md);padding:16px;margin-bottom:12px;">
+                    <div class="d-flex gap-2" style="justify-content:space-between;align-items:center;">
+                        <strong>@a.NamaProduk</strong>
+                        <span class="badge badge-info">@a.Penyedia</span>
+                    </div>
+                    <p class="text-muted" style="font-size:0.85rem;margin:6px 0;">
+                        Pertanggungan hingga <strong>@a.NilaiPertanggungan.ToString("C0")</strong>
+                        @if (a.Premi > 0) { <text> · premi @a.Premi.ToString("C0")</text> }
+                    </p>
+                    <ul>
+                        @foreach (var baris in PisahBaris(a.Cakupan))
+                        { <li>✅ @baris.Trim()</li> }
+                    </ul>
+                    <p class="text-muted mt-2" style="font-size:0.85rem;">
+                        Klaim: <strong>@a.KontakKlaim</strong>
+                        @if (!string.IsNullOrEmpty(a.PolisUrl)) { <a href="@a.PolisUrl" target="_blank" class="btn btn-outline btn-sm" style="margin-left:8px;">📄 Polis</a> }
+                    </p>
+                </div>
+            }
+        }
+        else
+        {
+            <p class="text-muted">Data asuransi belum diisi. Admin dapat menambahkannya di Pengaturan → Asuransi.</p>
+        }
     </div>
 </div>
 
 @code {
     private List<Models.SOSTrigger> _activeSOS = new();
     private List<Models.KontakDarurat> _kontakDarurat = new();
+    private List<Models.Asuransi> _asuransi = new();
+
+    /// <summary>Cakupan asuransi disimpan satu poin per baris.</summary>
+    private static string[] PisahBaris(string teks) =>
+        teks.Split(new[] { (char)13, (char)10 }, StringSplitOptions.RemoveEmptyEntries);
+
     private bool _sosSent;
     private string _sosMessage = "";
     private string _role = "";
@@ -102,6 +128,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await AuthService.EnsureAsync();
         _role = AuthService.CurrentUserRole;
         await LoadData();
         _refreshTimer = new Timer(async _ =>
@@ -128,6 +155,7 @@
             .OrderByDescending(s => s.TriggeredAt)
             .Take(50).ToList();
         _kontakDarurat = Db.KontakDarurat.Where(k => k.IsActive).ToList();
+        _asuransi = Db.Asuransi.Where(a => a.IsActive).ToList();
         await Task.CompletedTask;
     }
 
